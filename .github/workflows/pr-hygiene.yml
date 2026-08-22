@@ -19,6 +19,7 @@ concurrency:
 
 jobs:
   hygiene:
+    if: github.repository == 'lidge-jun/opencodex'
     runs-on: ubuntu-latest
     # contents: read for the trusted script checkout; issues/pull-requests write
     # maintain the blocked label and one bot comment.

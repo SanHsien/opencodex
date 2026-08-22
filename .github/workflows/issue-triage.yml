@@ -10,6 +10,7 @@ concurrency:
 
 jobs:
   find-duplicates:
+    if: github.repository == 'lidge-jun/opencodex'
     name: Find similar issues
     runs-on: ubuntu-latest
     permissions:
@@ -161,7 +162,7 @@ jobs:
   post-duplicates:
     name: Post duplicate result
     needs: find-duplicates
-    if: needs.find-duplicates.outputs.matches
+    if: github.repository == 'lidge-jun/opencodex' && needs.find-duplicates.outputs.matches
     runs-on: ubuntu-latest
     permissions:
       contents: read

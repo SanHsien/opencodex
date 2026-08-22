@@ -1,5 +1,10 @@
 # AGENTS.md
 
+> **SanHsien 維護型 fork overlay。** `origin` 是 [`SanHsien/opencodex`](https://github.com/SanHsien/opencodex)，`upstream` 是 [`lidge-jun/opencodex`](https://github.com/lidge-jun/opencodex)。
+> 本 fork 的維護規則以 [`FORK.md`](FORK.md) 為準；與下文衝突時以 FORK.md 優先。
+> 不要推 `upstream`、不要在本 fork 發 npm、不要部署 `docs-site` 到 GitHub Pages。
+> 產品行為（proxy、帳號池、provider、測試）仍遵守下文上游規則。
+
 Guidance for AI agents (and humans) working on or reviewing this repository.
 
 ## What this project is
@@ -24,6 +29,7 @@ Bun-native TypeScript with no separate server compile step.
   release authority.
 - `devlog/` — planning and investigation notes, tracked in this repository. See
   "The `devlog` directory" below for what may and may not go there.
+- `FORK.md` / `docs/fork/` — SanHsien maintenance overlay (not upstream product docs).
 
 Read the nearest nested `AGENTS.md` before changing files in a scoped
 directory (`src/`, `gui/`, `docs-site/`, `scripts/`, `.github/`).

@@ -25,6 +25,7 @@ concurrency:
 
 jobs:
   cleanup:
+    if: github.repository == 'lidge-jun/opencodex'
     name: Delete orphaned workflow runs
     runs-on: ubuntu-latest
     timeout-minutes: 10

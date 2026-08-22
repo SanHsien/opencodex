@@ -35,6 +35,7 @@ concurrency:
 
 jobs:
   linux-systemd:
+    if: github.repository == 'lidge-jun/opencodex'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -155,6 +156,7 @@ jobs:
           fi
 
   macos-launchd:
+    if: github.repository == 'lidge-jun/opencodex'
     runs-on: macos-latest
     timeout-minutes: 10
     steps:
@@ -233,6 +235,7 @@ jobs:
           fi
 
   windows-schtasks:
+    if: github.repository == 'lidge-jun/opencodex'
     runs-on: windows-latest
     timeout-minutes: 10
     steps:

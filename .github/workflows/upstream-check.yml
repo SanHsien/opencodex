@@ -1,0 +1,49 @@
+name: Upstream check
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - tools/check-upstream-updates.ts
+      - tools/upstream_baseline.json
+      - .github/workflows/upstream-check.yml
+  schedule:
+    - cron: "0 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: upstream-check
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out full history
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup project Bun
+        uses: ./.github/actions/setup-project-bun
+
+      - name: Check upstream
+        id: upstream
+        continue-on-error: true
+        run: bun tools/check-upstream-updates.ts --strict
+
+      - name: Publish report
+        if: always()
+        run: cat upstream-review-report.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Require review when upstream changed
+        if: steps.upstream.outcome == 'failure'
+        run: |
+          echo "::error::Upstream changed or the check failed. Review the workflow summary."
+          exit 1

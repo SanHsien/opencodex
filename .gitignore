@@ -65,3 +65,6 @@ tests/.tmp-*
 # `git add` three separate times and reached `dev` once — see
 # tests/repo-hygiene.test.ts, which fails if any path here becomes tracked again.
 go/
+
+# SanHsien fork generated reports
+upstream-review-report.md

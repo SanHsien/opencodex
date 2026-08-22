@@ -19,6 +19,7 @@ concurrency:
 
 jobs:
   build:
+    if: github.repository == 'lidge-jun/opencodex'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -33,6 +34,7 @@ jobs:
 
   deploy:
     needs: build
+    if: github.repository == 'lidge-jun/opencodex'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment:

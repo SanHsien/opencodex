@@ -1,0 +1,19 @@
+version: 2
+updates:
+  # 不幫上游 bun.lock / package.json 開 npm Dependabot：上游幾乎每天發版，
+  # lockfile PR 會跟 merge 持續打架。本線只看 workflow 釘住的 actions。
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "07:00"
+      timezone: "Asia/Taipei"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "github-actions"
+    groups:
+      codeql-action:
+        patterns:
+          - "github/codeql-action*"

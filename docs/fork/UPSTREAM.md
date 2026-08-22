@@ -70,7 +70,8 @@ fork 只 fetch `main`（需要時才 fetch `dev`）。下次重看分支的觸�
 `check-upstream-updates.ts` 只報比它大的 `platform` issue——**同一個 issue 不會被問第二次**。
 `gh` 不可用時報「未檢查」，不會假裝成「沒有待審」。
 
-本次分流到 `#2379`。三筆與本 fork 直接相關的結論：
+本次分流到 `#2379`（issue）與 `#2383`（PR，`reviewed_pr_through`：記下「PR 這條線盤點到哪」，
+即使規則是不逐筆追，下次也才知道是從哪之後開始的新東西）。三筆與本 fork 直接相關的結論：
 
 | Issue | 上游狀態 | 對本 fork 的意義 |
 |---|---|---|

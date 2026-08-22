@@ -23,7 +23,7 @@ catalog `version`.
    - `harness` — agent scaffold id (`claude-code` / `codex` / …)
 5. Sync localized board copy under `frontier.board.<id>.*` in
    `docs-site/src/data/frontier-i18n.ts` (title, axis labels, source note;
-   en/ko/zh-cn/zh-tw/ru/ja).
+   en/zh-tw).
 6. Run `bun run build` in `docs-site/` and eyeball the Benchmarks page in all
   supported locales (score/$ column only on uniformly measured boards).
 

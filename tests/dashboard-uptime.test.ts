@@ -3,28 +3,27 @@ import { formatUptime } from "../gui/src/formatUptime";
 
 describe("dashboard uptime formatting", () => {
   test("keeps short uptimes in seconds", () => {
-    expect(formatUptime(0, "ko")).toBe("0초");
-    expect(formatUptime(299.9, "ko")).toBe("299초");
+    expect(formatUptime(0, "zh-TW")).toBe("0秒");
+    expect(formatUptime(299.9, "zh-TW")).toBe("299秒");
   });
 
   test("uses minutes after five minutes", () => {
-    expect(formatUptime(300, "ko")).toBe("5분");
-    expect(formatUptime(3599, "ko")).toBe("59분");
+    expect(formatUptime(300, "zh-TW")).toBe("5分鐘");
+    expect(formatUptime(3599, "zh-TW")).toBe("59分鐘");
   });
 
   test("uses hours and minutes after one hour", () => {
-    expect(formatUptime(3600, "ko")).toBe("1시간");
-    expect(formatUptime(64685, "ko")).toBe("17시간 58분");
+    expect(formatUptime(3600, "zh-TW")).toBe("1小時");
+    expect(formatUptime(64685, "zh-TW")).toBe("17小時 58分鐘");
   });
 
   test("uses days and hours after one day", () => {
-    expect(formatUptime(86400, "ko")).toBe("1일");
-    expect(formatUptime(183600, "ko")).toBe("2일 3시간");
+    expect(formatUptime(86400, "zh-TW")).toBe("1天");
+    expect(formatUptime(183600, "zh-TW")).toBe("2天 3小時");
   });
 
   test("uses compact localized units", () => {
     expect(formatUptime(3720, "en")).toBe("1h 2m");
-    expect(formatUptime(93600, "zh")).toBe("1天 2小时");
     expect(formatUptime(93600, "zh-TW")).toBe("1天 2小時");
   });
 });

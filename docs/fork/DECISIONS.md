@@ -1,16 +1,23 @@
 # 維護決策
 
+## 2026-08-22：文件與語系只留繁中、英文
+
+**決定**：`README.md` 以繁體中文為主，英文另存 `README.en.md`。GUI 與 docs-site 只保留英文與繁體中文，刪除法文、日文、韓文、俄文、土耳其文、簡體中文。簡體中文瀏覽器對應到繁中。
+
+**理由**：維護線以繁中溝通；多語系會跟上游每週翻譯衝突，也不符合本 fork 的使用場景。
+
 ## 2026-08-22：fork 可管理多帳號的 lidge-jun/opencodex
 
-**決定**：fork [`lidge-jun/opencodex`](https://github.com/lidge-jun/opencodex)，保留 MIT 授權與完整歷史，預設分支維持 `main`。本線聚焦 Windows 開發 gate、fork CI、危險 workflow 隔離，以及逐筆審查的上游追蹤。產品 README 不翻譯。
+**決定**：fork [`lidge-jun/opencodex`](https://github.com/lidge-jun/opencodex)，保留 MIT 授權與完整歷史，預設分支維持 `main`。本線聚焦 Windows 開發 gate、fork CI、危險 workflow 隔離，以及逐筆審查的上游追蹤。產品 README 以繁體中文為主，英文另存 `README.en.md`。
 
 **理由**：要的是「可管理多帳號」的那一個。此專案在 dashboard 管理 ChatGPT / Codex account pool（配額、affinity、failover），並把任意 LLM 接到 Codex / Claude Code。GitHub 上另有遠端桌面中介與 OpenCode 改名專案，名稱相近但不是這個。fork 當下 HEAD 為 `6ae83b1f189c353935d4977bb01227484fbdb52b`（`release: v2.31.0`）。
 
 **限制**：
 
 - 不把 fork 包裝成原創專案，不移除原作者與 MIT 標示。
-- `README.md` 保持上游英文產品說明。
-- `CONTRIBUTING.md`、`MAINTAINERS.md`、`SECURITY.md`、`src/`、`gui/`、`docs-site/` 以上游為準。
+- `README.md` 為繁體中文產品說明；英文在 `README.en.md`。
+- GUI 與 docs-site 只保留英文、繁體中文語系。
+- `CONTRIBUTING.md`、`MAINTAINERS.md`、`SECURITY.md`、`src/` 以上游為準。
 - 上游更新必須逐筆審查。
 - 本 fork 不發 npm、不部署 GitHub Pages。
 - 帳號池只做路由與韌性，不拿來規避 provider 條款。

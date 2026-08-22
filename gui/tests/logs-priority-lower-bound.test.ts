@@ -12,7 +12,7 @@ function translator(locale: keyof typeof DICTS): TFn {
 }
 
 const en = translator("en");
-const de = translator("de");
+const zhTW = translator("zh-TW");
 
 describe("Logs priority lower-bound formatting", () => {
   test("prefixes confirmed unpriced priority estimates with the lower-bound marker", () => {
@@ -24,7 +24,13 @@ describe("Logs priority lower-bound formatting", () => {
   });
 
   test("uses locale-aware USD placement and separators", () => {
-    expect(formatEstimatedUsdValue(1.6, de, "de-DE", false)).toBe("ca. 1,6000\u00a0$");
+    const amount = new Intl.NumberFormat("zh-TW", {
+      style: "currency",
+      currency: "USD",
+      minimumFractionDigits: 4,
+      maximumFractionDigits: 4,
+    }).format(1.6);
+    expect(formatEstimatedUsdValue(1.6, zhTW, "zh-TW", false)).toBe(`約 ${amount}`);
   });
 });
 

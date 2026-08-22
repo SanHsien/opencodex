@@ -43,8 +43,8 @@ function render(value: StorageReport): string {
   );
 }
 
-function germanT(): TFn {
-  return (key, vars) => interpolate(DICTS.de[key] ?? DICTS.en[key] ?? key, vars);
+function traditionalT(): TFn {
+  return (key, vars) => interpolate(DICTS["zh-TW"][key] ?? DICTS.en[key] ?? key, vars);
 }
 
 test("Storage exposes compatibility, quiet, and disable protection controls", () => {
@@ -68,19 +68,19 @@ test("Storage exposes explicit repair only when protection drifted", () => {
 
 test("Storage localizes protection state and desired/observed modes", () => {
   const html = renderToStaticMarkup(
-    <I18nContext.Provider value={{ locale: "de", setLocale: () => {}, t: germanT() }}>
+    <I18nContext.Provider value={{ locale: "zh-TW", setLocale: () => {}, t: traditionalT() }}>
       <StorageWorkspace
         report={report("drifted")}
-        locale="de"
+        locale="zh-TW"
         logGuardBusy={false}
         onLogGuardAction={() => {}}
       />
     </I18nContext.Provider>,
   );
 
-  expect(html).toContain("Reparatur erforderlich");
-  expect(html).toContain("Kompatibilität");
-  expect(html).toContain("Aus");
+  expect(html).toContain("需要修復");
+  expect(html).toContain("相容模式");
+  expect(html).toContain("關閉");
   expect(html).not.toContain(">drifted<");
   expect(html).not.toContain(">compat<");
 });

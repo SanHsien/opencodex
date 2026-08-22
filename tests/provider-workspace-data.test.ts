@@ -414,31 +414,10 @@ describe("usage: count formatting", () => {
     expect(formatRequestCount(1_000_000_000)).toBe("1B");
   });
 
-  test("de characterization: comma decimals, unit labels, locale prefix normalization", () => {
-    // de trims a trailing ,0 (trimDe) — unlike en, which keeps 1.0k.
-    expect(formatRequestCount(1_000, "de")).toBe("1 Tsd.");
-    // Mrd. uses toFixed(2) and trimDe only strips a FULL ,00 — 1,20 stays.
-    expect(formatRequestCount(1_200_000_000, "de")).toBe("1,20 Mrd.");
-    expect(formatRequestCount(1_500, "DE")).toBe("1,5 Tsd.");
-    expect(formatRequestCount(1_500, "de-AT")).toBe("1,5 Tsd.");
-    // Non-de locales fall back to en rules.
-    expect(formatRequestCount(1_500, "fr")).toBe("1.5k");
-  });
-
-  test("de formatting uses comma decimals and German unit labels", () => {
-    expect(formatRequestCount(1_500, "de")).toBe("1,5 Tsd.");
-    expect(formatRequestCount(2_500_000, "de-DE")).toBe("2,5 Mio.");
-    expect(formatRequestCount(3_000_000_000, "de")).toBe("3 Mrd.");
-  });
-
-  test("characterization: de keeps the untrimmed 1,20 Mrd. while en trims to 1.2B", () => {
-    // Deliberate asymmetry: de trimDe only strips ".0+" endings so "1.20" keeps its
-    // trailing zero after comma-swap; en's /\.?0+$/ trims it. Pin so neither side is
-    // silently "fixed" during a port.
-    expect(formatRequestCount(1_200_000_000)).toBe("1.2B");
-    expect(formatRequestCount(1_200_000_000, "de")).toBe("1,20 Mrd.");
-    expect(formatRequestCount(1_230_000_000)).toBe("1.23B");
-    expect(formatRequestCount(1_230_000_000, "de")).toBe("1,23 Mrd.");
+  test("request counts use compact English units regardless of locale tag", () => {
+    expect(formatRequestCount(1_500, "zh-TW")).toBe("1.5k");
+    expect(formatRequestCount(1_500, "de")).toBe("1.5k");
+    expect(formatRequestCount(1_200_000_000, "zh-TW")).toBe("1.2B");
   });
 });
 

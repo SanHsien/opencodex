@@ -8,7 +8,18 @@ const I18N_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "
 export const I18N_SOURCE_LOCALE = "en";
 
 /** Non-dictionary modules under `src/i18n/`. */
-const I18N_MODULE_SKIP = new Set(["index", "shared", "provider"]);
+const I18N_MODULE_SKIP = new Set([
+  "index",
+  "shared",
+  "provider",
+  "catalogs",
+  "lab-translations",
+  "log-guard-labels",
+  "log-guard-operation-labels",
+  "log-guard-state-labels",
+  "routing-compatibility-labels",
+  "vision-reasoning-labels",
+]);
 
 /** Locale module ids matching `src/i18n/{id}.ts` (discovered at lint time). */
 export function listI18nLocaleModules(): string[] {
@@ -30,7 +41,7 @@ export function listTranslationLocales(): string[] {
   return listI18nLocaleModules().filter((code) => code !== I18N_SOURCE_LOCALE);
 }
 
-/** Hint for ESLint/docs — picks up new files like `src/i18n/fr.ts` automatically. */
+/** Hint for ESLint/docs — picks up new files like `src/i18n/zh-TW.ts` automatically. */
 export function i18nLocaleFileHint(): string {
   const modules = listI18nLocaleModules();
   if (modules.length <= 1) {

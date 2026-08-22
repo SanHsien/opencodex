@@ -16,7 +16,8 @@
 
 | 項目 | 說明 |
 |---|---|
-| `README.md` | **不翻譯、不改寫。** 產品說明與帳號池條款以上游英文為準 |
+| `README.md` | 繁體中文產品說明（主文件）；英文在 `README.en.md` |
+| GUI / docs-site 語系 | 只保留英文與繁體中文；其餘語系刪除 |
 | `AGENTS.md` 開頭 overlay | 指向本檔；下文仍是上游產品規則 |
 | `FORK.md` / `NOTICE.md` / `CLAUDE.md` / `SKILL.md` / `REVIEW.md` | 本 fork 的維護入口 |
 | `docs/fork/` | Windows 開發、上游審查、決策 |

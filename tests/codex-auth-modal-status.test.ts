@@ -18,11 +18,7 @@ describe("Codex auth modal status feedback", () => {
   test("defines the new status copy in every shipped GUI locale", async () => {
     const localePaths = [
       "gui/src/i18n/en.ts",
-      "gui/src/i18n/de.ts",
-      "gui/src/i18n/ja.ts",
-      "gui/src/i18n/ko.ts",
-      "gui/src/i18n/ru.ts",
-      "gui/src/i18n/zh.ts",
+      "gui/src/i18n/zh-TW.ts",
     ];
     const locales = await Promise.all(localePaths.map(path => Bun.file(path).text()));
     for (const source of locales) {

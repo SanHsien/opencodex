@@ -12,9 +12,9 @@ This file applies to `gui/` and inherits the repository-wide rules in `/AGENTS.m
 ## Text and i18n
 
 - **No hardcoded visible UI text** in `src/pages`, `src/components`, `src/App.tsx`, or `src/ui.tsx`.
-- Every new user-facing string goes into **all** locale files:
+- Every new user-facing string goes into **both** locale files:
   - `src/i18n/en.ts` — source of truth / `TKey`
-  - plus every other `src/i18n/{locale}.ts` module (discovered automatically by `bun run lint:i18n`; when adding a language, add `{locale}.ts` and wire it in `src/i18n/shared.ts`)
+  - `src/i18n/zh-TW.ts` — Traditional Chinese (this fork ships only English and zh-TW)
 - Render copy with `useT()` / `t("key")` or `<Trans k="key" cmd="..." />` for `{cmd}` chips.
 - **Allowed literals without i18n keys** (see `.eslint/i18n-allowlist.ts`):
   - **Company / product names** (e.g. OpenAI, Anthropic, GitHub, Codex).
@@ -37,7 +37,7 @@ This file applies to `gui/` and inherits the repository-wide rules in `/AGENTS.m
 
 ## Failure mode
 
-Hardcoding English (or German) in JSX to “fix” a bad translation is **not** allowed. Add or fix the key in all locale files instead.
+Hardcoding English in JSX to “fix” a bad translation is **not** allowed. Add or fix the key in both locale files instead.
 
 ## Required validation
 

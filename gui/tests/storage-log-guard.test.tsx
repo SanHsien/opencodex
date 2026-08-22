@@ -38,8 +38,8 @@ function report(): StorageReport {
   };
 }
 
-function germanT(): TFn {
-  return (key, vars) => interpolate(DICTS.de[key] ?? DICTS.en[key] ?? key, vars);
+function traditionalT(): TFn {
+  return (key, vars) => interpolate(DICTS["zh-TW"][key] ?? DICTS.en[key] ?? key, vars);
 }
 
 test("Storage overview renders read-only Codex diagnostic log health", () => {
@@ -84,15 +84,15 @@ test("Storage overview localizes schema, external, and inspect-only labels", () 
   };
 
   const html = renderToStaticMarkup(
-    <I18nContext.Provider value={{ locale: "de", setLocale: () => {}, t: germanT() }}>
-      <StorageWorkspace report={value} locale="de" />
+    <I18nContext.Provider value={{ locale: "zh-TW", setLocale: () => {}, t: traditionalT() }}>
+      <StorageWorkspace report={value} locale="zh-TW" />
     </I18nContext.Provider>,
   );
 
-  expect(html).toContain("Nicht unterstützt");
+  expect(html).toContain("不支援");
   expect(html).not.toContain(">unsupported<");
-  expect(html).toContain("Nur Inspektion");
-  expect(html).toContain("Externer SQLite-Speicher");
+  expect(html).toContain("僅檢查");
+  expect(html).toContain("外部 SQLite 儲存空間");
   expect(html).not.toContain("inspection-only");
   expect(html).not.toContain("external sqlite_home");
   expect(html).not.toContain("/state/codex");
@@ -104,13 +104,13 @@ test("Storage overview renders a fixed localized inspection-failure state", () =
   value.codexLogsError = "inspect_failed";
 
   const html = renderToStaticMarkup(
-    <I18nContext.Provider value={{ locale: "de", setLocale: () => {}, t: germanT() }}>
-      <StorageWorkspace report={value} locale="de" />
+    <I18nContext.Provider value={{ locale: "zh-TW", setLocale: () => {}, t: traditionalT() }}>
+      <StorageWorkspace report={value} locale="zh-TW" />
     </I18nContext.Provider>,
   );
 
   expect(html).toContain('data-testid="codex-log-guard-unavailable"');
-  expect(html).toContain("Die Diagnoseprotokoll-Inspektion ist nicht verfügbar.");
+  expect(html).toContain("診斷記錄檢查目前無法使用。");
   expect(html).not.toContain("inspect_failed");
 });
 

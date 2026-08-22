@@ -19,9 +19,15 @@ test("priority long-context lower bounds render with a greater-than-or-equal mar
   expect(formatEstimatedUsdValue(0.77, translator("en"), "en-US", true)).toBe("≥$0.7700");
 });
 
-test("USD placement and separators follow a non-English locale", () => {
-  expect(formatEstimatedUsdValue(0.77, translator("de"), "de-DE", false)).toBe("ca. 0,7700\u00a0$");
-  expect(formatEstimatedUsd({ kind: "unavailable" }, translator("de"), "de-DE")).toBe("nicht verfügbar");
+test("USD placement and separators follow Traditional Chinese locale", () => {
+  const amount = new Intl.NumberFormat("zh-TW", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 4,
+    maximumFractionDigits: 4,
+  }).format(0.77);
+  expect(formatEstimatedUsdValue(0.77, translator("zh-TW"), "zh-TW", false)).toBe(`約 ${amount}`);
+  expect(formatEstimatedUsd({ kind: "unavailable" }, translator("zh-TW"), "zh-TW")).toBe("無法估算");
 });
 
 describe("conversation cost lower-bound aggregation", () => {

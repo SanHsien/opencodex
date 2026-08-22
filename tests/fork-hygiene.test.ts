@@ -43,17 +43,19 @@ describe("fork maintainer files", () => {
     expect(missing).toEqual([]);
   });
 
-  test("README stays the upstream product page", async () => {
+  test("README is Traditional Chinese; English lives in README.en.md", async () => {
     const agents = await Bun.file(join(ROOT, "AGENTS.md")).text();
     const fork = await Bun.file(join(ROOT, "FORK.md")).text();
     const readme = await Bun.file(join(ROOT, "README.md")).text();
+    const readmeEn = await Bun.file(join(ROOT, "README.en.md")).text();
 
     expect(agents).toContain("SanHsien 維護型 fork overlay");
-    expect(fork).toContain("不翻譯、不改寫");
+    expect(fork).toContain("繁體中文產品說明");
     expect(fork).toContain("gh pr create --repo SanHsien/opencodex");
     expect(fork).toContain("唯一例外");
-    expect(readme).toContain("ChatGPT account pool");
-    expect(existsSync(join(ROOT, "README.en.md"))).toBe(false);
+    expect(readme).toContain("ChatGPT 帳號池");
+    expect(readmeEn).toContain("ChatGPT account pool");
+    expect(existsSync(join(ROOT, "README.en.md"))).toBe(true);
     expect(existsSync(join(ROOT, "README.zh-Hant.md"))).toBe(false);
   });
 

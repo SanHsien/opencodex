@@ -161,7 +161,7 @@ describe("i18n locale contracts", () => {
     }
   });
 
-  test("detectInitial maps French regional navigator locales to French", () => {
+  test("detectInitial maps Chinese navigator locales to Traditional Chinese", () => {
     const originalNavigator = Object.getOwnPropertyDescriptor(globalThis, "navigator");
     const originalStorage = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
 
@@ -171,12 +171,37 @@ describe("i18n locale contracts", () => {
         configurable: true,
       });
 
-      for (const language of ["fr", "fr-FR", "fr-CA", "fr-BE", "fr-CH"]) {
+      for (const language of ["zh", "zh-CN", "zh-Hans", "zh-TW", "zh-HK", "zh-Hant"]) {
         Object.defineProperty(globalThis, "navigator", {
           value: { language },
           configurable: true,
         });
-        expect(detectInitial()).toBe("fr");
+        expect(detectInitial()).toBe("zh-TW");
+      }
+    } finally {
+      if (originalNavigator) Object.defineProperty(globalThis, "navigator", originalNavigator);
+      else Reflect.deleteProperty(globalThis, "navigator");
+      if (originalStorage) Object.defineProperty(globalThis, "localStorage", originalStorage);
+      else Reflect.deleteProperty(globalThis, "localStorage");
+    }
+  });
+
+  test("detectInitial maps unsupported navigator locales to English", () => {
+    const originalNavigator = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+    const originalStorage = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+
+    try {
+      Object.defineProperty(globalThis, "localStorage", {
+        value: { getItem: () => null },
+        configurable: true,
+      });
+
+      for (const language of ["fr", "fr-FR", "de", "ko", "ja"]) {
+        Object.defineProperty(globalThis, "navigator", {
+          value: { language },
+          configurable: true,
+        });
+        expect(detectInitial()).toBe("en");
       }
     } finally {
       if (originalNavigator) Object.defineProperty(globalThis, "navigator", originalNavigator);

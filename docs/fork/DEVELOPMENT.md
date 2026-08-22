@@ -57,7 +57,6 @@ bun run test
 
 ## 不要做的事
 
-- 不要翻譯 `README.md` 或 `docs-site/`。
 - 不要為了 fork 文件去改上游 `CONTRIBUTING.md` / `MAINTAINERS.md`。
 - 不要在本 fork 觸發 `release.yml` 真發佈，或 `deploy-docs.yml`。
 - 不要提交 API key、ChatGPT token、OAuth、帳號池真實資料。

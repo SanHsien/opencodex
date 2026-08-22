@@ -23,7 +23,7 @@ description: 維護 SanHsien/opencodex：lidge-jun/opencodex 的 Windows-first f
 - 開 PR 只用 `--repo SanHsien/opencodex`。對上游開 PR 必須這次對話明確同意回貢。
 - 不提交 token、cookie、OAuth、帳號池真實憑證。
 - 不把帳號池說成可以規避 provider 限額或條款。
-- 不翻譯 `README.md`。
+- `README.md` 以繁體中文為主；英文在 `README.en.md`。不要改寫成維護索引。
 
 ## 快速定位
 

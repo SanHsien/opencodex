@@ -192,16 +192,8 @@ export function attentionReasonKey(reason: string): "reauth" | "missing" | "cust
  * Format a raw request/token count for display.
  * Returns "—" when the value is undefined (data unavailable).
  */
-export function formatRequestCount(n: number | undefined, locale = "en"): string {
+export function formatRequestCount(n: number | undefined, _locale = "en"): string {
   if (n === undefined) return "\u2014";
-  const loc = locale.toLowerCase().slice(0, 2);
-  if (loc === "de") {
-    const trimDe = (s: string) => s.replace(/\.0+$/, "").replace(".", ",");
-    if (n >= 1_000_000_000) return `${trimDe((n / 1_000_000_000).toFixed(2))} Mrd.`;
-    if (n >= 1_000_000) return `${trimDe((n / 1_000_000).toFixed(1))} Mio.`;
-    if (n >= 1_000) return `${trimDe((n / 1_000).toFixed(1))} Tsd.`;
-    return String(n);
-  }
   if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(2).replace(/\.?0+$/, "")}B`;
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;

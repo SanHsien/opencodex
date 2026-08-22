@@ -5,7 +5,9 @@
 - 這是保留上游歷史的 fork；不要移除 `upstream`、原作者或 MIT 授權標示。
 - `README.md` 以繁體中文為主；英文在 `README.en.md`。不要改寫成維護索引。
 - 不要在本 fork 跑 npm publish、不要部署 GitHub Pages、不要把 fork-only 檔案送進上游。
-- 開 PR 必須 `gh pr create --repo SanHsien/opencodex`；對上游開 PR 只在維護者這次對話明確同意回貢時才可以。
+- 日常修改直接推 `origin/main`，不開功能分支、不開維護 PR；需要他人審查或高風險改動才走 PR。
+- 開 PR 前先 `gh repo set-default SanHsien/opencodex`，並明寫 `gh pr create --repo SanHsien/opencodex --base main --head <分支>`；建完讀輸出的 URL 確認 owner。對上游開 PR 只在維護者這次對話明確同意回貢時才可以。
+- 合併任何 PR（含 Dependabot）前必須讀完整 diff；CI 綠燈不等於審查過。
 - 修改驗證腳本前，先跑對應測試；提交前跑 `pwsh -NoProfile -File tools\dev_check.ps1`。
 - API key、ChatGPT / Codex token、cookie 與帳號資料一律不可提交。
 - 帳號池只做路由與韌性，不把它做成規避 provider 條款的工具。

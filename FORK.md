@@ -33,20 +33,30 @@
 
 - `origin/main`：SanHsien 維護主線（fork 當下對齊上游 release `main`）。
 - `upstream/main`：上游發版線；`upstream/dev` 是上游 PR 整合線，需要時再 fetch。
-- 本 fork 的一般修改從 `main` 建短期 branch，開 PR、讀完整 diff，等 CI 通過後再 squash merge 回 `main`。
+- 本 fork 的一般修改**直接推 `origin/main`**，不開功能分支、不開維護 PR（維護者 2026-08-22 指示，與其他 repo 一致）。
+  只有在需要他人審查、或改動風險高到值得先讓 CI 在 PR 上跑一輪時，才退回 branch → PR → CI → squash merge。
+- **合併任何 PR 前必須讀完整 diff**（`gh pr diff <編號>`），包含 Dependabot 開的。CI 綠燈證明的是
+  「測試沒紅」，不是「改了什麼、該不該進 main」；核准或合併訊息要寫出讀到什麼、為什麼可接受。
 - 不要把 fork-only 的維護差異送到 upstream。上游的 `dev` 整合政策只適用於回貢，不適用本 fork 的日常 PR。
 
 ### 開 PR 的硬規則
 
 日常 PR **只能**打進 `SanHsien/opencodex`：
 
+根因是機制不是粗心：`gh` 在 fork clone 的**預設 repo 就是上游**，所以第一件事是把它釘住。
+
 ```powershell
+gh repo set-default SanHsien/opencodex   # 每個 clone 先跑一次
+gh repo set-default --view               # 必須回 SanHsien/opencodex
 git remote -v
-gh pr create --repo SanHsien/opencodex --base main
+gh pr create --repo SanHsien/opencodex --base main --head <分支>
 ```
 
 建完後核對印出的 URL 必須是 `https://github.com/SanHsien/opencodex/pull/...`。
-裸跑 `gh pr create`（不加 `--repo`）會打到上游 `lidge-jun/opencodex`——2026-08-22 已發生過（`#2373`，已關閉），禁止再犯。
+裸跑 `gh pr create`（不加 `--repo`）會打到上游 `lidge-jun/opencodex`——2026-08-22 一天內兩個工具階段
+各誤開一次（本 repo 的 `#2373`、另一個 fork 的 `hamanpaul/paulsha-cortex#787`，皆已關閉），禁止再犯。
+兩次都是「指令成功了」的錯覺：開錯的 owner 就寫在輸出的 URL 裡。本機另有 `PreToolUse` hook
+（Claude Code／Codex／Cursor 三者皆已安裝）攔截沒帶 `--repo SanHsien/...` 的 `gh ... create`。
 
 對上游開 PR 的**唯一例外**：維護者在這次對話明確同意回貢。下列都不是例外：fork、建置開發環境、開 PR、比照其他 repo、合併回 main。
 

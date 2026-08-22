@@ -22,7 +22,9 @@ const CASES = [
       + " `bun run prepush` run from your local Bun installation.",
   },
   {
-    path: "../README.md",
+    // 本 fork 的 README.md 是繁體中文，英文版在 README.en.md（見 docs/fork/DECISIONS.md）。
+    // 這段英文契約仍然要存在，只是落在英文入口那份。
+    path: "../README.en.md",
     paragraph:
       "Source development requires the `bun` CLI on your `PATH`. This is separate from the published npm"
       + " package's bundled Bun runtime, which is used only by installed `ocx` commands.",

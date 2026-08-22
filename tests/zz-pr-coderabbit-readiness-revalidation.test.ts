@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+// 見 tests/fork-guard.ts：本 fork 在這些 job 條件前加了 repository guard。
+import { stripForkGuard } from "./fork-guard";
 import {
   callsTo,
   runEnforcePrTarget,
@@ -128,7 +130,7 @@ describe("workflow comment-spam hardening", () => {
     }
 
     const job = workflow.jobs?.["enforce-target"];
-    expect(job?.if).toBe("needs.resolve-pr.outputs.pull-number != ''");
+    expect(stripForkGuard(job?.if)).toBe("needs.resolve-pr.outputs.pull-number != ''");
 
     const checkoutStep = job?.steps?.find(
       step => step.name === "Checkout trusted PR-quality scripts",

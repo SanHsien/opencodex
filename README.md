@@ -113,6 +113,11 @@ npm 警告給的縮寫指令少了套件名，會把目前目錄重裝進去，
 
 </details>
 
+> **要安裝或執行 opencodex 的 agent：** 先讀 [`AGENTS_INSTALL.md`](./AGENTS_INSTALL.md)。
+> 互動式的 `ocx start` 可能會問一次要不要 star 這個 repo —— 那是使用者的決定，
+> 永遠不是 agent 的（never an agent's）。CLI 會對 agent 驅動的執行隱藏該提問，
+> API 則以 `403 agent_consent_required` 拒絕。
+
 ## 亮點
 
 - **在 Codex 中使用任意 LLM。** 5 種協議 adapter 覆蓋 Anthropic Messages、Google Gemini、Azure、OpenAI Responses 直通，以及一切 OpenAI 相容 Chat Completions 端點 —— 即開箱即用的 **40+ provider**。

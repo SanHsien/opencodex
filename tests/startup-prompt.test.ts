@@ -136,7 +136,11 @@ describe("startup star prompt", () => {
     // none of them — a development-facing file is the wrong trigger surface.
     const install = await readText("AGENTS_INSTALL.md");
     const agents = await readText("AGENTS.md");
-    const readme = await readText("README.md");
+    // 本 fork 的 README.md 是繁中、README.en.md 是英文入口（docs/fork/DECISIONS.md）。
+    // 兩個入口都要指得到這條規則——沒人被指過去的規則等於沒有規則——所以兩份都讀，
+    // 英文字面契約在英文那份驗。
+    const readmeZh = await readText("README.md");
+    const readme = await readText("README.en.md");
 
     // The full contract: the refusal code, the exact question, and both halves
     // of the settle rule. Relocating it must not be allowed to thin it out.
@@ -151,6 +155,8 @@ describe("startup star prompt", () => {
     // pointed at is a rule nobody reads.
     expect(agents).toContain("AGENTS_INSTALL.md");
     expect(readme).toContain("AGENTS_INSTALL.md");
+    expect(readmeZh).toContain("AGENTS_INSTALL.md");
+    expect(readmeZh).toContain("agent_consent_required");
     expect(readme).toContain("agent_consent_required");
     expect(readme.toLowerCase()).toContain("never an agent");
   });

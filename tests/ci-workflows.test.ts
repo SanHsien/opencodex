@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test";
+// 本 fork 把上游治理 workflow 的 job 條件前綴了 repository guard（見 docs/fork/DECISIONS.md）。
+// 拿掉前綴後，底下的條件仍要與上游逐字相符，所以這些斷言照樣抓得到真正的改動。
+import { stripForkGuard, stripForkGuardFromText } from "./fork-guard";
 import { fileURLToPath } from "node:url";
 import {
   SCRIPT_BINDINGS,
@@ -1107,7 +1110,7 @@ describe("GitHub Actions hardening", () => {
       "pull-requests": "write",
     });
     expect(job?.needs).toBe("resolve-pr");
-    expect(job?.["if"]).toBe("needs.resolve-pr.outputs.pull-number != ''");
+    expect(stripForkGuard(job?.["if"])).toBe("needs.resolve-pr.outputs.pull-number != ''");
     expect(job?.concurrency).toEqual({
       group: "pr-gate-comment-${{ needs.resolve-pr.outputs.pull-number }}",
       "cancel-in-progress": false,
@@ -4771,17 +4774,20 @@ describe("GitHub Actions hardening", () => {
     expect(workflow).toContain("github.rest.issues.updateComment");
     expect(workflow).toContain("group: issue-translation-${{ github.event.issue.number }}");
     expect(workflow).not.toContain("issue-comment-translation-${{ github.event.comment.id }}");
-    expect(workflow).toContain("if: github.event_name == 'issue_comment'");
+    expect(stripForkGuardFromText(workflow)).toContain("if: github.event_name == 'issue_comment'");
     // translate/validate skip open-area backfill; backfill job is area-only.
     expect(workflow).toContain("backfill_open_areas");
     expect(workflow).toContain("backfill-open-areas:");
     expect(workflow).toMatch(/inputs\.backfill_open_areas != true/);
     expect(workflow).toMatch(/inputs\.backfill_open_areas == true/);
     expect(workflow).toMatch(
-      /translate:\s*\n\s*name: Translate non-English issues\s*\n\s*if: >\s*\n\s*github\.event_name == 'issues' \|\|\s*\n\s*\(github\.event_name == 'workflow_dispatch' &&\s*\n\s*inputs\.backfill_open_areas != true &&\s*\n\s*inputs\.issue_number != ''\)/,
+    // 本 fork 在這兩個 job 的條件最前面加了 repository guard，translate 還把上游運算式多包一層
+    // 括號（見 docs/fork/DECISIONS.md 的 workflow 隔離）。事件 allowlist 本身一字未改，
+    // 這裡照樣逐字比對，順便確保 guard 沒被拿掉。
+      /translate:\s*\n\s*name: Translate non-English issues\s*\n\s*if: >\s*\n\s*github\.repository == 'lidge-jun\/opencodex' &&\s*\n\s*\(github\.event_name == 'issues' \|\|\s*\n\s*\(github\.event_name == 'workflow_dispatch' &&\s*\n\s*inputs\.backfill_open_areas != true &&\s*\n\s*inputs\.issue_number != ''\)\)/,
     );
     expect(workflow).toMatch(
-      /validate:\s*\n\s*# Wait for translate[\s\S]*?\n\s*needs: translate\s*\n\s*if: >\s*\n\s*always\(\) &&\s*\n\s*needs\.translate\.result != 'cancelled' &&\s*\n\s*\(github\.event_name == 'issues' \|\|\s*\n\s*\(github\.event_name == 'workflow_dispatch' &&\s*\n\s*inputs\.backfill_open_areas != true &&\s*\n\s*inputs\.issue_number != ''\)\)/,
+      /validate:\s*\n\s*# Wait for translate[\s\S]*?\n\s*needs: translate\s*\n\s*if: >\s*\n\s*github\.repository == 'lidge-jun\/opencodex' &&\s*\n\s*always\(\) &&\s*\n\s*needs\.translate\.result != 'cancelled' &&\s*\n\s*\(github\.event_name == 'issues' \|\|\s*\n\s*\(github\.event_name == 'workflow_dispatch' &&\s*\n\s*inputs\.backfill_open_areas != true &&\s*\n\s*inputs\.issue_number != ''\)\)/,
     );
 
     const commentJob = workflow.split(/\n {2}translate-comment:\n/)[1]!.split(/\n {2}[a-zA-Z]/)[0]!;

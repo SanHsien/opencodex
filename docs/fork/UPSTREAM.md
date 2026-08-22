@@ -52,10 +52,14 @@ Baseline 代表「已審查」，不代表「全部已合併」。
   `tests/fork-guard.ts` 涵蓋的測試），那要在合併衝突時處理，不需要事前追。
   本次盤點的 43 個 PR 全部落在 `src/`、`gui/`、`docs-site/`，沒有一個動到上述檔案。
 
-### 分支：不追
+### 分支：比對過，不是只數數量
 
-71 個分支幾乎都是 `codex/*` 功能分支，也就是那些 PR 的 head。fork 只 fetch `main`
-（需要時才 fetch `dev`），分支清單沒有獨立的資訊量。
+71 個分支中，扣掉 43 個 open PR 的 head 之後剩下的，逐一與 `main` 比對：全部都是 `codex/*`
+功能線，內容不是已經在 open PR 裡，就是已併進 `dev` 等著隨 release 進 `main`。**沒有任何一條
+帶著「沒進 PR、也沒進 dev」的獨佔修正**，所以分支這個面向沒有可引用的東西。
+
+fork 只 fetch `main`（需要時才 fetch `dev`）。下次重看分支的觸發條件是：某個分支相對 `main`
+有獨佔 commit 且**不屬於任何 open PR**——那才代表有東西被丟在分支上沒走流程。
 
 ### Issue：只追 `platform` 標籤，並記水位
 

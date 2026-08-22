@@ -7,7 +7,7 @@
  *     bun tools/check-links.ts
  */
 import { readdirSync, readFileSync, existsSync } from "node:fs";
-import { dirname, join, relative, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = resolve(fileURLToPath(new URL("..", import.meta.url)));
@@ -52,8 +52,12 @@ export function checkDocument(path: string): string[] {
       ? resolve(ROOT, filePart.replace(/^\/+/, ""))
       : resolve(dirname(path), filePart);
     const relToRoot = relative(ROOT, resolved);
-    if (relToRoot.startsWith("..") || relToRoot === "") {
-      if (relToRoot.startsWith("..")) {
+    // Windows: 當目標落在**另一個磁碟機**（runner 的工作區在 D:，TEMP 在 C:），
+    // `relative` 給不出相對路徑，會回傳目標的絕對路徑——不以 ".." 開頭，
+    // 於是「逃出 repo」的判斷在 Windows 上整個失效。絕對路徑同樣算逃出。
+    const escapesRoot = relToRoot.startsWith("..") || isAbsolute(relToRoot);
+    if (escapesRoot || relToRoot === "") {
+      if (escapesRoot) {
         problems.push(`${target} → 連結逃出 repo 根目錄`);
       }
       continue;

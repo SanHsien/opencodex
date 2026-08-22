@@ -1,5 +1,23 @@
 # 維護決策
 
+## 2026-08-22：上游的 PR 與分支不是本 fork 的審查單位，issue 只追 platform
+
+**決定**：不逐筆評估上游的 open PR（43 個，全部 base 在 `dev`）與分支（71 個，多為那些 PR 的
+head）。審查單位是 `main` 上的 release commit。issue 只追 `platform` 標籤，並在
+`tools/upstream_baseline.json` 記 `reviewed_issue_through` 水位；`check-upstream-updates.ts`
+只報水位之後的新 issue，`gh` 不可用時報「未檢查」而不是「沒有待審」。本次分流到 `#2379`。
+
+**理由**：上游 PR 合併後本來就會隨 release 進 `main`，事前逐筆看等於把同一份改動看兩次，
+而且看的是還會變動的版本。反過來，把 40 幾個 PR 與 50 幾個 issue 每週報一次，會讓這支檢查
+變成固定紅燈——喊狼來了的檢查沒有人看。`platform` 是唯一會改變「本 fork 要在 Windows 上驗
+什麼」的類別，值得每週問一次。
+
+**已知結論**（避免下次重推）：`ci.yml` 的 `windows <shard>/4` job 只有 `workflow_dispatch`
+會跑，所以 Cross-platform CI 的綠燈不包含那套 shard；上游 `#2152` 記錄了那套 shard 既有的
+六個失敗。本 fork 的 Windows 覆蓋來自 `keyring windows`、`npm-global windows-latest` 與
+`fork gate (windows-latest)`。逐項證據見 [`UPSTREAM.md`](UPSTREAM.md)。
+
+
 ## 2026-08-22：文件與語系只留繁中、英文
 
 **決定**：`README.md` 以繁體中文為主，英文另存 `README.en.md`。GUI 與 docs-site 只保留英文與繁體中文，刪除法文、日文、韓文、俄文、土耳其文、簡體中文。簡體中文瀏覽器對應到繁中。

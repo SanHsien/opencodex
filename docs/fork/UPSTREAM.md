@@ -36,3 +36,54 @@ Baseline 代表「已審查」，不代表「全部已合併」。
 本 fork 自上游 `main` `6ae83b1f189c353935d4977bb01227484fbdb52b`
 （`release: v2.31.0`）建立。此 SHA 設為第一個 `reviewed_through`。
 之後的上游 commit 才需要進入審查清冊。
+
+## 上游的 PR、issue、分支：一次評估，之後只看增量
+
+2026-08-22 對 `lidge-jun/opencodex` 做過一次整體盤點（**43 個 open PR、56 個 open issue、
+71 個分支**，`main` 自本 fork 的 baseline 之後 0 個新 commit）。結論如下，之後不必重做。
+
+### PR：不逐筆評估
+
+43 個 open PR **全部** base 在 `dev`，那是上游的整合線；合併後會隨 release 進 `main`，
+再由 commit 審查處理。逐筆看 PR 等於把同一份改動看兩次，而且看的是還會變的版本。
+
+- 本 fork 的審查單位是 **`main` 上的 release commit**，不是 PR。
+- 例外只有一種：某個 PR 動到本 fork 已改過的檔案（workflow guard、fork 文件、
+  `tests/fork-guard.ts` 涵蓋的測試），那要在合併衝突時處理，不需要事前追。
+  本次盤點的 43 個 PR 全部落在 `src/`、`gui/`、`docs-site/`，沒有一個動到上述檔案。
+
+### 分支：不追
+
+71 個分支幾乎都是 `codex/*` 功能分支，也就是那些 PR 的 head。fork 只 fetch `main`
+（需要時才 fetch `dev`），分支清單沒有獨立的資訊量。
+
+### Issue：只追 `platform` 標籤，並記水位
+
+56 個 open issue 大多是功能請求，會隨 release 進來。真正會改變「本 fork 要在 Windows 上
+驗什麼」的是帶 `platform` 標籤的那些，所以只追這一類，其餘不追。
+
+`tools/upstream_baseline.json` 的 `reviewed_issue_through` 記下已分流到哪個編號，
+`check-upstream-updates.ts` 只報比它大的 `platform` issue——**同一個 issue 不會被問第二次**。
+`gh` 不可用時報「未檢查」，不會假裝成「沒有待審」。
+
+本次分流到 `#2379`。三筆與本 fork 直接相關的結論：
+
+| Issue | 上游狀態 | 對本 fork 的意義 |
+|---|---|---|
+| [`#2152`](https://github.com/lidge-jun/opencodex/issues/2152) Windows CI 六個既有失敗 | open | **解釋了我們看到的現象**：`ci.yml` 的 `windows <shard>/4` job 條件是 `github.event_name == 'workflow_dispatch'`，平常（含上游）根本不跑，所以本 fork 的 Cross-platform CI 綠燈**不包含**那套 shard。本 fork 的 Windows 覆蓋來自 `keyring windows`、`npm-global windows-latest` 與自己的 `fork gate (windows-latest)`。不要把那個 skipped 當成壞掉。 |
+| [`#2292`](https://github.com/lidge-jun/opencodex/issues/2292) `ocx sync --restart-codex` 後 Windows model picker 仍是舊清單 | open | 純 Windows 使用者體驗問題，正是本 fork 的主戰場。等上游修好隨 release 進來；本線不自行 patch。 |
+| [`#1525`](https://github.com/lidge-jun/opencodex/issues/1525) Windows 系統 proxy 自動偵測 | open | 功能請求，與本 fork 的 Windows 服務情境相符，但屬產品功能，等上游。 |
+
+其餘 `platform` 以外的 issue（帳號池、catalog、provider 相容性等）一律不追：它們的結果
+會以 release commit 的形式送到審查清冊。
+
+## 下一次要做什麼
+
+```powershell
+git fetch upstream main
+bun tools/check-upstream-updates.ts --strict
+```
+
+報告會同時列出「未審 commit」與「水位之後的新 `platform` issue」。處理完後同時推進
+`reviewed_through` 與 `reviewed_issue_through`，並把判斷寫進本檔。
+

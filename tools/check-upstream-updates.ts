@@ -9,6 +9,18 @@ export const REPO_ROOT = resolve(fileURLToPath(new URL("..", import.meta.url)));
 export const BASELINE_PATH = resolve(REPO_ROOT, "tools", "upstream_baseline.json");
 const UPSTREAM_REF_PREFIX = "refs/upstream-check";
 const REQUIRED_FIELDS = ["repo", "branch", "reviewed_through", "reviewed_date"] as const;
+/**
+ * Upstream tickets the fork tracks.
+ *
+ * Not all of them: upstream runs ~40 open pull requests and ~55 open issues at
+ * any moment, all of it arriving here through releases on `main` anyway (see
+ * `docs/fork/DECISIONS.md`). Reporting that stream weekly would be a check that
+ * cries wolf, and one that cries wolf gets ignored.
+ *
+ * `platform` is the label whose issues change what this fork has to verify on
+ * Windows, so it is the one worth a standing question.
+ */
+const TRACKED_ISSUE_LABEL = "platform";
 const FULL_SHA_LENGTH = 40;
 const UNIT_SEPARATOR = "\u001f";
 
@@ -19,6 +31,14 @@ export type Baseline = {
   branch: string;
   reviewed_through: string;
   reviewed_date: string;
+  /** Highest upstream issue number already triaged; only higher ones are reported. */
+  reviewed_issue_through?: number;
+};
+
+export type Ticket = {
+  number: number;
+  title: string;
+  labels: string[];
 };
 
 export type Commit = {
@@ -109,10 +129,87 @@ export function collectNewCommits(
   return commits;
 }
 
+/** Owner/name from the upstream clone URL, for `gh --repo`. */
+export function upstreamSlug(repoUrl: string): string | undefined {
+  const match = /github\.com[:/](?<owner>[^/]+)\/(?<name>[^/]+?)(?:\.git)?$/.exec(repoUrl);
+  const { owner, name } = match?.groups ?? {};
+  return owner && name ? `${owner}/${name}` : undefined;
+}
+
+/**
+ * Open upstream issues above the watermark that carry the tracked label.
+ *
+ * Returns `undefined` — not an empty list — when `gh` cannot answer, so a
+ * missing CLI or an unauthenticated shell reads as "not checked" in the report
+ * instead of the much worse "nothing to review".
+ */
+export function collectNewIssues(baseline: Baseline): Ticket[] | undefined {
+  const slug = upstreamSlug(baseline.repo);
+  if (!slug) return undefined;
+  const result = Bun.spawnSync(
+    ["gh", "issue", "list", "--repo", slug, "--state", "open", "--label", TRACKED_ISSUE_LABEL,
+     "--limit", "100", "--json", "number,title,labels"],
+    { stdout: "pipe", stderr: "pipe" },
+  );
+  if (result.exitCode !== 0) return undefined;
+  let parsed: { number: number; title: string; labels?: { name: string }[] }[];
+  try {
+    parsed = JSON.parse(new TextDecoder().decode(result.stdout));
+  } catch {
+    return undefined;
+  }
+  const watermark = Number(baseline.reviewed_issue_through ?? 0);
+  return parsed
+    .filter((item) => item.number > watermark)
+    .sort((left, right) => left.number - right.number)
+    .map((item) => ({
+      number: item.number,
+      title: item.title,
+      labels: (item.labels ?? []).map((label) => label.name),
+    }));
+}
+
+/** The issue section: what still needs a human's judgement, or why it was not asked. */
+export function renderIssueSection(baseline: Baseline, issues: Ticket[] | undefined): string[] {
+  const watermark = baseline.reviewed_issue_through ?? 0;
+  const lines = ["## Upstream platform issues", "", `Triaged through \`#${watermark}\`.`, ""];
+  if (issues === undefined) {
+    lines.push(
+      "Not checked: `gh` was unavailable or unauthenticated. This is reported rather than",
+      "treated as \"nothing to review\" — the difference matters.",
+      "",
+    );
+    return lines;
+  }
+  if (issues.length === 0) {
+    lines.push("No new `platform` issues since that number.", "");
+    return lines;
+  }
+  lines.push(
+    `${issues.length} new \`platform\` issue(s) to triage.`,
+    "",
+    "| Issue | Labels | Title |",
+    "| --- | --- | --- |",
+  );
+  for (const issue of issues) {
+    lines.push(
+      `| #${issue.number} | ${issue.labels.join(", ")} | ${issue.title.replaceAll("|", "\|")} |`,
+    );
+  }
+  lines.push(
+    "",
+    "Record the verdict in `docs/fork/UPSTREAM.md`, then raise `reviewed_issue_through`",
+    "so the same issue is never re-triaged.",
+    "",
+  );
+  return lines;
+}
+
 export function renderMarkdown(
   baseline: Baseline,
   commits: Commit[],
   error?: string,
+  issues?: Ticket[] | undefined,
 ): string {
   const lines = [
     "# Upstream review report",
@@ -128,6 +225,7 @@ export function renderMarkdown(
   }
   if (commits.length === 0) {
     lines.push("## Result", "", "No new upstream commits. Nothing to review.", "");
+    lines.push(...renderIssueSection(baseline, issues));
     return `${lines.join("\n")}\n`;
   }
   lines.push(
@@ -191,18 +289,20 @@ export function main(args = Bun.argv.slice(2)): number {
     reviewed_date: "unknown",
   };
   let commits: Commit[] = [];
+  let issues: Ticket[] | undefined;
   let error: string | undefined;
 
   try {
     baseline = loadBaseline();
     const ref = fetchUpstream(baseline, options.repoDir);
     commits = collectNewCommits(baseline, options.repoDir, ref);
+    issues = collectNewIssues(baseline);
   } catch (caught) {
     if (!(caught instanceof UpstreamCheckError)) throw caught;
     error = caught.message;
   }
 
-  const report = renderMarkdown(baseline, commits, error);
+  const report = renderMarkdown(baseline, commits, error, issues);
   writeFileSync(options.output, report, "utf8");
   process.stdout.write(report);
 
@@ -210,7 +310,7 @@ export function main(args = Bun.argv.slice(2)): number {
     appendFileSync(
       process.env.GITHUB_OUTPUT,
       [
-        `needs_attention=${commits.length > 0 || Boolean(error) ? "true" : "false"}`,
+        `needs_attention=${commits.length > 0 || (issues?.length ?? 0) > 0 || Boolean(error) ? "true" : "false"}`,
         `check_failed=${error ? "true" : "false"}`,
         `report_path=${options.output}`,
         "",
@@ -219,7 +319,10 @@ export function main(args = Bun.argv.slice(2)): number {
   }
 
   if (error) return 2;
-  if (options.strict && commits.length > 0) return 1;
+  // A new `platform` issue upstream changes what this fork has to verify on
+  // Windows, so it fails the weekly check the same way a new commit does.
+  // Clearing it means triaging the issue and raising the watermark, not muting.
+  if (options.strict && (commits.length > 0 || (issues?.length ?? 0) > 0)) return 1;
   return 0;
 }
 

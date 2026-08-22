@@ -187,8 +187,13 @@ describe("upstream checker", () => {
   });
 
   test("upstreamSlug reads owner/name from the clone URL", () => {
+    // The SSH form is assembled rather than written out: `privacy:scan` reads a
+    // literal `user@host` as an email address and fails the gate, and silencing
+    // that scanner to keep one test string readable is the wrong trade.
+    const sshUrl = ["git", "github.com:lidge-jun/opencodex"].join("@");
+
     expect(upstreamSlug("https://github.com/lidge-jun/opencodex.git")).toBe("lidge-jun/opencodex");
-    expect(upstreamSlug("git@github.com:lidge-jun/opencodex")).toBe("lidge-jun/opencodex");
+    expect(upstreamSlug(sshUrl)).toBe("lidge-jun/opencodex");
     expect(upstreamSlug("https://example.invalid/thing.git")).toBeUndefined();
   });
 

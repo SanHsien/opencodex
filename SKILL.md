@@ -20,6 +20,7 @@ description: 維護 SanHsien/opencodex：lidge-jun/opencodex 的 Windows-first f
 
 - 這是**多帳號 ChatGPT pool** 的那一個 OpenCodex，不是遠端桌面中介，也不是 OpenCode fork。
 - 不發 `@bitkyc08/opencodex`，不部署官方 docs-site。
+- 開 PR 只用 `--repo SanHsien/opencodex`。對上游開 PR 必須這次對話明確同意回貢。
 - 不提交 token、cookie、OAuth、帳號池真實憑證。
 - 不把帳號池說成可以規避 provider 限額或條款。
 - 不翻譯 `README.md`。

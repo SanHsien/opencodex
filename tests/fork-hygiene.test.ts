@@ -50,6 +50,8 @@ describe("fork maintainer files", () => {
 
     expect(agents).toContain("SanHsien 維護型 fork overlay");
     expect(fork).toContain("不翻譯、不改寫");
+    expect(fork).toContain("gh pr create --repo SanHsien/opencodex");
+    expect(fork).toContain("唯一例外");
     expect(readme).toContain("ChatGPT account pool");
     expect(existsSync(join(ROOT, "README.en.md"))).toBe(false);
     expect(existsSync(join(ROOT, "README.zh-Hant.md"))).toBe(false);

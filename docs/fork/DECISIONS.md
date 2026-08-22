@@ -4,7 +4,7 @@
 
 **決定**：fork [`lidge-jun/opencodex`](https://github.com/lidge-jun/opencodex)，保留 MIT 授權與完整歷史，預設分支維持 `main`。本線聚焦 Windows 開發 gate、fork CI、危險 workflow 隔離，以及逐筆審查的上游追蹤。產品 README 不翻譯。
 
-**理由**：主人要的是「可管理多帳號」的那一個。此專案在 dashboard 管理 ChatGPT / Codex account pool（配額、affinity、failover），並把任意 LLM 接到 Codex / Claude Code。GitHub 上另有遠端桌面中介與 OpenCode 改名專案，名稱相近但不是這個。fork 當下 HEAD 為 `6ae83b1f189c353935d4977bb01227484fbdb52b`（`release: v2.31.0`）。
+**理由**：要的是「可管理多帳號」的那一個。此專案在 dashboard 管理 ChatGPT / Codex account pool（配額、affinity、failover），並把任意 LLM 接到 Codex / Claude Code。GitHub 上另有遠端桌面中介與 OpenCode 改名專案，名稱相近但不是這個。fork 當下 HEAD 為 `6ae83b1f189c353935d4977bb01227484fbdb52b`（`release: v2.31.0`）。
 
 **限制**：
 
@@ -14,6 +14,13 @@
 - 上游更新必須逐筆審查。
 - 本 fork 不發 npm、不部署 GitHub Pages。
 - 帳號池只做路由與韌性，不拿來規避 provider 條款。
+- 日常 PR 只打 `SanHsien/opencodex`。對上游開 PR 必須維護者這次對話明確同意回貢。
+
+## 2026-08-22：禁止裸跑 gh pr create
+
+**決定**：本 fork 開 PR 一律 `gh pr create --repo SanHsien/opencodex`。建完核對 URL owner。對上游開 PR 的唯一例外是維護者明確同意回貢。
+
+**理由**：2026-08-22 裸跑 `gh pr create` 把維護骨架打進 `lidge-jun/opencodex#2373`。GitHub CLI 在有 `upstream` 的 fork clone 上預設 target 是母 repo。已關閉該 PR。禁止再犯。
 
 ## 2026-08-22：隔離會在 fork 上造成傷害或噪音的上游 workflow
 
@@ -30,7 +37,7 @@
 
 ## 2026-08-22：本 fork 日常走 main，不跟上游的 dev PR 政策
 
-**決定**：SanHsien 維護線以 `main` 為整合分支。回貢上游時才改對 `lidge-jun/opencodex` 的 `dev` 開 PR。
+**決定**：SanHsien 維護線以 `main` 為整合分支。只有維護者在這次對話明確同意回貢時，才對 `lidge-jun/opencodex` 的 `dev` 開 PR。
 
 **理由**：上游 `main` 是 release 線、`dev` 是 PR 整合線。fork 若同時模仿兩條線，Windows gate 與上游同步都會加倍。clone 時已用 `--default-branch-only` 對齊 `main`。
 

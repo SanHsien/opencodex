@@ -35,6 +35,20 @@
 - 本 fork 的一般修改從 `main` 建短期 branch，開 PR、讀完整 diff，等 CI 通過後再 squash merge 回 `main`。
 - 不要把 fork-only 的維護差異送到 upstream。上游的 `dev` 整合政策只適用於回貢，不適用本 fork 的日常 PR。
 
+### 開 PR 的硬規則
+
+日常 PR **只能**打進 `SanHsien/opencodex`：
+
+```powershell
+git remote -v
+gh pr create --repo SanHsien/opencodex --base main
+```
+
+建完後核對印出的 URL 必須是 `https://github.com/SanHsien/opencodex/pull/...`。
+裸跑 `gh pr create`（不加 `--repo`）會打到上游 `lidge-jun/opencodex`——2026-08-22 已發生過（`#2373`，已關閉），禁止再犯。
+
+對上游開 PR 的**唯一例外**：維護者在這次對話明確同意回貢。下列都不是例外：fork、建置開發環境、開 PR、比照其他 repo、合併回 main。
+
 不要 `git push upstream`。同步方式見 [`docs/fork/UPSTREAM.md`](docs/fork/UPSTREAM.md)。
 
 ## 換一台電腦怎麼開發

@@ -92,3 +92,46 @@ bun tools/check-upstream-updates.ts --strict
 報告會同時列出「未審 commit」與「水位之後的新 `platform` issue」。處理完後同時推進
 `reviewed_through` 與 `reviewed_issue_through`，並把判斷寫進本檔。
 
+## 2026-08-23：重評「隨 release 進來」這個結論，並引用一支 dev 上的 Windows 修正
+
+前一輪對 43 個 open PR 的結論是「base 都在 `dev`，合併後會隨 release 進 `main`，本 fork 的取用點
+是 release commit」。**那個結論漏掉一個量測**：`git rev-list --left-right --count
+upstream/main...upstream/dev` 回報 **25 / 58**——`dev` 已經領先 `main` 58 個 commit，而且兩線
+已經分岔。「隨 release 進來」在時間上不是「很快」，可能是好幾週。
+
+所以判準要修正為：**`dev` 上有沒有本 fork 現在就會痛的修正**。有就引用，沒有才等 release。
+
+### 已引用：`a3bbcdb0` — Windows 桌面 app 的 model picker 重啟
+
+- 這正是本檔上一節登記為「等上游修好隨 release 進來」的 issue
+  [#2292](https://github.com/lidge-jun/opencodex/issues/2292)。修正已經在 `dev`，還沒進 `main`。
+- **為什麼本 fork 現在就痛**：`ocx sync --restart-codex` 只送訊號給 codex app-server 與
+  code-mode-host；擁有 model picker 的 Electron 外殼不在比對範圍。macOS 上重生的 app-server 會
+  重發 `codex-app-server-initialized`，renderer 因此丟掉快取；**Windows MSIX 不會**，picker 會一直
+  顯示舊目錄，直到整個 app 重開。本 fork 是 Windows 線。
+- 上游把它做成獨立的 `--restart-desktop-app` 旗標而不是擴大 `--restart-codex`——關掉桌面 app 會
+  結束進行中的對話，那是與「重啟背景 helper」不同的同意層級。這個設計判斷本 fork 認同，原樣採用。
+- **驗證**：cherry-pick 乾淨套用（7 檔、+699/−7，其中兩支是新檔）；`bun run typecheck` 乾淨；
+  `bun test tests/desktop-app-restart.test.ts` 全過；`fork-hygiene` 18 pass；`privacy:scan` 通過；
+  `tools/dev_check.ps1` 全綠。`tests/codex-app-server-processes.test.ts` 有一個
+  memoization 測試在本機失敗，但**在引用前的 `HEAD~1` 用同一個 worktree 跑也一樣失敗**（本機時序
+  敏感），與本次引用無關。
+- **已知代價**：cherry-pick 產生的 SHA 與上游未來釋出的不同，等它進 `main` 再同步時，這 7 個檔案
+  會衝突。這是有意識的取捨——Windows 使用者現在就會遇到 picker 不更新，而衝突是可解的一次性成本。
+
+### `dev` 上其餘掃過但不引用的（本輪逐條看過主旨與檔案）
+
+| commit | 內容 | 結論 |
+| --- | --- | --- |
+| `9551bbd4a` | `fix(codex): avoid TOML marker regex backtracking` | 值得，但它改的是 `dev` 上重寫過的 TOML marker 路徑；本 fork 的 `main` 版該函式結構不同，硬移植等於自行改寫。**觸發條件**：本線出現 TOML 解析卡住的實例，或該修正隨 release 進 `main`。 |
+| `a9cb7661b` | `fix(tools): repair integral floats in native u64 tool fields` | 同上：依賴 `dev` 的 native tool 欄位重構。 |
+| `e2424f33c` | catalog 排除不可呼叫的 opencode 模型 | 產品目錄策略，與本 fork 的 provider 設定無關。 |
+| 其餘 ~50 筆 | 幾乎都是 `devlog:` 工作紀錄與 WP 系列的流程檔 | 上游自己的專案管理紀錄，沒有可套用的程式改動。 |
+
+### 判準（下次照這個做，不要再用「隨 release 進來」打發）
+
+1. 先量 `main` 與 `dev` 的距離。差距大就不能假設「很快會進來」。
+2. 掃 `dev` 上的 **fix(** 與 **feat(** commit，只挑：Windows／路徑／編碼、fail-closed 行為、
+   安全性，以及本檔 issue 表裡已登記為「等上游修」的項目。
+3. 挑中的先確認它只依賴 `main` 已有的檔案（`git cat-file -e upstream/main:<file>`），
+   再 cherry-pick，並記下未來同步時會衝突的檔案。

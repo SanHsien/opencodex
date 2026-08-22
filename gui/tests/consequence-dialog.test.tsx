@@ -22,7 +22,10 @@ const COPY: ConsequenceCopy = {
 beforeEach(() => {
   previousGlobals = Object.fromEntries(globals.map(key => [key, Reflect.get(globalThis, key)])) as typeof previousGlobals;
   testWindow = new Window({ url: "http://localhost/" });
-  Object.defineProperty(testWindow.navigator, "language", { configurable: true, value: "ko-KR" });
+  // 本 fork 的 GUI 只保留英文與繁體中文（見 docs/fork/DECISIONS.md），韓文語系已移除。
+  // 這個測試要驗的是「四個文案槽依序渲染、路徑代入實際值、沒有副作用」，
+  // 換成本 fork 仍支援的 zh-TW 就能完整保留那個保證。
+  Object.defineProperty(testWindow.navigator, "language", { configurable: true, value: "zh-TW" });
   Object.defineProperties(globalThis, {
     document: { configurable: true, value: testWindow.document },
     window: { configurable: true, value: testWindow },
@@ -62,21 +65,21 @@ async function mount(options: { path?: string; onClose?: () => void; onConfirm?:
   return container.querySelector("dialog")!;
 }
 
-test("renders the four Korean slots in order with the live path and no side effect", async () => {
+test("renders the four Traditional Chinese slots in order with the live path and no side effect", async () => {
   const livePath = "/custom/grok-home/config.toml";
   await mount({ path: livePath });
 
   const title = container.querySelector("h3")!;
   const paragraphs = [...container.querySelectorAll(".integration-consequence-body > p")];
   expect([title.textContent, ...paragraphs.map(paragraph => paragraph.textContent)]).toEqual([
-    "Grok Build 연동을 해제할까요?",
-    `${livePath}에서 opencodex가 표시해 둔 블록만 제거합니다. 블록 바깥에 직접 쓴 내용은 그대로 둡니다.`,
-    "해제하면 Grok Build에서 opencodex 모델 별칭이 사라집니다. xAI 계정으로 쓰던 모델은 그대로입니다.",
-    "opencodex가 loopback 주소로 실행 중이면, 다시 켤 때 지금 쓸 수 있는 모델 목록으로 블록을 새로 씁니다.",
+    "要停用 Grok Build 整合嗎？",
+    `只會從 ${livePath} 移除由 opencodex 標記的區塊。區塊之外寫入的內容將保持不變。`,
+    "停用後，Grok Build 中的 opencodex 模型別名將消失。透過 xAI 帳號使用的模型不受影響。",
+    "如果 opencodex 正在 loopback 位址上執行，重新啟用時會根據目前可用的模型寫入新的區塊。",
   ]);
   expect(container.querySelector(".integration-consequence-body code")?.textContent).toBe(livePath);
   expect(paragraphs).toHaveLength(3);
-  expect(container.querySelector(".modal-actions .btn-primary")?.textContent?.trim()).toBe("해제");
+  expect(container.querySelector(".modal-actions .btn-primary")?.textContent?.trim()).toBe("停用");
 });
 
 test("Escape and backdrop dismissal both invoke onClose", async () => {

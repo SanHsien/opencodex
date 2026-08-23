@@ -1,0 +1,367 @@
+---
+// Landing page shared by the localized home pages. Liquid Editorial composition:
+// type-led centered hero, provider pill chips as content, product-as-stage
+// media band, quickstart terminal, bento feature slab, docs link row.
+// Styling lives in src/styles/custom.css under the `.lp` namespace.
+import { Image } from 'astro:assets';
+import {
+	siAnthropic,
+	siDeepseek,
+	siGoogle,
+	siMoonshotai,
+	siOllama,
+	siOpenrouter,
+} from 'simple-icons';
+import demo from '../assets/demo.gif';
+import dashboard from '../assets/dashboard.png';
+import picker from '../assets/codex-app-picker.png';
+import heroFieldLight from '../assets/hero-route-light.png';
+import heroFieldDark from '../assets/hero-route-dark.png';
+import SiteJsonLd from './SiteJsonLd.astro';
+
+interface Props {
+	locale?: 'zh-tw';
+}
+const { locale } = Astro.props;
+
+const base = import.meta.env.BASE_URL.replace(/\/?$/, '/');
+const prefix = locale ? `${base}${locale}/` : base;
+
+const t = (en: string, zhTW: string): string => locale === 'zh-tw' ? zhTW : en;
+
+const icons: Record<string, string> = {
+	// Lucide outline paths (24x24, stroke)
+	plug: 'M12 22v-5M9 8V2M15 8V2M6 8h12l-1 6a5 5 0 0 1-10 0Z',
+	key: 'M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777Zm0 0L15.5 7.5m0 0 3 3L22 7l-3-3m-3.5 3.5L19 4',
+	users: 'M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm13 10v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75',
+	picker: 'M3 5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Zm6-2v18M3 9h6',
+	bot: 'M12 8V4H8m8 0h-4M4 12a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Zm11 3h.01M9 15h.01M2 14h2m16 0h2',
+	search: 'M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16Zm10 2-4.35-4.35',
+	rocket: 'M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09ZM12 15l-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2Zm-3-3H4s.55-3.03 2-4c1.62-1.08 5 0 5 0m0 9v5s3.03-.55 4-2c1.08-1.62 0-5 0-5',
+	book: 'M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20',
+	code: 'M16 18l6-6-6-6M8 6l-6 6 6 6',
+	terminal: 'M4 17l6-6-6-6M12 19h8',
+	folder: 'M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z',
+};
+
+// Official monochrome marks from simple-icons where the brand exists in the
+// library; brands missing from it stay text-only (no generic substitutes).
+const providers: { label: string; path?: string }[] = [
+	{ label: 'Anthropic', path: siAnthropic.path },
+	{ label: 'Google', path: siGoogle.path },
+	{ label: 'xAI' },
+	{ label: 'Kimi', path: siMoonshotai.path },
+	{ label: 'Ollama Cloud', path: siOllama.path },
+	{ label: 'Groq' },
+	{ label: 'OpenRouter', path: siOpenrouter.path },
+	{ label: 'Azure' },
+	{ label: 'DeepSeek', path: siDeepseek.path },
+	{ label: 'GLM' },
+];
+
+const quickstartMini = [
+	{ cmd: 'npm install -g @bitkyc08/opencodex', note: t('Install', '安裝') },
+	{ cmd: 'ocx start', note: t('Start the proxy', '啟動代理') },
+];
+
+const quickstart = [
+	{ cmd: 'npm install -g @bitkyc08/opencodex', note: t('Install', '安裝') },
+	{ cmd: 'ocx init', note: t('Inject a provider into Codex', '向 Codex 注入供應商') },
+	{ cmd: 'ocx start', note: t('Start the proxy', '啟動代理') },
+	{ cmd: 'codex "Write a hello world in Rust"', note: t('Codex now routes through ocx', 'Codex 現在經由 ocx 路由') },
+];
+
+// full docs map for the closing sitemap band (also the mobile path to every section)
+const docsMap = [
+	{
+		label: t('Getting Started', '開始使用'),
+		icon: 'rocket',
+		links: [
+			{ label: t('Installation', '安裝'), href: `${prefix}getting-started/installation/` },
+			{ label: t('Quickstart', '快速入門'), href: `${prefix}getting-started/quickstart/` },
+			{ label: t('How It Works', '運作原理'), href: `${prefix}getting-started/how-it-works/` },
+			{ label: t('Agent Quickstart', 'Agent 快速上手'), href: `${prefix}getting-started/for-agents/` },
+		],
+	},
+	{
+		label: t('Guides', '指南'),
+		icon: 'book',
+		links: [
+			{ label: t('Providers', '供應商'), href: `${prefix}guides/providers/` },
+			{ label: t('Model Routing', '模型路由'), href: `${prefix}guides/model-routing/` },
+			{ label: t('Combos', '組合'), href: `${prefix}guides/combos/` },
+			{ label: t('Codex Integration', 'Codex 整合'), href: `${prefix}guides/codex-integration/` },
+			{ label: t('Codex App Model Picker', 'Codex App 模型選擇器'), href: `${prefix}guides/codex-app-models/` },
+			{ label: 'Claude Code', href: `${prefix}guides/claude-code/` },
+			{ label: t('Sidecars: Search & Vision', '邊車：搜尋與視覺'), href: `${prefix}guides/sidecars/` },
+			{ label: t('Image Bridge', '圖像橋接'), href: `${prefix}guides/image-bridge/` },
+			{ label: t('Video Bridge', '影片橋接'), href: `${prefix}guides/video-bridge/` },
+			{ label: t('Web Dashboard', '網頁儀表板'), href: `${prefix}guides/web-dashboard/` },
+			{ label: t('Sub-agent Surface', '子代理介面'), href: `${prefix}guides/sub-agent-surface/` },
+		],
+	},
+	{
+		label: t('Reference', '參考'),
+		icon: 'code',
+		links: [
+			{ label: 'CLI', href: `${prefix}reference/cli/` },
+			{ label: t('Configuration', '設定'), href: `${prefix}reference/configuration/` },
+			{ label: t('Adapters', '適配器'), href: `${prefix}reference/adapters/` },
+			{ label: t('Architecture', '架構'), href: `${prefix}reference/architecture/` },
+			{ label: t('Proxy API Formats', '代理 API 格式'), href: `${prefix}reference/proxy-formats/` },
+			{ label: t('Management API', '管理 API'), href: `${prefix}reference/management-api/` },
+		],
+	},
+	{
+		label: t('Project', '專案'),
+		icon: 'folder',
+		links: [
+			{ label: t('Contributing', '貢獻'), href: `${prefix}contributing/` },
+			{ label: 'GitHub', href: 'https://github.com/lidge-jun/opencodex' },
+			{ label: 'npm', href: 'https://www.npmjs.com/package/@bitkyc08/opencodex' },
+		],
+	},
+];
+---
+
+{/* Site-name markup: Landing only renders on the locale home pages, so this is
+    the one place Google should see a WebSite entity. */}
+<SiteJsonLd locale={locale} />
+
+<div class="lp not-content">
+	<!-- scene stack: hero -> quickstart -> horizontal rail. Each wrapper owns a
+	     named view-timeline; its sticky inner stage pins under the pill header
+	     while the next scene rides over it (motion.md sticky stacking +
+	     scale-depth morph). -->
+	<div class="lp-scenes">
+	<section class="lp-scene lp-scene-hero">
+	<div class="lp-scene-inner lp-hero-field">
+		<div class="lp-field-bg" aria-hidden="true">
+			<Image src={heroFieldLight} alt="" class="lp-field-light" loading="eager" widths={[1024, 2048]} sizes="100vw" />
+			<Image src={heroFieldDark} alt="" class="lp-field-dark" loading="lazy" widths={[1024, 2048]} sizes="100vw" />
+		</div>
+		<div class="lp-hero-copy">
+			{/* Product-word drum: the H1 performs the claim — the proxy serves both
+			    Codex and Claude Code. 4-face rotateX cylinder, fixed slot width via
+			    inline-grid stacking; reduced-motion collapses to a static pairing. */}
+			<h1 id="_top">
+				{t('Run ', '讓 ')}<span class="lp-drum" aria-label="Codex and Claude">
+					<span class="lp-drum-spin" aria-hidden="true">
+						<span class="lp-drum-face lp-drum-codex">Codex</span>
+						<span class="lp-drum-face lp-drum-claude">Claude</span>
+						<span class="lp-drum-face lp-drum-codex">Codex</span>
+						<span class="lp-drum-face lp-drum-claude">Claude</span>
+					</span>
+					<span class="lp-drum-static" aria-hidden="true">Codex<span class="lp-drum-dot"> · </span>Claude</span>
+				</span>{t(' on any LLM.', ' 跑在任意 LLM 上。')}
+			</h1>
+			<p class="lp-sub">
+				{t('opencodex is a local proxy that serves Codex and Claude Code from one port — translating each wire format to any provider, with streaming, tool calls, reasoning, and images in both directions. Zero client patches.', 'opencodex 是一個本機代理，用同一個連接埠同時服務 Codex 與 Claude Code —— 將各自的線路格式雙向翻譯為任意供應商，支援流式、工具呼叫、推理與圖像。無需修補用戶端。')}
+			</p>
+			<div class="lp-cta">
+				<a class="lp-btn-primary" href={`${prefix}getting-started/installation/`}>
+					{t('Get Started', '快速入門')}
+					<svg viewBox="0 0 16 16" width="14" height="14" fill="none" aria-hidden="true"><path d="M3 8h10M9 4l4 4-4 4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+				</a>
+				<a class="lp-btn-ghost" href="https://github.com/lidge-jun/opencodex">GitHub</a>
+			</div>
+		<ul class="lp-chips" aria-label={t('Supported providers', '支援的供應商')}>
+				{providers.map((p) => (
+					<li>
+						{p.path && (
+							<svg class="lp-chip-mark" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+								<path d={p.path} />
+							</svg>
+						)}
+						{p.label}
+					</li>
+				))}
+				<li class="lp-chip-more"><a href={`${prefix}guides/providers/`}>{t('40+ providers', '40+ 供應商')}</a></li>
+			</ul>
+		</div>
+		<div class="lp-stage-in">
+			<Image src={dashboard} alt={t('The opencodex dashboard — live proxy status, routed providers, and available models', 'opencodex 儀表板 —— 即時代理狀態、路由的供應商與可用模型')} loading="eager" />
+		</div>
+	</div>
+	</section>
+
+	<!-- quickstart sheet scene -->
+	<section class="lp-scene lp-scene-quick">
+	<div class="lp-scene-inner lp-quick">
+		<div class="lp-kinetic" aria-label={t('Install. Start. Codex, rerouted.', '安裝。啟動。Codex 即刻改道。')}>
+			<p class="lp-kline">{t('Install.', '安裝。')}</p>
+			<p class="lp-kline">{t('Start.', '啟動。')}</p>
+			<p class="lp-kline lp-kline-accent">{t('Codex, rerouted.', 'Codex 即刻改道。')}</p>
+		</div>
+		<div class="lp-quick-side">
+			<div class="lp-terminal">
+				<div class="lp-terminal-bar"><span>zsh</span></div>
+				<pre>{quickstartMini.map((line) => (<code><span class="lp-prompt">$ </span>{line.cmd}<span class="lp-note">  # {line.note}</span>{'\n'}</code>))}</pre>
+			</div>
+			<a class="lp-inline-link" href={`${prefix}getting-started/quickstart/`}>{t('Full quickstart', '完整快速入門')} →</a>
+		</div>
+	</div>
+	</section>
+
+	<!-- demo scrub: the capture plays through, driven by scroll -->
+	<section class="lp-scene lp-scene-scrub">
+	<div class="lp-scene-inner lp-scrub">
+		<h2 class="lp-scrub-title">{t('Watch Codex run on a routed model.', '看 Codex 跑在路由模型上。')}</h2>
+		<div class="lp-scrub-stage">
+			<canvas class="lp-scrub-canvas" data-base={base} data-count="158" width="960" height="856" aria-label={t('Codex App running a task on a routed non-OpenAI model', 'Codex App 在路由的非 OpenAI 模型上執行任務')}></canvas>
+			<Image src={demo} alt={t('Codex App running a task on a routed non-OpenAI model', 'Codex App 在路由的非 OpenAI 模型上執行任務')} loading="lazy" class="lp-scrub-poster" />
+		</div>
+		<p class="lp-scrub-caption">{t('One task, streamed end to end through opencodex.', '一個任務，經 opencodex 全程流式完成。')}</p>
+	</div>
+	</section>
+	</div>
+
+	<!-- feature bento: dominant cell + content-weighted spans -->
+	<section class="lp-bento">
+		<h2 class="lp-bento-title">{t('One proxy, the whole surface.', '一個代理，覆蓋全部能力。')}</h2>
+		<div class="lp-grid">
+			<article class="lp-cell lp-cell-providers">
+				<h3><svg class="lp-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d={icons.plug} /></svg>{t('Any provider', '任意供應商')}</h3>
+				<p>
+					{t('Five adapters cover Anthropic Messages, Google Gemini, Azure, the OpenAI Responses passthrough, and every OpenAI-compatible Chat Completions endpoint — 40+ built-in providers.', '五個適配器覆蓋 Anthropic Messages、Google Gemini、Azure、OpenAI Responses passthrough，以及所有 OpenAI 相容的 Chat Completions 端點 —— 內建 40+ 供應商。')}
+				</p>
+			</article>
+			<article class="lp-cell">
+				<h3><svg class="lp-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d={icons.key} /></svg>{t('OAuth or API key', 'OAuth 或 API key')}</h3>
+				<p>{t('Log in with your xAI, Anthropic, or Kimi account — auto-refreshed — forward your ChatGPT login, or paste a key.', '使用 xAI、Anthropic 或 Kimi 帳號登入（自動重新整理），轉發 ChatGPT 登入，或貼上 API key。')}</p>
+			</article>
+			<article class="lp-cell">
+				<h3><svg class="lp-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d={icons.users} /></svg>{t('ChatGPT account pool', 'ChatGPT 帳號池')}</h3>
+				<p>{t('Existing threads keep their account; new sessions auto-route to the lowest-usage healthy one after quota refresh.', '已有 thread 保持原帳號；新會話在重新整理額度後自動路由到用量最低的健康帳號。')}</p>
+			</article>
+			<article class="lp-cell lp-cell-picker">
+				<h3><svg class="lp-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d={icons.picker} /></svg>{t('Native in the model picker', '原生出現在模型選擇器')}</h3>
+				<p>{t('Routed models show up in Codex App with reasoning effort levels, next to the native ones.', '路由模型帶推理強度等級出現在 Codex App 中，與原生模型並列。')}</p>
+				<Image src={picker} alt={t('Codex App model picker with reasoning effort levels', '帶推理強度等級的 Codex App 模型選擇器')} loading="lazy" />
+			</article>
+			<article class="lp-cell">
+				<h3><svg class="lp-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d={icons.bot} /></svg>{t('Sub-agents', '子代理')}</h3>
+				<p>{t('Pin up to five routed or native models for Codex spawn_agent, and switch the v1 / base / v2 surface globally.', '為 Codex spawn_agent 固定最多五個路由或原生模型，並全域切換 v1 / base / v2 介面。')}</p>
+			</article>
+			<article class="lp-cell lp-cell-claude">
+				<h3><svg class="lp-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d={icons.terminal} /></svg>Claude Code</h3>
+				<p>{t('ocx claude launches Claude Code against the same port — every routed model in the /model picker, auto-context up to 1M, roster sub-agents, and your claude.ai login stays active.', 'ocx claude 讓 Claude Code 連線同一連接埠 —— 所有路由模型出現在 /model 選擇器中，auto-context 最高 1M，roster 子代理，claude.ai 登入保持不變。')}</p>
+				<img src={`${base}claude-code-models.gif`} alt={t('Claude Code running a routed model through opencodex — gpt-5.6-luna-medium active in the status bar', '透過 opencodex 執行路由模型的 Claude Code —— 狀態列顯示 gpt-5.6-luna-medium 為目前模型')} loading="lazy" />
+			</article>
+			<article class="lp-cell">
+				<h3><svg class="lp-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d={icons.search} /></svg>{t('Search & vision sidecars', '搜尋與視覺邊車')}</h3>
+				<p>{t('Give non-OpenAI models real web search and image understanding through a gpt-5.4-mini sidecar.', '透過 gpt-5.4-mini 邊車，讓非 OpenAI 模型獲得真實的網頁搜尋與圖像理解能力。')}</p>
+			</article>
+			<article class="lp-cell lp-cell-terminal">
+				<h3><svg class="lp-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d={icons.code} /></svg>{t('Quickstart', '快速入門')}</h3>
+				<p>{t('ocx init writes a provider into your Codex config and shares one model catalog with Codex CLI, TUI, App, and SDK. ocx stop restores native Codex cleanly.', 'ocx init 將供應商寫入 Codex 設定，CLI、TUI、App 與 SDK 共享同一模型目錄。ocx stop 可乾淨地恢復原生 Codex。')}</p>
+				<div class="lp-terminal">
+					<div class="lp-terminal-bar"><span>zsh</span></div>
+					<pre>{quickstart.map((line) => (<code><span class="lp-prompt">$ </span>{line.cmd}<span class="lp-note">  # {line.note}</span>{'\n'}</code>))}</pre>
+				</div>
+			</article>
+		</div>
+	</section>
+
+	<!-- full docs sitemap band: every section reachable from the landing -->
+	<section class="lp-next" aria-label={t('Documentation map', '文件地圖')}>
+		<h2>{t('Explore the docs', '瀏覽文件')}</h2>
+		<div class="lp-next-grid">
+			{docsMap.map((group) => (
+				<div class="lp-next-col">
+					<h3><svg class="lp-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d={icons[group.icon]} /></svg>{group.label}</h3>
+					<ul>
+						{group.links.map((link) => (
+							<li><a href={link.href}>{link.label}</a></li>
+						))}
+					</ul>
+				</div>
+			))}
+		</div>
+	</section>
+
+	<p class="lp-disclaimer">
+		{t('opencodex is an independent community project, not affiliated with or endorsed by OpenAI, Anthropic, or any other provider. Some providers may restrict accounts that route traffic through third-party proxies — review each provider\u2019s Terms of Service before connecting.', 'opencodex 是獨立的社群專案，與 OpenAI、Anthropic 或任何其他供應商均無關聯或背書。部分供應商可能限制經第三方代理路由流量的帳號 —— 連線前請查閱各供應商的服務條款。')}
+	</p>
+</div>
+
+<script>
+	// Frame-sequence scrub (motion.md): the demo capture plays through as the
+	// scrub scene scrolls. Short-circuits under reduced motion / small screens
+	// (the animated poster stays); progressive checkpoint loading.
+	const canvas = document.querySelector<HTMLCanvasElement>('.lp-scrub-canvas');
+	const section = document.querySelector<HTMLElement>('.lp-scene-scrub');
+	const poster = document.querySelector<HTMLImageElement>('.lp-scrub-poster');
+	const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+	const wide = matchMedia('(min-width: 48rem)').matches;
+	if (canvas && section && poster && !reduce && wide) {
+		const ctx = canvas.getContext('2d');
+		const count = Number(canvas.dataset.count || '0');
+		const base = canvas.dataset.base || '/';
+		const url = (i: number) => `${base}demo-frames/${String(i + 1).padStart(3, '0')}.webp`;
+		const frames: (HTMLImageElement | undefined)[] = new Array(count);
+		let started = false;
+		let current = -1;
+		let raf = 0;
+		const load = (i: number) =>
+			new Promise<void>((resolve) => {
+				if (frames[i]) return resolve();
+				const img = new Image();
+				img.onload = () => { frames[i] = img; resolve(); };
+				img.onerror = () => resolve();
+				img.src = url(i);
+			});
+		const nearestLoaded = (i: number) => {
+			for (let d = 0; d < count; d++) {
+				if (frames[i - d]?.complete) return i - d;
+				if (frames[i + d]?.complete) return i + d;
+			}
+			return -1;
+		};
+		const draw = (i: number) => {
+			const j = nearestLoaded(Math.max(0, Math.min(count - 1, i)));
+			if (j < 0 || j === current || !ctx) return;
+			current = j;
+			const img = frames[j]!;
+			if (canvas.width !== img.naturalWidth) {
+				canvas.width = img.naturalWidth;
+				canvas.height = img.naturalHeight;
+			}
+			ctx.clearRect(0, 0, canvas.width, canvas.height);
+			ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+			poster.style.display = 'none';
+			canvas.style.display = 'block';
+		};
+		const update = () => {
+			raf = 0;
+			const rect = section.getBoundingClientRect();
+			const travel = section.offsetHeight - innerHeight;
+			if (travel <= 0) return;
+			const progress = Math.min(1, Math.max(0, -rect.top / travel));
+			draw(Math.round(progress * (count - 1)));
+		};
+		const start = async () => {
+			if (started) return;
+			started = true;
+			await load(0);
+			draw(0);
+			// checkpoints first, then fill in idle time
+			const checkpoints = [count - 1, Math.floor(count / 2), Math.floor(count / 4), Math.floor((3 * count) / 4)];
+			await Promise.all(checkpoints.map(load));
+			update();
+			const fill = (i: number) => {
+				if (i >= count) return;
+				load(i).then(() => {
+					const next = () => fill(i + 1);
+					'requestIdleCallback' in window ? requestIdleCallback(next) : setTimeout(next, 16);
+				});
+			};
+			fill(0);
+			addEventListener('scroll', () => { raf ||= requestAnimationFrame(update); }, { passive: true });
+			addEventListener('resize', () => { raf ||= requestAnimationFrame(update); }, { passive: true });
+		};
+		new IntersectionObserver((entries, obs) => {
+			if (entries.some((e) => e.isIntersecting)) { obs.disconnect(); start(); }
+		}, { rootMargin: '100% 0px' }).observe(section);
+	}
+</script>

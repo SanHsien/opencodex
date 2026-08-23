@@ -134,7 +134,11 @@ describe("upstream checker", () => {
     expect(baseline.repo.endsWith("opencodex.git")).toBe(true);
     expect(baseline.branch).toBe("main");
     expect(baseline.reviewed_through).toHaveLength(40);
-    expect(baseline.reviewed_date).toBe("2026-08-22");
+    // Not a frozen value: this date moves every time the upstream review runs, and
+    // pinning it turns a completed review into a red test. What matters is that it
+    // is a real ISO date and that the decisions record carries it -- the test below
+    // checks the second half.
+    expect(baseline.reviewed_date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 
   test("workflow is scheduled and fails on unreviewed commits", async () => {

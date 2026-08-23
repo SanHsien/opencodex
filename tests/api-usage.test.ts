@@ -578,6 +578,40 @@ describe("GET /api/usage", () => {
     }
   });
 
+  test("an append burst larger than the byte window falls back to a bounded full read", async () => {
+    // Retained-state reuse is an optimization, not a second reader. Without the size
+    // guard a burst bigger than the window is read and parsed in full through the
+    // incremental path -- bypassing the only thing that caps memory here, and doing so
+    // exactly when the ledger is growing fastest. Taken from upstream #2395.
+    const now = Date.now();
+    const maxReadBytes = 512;
+    const row = (id: string): string => `${JSON.stringify({
+      requestId: id,
+      timestamp: now,
+      provider: "openai",
+      model: "gpt-5.5",
+      status: 200,
+      durationMs: 1,
+      usageStatus: "reported",
+      usage: { inputTokens: 1, outputTokens: 1 },
+      totalTokens: 2,
+    })}\n`;
+    const path = join(testDir, "usage.jsonl");
+    writeFileSync(path, row("seed"));
+
+    await usageLogModule.readUsageSnapshotForManagement(maxReadBytes);
+    const parsedBeforeBurst = usageReadCacheStatsForTests().parsedLines;
+    appendFileSync(path, Array.from({ length: 100 }, (_, index) => row(`burst-${index}`)).join(""));
+
+    const snapshot = await usageLogModule.readUsageSnapshotForManagement(maxReadBytes);
+    const stats = usageReadCacheStatsForTests();
+    expect(stats.fullReads).toBe(2);
+    expect(stats.tailReads).toBe(0);
+    expect(stats.parsedLines - parsedBeforeBurst).toBe(snapshot.entries.length);
+    expect(snapshot.entries.length).toBeLessThan(100);
+    expect(snapshot.entries.some(entry => entry.requestId === "burst-99")).toBe(true);
+  });
+
   test("appends to an over-window ledger stay incremental and bounded", async () => {
     const now = Date.now();
     writeFixture(now);

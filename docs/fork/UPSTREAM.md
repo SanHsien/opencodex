@@ -135,3 +135,52 @@ upstream/main...upstream/dev` 回報 **25 / 58**——`dev` 已經領先 `main` 
    安全性，以及本檔 issue 表裡已登記為「等上游修」的項目。
 3. 挑中的先確認它只依賴 `main` 已有的檔案（`git cat-file -e upstream/main:<file>`），
    再 cherry-pick，並記下未來同步時會衝突的檔案。
+
+## 2026-08-23（第二輪）：`--state all` 補查，並引用兩支「無上限讀取」修正
+
+### 先修一個查法上的缺口
+
+上一輪查 PR／issue 用的是 `--state open`。那看不到**未合併就關閉**的項目，而那正是「上游拒收、
+但可能對本 fork 有價值」的一類——已合併的項目遲早會經由 commit 路徑抵達，被關掉的永遠不會。
+本輪起一律 `--state all`。
+
+用 `--state all` 重查水位（PR `#2383`／issue `#2379`）之後的增量：**33 個 PR、55 個 issue**。
+其中 12 個 PR 已合併，但**合併進的是 `dev` 不是 `main`**（實測：`#2398` 的 merge commit
+`383279cd2` 在 `upstream/dev`、不在 `upstream/main`；`dev` 目前領先 `main` 69 個 commit）。
+本 fork 的取用點是 `main`，所以這 12 筆**還沒**被 commit 水位涵蓋——判準仍是上一節那條：
+**`dev` 上有沒有本 fork 現在就會痛的修正**。
+
+### 已引用（兩支，都是「讀取沒有上限」）
+
+| 來源 | 本 fork 的實查證據 | 移植內容 |
+| --- | --- | --- |
+| [PR #2395](https://github.com/lidge-jun/opencodex/pull/2395) `fix(usage): bound incremental append reads`（`3611850c5`） | `src/usage/log.ts` 的 `readUsageEntriesIncrementally()` 只擋「檔案縮小」，沒有擋「一次 append 太多」。兩次輪詢之間灌進來的位元組不論多大，都會走增量路徑整批讀進來並逐行解析——**繞過 `maxReadBytes` 這個唯一的記憶體上限，而且是在帳本長最快的時候繞過**。 | 4 行守衛：`size - retained.coveredThroughBytes > maxReadBytes` 時回 `null`，交還給有上限的 full-tail reader。 |
+| [PR #2398](https://github.com/lidge-jun/opencodex/pull/2398) `fix(responses): bound upstream error body reads`（`383279cd2`）的**前半** | `src/lib/bounded-body.ts` 的兩個進入點（`readBoundedResponseBytes:118`、`readBoundedResponseBody:211`）在 signal 已經 aborted 時**先 throw 再說**，此時還沒有 reader 掛上去，原始 body 因此沒有被結束——fetch 背後的 stream 會把一個被拒絕的 read 留著。 | 新增 `cancelBodyWithoutWaiting()`，兩個進入點在 throw 之前先結束 body。 |
+
+**驗證**：兩支各補一條測試（取自上游同一個 PR 的測試，改寫成本 fork 的檔案結構）。把 src 改動
+stash 掉重跑，兩條都紅（`bounded-body` 1 fail、`api-usage` 1 fail），確認測試有牙齒；改動放回
+全綠（`bounded-body` 27 pass、`api-usage` 25 pass）。
+
+**不引用 #2398 的後半**（`readDisplaySafeErrorText`，`src/server/responses/core.ts` +65 行）：那是
+錯誤路徑的重構，依賴 `dev` 上的 `bounded-body` 新介面，硬移植等於自行改寫。**觸發條件**：隨
+release 進 `main`，或本線出現「上游錯誤內容被原樣顯示」的實例。
+
+### 其餘 31 個 PR
+
+- **已合併進 `dev` 的另外 10 筆**：`devlog:` 工作紀錄與 `fix(zcode)`／`fix(auth)`／`fix(gui)` 等，
+  逐條看過主旨與檔案，都不是本 fork 現在會痛的路徑；等 release。
+- **open／closed-未合併的 21 筆**：`fix(xai)`、`fix(codex)`、`fix(catalog)`、`feat(test)` 這類，
+  base 都在 `dev`，且改的是本 fork 沒有啟用的 provider 路徑或上游自己的測試工具鏈。它們是**提案**，
+  不是上游已接受的變更；採用未合併的提案等於接手維護一份上游還沒定案的補丁。**觸發條件**：合併
+  進 `dev` 且屬「本 fork 現在會痛」那一類，或隨 release 進 `main`。
+
+### 55 個 issue
+
+以「會不會改變本 fork 要驗什麼」為判準逐條掃過標題。多數是 provider 目錄、xAI／Kiro／OpenRouter
+的路由行為與上游自己的 App 問題。沒有一條指向本 fork 已知的 Windows 行為缺口——`#2292`（Windows
+model picker）那條已於本檔上一節引用 `a3bbcdb0` 解決。
+
+### 水位
+
+- commit：`6ae83b1`（`6ae83b1..upstream/main` 仍為 0）
+- PR：**#2433**、issue：**#2434**（首次以 `--state all` 查過）

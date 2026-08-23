@@ -86,3 +86,16 @@ ocx start
 ```
 
 然後打開 http://localhost:10100 設定 provider 與 ChatGPT 帳號池。
+
+## 相鄰的維護中 repo
+
+opencodex 決定 agent **背後跑哪個 LLM**，不約束 agent 做什麼。約束行為的是另外四個 repo，各治理一層：
+
+| 層 | Repo | 做什麼 |
+| --- | --- | --- |
+| 派工決策 | [agent-advisor](https://github.com/SanHsien/agent-advisor) | 風險分流路由 `solo`／`delegate`／`audit`／`full` |
+| 動作攔截 | [harness-guard](https://github.com/SanHsien/harness-guard) | agent runtime hook，實際攔截危險指令、無證據宣稱、紅燈提交 |
+| 產出品質 | [ai-quality-gates](https://github.com/SanHsien/ai-quality-gates) | 覆蓋率、突變測試、圈複雜度、依賴結構、有界 loop policy |
+| 交付流程 | [paulsha-cortex](https://github.com/SanHsien/paulsha-cortex) | Candidate → Verify → Independent Review → Delivery → CompletionRecord |
+
+這一節寫在 `FORK.md` 而不是 `README.md`：README 跟隨上游，加 fork 專屬內容會讓每次同步都產生衝突。

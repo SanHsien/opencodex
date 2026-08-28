@@ -31,8 +31,9 @@
 
 ## 分支與 remote
 
-- `origin/main`：SanHsien 維護主線（fork 當下對齊上游 release `main`）。
+- `origin/main`：SanHsien 維護主線。目前停在上游 `v2.31.0` 加上 overlay 與選擇性引用；上游 `main` 已到 `v2.34.0`。
 - `upstream/main`：上游發版線；`upstream/dev` 是上游 PR 整合線，需要時再 fetch。
+- 2026-08-23 曾把歷史壓成無父提交，與上游沒有共同祖先。下次同步在 `v2.34.0` 上重放 overlay，不要 `git merge upstream/main`。詳見 [`docs/fork/UPSTREAM.md`](docs/fork/UPSTREAM.md)。
 - 本 fork 的一般修改**直接推 `origin/main`**，不開功能分支、不開維護 PR（維護者 2026-08-22 指示，與其他 repo 一致）。
   只有在需要他人審查、或改動風險高到值得先讓 CI 在 PR 上跑一輪時，才退回 branch → PR → CI → squash merge。
 - **合併任何 PR 前必須讀完整 diff**（`gh pr diff <編號>`），包含 Dependabot 開的。CI 綠燈證明的是

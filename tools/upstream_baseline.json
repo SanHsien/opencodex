@@ -1,8 +1,8 @@
 {
   "repo": "https://github.com/lidge-jun/opencodex.git",
   "branch": "main",
-  "reviewed_through": "6ae83b1f189c353935d4977bb01227484fbdb52b",
-  "reviewed_date": "2026-08-23",
-  "reviewed_issue_through": 2434,
-  "reviewed_pr_through": 2433
+  "reviewed_through": "80fff9a7f47332a4445df2b26ea175053fa55b0b",
+  "reviewed_date": "2026-08-27",
+  "reviewed_issue_through": 2765,
+  "reviewed_pr_through": 2767
 }

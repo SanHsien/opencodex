@@ -1,5 +1,32 @@
 # 維護決策
 
+## 2026-08-28：最小移植 `#2557`，不提前重放 2.34
+
+**決定**：把上游 `v2.33.0` 的桌面 app 探針修正接到本線：`listPackageProcesses` 用換行串 PowerShell，失敗回 `process_probe_failed`，CLI 不再說「沒在跑」。不因此把整棵 `v2.34.0` merge 進來。
+
+**理由**：這是本線自己引用 `#2292` 之後立刻會痛的 Windows 洞。完整重放 overlay 仍是下一步，但使用端現在就可能打 `--restart-desktop-app`。
+
+## 2026-08-27：批次審查 `v2.32.0`–`v2.34.0`，暫不合併；下次在 tag 上重放 overlay
+
+**決定**：把 `6ae83b1f189c353935d4977bb01227484fbdb52b` 到
+`80fff9a7f47332a4445df2b26ea175053fa55b0b`（`v2.34.0`）這段發版線當一批看完，
+水位推進，但**不把上游 merge 進本線**。下次同步在 `v2.34.0` 上重放 overlay，
+不要 `git merge` / `merge --allow-unrelated-histories`。
+
+**理由**：
+
+1. 2026-08-23 的 `chore: 壓縮歷史為單一提交` 是無父提交。本線與上游沒有
+   merge-base。硬 merge 會變成兩棵不相關的樹對撞，衝突不可審。
+2. 本線為 Windows 引用的 `--restart-desktop-app` 已在上游被 `#2557` 證明壞掉
+  （PowerShell 用空白串陳述、探針失敗誤報成沒在跑）。正確解法是改吃上游檔，
+   不是在 2.31 副本上再 cherry-pick 一次。
+3. 上游多了 `cleanup-closed-pr-branches.yml`（排程、`contents: write`、刪關閉
+   PR 的 branch）。進本 fork 前必須加官方-repo-only guard。
+4. 514 筆 commit 的內容會隨重放進來；本輪不逐檔移植 Kiro／xAI／catalog 那些
+   本線沒在用的路徑。
+
+**維持不變**：不採用未合併的 open PR。不在本 fork 發 npm、不部署 docs-site。
+
 ## 2026-08-23：PR／issue 一律 `--state all`，並在 `dev` 上選擇性引用
 
 **決定**：修正 2026-08-22 那條「上游的 PR 不是本 fork 的審查單位」。審查單位仍是 `main` 上的

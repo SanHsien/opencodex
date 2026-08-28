@@ -84,6 +84,8 @@ fork 只 fetch `main`（需要時才 fetch `dev`）。下次重看分支的觸�
 
 ## 下一次要做什麼
 
+目前水位見文末 **2026-08-27**（已審查到 `v2.34.0`、尚未合併）。操作仍是：
+
 ```powershell
 git fetch upstream main
 bun tools/check-upstream-updates.ts --strict
@@ -91,6 +93,7 @@ bun tools/check-upstream-updates.ts --strict
 
 報告會同時列出「未審 commit」與「水位之後的新 `platform` issue」。處理完後同時推進
 `reviewed_through` 與 `reviewed_issue_through`，並把判斷寫進本檔。
+下次把上游帶進來時，照 2026-08-27 節在 `v2.34.0` 上重放 overlay，不要 merge。
 
 ## 2026-08-23：重評「隨 release 進來」這個結論，並引用一支 dev 上的 Windows 修正
 
@@ -180,7 +183,69 @@ release 進 `main`，或本線出現「上游錯誤內容被原樣顯示」的�
 的路由行為與上游自己的 App 問題。沒有一條指向本 fork 已知的 Windows 行為缺口——`#2292`（Windows
 model picker）那條已於本檔上一節引用 `a3bbcdb0` 解決。
 
-### 水位
+### 水位（2026-08-23 當下）
 
-- commit：`6ae83b1`（`6ae83b1..upstream/main` 仍為 0）
+- commit：`6ae83b1`（當時 `6ae83b1..upstream/main` 為 0）
 - PR：**#2433**、issue：**#2434**（首次以 `--state all` 查過）
+
+## 2026-08-27：發版線已到 `v2.34.0`，水位推進、合併延後
+
+`bun tools/check-upstream-updates.ts` 對 08-23 水位回報 **514** 筆未審 commit。
+first-parent 是四次穩定發版：
+
+| 時間（+0900） | tag / 主旨 |
+|---|---|
+| 2026-08-24 19:00 | `v2.32.0` |
+| 2026-08-25 10:37 | `v2.32.1` |
+| 2026-08-25 20:25 | `v2.33.0` |
+| 2026-08-27 22:06 | `v2.34.0`（`80fff9a7f47332a4445df2b26ea175053fa55b0b`） |
+
+週一排程檢查（2026-08-24 03:53 UTC）仍綠，是因為 `v2.32.0` 當日 10:00 UTC 才進
+`main`。不是 checker 壞了。
+
+### 本線已引用、現已在上游 `main` 的三支
+
+`a3bbcdb0`（`#2292` 桌面重啟）、`3611850c5`（`#2395` usage 增量上限）、
+`383279cd2`（`#2398` 前半 abort-cancel）都已是 `upstream/main` 的祖先。
+本線那幾份檔案相對 2.34 已過期。其中桌面重啟在 `v2.33.0` 被 `#2557` 修過：
+`listPackageProcesses` 必須用換行（或分號）串 PowerShell，探針失敗不得回 `[]`。
+本線仍是 `.join(" ")`。單元測試 mock `execFile`，綠燈不代表命令在 Windows 能跑。
+
+### 為什麼不 merge
+
+`git merge-base HEAD upstream/main` 為空。2026-08-23 壓縮歷史把本線變成 orphan。
+下次同步：
+
+```powershell
+git fetch upstream --tags
+git checkout -b fork/replay-v2.34.0 v2.34.0
+# 重放 overlay：FORK/NOTICE/CLAUDE/SKILL/REVIEW、docs/fork、tools、
+# workflow guard、語系刪除、CodeQL、Dependabot。產品檔改吃上游版。
+```
+
+不要 `git merge --allow-unrelated-histories upstream/main`。
+
+進 2.34 時額外要做：給新檔 `.github/workflows/cleanup-closed-pr-branches.yml`
+加上 `github.repository == 'lidge-jun/opencodex'`。這支排程有 `contents: write`，
+會刪「關閉但未合併的 PR」留下的 branch。
+
+### `platform` issue 增量（水位 `#2434` 之後）
+
+本線現在會痛、且修正已在上游的：
+
+| Issue | 狀態 | 對本 fork |
+|---|---|---|
+| [`#2557`](https://github.com/lidge-jun/opencodex/issues/2557) 無效 PowerShell | closed | **本線仍有這個洞**。重放時吃上游 `desktop-app-restart.ts`。 |
+| [`#2292`](https://github.com/lidge-jun/opencodex/issues/2292) model picker | closed | 引用原因已進 `main`。 |
+| [`#2605`](https://github.com/lidge-jun/opencodex/issues/2605) 大份 SQLite 擋 proxy | closed | Windows；隨 2.34 重放進來，不單挑。 |
+| [`#2459`](https://github.com/lidge-jun/opencodex/issues/2459) npm 重裝混版模組 | closed | 同上。 |
+
+仍 open、本輪不移植：`#2718`（re-auth / catalog）、`#2701`／`#2696`（launchd，
+macOS）、`#2697`（CLI 對 management API 失敗仍 exit 0）。
+
+未合併的 PR 仍不採用。今日看到的最新編號：issue `#2765`、PR `#2767`。
+
+### 水位（2026-08-27）
+
+- commit：`80fff9a7f47332a4445df2b26ea175053fa55b0b`（已審查、**未合併**）
+- PR：**#2767**、issue：**#2765**

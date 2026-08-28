@@ -43,6 +43,7 @@ export interface DesktopAppRestartIo {
 export type DesktopAppRestartReason =
   | "windows_only"
   | "package_discovery_failed"
+  | "process_probe_failed"
   | "no_targets"
   | "self_ancestry"
   | "targets_survived";
@@ -119,7 +120,7 @@ interface DesktopProcess {
 function listPackageProcesses(
   exec: NonNullable<DesktopAppRestartIo["execFile"]>,
   installLocation: string,
-): DesktopProcess[] {
+): DesktopProcess[] | null {
   const literal = installLocation.replace(/'/g, "''");
   const script = [
     "$ErrorActionPreference='SilentlyContinue'",
@@ -136,7 +137,9 @@ function listPackageProcesses(
     "      }",
     "    }",
     "  }",
-  ].join(" ");
+  // 陳述必須分行。用空白串會變成 `$ErrorActionPreference='SilentlyContinue' $root = '...'`
+  // 一句非法陳述，PowerShell 直接拒絕，探針丟例外，呼叫端讀成「沒在跑」（#2557）。
+  ].join("\n");
   let stdout: string;
   try {
     stdout = exec(resolveTrustedWindowsPowerShellExe(), ["-NoProfile", "-NonInteractive", "-Command", script], {
@@ -144,7 +147,8 @@ function listPackageProcesses(
       windowsHide: true,
     });
   } catch {
-    return [];
+    // 探針跑不起來不是「沒有目標」。回 null 才能跟「看過而且沒有行程」分開。
+    return null;
   }
   const processes: DesktopProcess[] = [];
   for (const line of stdout.split(/\r?\n/)) {
@@ -170,8 +174,10 @@ function stillSameProcess(
   installLocation: string,
   target: DesktopProcess,
 ): boolean {
-  const current = listPackageProcesses(exec, installLocation)
-    .find(p => p.pid === target.pid);
+  const processes = listPackageProcesses(exec, installLocation);
+  // 再探失敗時 fail-closed：這是殺行程前的守衛，「看不見」不得讀成「PID 已被別人回收」。
+  if (processes === null) return false;
+  const current = processes.find(p => p.pid === target.pid);
   return current !== undefined && current.createdAt === target.createdAt;
 }
 
@@ -266,6 +272,8 @@ export function restartCodexDesktopApp(io: DesktopAppRestartIo = {}): DesktopApp
   if (!pkg) return skipped("package_discovery_failed");
 
   const processes = listPackageProcesses(exec, pkg.installLocation);
+  // 探針跑不起來不是「沒有目標」。回報 no_targets 會讓使用者以為 app 沒在跑（#2557）。
+  if (processes === null) return skipped("process_probe_failed");
   const roots = rootProcesses(processes);
   if (roots.length === 0) return skipped("no_targets");
 

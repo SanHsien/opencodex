@@ -6,6 +6,7 @@ updates:
   # 同理，本 repo **沒有**其他 repo 那支每月的依賴新鮮度檢查：那支比對的是
   # 「本線自己宣告的下限 vs 現行版」，而這裡的 package.json 屬於上游、由上游
   # 每天推進，fork 不維護那些宣告，比對出來的落差不是本線該處理的事。
+  # fleet-waiver: freshness -- package.json 屬上游且由上游每天推進，本線不維護那些宣告
   # fork 自己擁有的依賴面只有 workflow 的 action pin，已由下面這條看著。
   - package-ecosystem: "github-actions"
     directory: "/"

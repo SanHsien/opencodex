@@ -33,6 +33,8 @@ export type Baseline = {
   reviewed_date: string;
   /** Highest upstream issue number already triaged; only higher ones are reported. */
   reviewed_issue_through?: number;
+  /** Highest upstream pull request number already triaged; only higher ones are reported. */
+  reviewed_pr_through?: number;
 };
 
 export type Ticket = {
@@ -169,6 +171,94 @@ export function collectNewIssues(baseline: Baseline): Ticket[] | undefined {
     }));
 }
 
+/**
+ * Upstream pull requests that were closed **without merging**, above the watermark.
+ *
+ * The fork's reason for not tracking pull requests at all was that upstream's
+ * work arrives here through releases on `main` anyway. That holds for merged
+ * pull requests and only for those: one closed without merging never becomes a
+ * commit, so it never arrives, and `reviewed_pr_through` sat in the baseline
+ * with nothing reading it while that whole class went unwatched.
+ *
+ * Narrowing to unmerged keeps the check from crying wolf for the same reason
+ * `TRACKED_ISSUE_LABEL` does: upstream closes far fewer pull requests unmerged
+ * than it merges, and those are the ones a person here still has to judge.
+ */
+export function collectUnmergedPullRequests(baseline: Baseline): Ticket[] | undefined {
+  const slug = upstreamSlug(baseline.repo);
+  if (!slug) return undefined;
+  const result = Bun.spawnSync(
+    ["gh", "pr", "list", "--repo", slug, "--state", "closed",
+     "--limit", "200", "--json", "number,title,mergedAt,labels"],
+    { stdout: "pipe", stderr: "pipe" },
+  );
+  if (result.exitCode !== 0) return undefined;
+  let parsed: {
+    number: number;
+    title: string;
+    mergedAt?: string | null;
+    labels?: { name: string }[];
+  }[];
+  try {
+    parsed = JSON.parse(new TextDecoder().decode(result.stdout));
+  } catch {
+    return undefined;
+  }
+  const watermark = Number(baseline.reviewed_pr_through ?? 0);
+  return parsed
+    .filter((item) => item.number > watermark && !item.mergedAt)
+    .sort((left, right) => left.number - right.number)
+    .map((item) => ({
+      number: item.number,
+      title: item.title,
+      labels: (item.labels ?? []).map((label) => label.name),
+    }));
+}
+
+/** The pull request section: the closed-unmerged ones, or why they were not asked for. */
+export function renderPullRequestSection(
+  baseline: Baseline,
+  pullRequests: Ticket[] | undefined,
+): string[] {
+  const watermark = baseline.reviewed_pr_through ?? 0;
+  const lines = [
+    "## Upstream pull requests closed without merging",
+    "",
+    `Triaged through \`#${watermark}\`.`,
+    "",
+  ];
+  if (pullRequests === undefined) {
+    lines.push(
+      "Not checked: `gh` was unavailable or unauthenticated. This is reported rather than",
+      "treated as \"nothing to review\" — the difference matters.",
+      "",
+    );
+    return lines;
+  }
+  if (pullRequests.length === 0) {
+    lines.push("None since that number. Merged pull requests arrive with releases.", "");
+    return lines;
+  }
+  lines.push(
+    `${pullRequests.length} pull request(s) upstream declined, still to triage here.`,
+    "",
+    "| PR | Labels | Title |",
+    "| --- | --- | --- |",
+  );
+  for (const pullRequest of pullRequests) {
+    lines.push(
+      `| #${pullRequest.number} | ${pullRequest.labels.join(", ")} | ${pullRequest.title.replaceAll("|", "\|")} |`,
+    );
+  }
+  lines.push(
+    "",
+    "Record the verdict in `docs/fork/UPSTREAM.md`, then raise `reviewed_pr_through`",
+    "so the same pull request is never re-triaged.",
+    "",
+  );
+  return lines;
+}
+
 /** The issue section: what still needs a human's judgement, or why it was not asked. */
 export function renderIssueSection(baseline: Baseline, issues: Ticket[] | undefined): string[] {
   const watermark = baseline.reviewed_issue_through ?? 0;
@@ -210,6 +300,7 @@ export function renderMarkdown(
   commits: Commit[],
   error?: string,
   issues?: Ticket[] | undefined,
+  pullRequests?: Ticket[] | undefined,
 ): string {
   const lines = [
     "# Upstream review report",
@@ -225,6 +316,7 @@ export function renderMarkdown(
   }
   if (commits.length === 0) {
     lines.push("## Result", "", "No new upstream commits. Nothing to review.", "");
+    lines.push(...renderPullRequestSection(baseline, pullRequests));
     lines.push(...renderIssueSection(baseline, issues));
     return `${lines.join("\n")}\n`;
   }
@@ -255,6 +347,8 @@ export function renderMarkdown(
     "then advance `tools/upstream_baseline.json` only after verification.",
     "",
   );
+  lines.push(...renderPullRequestSection(baseline, pullRequests));
+  lines.push(...renderIssueSection(baseline, issues));
   return `${lines.join("\n")}\n`;
 }
 
@@ -290,6 +384,7 @@ export function main(args = Bun.argv.slice(2)): number {
   };
   let commits: Commit[] = [];
   let issues: Ticket[] | undefined;
+  let pullRequests: Ticket[] | undefined;
   let error: string | undefined;
 
   try {
@@ -297,21 +392,28 @@ export function main(args = Bun.argv.slice(2)): number {
     const ref = fetchUpstream(baseline, options.repoDir);
     commits = collectNewCommits(baseline, options.repoDir, ref);
     issues = collectNewIssues(baseline);
+    pullRequests = collectUnmergedPullRequests(baseline);
   } catch (caught) {
     if (!(caught instanceof UpstreamCheckError)) throw caught;
     error = caught.message;
   }
 
-  const report = renderMarkdown(baseline, commits, error, issues);
+  const report = renderMarkdown(baseline, commits, error, issues, pullRequests);
   writeFileSync(options.output, report, "utf8");
   process.stdout.write(report);
+
+  // Fail closed. A run that could not ask `gh` must not read as a clean bill of
+  // health just because the commit axis was quiet: "not checked" and "nothing
+  // to review" look identical in a green report, and only one of them is true.
+  const ticketsUnavailable =
+    !error && (issues === undefined || pullRequests === undefined);
 
   if (options.githubOutput && process.env.GITHUB_OUTPUT) {
     appendFileSync(
       process.env.GITHUB_OUTPUT,
       [
-        `needs_attention=${commits.length > 0 || (issues?.length ?? 0) > 0 || Boolean(error) ? "true" : "false"}`,
-        `check_failed=${error ? "true" : "false"}`,
+        `needs_attention=${commits.length > 0 || (issues?.length ?? 0) > 0 || (pullRequests?.length ?? 0) > 0 || Boolean(error) || ticketsUnavailable ? "true" : "false"}`,
+        `check_failed=${error || ticketsUnavailable ? "true" : "false"}`,
         `report_path=${options.output}`,
         "",
       ].join("\n"),
@@ -319,10 +421,21 @@ export function main(args = Bun.argv.slice(2)): number {
   }
 
   if (error) return 2;
+  if (ticketsUnavailable) {
+    process.stderr.write("ERROR: gh could not enumerate the upstream issues or pull requests.\n");
+    return 2;
+  }
   // A new `platform` issue upstream changes what this fork has to verify on
-  // Windows, so it fails the weekly check the same way a new commit does.
-  // Clearing it means triaging the issue and raising the watermark, not muting.
-  if (options.strict && (commits.length > 0 || (issues?.length ?? 0) > 0)) return 1;
+  // Windows, so it fails the weekly check the same way a new commit does. So
+  // does a pull request upstream closed without merging: that one never becomes
+  // a commit, so the release stream will never bring it here.
+  // Clearing either means triaging it and raising the watermark, not muting.
+  if (
+    options.strict
+    && (commits.length > 0 || (issues?.length ?? 0) > 0 || (pullRequests?.length ?? 0) > 0)
+  ) {
+    return 1;
+  }
   return 0;
 }
 

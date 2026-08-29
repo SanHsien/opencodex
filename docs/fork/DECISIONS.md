@@ -114,3 +114,28 @@ head）。審查單位是 `main` 上的 release commit。issue 只追 `platform`
 **決定**：不幫上游的 `bun.lock` / `package.json` 開 npm Dependabot。fork-owned workflow 的 action pin 用 CodeQL / checkout SHA，之後若要自動升，只開 `github-actions`。
 
 **理由**：上游幾乎每天發版。對 lockfile 開 Dependabot 會與上游 merge 持續衝突。
+
+
+## 2026-08-29：上游 PR 面向補上「關閉未合併」那一類
+
+**決定**：`tools/check-upstream-updates.ts` 新增 `collectUnmergedPullRequests()` 與
+`renderPullRequestSection()`，只列**上游關閉但未合併**、且編號大於 `reviewed_pr_through` 的 PR；
+併進報告、`needs_attention` 與 `--strict` 的 exit code。workflow 補 `GH_TOKEN`。issue 面向維持
+原本的 `platform` 標籤窄化，不動。
+
+**理由**：本檔原本的判斷是「上游的東西反正會經由 `main` 的 release 進來，所以不追 PR」。那句話
+對**已合併**的 PR 成立，而且只對它成立——**關閉但未合併**的 PR 永遠不會變成 commit，所以永遠
+不會進來。`reviewed_pr_through: 2767` 就一直躺在 baseline 裡沒有任何程式讀，那一整類從頭到尾
+沒人看。
+
+窄化到「未合併」跟 `TRACKED_ISSUE_LABEL` 是同一個道理：上游關閉未合併的 PR 遠少於合併的，
+所以這支檢查不會變成每週喊狼來了的那種——而喊狼來了的檢查會被忽略。
+
+**fail closed**：`gh` 列舉不到時回 `undefined` 而不是空陣列，報告寫 Not checked，
+`needs_attention` 與 exit 2 一起紅。「沒查到」和「沒有」在綠色報告裡長得一樣，只有一個是真的。
+
+**證據**：`bun run typecheck` 乾淨；`tests/fork-hygiene.test.ts` 21 pass（新增 3 條）；實跑檢查器
+發現 `#2767` 之後有 **23 筆**上游關閉未合併的 PR——移植前這 23 筆一律不會出現在任何報告裡。
+
+**觸發條件**：逐筆讀那 23 筆、把採用／不採用理由寫進 `docs/fork/UPSTREAM.md`，再推進
+`reviewed_pr_through`。在那之前每週的 upstream-check 會是紅的，那是真實狀態不是故障。

@@ -9,6 +9,8 @@ import {
   renderIssueSection,
   renderMarkdown,
   UpstreamCheckError,
+  loadBaseline,
+  renderPullRequestSection,
   upstreamSlug,
 } from "../tools/check-upstream-updates";
 
@@ -151,6 +153,53 @@ describe("upstream checker", () => {
     expect(workflow).toContain("tools/check-upstream-updates.ts");
     expect(workflow).toContain("fetch-depth: 0");
     expect(workflow).toContain("exit 1");
+  });
+
+  test("the pull request axis asks for the ones that never arrive", () => {
+    // The fork's reason for skipping pull requests was that upstream's work
+    // arrives through releases on `main`. That holds for merged ones only: a
+    // pull request closed without merging never becomes a commit, so it never
+    // arrives — and `reviewed_pr_through` sat in the baseline with nothing
+    // reading it while that whole class went unwatched.
+    const baseline = {
+      repo: "https://github.com/example/product.git",
+      branch: "main",
+      reviewed_through: "a".repeat(40),
+      reviewed_date: "2026-08-29",
+      reviewed_pr_through: 9,
+    };
+
+    const section = renderPullRequestSection(baseline, [
+      { number: 11, title: "declined upstream", labels: [] },
+    ]).join(NEWLINE);
+
+    expect(section).toContain("closed without merging");
+    expect(section).toContain("#11");
+    expect(section).toContain("#9");
+  });
+
+  test("an unavailable gh reports not-checked, never an empty result", () => {
+    // "Not checked" and "nothing to review" look identical in a green report,
+    // and only one of them is true.
+    const baseline = {
+      repo: "https://github.com/example/product.git",
+      branch: "main",
+      reviewed_through: "a".repeat(40),
+      reviewed_date: "2026-08-29",
+      reviewed_pr_through: 9,
+    };
+
+    const section = renderPullRequestSection(baseline, undefined).join(NEWLINE);
+
+    expect(section).toContain("Not checked");
+  });
+
+  test("the shipped baseline carries both ticket numbers", () => {
+    // A recorded number that nothing reads is not a check.
+    const baseline = loadBaseline();
+
+    expect(typeof baseline.reviewed_pr_through).toBe("number");
+    expect(typeof baseline.reviewed_issue_through).toBe("number");
   });
 
   test("renderMarkdown reports no new commits", () => {

@@ -139,3 +139,49 @@ head）。審查單位是 `main` 上的 release commit。issue 只追 `platform`
 
 **觸發條件**：逐筆讀那 23 筆、把採用／不採用理由寫進 `docs/fork/UPSTREAM.md`，再推進
 `reviewed_pr_through`。在那之前每週的 upstream-check 會是紅的，那是真實狀態不是故障。
+
+
+## 2026-08-30：31 筆「關閉未合併」的分類（水位不推進）
+
+`tix` 補上之後，`#2767` 以上出現 **31 筆上游關閉但未合併**的 PR——這一類永遠不會經由 commit 軸
+抵達，正是本 fork 只補這一類的理由（見上方 2026-08-29 條目）。本輪把它們分成三類：
+
+| 類別 | 筆數 | 依據 |
+| --- | --- | --- |
+| 帶 `landed-via-maintainer` 標籤 | **11** | 上游自己的標籤，意思是維護者已另行落地。內容會經由 commit 軸抵達，不需要在 PR 軸另行決定 |
+| `[WRONG BRANCH]` | **4** | 標題自述推錯分支（`#2823`／`#2824`／`#2829` 等 promote／release 動作）。沒有內容，只有分支機制 |
+| **需逐筆讀 diff** | **16** | 下表 |
+
+### 需逐筆判斷的 16 筆，以及它們與本 fork 的檔案重疊
+
+重疊數字是「該 PR 動到的檔案裡，本 fork 也有幾個」——用來排優先序，不是判準本身。
+
+| PR | 標籤 | 重疊 | 題目 |
+| --- | --- | --- | --- |
+| `#2793` | bug, hygiene-blocked | **51/78** | keyring 管理的原生 passthrough |
+| `#2902` | bug | 6/18 | GUI sidecar 提示的行內保留 |
+| `#2950` | bug | 6/9 | 額度到期無法解析時保留 capacity panel |
+| `#2796` | bug | 3/4 | agentrouter 支援 openai-chat 身分與 framing |
+| `#2927` | bug | **3/3** | service 每次啟動列舉一次機器，而不是每次檢查 |
+| `#2949` | bug, review-ready | 3/4 | Bun 測試鎖的範圍限縮到使用者 |
+| `#2884` | bug | 2/3 | 比對 `codex.opencodex-real` launcher 備份 |
+| `#2935` | bug, review-ready | **2/2** | 把輪替後的 refresh grant 帶給閒置同帳號 |
+| `#2947` | bug | **2/2** | proxy 設定持有 schema 不接受的值時仍能啟動 |
+| `#2795` | enhancement | 1/5 | cursor 觀察串流中的 envelope echo 與 call-id 損壞 |
+| `#2807` | bug | 1/2 | 每次 OAuth 429 輪替重新綁定憑證身分 |
+| `#2904` | bug, hygiene-blocked | **1/1** | GUI log 表格依動態視窗高度設上限 |
+| `#2938` | bug, review-ready | 1/3 | 用行掃描分類失敗的 exec wrapper |
+| `#2951` | bug, review-ready | 1/2 | 丟掉沒有任何日期格式器能解析的到期時間戳 |
+| `#2870` | bug, review-ready | 0/4 | 合併 prompt 探測並取消已放棄的探測 |
+| `#2770` | documentation | 0/20 | devlog 紀錄 |
+
+### 為什麼水位不推進
+
+`reviewed_pr_through` 是單一數字，最低一筆未判定就不能往上推——推了等於宣稱中間全部審過。
+`#2770` 是最低的一筆，所以本輪維持 `2767`。
+
+同時 commit 軸上還有 **112 個 commit** 未審。
+
+**下一步**：從重疊最高、且標籤是 `bug` 的幾筆開始逐筆讀 diff（`#2793`／`#2927`／`#2935`／
+`#2947`／`#2904` 是 2/2、3/3、1/1 這種「動到的檔本 fork 幾乎都有」的），確認缺陷在本 fork
+是否存在，再決定。做完最低編號那一筆才動水位。

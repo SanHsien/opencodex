@@ -9,7 +9,6 @@ import {
   renderIssueSection,
   renderMarkdown,
   UpstreamCheckError,
-  loadBaseline,
   renderPullRequestSection,
   upstreamSlug,
 } from "../tools/check-upstream-updates";
@@ -176,6 +175,27 @@ describe("upstream checker", () => {
     expect(section).toContain("closed without merging");
     expect(section).toContain("#11");
     expect(section).toContain("#9");
+  });
+
+  test("ticket fields stay inside one Markdown table cell", () => {
+    const baseline = {
+      repo: "https://github.com/example/product.git",
+      branch: "main",
+      reviewed_through: "a".repeat(40),
+      reviewed_date: "2026-08-29",
+      reviewed_pr_through: 9,
+      reviewed_issue_through: 9,
+    };
+
+    const ticket = {
+      number: 10,
+      title: "left \\| right\nnext\u2028tail",
+      labels: ["needs|review"],
+    };
+    const expectedRow = "| #10 | needs\\|review | left \\\\\\| right next tail |";
+
+    expect(renderPullRequestSection(baseline, [ticket])).toContain(expectedRow);
+    expect(renderIssueSection(baseline, [ticket])).toContain(expectedRow);
   });
 
   test("an unavailable gh reports not-checked, never an empty result", () => {

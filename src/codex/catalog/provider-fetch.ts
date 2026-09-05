@@ -60,7 +60,7 @@ import {
   providerOutboundPost,
   providerRedirectError,
 } from "../../lib/provider-outbound";
-import { redactSecretString } from "../../lib/redact";
+import { redactSecretString, sanitizeLogMetadataString } from "../../lib/redact";
 import {
   extractProviderModelItems,
   readBoundedDiscoveryJson,
@@ -90,6 +90,18 @@ import type {
 } from "../convergence-types";
 
 export type { CatalogGatherProviderAuthEvidence } from "./filesystem-evidence";
+
+/** Match the global or a regional Vertex AI hostname, never a lookalike suffix. */
+export function isVertexAiplatformHostname(hostname: string): boolean {
+  return hostname === "aiplatform.googleapis.com"
+    || hostname.endsWith(".aiplatform.googleapis.com")
+    || hostname.endsWith("-aiplatform.googleapis.com");
+}
+
+/** Redact secrets and prevent a provider error from forging another log record. */
+export function safeDiscoveryLogValue(value: string): string {
+  return sanitizeLogMetadataString(value, 500) ?? "[redacted]";
+}
 
 /** Concurrent gatherRoutedModels callers with the same catalog identity share one live discovery.
  *  Keyed by gatherFlightKey so a different config cannot join or evict the wrong flight. */
@@ -1292,7 +1304,7 @@ async function fetchProviderModelsWithAuth(
   }
   const url = request.url;
   const headers = materializeCapturedHeaders(request, apiKey);
-  const urlClass = new URL(url).hostname.endsWith("aiplatform.googleapis.com")
+  const urlClass = isVertexAiplatformHostname(new URL(url).hostname)
     ? "vertex-aiplatform"
     : "provider-models";
   const failedDiscoveryFallback = (
@@ -1457,7 +1469,7 @@ async function fetchProviderModelsWithAuth(
       const { models, fallback, shouldLog } = failedDiscoveryFallback({ reason: "blocked" });
       if (shouldLog) {
         console.warn(
-          `[opencodex] Provider model discovery for "${name}" was blocked by destination policy: ${error.message} [urlClass=${urlClass}, fallback=${fallback}].`,
+          `[opencodex] Provider model discovery for "${name}" was blocked by destination policy: ${safeDiscoveryLogValue(error.message)} [urlClass=${urlClass}, fallback=${fallback}].`,
         );
       }
       return observed(models, "degraded");

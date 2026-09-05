@@ -51,6 +51,13 @@ export type Commit = {
   files: string[];
 };
 
+function escapeMarkdownTableCell(value: string): string {
+  return value
+    .replace(/[\r\n\u2028\u2029]+/g, " ")
+    .replaceAll("\\", "\\\\")
+    .replaceAll("|", "\\|");
+}
+
 export function loadBaseline(path = BASELINE_PATH): Baseline {
   if (!existsSync(path)) {
     throw new UpstreamCheckError(`missing baseline file: ${path}`);
@@ -247,7 +254,7 @@ export function renderPullRequestSection(
   );
   for (const pullRequest of pullRequests) {
     lines.push(
-      `| #${pullRequest.number} | ${pullRequest.labels.join(", ")} | ${pullRequest.title.replaceAll("|", "\|")} |`,
+      `| #${pullRequest.number} | ${escapeMarkdownTableCell(pullRequest.labels.join(", "))} | ${escapeMarkdownTableCell(pullRequest.title)} |`,
     );
   }
   lines.push(
@@ -283,7 +290,7 @@ export function renderIssueSection(baseline: Baseline, issues: Ticket[] | undefi
   );
   for (const issue of issues) {
     lines.push(
-      `| #${issue.number} | ${issue.labels.join(", ")} | ${issue.title.replaceAll("|", "\|")} |`,
+      `| #${issue.number} | ${escapeMarkdownTableCell(issue.labels.join(", "))} | ${escapeMarkdownTableCell(issue.title)} |`,
     );
   }
   lines.push(

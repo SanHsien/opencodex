@@ -3676,7 +3676,7 @@ describe("Codex catalog routed normalization", () => {
       });
       const warningText = warning.mock.calls.flat().join(" ");
       expect(warningText).toContain("blocked by destination policy");
-      expect(warningText).toContain("benchmark address");
+      expect(warningText).not.toContain("benchmark address");
       expect(warningText).toContain("fallback=configured");
     } finally {
       warning.mockRestore();

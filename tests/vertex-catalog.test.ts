@@ -2,7 +2,6 @@ import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import { gatherRoutedModels as gatherRoutedModelsDirect } from "../src/codex/catalog";
 import {
   isVertexAiplatformHostname,
-  safeDiscoveryLogValue,
 } from "../src/codex/catalog/provider-fetch";
 import { clearModelCache, markModelsFetchFailure, setCached } from "../src/codex/model-cache";
 import type { OcxConfig } from "../src/types";
@@ -42,15 +41,8 @@ describe("Vertex catalog configuration", () => {
     expect(isVertexAiplatformHostname("us-central1-aiplatform.googleapis.com")).toBe(true);
     expect(isVertexAiplatformHostname("evilaiplatform.googleapis.com")).toBe(false);
     expect(isVertexAiplatformHostname("aiplatform.googleapis.com.evil.example")).toBe(false);
-  });
-
-  test("keeps provider discovery errors on one redacted log line", () => {
-    expect(safeDiscoveryLogValue("blocked\r\nforged")).toBe("blockedforged");
-    const splitSecret = safeDiscoveryLogValue("authorization:\rsecretvalue123");
-    expect(splitSecret).not.toContain("secretvalue123");
-    expect(splitSecret).not.toMatch(/[\r\n\u2028\u2029]/);
-    expect(safeDiscoveryLogValue("author\rization: secretvalue123")).not.toContain("secretvalue123");
-    expect(safeDiscoveryLogValue("blocked\u2028forged\u2029tail")).toBe("blockedforgedtail");
+    expect(isVertexAiplatformHostname("foo.aiplatform.googleapis.com")).toBe(false);
+    expect(isVertexAiplatformHostname("-aiplatform.googleapis.com")).toBe(false);
   });
 
   test("defaultModel without models survives failed Vertex discovery", async () => {

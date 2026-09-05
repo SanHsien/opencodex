@@ -185,3 +185,8 @@ head）。審查單位是 `main` 上的 release commit。issue 只追 `platform`
 **下一步**：從重疊最高、且標籤是 `bug` 的幾筆開始逐筆讀 diff（`#2793`／`#2927`／`#2935`／
 `#2947`／`#2904` 是 2/2、3/3、1/1 這種「動到的檔本 fork 幾乎都有」的），確認缺陷在本 fork
 是否存在，再決定。做完最低編號那一筆才動水位。
+
+## 2026-09-01：264 commits 維持 bounded defer
+
+只看三筆入口修正，未證明其測試與 proxy 前提可分離；`80fff9a` 仍是唯一真 watermark。下一切片為
+十筆 runtime/test commits，通過 Windows `tools\dev_check.ps1` 才能採用。

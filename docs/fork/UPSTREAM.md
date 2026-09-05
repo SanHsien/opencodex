@@ -249,3 +249,10 @@ macOS）、`#2697`（CLI 對 management API 失敗仍 exit 0）。
 
 - commit：`80fff9a7f47332a4445df2b26ea175053fa55b0b`（已審查、**未合併**）
 - PR：**#2767**、issue：**#2765**
+
+## 2026-09-01：bounded review
+
+Fork `f03d3a507ae7`；upstream `54e2274cff231631c0ea2ff12574ff03829d5fe6`。`80fff9a..upstream`
+有 264 commits；只檢視 `790a581cf`、`2a0ab4be6`、`63941b583`（Grok proxy、terminal controls、ownership）。
+範圍同時含 workflow、assets、devlog 與 proxy 合約，故不 raw merge、不推水位。下一切片只讀後十筆
+`src/`/`tests/` commit；採用前跑 `pwsh -NoProfile -File tools\dev_check.ps1`。

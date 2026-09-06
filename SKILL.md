@@ -29,7 +29,7 @@ description: 維護 SanHsien/opencodex：lidge-jun/opencodex 的 Windows-first f
 
 - `src/`：proxy runtime、routing、provider adapters、帳號池
 - `gui/`：dashboard
-- `tests/`：Bun 測試；fork 骨架在 `tests/fork-hygiene.test.ts`
+- `tests/`：Bun 測試；fork 骨架在 `tests/ci-workflows/fork-hygiene.test.ts`
 - `docs-site/`：上游公開文件（本 fork 不部署）
 - `docs/fork/`：本 fork 的開發、上游、決策
 - `tools/dev_check.ps1`：Windows 本機 fork gate

@@ -450,6 +450,7 @@
   "featherless-provider.test.ts": "providers",
   "fetch-header-timeout.test.ts": "server",
   "fixture-dir-uniqueness.test.ts": "ci-workflows",
+  "fork-hygiene.test.ts": "ci-workflows",
   "format-result.test.ts": "web-search",
   "forward-admission-separation.test.ts": "providers",
   "fulfill-video.test.ts": "videos",

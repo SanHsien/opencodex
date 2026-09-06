@@ -33,7 +33,7 @@ if (-not (Test-Path -LiteralPath $modules) -or -not (Test-Path -LiteralPath $loc
 }
 
 Invoke-BunStep -Label "Fork hygiene tests" -Arguments @(
-    "test", "tests/fork-hygiene.test.ts"
+    "test", "tests/ci-workflows/fork-hygiene.test.ts"
 )
 Invoke-BunStep -Label "Check fork Markdown links" -Arguments @(
     "tools/check-links.ts"

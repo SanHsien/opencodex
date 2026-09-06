@@ -41,7 +41,7 @@ bun run src/cli/index.ts start
 `tools\dev_check.ps1` 會依序：
 
 1. `bun install --frozen-lockfile`（若 `node_modules` 不完整）
-2. `bun test tests/fork-hygiene.test.ts`
+2. `bun test tests/ci-workflows/fork-hygiene.test.ts`
 3. `bun tools/check-links.ts`
 
 這是 fork 文件與 guard 的硬閘門，不是完整產品回歸。

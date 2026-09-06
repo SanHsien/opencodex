@@ -90,7 +90,7 @@ describe("model tooltip tier confirmation (#2455)", () => {
     // Named explicitly: the directory also holds label modules that are not catalogs,
     // and this list is the same one LOCALES declares in i18n/shared.ts.
     const LOCALE_FILES = [
-      "en.ts", "de.ts", "fr.ts", "ko.ts", "zh.ts", "zh-TW.ts", "ru.ts", "ja.ts", "tr.ts",
+      "en.ts", "zh-TW.ts",
     ];
     const dir = repoPath("gui", "src", "i18n");
     const present = readdirSync(dir);

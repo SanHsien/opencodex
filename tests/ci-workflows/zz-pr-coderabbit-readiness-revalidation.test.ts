@@ -128,7 +128,8 @@ describe("workflow comment-spam hardening", () => {
     }
 
     const job = workflow.jobs?.["enforce-target"];
-    expect(job?.if).toBe("needs.resolve-pr.outputs.pull-number != ''");
+    expect(job?.if).toContain("github.repository == 'lidge-jun/opencodex'");
+    expect(job?.if).toContain("needs.resolve-pr.outputs.pull-number != ''");
 
     const checkoutStep = job?.steps?.find(
       step => step.name === "Checkout trusted PR-quality scripts",

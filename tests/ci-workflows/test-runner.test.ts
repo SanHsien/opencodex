@@ -254,7 +254,7 @@ describe("bun test argv", () => {
   test("full-suite settings use bounded defaults and accept task-specific overrides", () => {
     expect(resolveFullSuiteSettings({})).toEqual({
       batchSize: 16,
-      batchTimeoutMs: 240_000,
+      batchTimeoutMs: 600_000,
       totalTimeoutMs: 2_700_000,
     });
     expect(resolveFullSuiteSettings({

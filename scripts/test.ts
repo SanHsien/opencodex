@@ -76,7 +76,10 @@ function hasCliFlag(requested: string[], name: string): boolean {
 const DEFAULT_TEST_PARALLELISM = 4;
 const DEFAULT_FULL_SUITE_TEST_TIMEOUT_MS = 60_000;
 export const DEFAULT_FULL_SUITE_BATCH_SIZE = 16;
-export const DEFAULT_FULL_SUITE_BATCH_TIMEOUT_SECONDS = 240;
+// A few integration suites legitimately take longer than four minutes on Windows.
+// Keep an explicit per-batch ceiling, but leave enough headroom for those canonical
+// cases; the separate 45-minute total cap still bounds the whole full-suite run.
+export const DEFAULT_FULL_SUITE_BATCH_TIMEOUT_SECONDS = 600;
 export const DEFAULT_FULL_SUITE_TIMEOUT_SECONDS = 45 * 60;
 
 export interface FullSuiteSettings {

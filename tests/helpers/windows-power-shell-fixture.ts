@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -6,6 +6,20 @@ export interface WindowsPowerShellFixture {
   executable: string;
   cleanup: () => void | Promise<void>;
 }
+
+export interface WindowsPowerShellFixtureOptions {
+  /** Test seam for cleanup and failed-compiler regression coverage. */
+  platform?: NodeJS.Platform;
+  compile?: (source: string, executable: string) => Promise<{ ok: boolean; detail: string }>;
+  /** Test seam; production keeps the compiler bounded to 30 seconds. */
+  compileTimeoutMs?: number;
+  onFixtureDirectory?: (dir: string) => void;
+}
+
+const FIXTURE_COMPILE_TIMEOUT_MS = 30_000;
+const FIXTURE_OUTPUT_LIMIT = 4_000;
+
+class FixtureCompilerUnreapedError extends Error {}
 
 /**
  * Run the fixture the way production runs PowerShell and return what happened.
@@ -73,41 +87,105 @@ export async function probeWindowsPowerShellFixture(
  * fixture because the production Windows branch is only reached after the platform is
  * explicitly faked by the tests.
  */
-export function createWindowsPowerShellFixture(): Promise<WindowsPowerShellFixture> {
+export function createWindowsPowerShellFixture(
+  options: WindowsPowerShellFixtureOptions = {},
+): Promise<WindowsPowerShellFixture> {
   // Each suite owns its fixture. Sharing one directory across suites lets the
   // first cleanup remove the executable while another suite is still using it.
-  return process.platform === "win32"
-    ? buildWindowsExecutableFixture()
+  return (options.platform ?? process.platform) === "win32"
+    ? buildWindowsExecutableFixture(options)
     : Promise.resolve(createPosixShellFixture());
 }
 
-async function buildWindowsExecutableFixture(): Promise<WindowsPowerShellFixture> {
+async function buildWindowsExecutableFixture(
+  options: WindowsPowerShellFixtureOptions,
+): Promise<WindowsPowerShellFixture> {
   const dir = mkdtempSync(join(tmpdir(), "ocx-ps-fixture-"));
+  options.onFixtureDirectory?.(dir);
   const source = join(dir, "fake-powershell.ts");
   const executable = join(dir, "fake-powershell.exe");
-  writeFileSync(source, [
-    "const command = process.argv.slice(2).join(' ');",
-    "await new Promise(resolve => setTimeout(resolve, 200));",
-    "if (command.includes('CreationDate')) {",
-    "  process.stdout.write('42\\t1970-01-01T00:00:00.500Z\\n');",
-    "} else {",
-    "  process.stdout.write('42\\t/usr/local/bin/codex app-server\\tCONTOSO\\\\jun\\n');",
-    "}",
-  ].join("\n"));
+  try {
+    writeFileSync(source, [
+      "const command = process.argv.slice(2).join(' ');",
+      "await new Promise(resolve => setTimeout(resolve, 200));",
+      "if (command.includes('CreationDate')) {",
+      "  process.stdout.write('42\\t1970-01-01T00:00:00.500Z\\n');",
+      "} else {",
+      "  process.stdout.write('42\\t/usr/local/bin/codex app-server\\tCONTOSO\\\\jun\\n');",
+      "}",
+    ].join("\n"));
 
-  const result = await Bun.build({
-    entrypoints: [source],
-    compile: { target: "bun-windows-x64", outfile: executable },
-  });
-  if (!result.success) {
-    rmSync(dir, { recursive: true, force: true });
-    const details = result.logs.map(log => log.message).join("\n");
-    throw new Error(`Could not compile Windows PowerShell test fixture: ${details}`);
+    const result = options.compile
+      ? await options.compile(source, executable)
+      : await compileWindowsExecutableFixture(source, executable, options.compileTimeoutMs);
+    if (!result.ok || !existsSync(executable)) {
+      const missing = !existsSync(executable) ? "; compiler produced no executable" : "";
+      throw new Error(`Could not compile Windows PowerShell test fixture: ${result.detail}${missing}`);
+    }
+    return {
+      executable,
+      cleanup: () => removeFixtureDirectory(dir),
+    };
+  } catch (error) {
+    if (error instanceof FixtureCompilerUnreapedError) throw error;
+    try {
+      await removeFixtureDirectory(dir);
+    } catch (cleanupError) {
+      const compileDetail = error instanceof Error ? error.message : String(error);
+      const cleanupDetail = cleanupError instanceof Error ? cleanupError.message : String(cleanupError);
+      throw new Error(`${compileDetail}; fixture cleanup also failed: ${cleanupDetail}`);
+    }
+    throw error;
   }
-  return {
-    executable,
-    cleanup: () => removeFixtureDirectory(dir),
-  };
+}
+
+async function compileWindowsExecutableFixture(
+  source: string,
+  executable: string,
+  timeoutMs = FIXTURE_COMPILE_TIMEOUT_MS,
+): Promise<{ ok: boolean; detail: string }> {
+  try {
+    const child = Bun.spawn([
+      process.execPath,
+      "build",
+      source,
+      "--compile",
+      "--target=bun-windows-x64",
+      `--outfile=${executable}`,
+    ], { stdout: "pipe", stderr: "pipe" });
+    const stdoutPromise = new Response(child.stdout).text();
+    const stderrPromise = new Response(child.stderr).text();
+    const completed = await Promise.race([
+      Promise.all([stdoutPromise, stderrPromise, child.exited]),
+      Bun.sleep(timeoutMs).then(() => null),
+    ]);
+    if (!completed) {
+      try { child.kill(); } catch { /* already exited */ }
+      let reaped = await Promise.race([
+        child.exited.then(() => true, () => true),
+        Bun.sleep(500).then(() => false),
+      ]);
+      if (!reaped) {
+        try { child.kill(9); } catch { /* already exited */ }
+        reaped = await Promise.race([
+          child.exited.then(() => true, () => true),
+          Bun.sleep(500).then(() => false),
+        ]);
+      }
+      if (!reaped) {
+        throw new FixtureCompilerUnreapedError(
+          `Could not compile Windows PowerShell test fixture: timed out after ${timeoutMs}ms; `
+          + "reaped=false; refusing fixture cleanup while compiler may still be writing",
+        );
+      }
+      return { ok: false, detail: `timed out after ${timeoutMs}ms; reaped=true` };
+    }
+    const [stdout, stderr, exitCode] = completed;
+    const detail = `${stdout}\n${stderr}`.trim().slice(0, FIXTURE_OUTPUT_LIMIT);
+    return { ok: exitCode === 0, detail: `exit=${exitCode}${detail ? ` output=${JSON.stringify(detail)}` : ""}` };
+  } catch (error) {
+    return { ok: false, detail: error instanceof Error ? `${error.name}: ${error.message}` : String(error) };
+  }
 }
 
 function createPosixShellFixture(): WindowsPowerShellFixture {

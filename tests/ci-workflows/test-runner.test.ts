@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, posix, win32 } from "node:path";
 import {
@@ -7,8 +7,10 @@ import {
   createIsolatedTestEnvironment,
   ensureGuiDependencies,
   inspectChangedRun,
+  listFullSuiteTestFiles,
   resolveBunTestArgs,
   resolveBunTestPlan,
+  resolveFullSuiteSettings,
   selectChangedComparisonRef,
   SERIAL_FULL_SUITE_FILES,
 } from "../../scripts/test";
@@ -45,6 +47,24 @@ function runGit(cwd: string, ...args: string[]): string {
 // allow-listed, so writing it whole fails the repository's own privacy gate. The bytes
 // handed to git are identical either way.
 const FIXTURE_COMMIT_EMAIL = ["test", "opencodex.invalid"].join("@");
+
+const FULL_SUITE_FIXTURE_FILES = [
+  "tests/alpha.test.ts",
+  "tests/bravo.test.ts",
+  "tests/charlie.test.ts",
+  ...SERIAL_FULL_SUITE_FILES.map(file => `tests/${file}`),
+];
+const FULL_SUITE_FIXTURE_SETTINGS = {
+  batchSize: 2,
+  batchTimeoutMs: 20_000,
+  totalTimeoutMs: 90_000,
+};
+function fullSuitePlan(requested: string[] = []) {
+  return resolveBunTestPlan(requested, undefined, {
+    fullSuiteFiles: FULL_SUITE_FIXTURE_FILES,
+    settings: FULL_SUITE_FIXTURE_SETTINGS,
+  });
+}
 
 function pathIsContainedBy(parent: string, candidate: string, platform: "posix" | "win32"): boolean {
   const path = platform === "win32" ? win32 : posix;
@@ -168,16 +188,17 @@ describe("bun test argv", () => {
     expect(resolveBunTestArgs([])).toEqual(["--isolate", "--parallel=4", "./tests/"]);
   });
 
-  test("the default full suite quarantines load-sensitive files into one-worker lanes", () => {
-    const plan = resolveBunTestPlan([]);
-    expect(plan).toHaveLength(SERIAL_FULL_SUITE_FILES.length + 1);
-    expect(plan[0]?.label).toBe("parallel suite");
+  test("the default full suite runs bounded fresh-process batches and quarantines risky files", () => {
+    const plan = fullSuitePlan();
+    expect(plan).toHaveLength(SERIAL_FULL_SUITE_FILES.length + 2);
+    expect(plan[0]?.label).toBe("full suite batch 1/2");
     expect(plan[0]?.args).toContain("--parallel=4");
-    expect(plan[0]?.args).toContain("./tests/");
+    expect(plan[0]?.args).toEqual(["--isolate", "--parallel=4", "tests/alpha.test.ts", "tests/bravo.test.ts"]);
+    expect(plan[1]?.label).toBe("full suite batch 2/2");
+    expect(plan[1]?.args).toEqual(["--isolate", "--parallel=4", "tests/charlie.test.ts"]);
+    expect(plan[0]?.timeoutMs).toBe(FULL_SUITE_FIXTURE_SETTINGS.batchTimeoutMs);
     for (const file of SERIAL_FULL_SUITE_FILES) {
-      // The ignore glob and the lane label use the basename; only the lane argv carries the
-      // path relative to tests/, so an entry can move into a domain directory.
-      expect(plan[0]?.args).toContain(`**/${basename(file)}`);
+      // The serial lane label uses the basename while argv carries its path relative to tests/.
       expect(plan.find(lane => lane.label === basename(file))?.args).toEqual([
         "--isolate",
         "--parallel=1",
@@ -188,10 +209,11 @@ describe("bun test argv", () => {
     expect(plan.find(lane => lane.label === "codex-shim.test.ts")?.timeoutMs).toBe(3 * 60 * 1000);
   });
 
-  test("serial lanes override caller parallelism without changing the main lane", () => {
-    const plan = resolveBunTestPlan(["--parallel=2", "--only-failures"]);
+  test("serial lanes override caller parallelism without changing fresh main batches", () => {
+    const plan = fullSuitePlan(["--parallel=2", "--only-failures"]);
     expect(plan[0]?.args).toContain("--parallel=2");
-    for (const lane of plan.slice(1)) {
+    expect(plan[1]?.args).toContain("--parallel=2");
+    for (const lane of plan.slice(2)) {
       expect(lane.args).toContain("--parallel=1");
       expect(lane.args).not.toContain("--parallel=2");
       expect(lane.args).toContain("--only-failures");
@@ -202,6 +224,63 @@ describe("bun test argv", () => {
     expect(resolveBunTestPlan(["--shard=1/3"])).toHaveLength(1);
     expect(resolveBunTestPlan(["--reporter=junit", "--reporter-outfile", "results.xml"]))
       .toHaveLength(1);
+  });
+
+  test("full-suite settings use bounded defaults and accept task-specific overrides", () => {
+    expect(resolveFullSuiteSettings({})).toEqual({
+      batchSize: 16,
+      batchTimeoutMs: 240_000,
+      totalTimeoutMs: 2_700_000,
+    });
+    expect(resolveFullSuiteSettings({
+      OCX_TEST_FULL_SUITE_BATCH_SIZE: "7",
+      OCX_TEST_FULL_SUITE_BATCH_TIMEOUT_SECONDS: "31",
+      OCX_TEST_FULL_SUITE_TIMEOUT_SECONDS: "801",
+    })).toEqual({ batchSize: 7, batchTimeoutMs: 31_000, totalTimeoutMs: 801_000 });
+    expect(() => resolveFullSuiteSettings({ OCX_TEST_FULL_SUITE_BATCH_SIZE: "0" }))
+      .toThrow("OCX_TEST_FULL_SUITE_BATCH_SIZE must be a positive integer");
+    expect(() => resolveFullSuiteSettings({ OCX_TEST_FULL_SUITE_TIMEOUT_SECONDS: "999999999999999999999" }))
+      .toThrow("OCX_TEST_FULL_SUITE_TIMEOUT_SECONDS must be a safe positive integer");
+  });
+
+  test("full-suite discovery includes the relocated fork guard and only runnable test names", () => {
+    const files = listFullSuiteTestFiles(repoRoot());
+    expect(files).toContain("tests/ci-workflows/fork-hygiene.test.ts");
+    expect(files).toContain("tests/ci-workflows/test-runner.test.ts");
+    expect(files.every(file => /(?:\.test|_test|\.spec|_spec)\.(?:js|jsx|ts|tsx)$/.test(file))).toBe(true);
+  });
+
+  test("the full-suite wrapper runs main batches in fresh bounded processes", () => {
+    const fixtureRoot = mkdtempSync(join(tmpdir(), "opencodex-batched-suite-"));
+    try {
+      for (const relative of FULL_SUITE_FIXTURE_FILES) {
+        const path = join(fixtureRoot, relative);
+        mkdirSync(dirname(path), { recursive: true });
+        writeFileSync(path, 'import { test } from "bun:test"; test(import.meta.path, () => {});\n');
+      }
+      const result = Bun.spawnSync([process.execPath, repoPath("scripts", "test.ts")], {
+        cwd: fixtureRoot,
+        env: {
+          ...process.env,
+          OCX_TEST_NO_QUEUE: "1",
+          OCX_TEST_FULL_SUITE_BATCH_SIZE: "2",
+          OCX_TEST_FULL_SUITE_BATCH_TIMEOUT_SECONDS: "20",
+          OCX_TEST_FULL_SUITE_TIMEOUT_SECONDS: "90",
+        },
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      const output = new TextDecoder().decode(result.stdout) + new TextDecoder().decode(result.stderr);
+      expect(result.exitCode).toBe(0);
+      expect(output).toContain("9 files in 2 fresh-process batches (size <= 2, each <= 20s, whole run <= 2m)");
+      expect(output).toContain("full suite batch 1/2 finished");
+      expect(output).toContain("full suite batch 2/2 finished");
+      for (const file of SERIAL_FULL_SUITE_FILES) {
+        expect(output).toContain(`${basename(file)} finished`);
+      }
+    } finally {
+      removeTreeWithRetry(fixtureRoot);
+    }
   });
 
   test("a file filter keeps isolate and bounded parallelism but no suite path", () => {

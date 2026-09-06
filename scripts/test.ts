@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import {
@@ -74,6 +74,72 @@ function hasCliFlag(requested: string[], name: string): boolean {
 }
 
 const DEFAULT_TEST_PARALLELISM = 4;
+export const DEFAULT_FULL_SUITE_BATCH_SIZE = 16;
+export const DEFAULT_FULL_SUITE_BATCH_TIMEOUT_SECONDS = 240;
+export const DEFAULT_FULL_SUITE_TIMEOUT_SECONDS = 45 * 60;
+
+export interface FullSuiteSettings {
+  batchSize: number;
+  batchTimeoutMs: number;
+  totalTimeoutMs: number;
+}
+
+function positiveIntegerEnv(
+  name: string,
+  fallback: number,
+  env: Record<string, string | undefined>,
+): number {
+  const raw = env[name];
+  if (raw === undefined || raw === "") return fallback;
+  if (!/^[1-9]\d*$/.test(raw)) {
+    throw new Error(`[test] ${name} must be a positive integer, got ${JSON.stringify(raw)}.`);
+  }
+  const value = Number(raw);
+  if (!Number.isSafeInteger(value)) {
+    throw new Error(`[test] ${name} must be a safe positive integer, got ${JSON.stringify(raw)}.`);
+  }
+  return value;
+}
+
+/** Settings for the bounded fresh-process full-suite runner. */
+export function resolveFullSuiteSettings(
+  env: Record<string, string | undefined> = process.env,
+): FullSuiteSettings {
+  return {
+    batchSize: positiveIntegerEnv("OCX_TEST_FULL_SUITE_BATCH_SIZE", DEFAULT_FULL_SUITE_BATCH_SIZE, env),
+    batchTimeoutMs: positiveIntegerEnv(
+      "OCX_TEST_FULL_SUITE_BATCH_TIMEOUT_SECONDS",
+      DEFAULT_FULL_SUITE_BATCH_TIMEOUT_SECONDS,
+      env,
+    ) * 1000,
+    totalTimeoutMs: positiveIntegerEnv(
+      "OCX_TEST_FULL_SUITE_TIMEOUT_SECONDS",
+      DEFAULT_FULL_SUITE_TIMEOUT_SECONDS,
+      env,
+    ) * 1000,
+  };
+}
+
+const TEST_FILE_PATTERN = /(?:\.test|_test|\.spec|_spec)\.(?:js|jsx|ts|tsx)$/;
+
+/** List test files once, so every full-suite batch is an independent Bun process. */
+export function listFullSuiteTestFiles(cwd: string = process.cwd()): string[] {
+  const root = join(cwd, "tests");
+  const files: string[] = [];
+  const walk = (dir: string, relative: string) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const childRelative = relative ? `${relative}/${entry.name}` : entry.name;
+      const child = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        walk(child, childRelative);
+      } else if (entry.isFile() && TEST_FILE_PATTERN.test(entry.name)) {
+        files.push(`tests/${childRelative}`);
+      }
+    }
+  };
+  walk(root, "");
+  return files.sort();
+}
 
 // Bun 1.4.0 builds `bun test` options from its test, runtime, transpiler, and base tables.
 // Only required values consume the next argument. Optional values such as `--parallel=2`
@@ -348,6 +414,11 @@ export interface BunTestLane {
   timeoutMs: number;
 }
 
+export interface BunTestPlanOptions {
+  fullSuiteFiles?: readonly string[];
+  settings?: FullSuiteSettings;
+}
+
 function withoutParallelOverride(requested: string[]): string[] {
   return requested.filter(arg => arg !== "--parallel" && !arg.startsWith("--parallel="));
 }
@@ -357,19 +428,36 @@ function canUseSerialLanes(requested: string[]): boolean {
   return !["--changed", "--shard", "--reporter-outfile", "--update-timings"].some(flag => hasCliFlag(requested, flag));
 }
 
-/** Build the default full-suite plan: one bounded main lane plus isolated risky files. */
-export function resolveBunTestPlan(requested: string[], comparisonCommit?: string): BunTestLane[] {
+/** Build the default full-suite plan: bounded fresh-process batches plus isolated risky files. */
+export function resolveBunTestPlan(
+  requested: string[],
+  comparisonCommit?: string,
+  options: BunTestPlanOptions = {},
+): BunTestLane[] {
   if (!canUseSerialLanes(requested)) {
     return [{ label: "suite", args: resolveBunTestArgs(requested, comparisonCommit), timeoutMs: 15 * 60 * 1000 }];
   }
 
-  const mainArgs = resolveBunTestArgs(requested, comparisonCommit);
-  const rootIndex = mainArgs.lastIndexOf("./tests/");
-  const ignores = SERIAL_FULL_SUITE_FILES.flatMap(file => ["--path-ignore-patterns", `**/${basename(file)}`]);
-  mainArgs.splice(rootIndex === -1 ? mainArgs.length : rootIndex, 0, ...ignores);
+  const settings = options.settings ?? resolveFullSuiteSettings();
+  const serialPaths = new Set(SERIAL_FULL_SUITE_FILES.map(file => `tests/${file}`));
+  const mainFiles = (options.fullSuiteFiles ?? listFullSuiteTestFiles())
+    .filter(file => !serialPaths.has(file));
+  if (mainFiles.length === 0) throw new Error("[test] full suite selected no non-serial test files.");
+
+  const mainLanes: BunTestLane[] = [];
+  const totalBatches = Math.ceil(mainFiles.length / settings.batchSize);
+  for (let index = 0; index < mainFiles.length; index += settings.batchSize) {
+    const batch = mainFiles.slice(index, index + settings.batchSize);
+    mainLanes.push({
+      label: `full suite batch ${mainLanes.length + 1}/${totalBatches}`,
+      args: resolveBunTestArgs([...requested, ...batch], comparisonCommit),
+      timeoutMs: settings.batchTimeoutMs,
+    });
+  }
+
   const serialRequested = withoutParallelOverride(requested);
   return [
-    { label: "parallel suite", args: mainArgs, timeoutMs: 15 * 60 * 1000 },
+    ...mainLanes,
     ...SERIAL_FULL_SUITE_FILES.map(file => ({
       label: basename(file),
       args: resolveBunTestArgs(["--parallel=1", ...serialRequested, `./tests/${file}`]),
@@ -542,13 +630,42 @@ if (import.meta.main) {
       const inheritedLock = process.platform === "win32" && lockPath && lock.owner
         ? { lockPath, ownerToken: lock.owner.token }
         : undefined;
+      const fullSuite = isFullSuiteRun(requestedTests);
+      const fullSuiteSettings = fullSuite ? resolveFullSuiteSettings() : undefined;
+      const fullSuiteFiles = fullSuite ? listFullSuiteTestFiles() : undefined;
+      const plan = resolveBunTestPlan(requestedTests, changedRun?.comparisonCommit, {
+        fullSuiteFiles,
+        settings: fullSuiteSettings,
+      });
+      if (fullSuite && fullSuiteSettings && fullSuiteFiles) {
+        const mainBatchCount = plan.length - SERIAL_FULL_SUITE_FILES.length;
+        console.warn(
+          `[test] full suite: ${fullSuiteFiles.length} files in ${mainBatchCount} fresh-process batches `
+          + `(size <= ${fullSuiteSettings.batchSize}, each <= ${Math.round(fullSuiteSettings.batchTimeoutMs / 1000)}s, `
+          + `whole run <= ${Math.round(fullSuiteSettings.totalTimeoutMs / 60_000)}m).`,
+        );
+      }
       let exitCode = 0;
       let captured = "";
-      for (const lane of resolveBunTestPlan(requestedTests, changedRun?.comparisonCommit)) {
-        const result = await runTestLane(lane, runId, inheritedLock, Boolean(changedRun));
+      for (const lane of plan) {
+        const elapsedMs = Date.now() - startedAt;
+        const remainingMs = fullSuiteSettings ? fullSuiteSettings.totalTimeoutMs - elapsedMs : lane.timeoutMs;
+        if (remainingMs <= 0) {
+          console.error(`[test] full suite exceeded its ${Math.round(fullSuiteSettings!.totalTimeoutMs / 60_000)}m overall limit before ${lane.label}.`);
+          exitCode = 124;
+          break;
+        }
+        const result = await runTestLane(
+          { ...lane, timeoutMs: Math.min(lane.timeoutMs, remainingMs) },
+          runId,
+          inheritedLock,
+          Boolean(changedRun),
+        );
         captured += result.output;
-        if (result.exitCode !== 0 && exitCode === 0) exitCode = result.exitCode;
-        if ([124, 130, 143].includes(result.exitCode)) break;
+        if (result.exitCode !== 0) {
+          exitCode = result.exitCode;
+          break;
+        }
       }
       if (exitCode === 0 && changedRun) {
         const selectionFailure = changedSelectionFailure(changedRun, captured);
@@ -558,7 +675,7 @@ if (import.meta.main) {
         }
       }
       const elapsedSeconds = Math.round((Date.now() - startedAt) / 1000);
-      if (isFullSuiteRun(requestedTests) && elapsedSeconds > 600) {
+      if (fullSuite && elapsedSeconds > 600) {
         console.warn(
           `[test] the suite took ${elapsedSeconds}s; with --parallel=${DEFAULT_TEST_PARALLELISM} it should finish in a few minutes on an idle machine. `
           + "Check for another test runner, a busy CPU, or a test that started polling something real.",

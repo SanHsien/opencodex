@@ -1,6 +1,6 @@
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 export interface WindowsPowerShellFixture {
   executable: string;
@@ -17,6 +17,7 @@ export interface WindowsPowerShellFixtureOptions {
 }
 
 const FIXTURE_COMPILE_TIMEOUT_MS = 30_000;
+const FIXTURE_COMPILE_RETRY_DELAY_MS = 150;
 const FIXTURE_OUTPUT_LIMIT = 4_000;
 const BUN_WINDOWS_COMPILE_COPY_ENOENT = "failed to copy bun executable into temporary file: ENOENT";
 
@@ -103,10 +104,8 @@ async function buildWindowsExecutableFixture(
 ): Promise<WindowsPowerShellFixture> {
   const dir = mkdtempSync(join(tmpdir(), "ocx-ps-fixture-"));
   options.onFixtureDirectory?.(dir);
-  const source = join(dir, "fake-powershell.ts");
-  const executable = join(dir, "fake-powershell.exe");
   try {
-    writeFileSync(source, [
+    const sourceBody = [
       "const command = process.argv.slice(2).join(' ');",
       "await new Promise(resolve => setTimeout(resolve, 200));",
       "if (command.includes('CreationDate')) {",
@@ -114,7 +113,7 @@ async function buildWindowsExecutableFixture(
       "} else {",
       "  process.stdout.write('42\\t/usr/local/bin/codex app-server\\tCONTOSO\\\\jun\\n');",
       "}",
-    ].join("\n"));
+    ].join("\n");
 
     const compile = options.compile
       ?? ((nextSource: string, nextExecutable: string) => compileWindowsExecutableFixture(
@@ -124,6 +123,13 @@ async function buildWindowsExecutableFixture(
       ));
     const attempts: string[] = [];
     for (let attempt = 1; attempt <= 2; attempt += 1) {
+      // Bun's --compile copies its runtime through TMP/TEMP before publishing --outfile.
+      // Isolate every compiler child so a long suite's stale temp state or first failed
+      // attempt cannot make the fresh attempt reuse an unavailable staging path.
+      const attemptDir = mkdtempSync(join(dir, `compile-attempt-${attempt}-`));
+      const source = join(attemptDir, "fake-powershell.ts");
+      const executable = join(attemptDir, "fake-powershell.exe");
+      writeFileSync(source, sourceBody);
       // compileWindowsExecutableFixture resolves only after its child has exited or been
       // boundedly reaped. A retry therefore never overlaps the first compiler process.
       const result = await compile(source, executable);
@@ -139,6 +145,7 @@ async function buildWindowsExecutableFixture(
         // Bun can leave an empty or partial output at --outfile. Do not let a successful
         // fresh compiler mistake it for its own completed executable.
         rmSync(executable, { force: true });
+        await Bun.sleep(FIXTURE_COMPILE_RETRY_DELAY_MS);
         continue;
       }
       throw new Error(
@@ -173,7 +180,13 @@ async function compileWindowsExecutableFixture(
       "--compile",
       "--target=bun-windows-x64",
       `--outfile=${executable}`,
-    ], { stdout: "pipe", stderr: "pipe" });
+    ], {
+      stdout: "pipe",
+      stderr: "pipe",
+      // Keep Bun's own compile staging file inside the unique output sandbox too.
+      // This is inherited nowhere else: the test process itself retains its normal env.
+      env: { ...process.env, TMP: dirname(executable), TEMP: dirname(executable) },
+    });
     const stdoutPromise = new Response(child.stdout).text();
     const stderrPromise = new Response(child.stderr).text();
     const completed = await Promise.race([

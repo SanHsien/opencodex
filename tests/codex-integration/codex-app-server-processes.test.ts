@@ -37,16 +37,22 @@ describe("Windows PowerShell fixture compiler", () => {
   test("retries the precise Bun compile-copy ENOENT once after removing a partial executable", async () => {
     let fixtureDir: string | undefined;
     let attempts = 0;
+    let firstSource: string | undefined;
+    let firstExecutable: string | undefined;
     const fixture = await createWindowsPowerShellFixture({
       platform: "win32",
       onFixtureDirectory: dir => { fixtureDir = dir; },
-      compile: async (_source, executable) => {
+      compile: async (source, executable) => {
         attempts += 1;
         if (attempts === 1) {
+          firstSource = source;
+          firstExecutable = executable;
           writeFileSync(executable, "partial executable");
           return { ok: false, detail: bunCompileCopyEnoent };
         }
-        expect(existsSync(executable)).toBe(false);
+        expect(source).not.toBe(firstSource);
+        expect(executable).not.toBe(firstExecutable);
+        expect(existsSync(firstExecutable!)).toBe(false);
         writeFileSync(executable, "complete executable");
         return { ok: true, detail: "exit=0" };
       },

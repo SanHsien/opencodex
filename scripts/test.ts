@@ -413,6 +413,8 @@ export interface BunTestLane {
   label: string;
   args: string[];
   timeoutMs: number;
+  /** Only ordinary full-suite batches get one fresh-process retry for a transient failure. */
+  retryOnFailure?: boolean;
 }
 
 export interface BunTestPlanOptions {
@@ -461,6 +463,7 @@ export function resolveBunTestPlan(
       label: `full suite batch ${mainLanes.length + 1}/${totalBatches}`,
       args: resolveBunTestArgs([...fullSuiteRequested, ...batch], comparisonCommit),
       timeoutMs: settings.batchTimeoutMs,
+      retryOnFailure: true,
     });
   }
 
@@ -664,13 +667,39 @@ if (import.meta.main) {
           exitCode = 124;
           break;
         }
-        const result = await runTestLane(
+        let result = await runTestLane(
           { ...lane, timeoutMs: Math.min(lane.timeoutMs, remainingMs) },
           runId,
           inheritedLock,
           Boolean(changedRun),
         );
         captured += result.output;
+        if (
+          result.exitCode !== 0
+          && lane.retryOnFailure
+          && ![130, 143].includes(result.exitCode)
+          && fullSuiteSettings
+        ) {
+          const retryRemainingMs = fullSuiteSettings.totalTimeoutMs - (Date.now() - startedAt);
+          if (retryRemainingMs <= 0) {
+            console.error(`[test] ${lane.label} first attempt exited ${result.exitCode}; no retry because the full-suite deadline is exhausted.`);
+          } else {
+            console.warn(`[test] ${lane.label} first attempt exited ${result.exitCode}; retrying once in a fresh Bun process.`);
+            const retry = await runTestLane(
+              { ...lane, label: `${lane.label} retry`, timeoutMs: Math.min(lane.timeoutMs, retryRemainingMs) },
+              runId,
+              inheritedLock,
+              false,
+            );
+            captured += retry.output;
+            if (retry.exitCode === 0) {
+              console.warn(`[test] ${lane.label} passed on its single fresh-process retry.`);
+            } else {
+              console.error(`[test] ${lane.label} failed again on its single retry (exit ${retry.exitCode}).`);
+            }
+            result.exitCode = retry.exitCode;
+          }
+        }
         if (result.exitCode !== 0) {
           exitCode = result.exitCode;
           break;

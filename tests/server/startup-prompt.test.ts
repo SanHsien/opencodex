@@ -154,7 +154,7 @@ describe("startup star prompt", () => {
     expect(agents).toContain("AGENTS_INSTALL.md");
     expect(readme).toContain("AGENTS_INSTALL.md");
     expect(readme).toContain("agent_consent_required");
-    expect(readme.toLowerCase()).toContain("never an agent");
+    expect(readme).toContain("絕非由代理代答");
   });
 
   test("the star prompt only appears when gh can actually star", async () => {

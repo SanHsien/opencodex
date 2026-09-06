@@ -297,7 +297,7 @@ describe("bun test argv", () => {
     expect(resolveFullSuiteSettings({})).toEqual({
       batchSize: 16,
       batchTimeoutMs: 600_000,
-      totalTimeoutMs: 2_700_000,
+      totalTimeoutMs: 7_200_000,
     });
     expect(resolveFullSuiteSettings({
       OCX_TEST_FULL_SUITE_BATCH_SIZE: "7",

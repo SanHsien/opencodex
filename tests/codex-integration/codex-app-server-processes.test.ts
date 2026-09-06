@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import { spawn } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { setTrustedWindowsElevationExecutablesForTests } from "../../src/lib/windows-elevation";
 import {
@@ -30,6 +30,63 @@ import {
 import { repoPath } from "../helpers/repo-root";
 
 describe("Windows PowerShell fixture compiler", () => {
+  const bunCompileCopyEnoent = `exit=1 output=${JSON.stringify(
+    "error: failed to copy bun executable into temporary file: ENOENT",
+  )}`;
+
+  test("retries the precise Bun compile-copy ENOENT once after removing a partial executable", async () => {
+    let fixtureDir: string | undefined;
+    let attempts = 0;
+    const fixture = await createWindowsPowerShellFixture({
+      platform: "win32",
+      onFixtureDirectory: dir => { fixtureDir = dir; },
+      compile: async (_source, executable) => {
+        attempts += 1;
+        if (attempts === 1) {
+          writeFileSync(executable, "partial executable");
+          return { ok: false, detail: bunCompileCopyEnoent };
+        }
+        expect(existsSync(executable)).toBe(false);
+        writeFileSync(executable, "complete executable");
+        return { ok: true, detail: "exit=0" };
+      },
+    });
+    expect(attempts).toBe(2);
+    expect(existsSync(fixture.executable)).toBe(true);
+    await fixture.cleanup();
+    expect(existsSync(fixtureDir!)).toBe(false);
+  });
+
+  test("reports both attempts when the precise Bun compile-copy ENOENT repeats", async () => {
+    let fixtureDir: string | undefined;
+    let attempts = 0;
+    await expect(createWindowsPowerShellFixture({
+      platform: "win32",
+      onFixtureDirectory: dir => { fixtureDir = dir; },
+      compile: async () => {
+        attempts += 1;
+        return { ok: false, detail: bunCompileCopyEnoent };
+      },
+    })).rejects.toThrow(/attempt 1: .*ENOENT.*attempt 2: .*ENOENT/);
+    expect(attempts).toBe(2);
+    expect(existsSync(fixtureDir!)).toBe(false);
+  });
+
+  test("does not retry a compiler failure other than the precise Bun compile-copy ENOENT", async () => {
+    let fixtureDir: string | undefined;
+    let attempts = 0;
+    await expect(createWindowsPowerShellFixture({
+      platform: "win32",
+      onFixtureDirectory: dir => { fixtureDir = dir; },
+      compile: async () => {
+        attempts += 1;
+        return { ok: false, detail: "exit=1 output=access denied" };
+      },
+    })).rejects.toThrow("exit=1 output=access denied");
+    expect(attempts).toBe(1);
+    expect(existsSync(fixtureDir!)).toBe(false);
+  });
+
   test("removes its partial directory when the fresh compiler reports failure", async () => {
     let fixtureDir: string | undefined;
     await expect(createWindowsPowerShellFixture({

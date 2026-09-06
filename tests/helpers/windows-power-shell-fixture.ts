@@ -18,6 +18,7 @@ export interface WindowsPowerShellFixtureOptions {
 
 const FIXTURE_COMPILE_TIMEOUT_MS = 30_000;
 const FIXTURE_OUTPUT_LIMIT = 4_000;
+const BUN_WINDOWS_COMPILE_COPY_ENOENT = "failed to copy bun executable into temporary file: ENOENT";
 
 class FixtureCompilerUnreapedError extends Error {}
 
@@ -115,17 +116,37 @@ async function buildWindowsExecutableFixture(
       "}",
     ].join("\n"));
 
-    const result = options.compile
-      ? await options.compile(source, executable)
-      : await compileWindowsExecutableFixture(source, executable, options.compileTimeoutMs);
-    if (!result.ok || !existsSync(executable)) {
-      const missing = !existsSync(executable) ? "; compiler produced no executable" : "";
-      throw new Error(`Could not compile Windows PowerShell test fixture: ${result.detail}${missing}`);
+    const compile = options.compile
+      ?? ((nextSource: string, nextExecutable: string) => compileWindowsExecutableFixture(
+        nextSource,
+        nextExecutable,
+        options.compileTimeoutMs,
+      ));
+    const attempts: string[] = [];
+    for (let attempt = 1; attempt <= 2; attempt += 1) {
+      // compileWindowsExecutableFixture resolves only after its child has exited or been
+      // boundedly reaped. A retry therefore never overlaps the first compiler process.
+      const result = await compile(source, executable);
+      const missing = !existsSync(executable);
+      attempts.push(`attempt ${attempt}: ${result.detail}${missing ? "; compiler produced no executable" : ""}`);
+      if (result.ok && !missing) {
+        return {
+          executable,
+          cleanup: () => removeFixtureDirectory(dir),
+        };
+      }
+      if (attempt === 1 && !result.ok && result.detail.includes(BUN_WINDOWS_COMPILE_COPY_ENOENT)) {
+        // Bun can leave an empty or partial output at --outfile. Do not let a successful
+        // fresh compiler mistake it for its own completed executable.
+        rmSync(executable, { force: true });
+        continue;
+      }
+      throw new Error(
+        `Could not compile Windows PowerShell test fixture: ${result.detail}${missing ? "; compiler produced no executable" : ""}`
+        + `; ${attempts.join("; ")}`,
+      );
     }
-    return {
-      executable,
-      cleanup: () => removeFixtureDirectory(dir),
-    };
+    throw new Error("Could not compile Windows PowerShell test fixture: compiler attempts exhausted");
   } catch (error) {
     if (error instanceof FixtureCompilerUnreapedError) throw error;
     try {
@@ -184,6 +205,7 @@ async function compileWindowsExecutableFixture(
     const detail = `${stdout}\n${stderr}`.trim().slice(0, FIXTURE_OUTPUT_LIMIT);
     return { ok: exitCode === 0, detail: `exit=${exitCode}${detail ? ` output=${JSON.stringify(detail)}` : ""}` };
   } catch (error) {
+    if (error instanceof FixtureCompilerUnreapedError) throw error;
     return { ok: false, detail: error instanceof Error ? `${error.name}: ${error.message}` : String(error) };
   }
 }

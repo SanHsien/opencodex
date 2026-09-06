@@ -209,6 +209,8 @@ fork 文件、Windows 維護工具、workflow guard、英語／繁中 locale 與
 **決定**：以上游 `v2.44.0` (`07b48da8fd63881e848d26e0bd50087864f5573e`) 作產品
 tree，重放 fork overlay 與 Windows full-suite runner，再以 `ours` merge 保留舊 main
 ancestry。另外保留原作者 commits 採用 `#3728`、`#3740`、`#3744`。
+fork HEAD 不可重用已發布 tag 的 `2.44.0` 版本身分，因此本線將 `package.json`
+推進到 `2.45.0`；這是 fork development line，不是上游 v2.45.0 release 聲明。
 
 **理由**：v2.44.0 是 350 commits 的已發布穩定邊界，replay 可令產品檔案以上游為準，
 且不帶回舊 fork patch。三個 PR 都被關閉未合併，所以不會自動隨之後 release

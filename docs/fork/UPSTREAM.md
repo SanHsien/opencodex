@@ -286,6 +286,8 @@ subagent migration，沒有 fork 版重作。
 raw merge。GPT-6 Astra 繼續來自上游原生 catalog、pricing、context/effort 與
 Astra-first subagent 遷移；fork 只保留英文／繁中語系、workflow guard、維護工具與
 Windows full-suite runner。
+因為 replay 後的 fork HEAD 已不是 `v2.44.0` tag 指向的 commit，`package.json` 使用
+`2.45.0` 作本 fork 的 post-release development line；這不表示上游已發布 v2.45.0。
 
 ### Closed-unmerged PR（`#3718`–`#3744`）
 

@@ -352,6 +352,81 @@ test("one-time flake", () => {
     }
   });
 
+  test("the full-suite wrapper retries a timed-out main batch and accepts its fresh-process success", () => {
+    const fixtureRoot = mkdtempSync(join(tmpdir(), "opencodex-batched-timeout-retry-"));
+    try {
+      const marker = join(fixtureRoot, "first-timeout.marker");
+      for (const relative of FULL_SUITE_FIXTURE_FILES) {
+        const path = join(fixtureRoot, relative);
+        mkdirSync(dirname(path), { recursive: true });
+        const source = relative === "tests/alpha.test.ts"
+          ? `import { existsSync, writeFileSync } from "node:fs";
+import { test } from "bun:test";
+const marker = ${JSON.stringify(marker)};
+test("one-time timeout", async () => {
+  if (existsSync(marker)) return;
+  writeFileSync(marker, "first attempt timed out");
+  await Bun.sleep(2_000);
+});
+`
+          : 'import { test } from "bun:test"; test(import.meta.path, () => {});\n';
+        writeFileSync(path, source);
+      }
+      const result = Bun.spawnSync([process.execPath, repoPath("scripts", "test.ts")], {
+        cwd: fixtureRoot,
+        env: {
+          ...process.env,
+          OCX_TEST_NO_QUEUE: "1",
+          OCX_TEST_FULL_SUITE_BATCH_SIZE: "2",
+          OCX_TEST_FULL_SUITE_BATCH_TIMEOUT_SECONDS: "1",
+          OCX_TEST_FULL_SUITE_TIMEOUT_SECONDS: "30",
+        },
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      const output = new TextDecoder().decode(result.stdout) + new TextDecoder().decode(result.stderr);
+      expect(result.exitCode).toBe(0);
+      expect(output).toContain("full suite batch 1/2 exceeded 1s");
+      expect(output).toContain("full suite batch 1/2 first attempt exited 124; retrying once in a fresh Bun process.");
+      expect(output).toContain("full suite batch 1/2 passed on its single fresh-process retry.");
+    } finally {
+      removeTreeWithRetry(fixtureRoot);
+    }
+  });
+
+  test("the full-suite wrapper reports 124 after a main batch times out twice", () => {
+    const fixtureRoot = mkdtempSync(join(tmpdir(), "opencodex-batched-timeout-final-"));
+    try {
+      for (const relative of FULL_SUITE_FIXTURE_FILES) {
+        const path = join(fixtureRoot, relative);
+        mkdirSync(dirname(path), { recursive: true });
+        const source = relative === "tests/alpha.test.ts"
+          ? 'import { test } from "bun:test"; test("always timeout", async () => { await Bun.sleep(2_000); });\n'
+          : 'import { test } from "bun:test"; test(import.meta.path, () => {});\n';
+        writeFileSync(path, source);
+      }
+      const result = Bun.spawnSync([process.execPath, repoPath("scripts", "test.ts")], {
+        cwd: fixtureRoot,
+        env: {
+          ...process.env,
+          OCX_TEST_NO_QUEUE: "1",
+          OCX_TEST_FULL_SUITE_BATCH_SIZE: "2",
+          OCX_TEST_FULL_SUITE_BATCH_TIMEOUT_SECONDS: "1",
+          OCX_TEST_FULL_SUITE_TIMEOUT_SECONDS: "30",
+        },
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      const output = new TextDecoder().decode(result.stdout) + new TextDecoder().decode(result.stderr);
+      expect(result.exitCode).toBe(124);
+      expect(output).toContain("full suite batch 1/2 first attempt exited 124; retrying once in a fresh Bun process.");
+      expect(output).toContain("full suite batch 1/2 retry exceeded 1s");
+      expect(output).toContain("full suite batch 1/2 failed again on its single retry (exit 124).");
+    } finally {
+      removeTreeWithRetry(fixtureRoot);
+    }
+  });
+
   test("a file filter keeps isolate and bounded parallelism but no suite path", () => {
     expect(resolveBunTestArgs(["tests/foo.test.ts"]))
       .toEqual(["--isolate", "--parallel=4", "tests/foo.test.ts"]);
@@ -896,6 +971,18 @@ describe("bun test user lock", () => {
     }
   });
 
+  test.if(process.platform === "win32")("records a native Windows process-start identity for a new owner", async () => {
+    const root = mkdtempSync(join(tmpdir(), "opencodex-test-lock-"));
+    const lockPath = join(root, "suite.lock");
+    try {
+      const lock = await acquireTestRunLock({ runId: "native-identity", lockPath, pollMs: 5, maxWaitMs: 50 });
+      expect(lock.owner?.processIdentity).toMatch(/^[0-9]+$/);
+      lock.release();
+    } finally {
+      removeTreeWithRetry(root);
+    }
+  });
+
   test("an inherited worker can only join the exact live wrapper owner", async () => {
     const root = mkdtempSync(join(tmpdir(), "opencodex-test-lock-"));
     const lockPath = join(root, "suite.lock");
@@ -948,6 +1035,134 @@ describe("bun test user lock", () => {
       expect(existsSync(lockPath)).toBe(true);
       replacement.release();
       expect(existsSync(lockPath)).toBe(false);
+    } finally {
+      removeTreeWithRetry(root);
+    }
+  });
+
+  test("a reused member PID is reclaimed when its Windows process-start identity differs", async () => {
+    const root = mkdtempSync(join(tmpdir(), "opencodex-test-lock-"));
+    const lockPath = join(root, "suite.lock");
+    const deadPid = 2_147_483_647;
+    const previousIdentity = "638900000000000000";
+    const replacementIdentity = "638900000000000001";
+    const processIdentity = (pid: number) => pid === process.pid ? replacementIdentity : previousIdentity;
+    try {
+      const stale = await acquireTestRunLock({
+        runId: "stale",
+        ownerPid: deadPid,
+        lockPath,
+        pollMs: 5,
+        maxWaitMs: 50,
+        processIdentity,
+      });
+      mkdirSync(join(lockPath, "members"), { recursive: true });
+      writeFileSync(
+        join(lockPath, "members", `${process.pid}-${stale.owner!.token}`),
+        `${JSON.stringify({ version: 1, pid: process.pid, processIdentity: previousIdentity })}\n`,
+      );
+
+      const replacement = await acquireTestRunLock({
+        runId: "replacement",
+        lockPath,
+        pollMs: 5,
+        maxWaitMs: 50,
+        processIdentity,
+      });
+      expect(replacement.acquired).toBe(true);
+      replacement.release();
+    } finally {
+      removeTreeWithRetry(root);
+    }
+  });
+
+  test("a live member with a matching process-start identity remains fail-closed", async () => {
+    const root = mkdtempSync(join(tmpdir(), "opencodex-test-lock-"));
+    const lockPath = join(root, "suite.lock");
+    const deadPid = 2_147_483_647;
+    const processIdentity = () => "638900000000000000";
+    try {
+      const stale = await acquireTestRunLock({
+        runId: "stale",
+        ownerPid: deadPid,
+        lockPath,
+        pollMs: 5,
+        maxWaitMs: 50,
+        processIdentity,
+      });
+      mkdirSync(join(lockPath, "members"), { recursive: true });
+      writeFileSync(
+        join(lockPath, "members", `${process.pid}-${stale.owner!.token}`),
+        `${JSON.stringify({ version: 1, pid: process.pid, processIdentity: processIdentity(process.pid) })}\n`,
+      );
+
+      await expect(acquireTestRunLock({
+        runId: "replacement",
+        lockPath,
+        pollMs: 5,
+        maxWaitMs: 20,
+        processIdentity,
+      })).rejects.toThrow("timed out");
+      stale.release();
+    } finally {
+      removeTreeWithRetry(root);
+    }
+  });
+
+  test("legacy member files without process-start identity remain fail-closed", async () => {
+    const root = mkdtempSync(join(tmpdir(), "opencodex-test-lock-"));
+    const lockPath = join(root, "suite.lock");
+    const deadPid = 2_147_483_647;
+    try {
+      const stale = await acquireTestRunLock({
+        runId: "stale",
+        ownerPid: deadPid,
+        lockPath,
+        pollMs: 5,
+        maxWaitMs: 50,
+      });
+      mkdirSync(join(lockPath, "members"), { recursive: true });
+      writeFileSync(join(lockPath, "members", `${process.pid}-${stale.owner!.token}`), "");
+
+      await expect(acquireTestRunLock({
+        runId: "replacement",
+        lockPath,
+        pollMs: 5,
+        maxWaitMs: 20,
+      })).rejects.toThrow("timed out");
+      stale.release();
+    } finally {
+      removeTreeWithRetry(root);
+    }
+  });
+
+  test("an unavailable Windows identity lookup remains fail-closed", async () => {
+    const root = mkdtempSync(join(tmpdir(), "opencodex-test-lock-"));
+    const lockPath = join(root, "suite.lock");
+    const deadPid = 2_147_483_647;
+    try {
+      const stale = await acquireTestRunLock({
+        runId: "stale",
+        ownerPid: deadPid,
+        lockPath,
+        pollMs: 5,
+        maxWaitMs: 50,
+        processIdentity: () => undefined,
+      });
+      mkdirSync(join(lockPath, "members"), { recursive: true });
+      writeFileSync(
+        join(lockPath, "members", `${process.pid}-${stale.owner!.token}`),
+        `${JSON.stringify({ version: 1, pid: process.pid, processIdentity: "638900000000000000" })}\n`,
+      );
+
+      await expect(acquireTestRunLock({
+        runId: "replacement",
+        lockPath,
+        pollMs: 5,
+        maxWaitMs: 20,
+        processIdentity: () => undefined,
+      })).rejects.toThrow("timed out");
+      stale.release();
     } finally {
       removeTreeWithRetry(root);
     }

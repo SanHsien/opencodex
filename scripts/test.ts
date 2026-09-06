@@ -136,6 +136,10 @@ export function listFullSuiteTestFiles(cwd: string = process.cwd()): string[] {
       const childRelative = relative ? `${relative}/${entry.name}` : entry.name;
       const child = join(dir, entry.name);
       if (entry.isDirectory()) {
+        // Interrupted tests can leave Windows-locked `.tmp-*` homes behind. They are
+        // disposable fixture data, never source test directories, so do not let one
+        // prevent discovery of the canonical suite or contaminate its file list.
+        if (entry.name.startsWith(".tmp-")) continue;
         walk(child, childRelative);
       } else if (entry.isFile() && TEST_FILE_PATTERN.test(entry.name)) {
         files.push(`tests/${childRelative}`);

@@ -277,3 +277,32 @@ subagent migration，沒有 fork 版重作。
 - `#3376` 是 account-pool 排程功能提案：等待上游穩定產品決策，不在 maintenance overlay 自行實作。
 
 以上 8 筆均已分流，`reviewed_issue_through` 推至 `#3661`。
+
+## 2026-09-07：v2.44.0 replay 與 closed-unmerged PR 採用
+
+本 fork 已從上游穩定 tag `v2.44.0`
+(`07b48da8fd63881e848d26e0bd50087864f5573e`) 重放維護 overlay。`06ec553..07b48da`
+的 350 個 commits 以穩定 release tree 整體採用，不把舊 fork 產品 patch 與上游
+raw merge。GPT-6 Astra 繼續來自上游原生 catalog、pricing、context/effort 與
+Astra-first subagent 遷移；fork 只保留英文／繁中語系、workflow guard、維護工具與
+Windows full-suite runner。
+
+### Closed-unmerged PR（`#3718`–`#3744`）
+
+| PR | 決定 | 理由與採用範圍 |
+| --- | --- | --- |
+| [`#3728`](https://github.com/lidge-jun/opencodex/pull/3728) | **採用** | `creditsUsd.percent` 在 v2.44 後端已存在但 quota bars 漏顯示；採用原 PR 三個 commits，含 canonical label 去重、排序與 urgency 測試。原作者／co-author metadata 保留。 |
+| [`#3740`](https://github.com/lidge-jun/opencodex/pull/3740) | **採用** | canonical ChatGPT WebSocket 在輸出前收到 4xx 拒絕時，v2.44 仍會轉成 200 SSE + `adapter_eof`，使 quota/token recovery 看不到真實 HTTP status。採用原 PR 三個 commits；4xx/pre-commit 轉 HTTP，5xx 與 mid-stream 仍保留 SSE。 |
+| [`#3744`](https://github.com/lidge-jun/opencodex/pull/3744) | **採用** | `/v1/responses/compact` 會緩衝完整上游回應，v2.44 卻漏掉 request idle-timeout opt-out，長壓縮可在 255 秒被斷線。採用原 PR 單一 commit 與契約測試。 |
+
+三筆都在上游被 maintainer 關閉但未合併，且 maintainer 的審查評論均建議合併；
+它們不會由 commit 軸進入 stable，因此本 fork 依關閉時的 exact PR heads
+`fdc238e1c`、`cb7f561aa`、`baba44709` 重放並保留 attribution。
+
+### Platform issue 與水位
+
+`#3661` 後沒有新的 `platform` issue，所以 issue 水位不動。本輪水位：
+
+- commit：`07b48da8fd63881e848d26e0bd50087864f5573e`
+- PR：`#3744`
+- issue：`#3661`

@@ -203,3 +203,19 @@ fork 文件、Windows 維護工具、workflow guard、英語／繁中 locale 與
 **ticket 水位**：已分流 closed-unmerged PR `#2768`–`#3717`（含 36 個
 `landed-via-maintainer`，由 commit 軸處理；其餘 14 個不採用）及 8 個 `platform` issue
 `#3245 #3320 #3376 #3449 #3464 #3494 #3522 #3661`；baseline 更新為 commit `06ec553...`、PR `3717`、issue `3661`。
+
+## 2026-09-07：重放 v2.44.0，並採用三個關閉未合併 PR
+
+**決定**：以上游 `v2.44.0` (`07b48da8fd63881e848d26e0bd50087864f5573e`) 作產品
+tree，重放 fork overlay 與 Windows full-suite runner，再以 `ours` merge 保留舊 main
+ancestry。另外保留原作者 commits 採用 `#3728`、`#3740`、`#3744`。
+
+**理由**：v2.44.0 是 350 commits 的已發布穩定邊界，replay 可令產品檔案以上游為準，
+且不帶回舊 fork patch。三個 PR 都被關閉未合併，所以不會自動隨之後 release
+進入；其中兩個是可在本 fork 實查的 Responses 錯誤，一個是已有後端資料但 GUI
+漏顯示的小型修補。上游 maintainer 對三者的審查均建議合併，原 PR 也有聚焦
+回歸測試。
+
+**維持不變**：本 fork 不發 npm、不部署 docs-site、對外不寫 upstream；GUI 與
+docs-site 只保留英文／繁中。`reviewed_issue_through` 仍是 `3661`，因為本輪沒有新
+`platform` issue。

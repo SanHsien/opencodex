@@ -398,6 +398,8 @@ export const SERIAL_FULL_SUITE_FILES = [
   "codex-integration/codex-shim.test.ts",
   // Compiles and executes a temporary Windows image; Bun's compiler is not safe under batch pressure.
   "codex-integration/codex-app-server-processes.test.ts",
+  // Shares the temporary Windows executable fixture above.
+  "codex-integration/multi-agent-compat.test.ts",
   // Mutates the Codex runtime cache and executes a temporary Windows .cmd runtime fixture.
   "codex-integration/codex-convergence-account-selectors.test.ts",
   "providers/cursor/cursor-native-exec-shell.test.ts",
@@ -413,6 +415,7 @@ type SerialLaneBasename = (typeof SERIAL_FULL_SUITE_FILES)[number] extends infer
 const SERIAL_LANE_TIMEOUT_MS: Partial<Record<SerialLaneBasename, number>> = {
   // Compilation plus the real executable probe must remain bounded but tolerate loaded Windows hosts.
   "codex-app-server-processes.test.ts": 3 * 60 * 1000,
+  "multi-agent-compat.test.ts": 3 * 60 * 1000,
   // The runtime fixture can contend with Codex cache initialization under host load.
   "codex-convergence-account-selectors.test.ts": 3 * 60 * 1000,
   // This file intentionally exercises 33 complete release-script subprocess trees.

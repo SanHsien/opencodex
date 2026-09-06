@@ -14,6 +14,8 @@ Original work:
 
 This repository keeps the original MIT license text in [`LICENSE`](LICENSE). Modifications, documentation, and future project-specific changes in this fork are maintained by SanHsien unless otherwise noted.
 
+The product tree currently replays the upstream `v2.44.0` release (`07b48da8fd63881e848d26e0bd50087864f5573e`) with this fork's maintenance overlay. This provenance note does not advance the separate upstream-review baseline.
+
 ## License Notes
 
 The MIT License allows use, copying, modification, merging, publication, distribution, sublicensing, and commercial use, provided that the original copyright notice and permission notice are included in all copies or substantial portions of the software.

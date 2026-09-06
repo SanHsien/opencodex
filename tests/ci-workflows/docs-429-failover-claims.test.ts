@@ -9,13 +9,13 @@
  * Public docs that contradict the runtime are worse than missing docs: an operator reads them,
  * concludes a rate limit is terminal, and turns on an EXPERIMENTAL pool to buy recovery they
  * already have. This pins the corrected claim in the source locale and asserts the translated
- * locales carry the same shape, since a nine-locale set drifts one file at a time.
+ * shipped Traditional Chinese locale carries the same shape as English.
  */
 import { describe, expect, test } from "bun:test";
 
 const CONFIG_REFERENCE = "docs-site/src/content/docs/reference/configuration/providers.md";
 const CLI_REFERENCE = "docs-site/src/content/docs/reference/cli/providers-accounts.md";
-const TRANSLATED = ["ko", "ja", "zh-cn", "zh-tw", "fr", "ru", "tr"] as const;
+const TRANSLATED = ["zh-tw"] as const;
 
 describe("429 failover docs", () => {
   test("the config reference states the failover is not gated and not disableable", async () => {
@@ -63,7 +63,7 @@ describe("429 failover docs", () => {
   test("the Claude Code guide does not attribute 429 failover to the pool", async () => {
     // The guide is where an operator decides whether to enable the experimental pool at all, so
     // a stale sentence here is the most expensive one in the docs: it sells the pool on recovery
-    // that is now unconditional. Checked in the source locale and the three that translate it.
+    // that is now unconditional. Checked in the two shipped docs locales.
     //
     // Asserting only that the intro mentions 429 and carries emphasis is too weak: the ORIGINAL
     // stale sentence would satisfy both. So each locale bans the phrase pattern that actually
@@ -71,8 +71,6 @@ describe("429 failover docs", () => {
     const bannedByLocale: Record<string, RegExp> = {
       "": /adds sticky[\s\S]{0,80}429/i,
       "zh-tw/": /加入[\s\S]{0,40}429\s*冷卻(故障轉移|容錯移轉)/,
-      "tr/": /bağlılığı ve 429[\s\S]{0,60}yük devretmesi ekler/i,
-      "fr/": /ajoute l['’]affinité de[\s\S]{0,80}basculement[\s\S]{0,40}429/i,
     };
     for (const [path, banned] of Object.entries(bannedByLocale)) {
       const label = path || "en";

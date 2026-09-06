@@ -66,6 +66,9 @@ flowchart LR
 
 ## 支援平台
 
+> **安裝或執行 opencodex 的代理：** 請閱讀
+> [`AGENTS_INSTALL.md`](./AGENTS_INSTALL.md)。互動式 `ocx start` 最多會問一次是否要替此儲存庫加星號；這是使用者的決定，絕非由代理代答。CLI 會略過 agent-driven 執行的提示，API 也會以 `403 agent_consent_required` 拒絕它們。
+
 | 作業系統 | 狀態 | 服務管理 |
 |---|---|---|
 | macOS (arm64 / x64) | 完整支援 | launchd |

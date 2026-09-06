@@ -396,6 +396,8 @@ export function resolveBunTestArgs(
 // it); the lane label, the ignore glob, and the timeout table all key on the basename.
 export const SERIAL_FULL_SUITE_FILES = [
   "codex-integration/codex-shim.test.ts",
+  // Compiles and executes a temporary Windows image; Bun's compiler is not safe under batch pressure.
+  "codex-integration/codex-app-server-processes.test.ts",
   "providers/cursor/cursor-native-exec-shell.test.ts",
   "codex-integration/issue-452-empty-503.test.ts",
   "adapters/openai/openai-provider-option-e2e.test.ts",
@@ -407,6 +409,8 @@ type SerialLaneBasename = (typeof SERIAL_FULL_SUITE_FILES)[number] extends infer
   ? P extends `${string}/${infer B}` ? B : P
   : never;
 const SERIAL_LANE_TIMEOUT_MS: Partial<Record<SerialLaneBasename, number>> = {
+  // Compilation plus the real executable probe must remain bounded but tolerate loaded Windows hosts.
+  "codex-app-server-processes.test.ts": 3 * 60 * 1000,
   // This file intentionally exercises 33 complete release-script subprocess trees.
   // It is ~90s on an idle machine and measured at ~170s under unrelated host load.
   "release-helper.test.ts": 5 * 60 * 1000,

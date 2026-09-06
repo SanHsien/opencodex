@@ -404,6 +404,10 @@ export const SERIAL_FULL_SUITE_FILES = [
   "codex-integration/codex-convergence-account-selectors.test.ts",
   // Exercises the isolated bundled catalog lifecycle and must not share a runtime cache with a batch.
   "codex-integration/reserve-catalog-lifecycle.test.ts",
+  // Uses fallback-port process records that must not overlap a batch peer's proxy lifecycle.
+  "cli/cli-status-json.test.ts",
+  // Waits for the proxy owner runtime record and must not share its process lifecycle with a batch.
+  "cli/cli-start-journal-order.test.ts",
   "providers/cursor/cursor-native-exec-shell.test.ts",
   "codex-integration/issue-452-empty-503.test.ts",
   "adapters/openai/openai-provider-option-e2e.test.ts",
@@ -421,6 +425,8 @@ const SERIAL_LANE_TIMEOUT_MS: Partial<Record<SerialLaneBasename, number>> = {
   // The runtime fixture can contend with Codex cache initialization under host load.
   "codex-convergence-account-selectors.test.ts": 3 * 60 * 1000,
   "reserve-catalog-lifecycle.test.ts": 3 * 60 * 1000,
+  "cli-status-json.test.ts": 3 * 60 * 1000,
+  "cli-start-journal-order.test.ts": 3 * 60 * 1000,
   // This file intentionally exercises 33 complete release-script subprocess trees.
   // It is ~90s on an idle machine and measured at ~170s under unrelated host load.
   "release-helper.test.ts": 5 * 60 * 1000,

@@ -318,6 +318,7 @@ describe("bun test argv", () => {
     const files = listFullSuiteTestFiles(repoRoot());
     expect(files).toContain("tests/ci-workflows/fork-hygiene.test.ts");
     expect(files).toContain("tests/ci-workflows/test-runner.test.ts");
+    expect(files.some(file => file.includes("/.tmp-"))).toBe(false);
     expect(files.every(file => /(?:\.test|_test|\.spec|_spec)\.(?:js|jsx|ts|tsx)$/.test(file))).toBe(true);
   });
 

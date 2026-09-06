@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { INTERNAL_DEADLINE_MS, STORE_BUDGET_MS } from "../helpers/test-budget";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   resetHardenedStateForTests,
@@ -28,7 +29,7 @@ import {
 import type { OAuthCredentials } from "../../src/oauth/types";
 import { removeTreeWithRetry } from "../helpers/remove-tree";
 
-const TEST_DIR = join(import.meta.dir, ".tmp-oauth-store-multi-test");
+let testDir = "";
 let previousOpencodexHome: string | undefined;
 
 const cred = (over: Partial<OAuthCredentials> = {}): OAuthCredentials => ({
@@ -41,9 +42,10 @@ const cred = (over: Partial<OAuthCredentials> = {}): OAuthCredentials => ({
 describe("multi-account auth store", () => {
   beforeEach(() => {
     previousOpencodexHome = process.env.OPENCODEX_HOME;
-    if (existsSync(TEST_DIR)) removeTreeWithRetry(TEST_DIR);
-    mkdirSync(TEST_DIR, { recursive: true });
-    process.env.OPENCODEX_HOME = TEST_DIR;
+    // A fixed in-repository home can remain held by a preceding fresh process on Windows.
+    // Give each case a private temp root so a failed batch cannot poison its fresh retry.
+    testDir = mkdtempSync(join(tmpdir(), "opencodex-oauth-store-multi-"));
+    process.env.OPENCODEX_HOME = testDir;
     resetHardenedStateForTests();
     setIcaclsRunnerForTests(() => ({
       success: true,
@@ -58,12 +60,13 @@ describe("multi-account auth store", () => {
     resetHardenedStateForTests();
     if (previousOpencodexHome === undefined) delete process.env.OPENCODEX_HOME;
     else process.env.OPENCODEX_HOME = previousOpencodexHome;
-    if (existsSync(TEST_DIR)) removeTreeWithRetry(TEST_DIR);
+    if (testDir) removeTreeWithRetry(testDir);
+    testDir = "";
   });
 
   test("legacy single-credential auth.json normalizes and round-trips without losing login", async () => {
-    const authPath = join(TEST_DIR, "auth.json");
-    mkdirSync(TEST_DIR, { recursive: true, mode: 0o700 });
+    const authPath = join(testDir, "auth.json");
+    mkdirSync(testDir, { recursive: true, mode: 0o700 });
     writeFileSync(authPath, JSON.stringify({
       xai: { access: "legacy-access", refresh: "legacy-refresh", expires: Date.now() + 1000, email: "old@example.com" },
     }));
@@ -80,8 +83,8 @@ describe("multi-account auth store", () => {
     // Legacy stores are re-normalized on EVERY load without being persisted, so the
     // derived id must be stable: a time-salted id would make getAccountSet and
     // getAccountCredential disagree (spurious logout) and refresh persists no-op.
-    const authPath = join(TEST_DIR, "auth.json");
-    mkdirSync(TEST_DIR, { recursive: true, mode: 0o700 });
+    const authPath = join(testDir, "auth.json");
+    mkdirSync(testDir, { recursive: true, mode: 0o700 });
     writeFileSync(authPath, JSON.stringify({
       cursor: { access: "legacy-access", refresh: "legacy-refresh", expires: Date.now() + 3600_000 },
     }));
@@ -292,8 +295,8 @@ describe("multi-account auth store", () => {
   });
 
   test("invalid account entries are dropped on load", async () => {
-    const authPath = join(TEST_DIR, "auth.json");
-    mkdirSync(TEST_DIR, { recursive: true, mode: 0o700 });
+    const authPath = join(testDir, "auth.json");
+    mkdirSync(testDir, { recursive: true, mode: 0o700 });
     writeFileSync(authPath, JSON.stringify({
       xai: { activeAccountId: "gone", accounts: [
         { id: "ok", credential: { access: "a", refresh: "r", expires: 1 } },

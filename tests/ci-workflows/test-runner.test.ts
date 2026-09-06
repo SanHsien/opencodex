@@ -194,7 +194,9 @@ describe("bun test argv", () => {
   test("the default full suite runs bounded fresh-process batches and quarantines risky files", () => {
     const plan = fullSuitePlan();
     const appServerProcesses = "codex-integration/codex-app-server-processes.test.ts";
+    const convergenceAccountSelectors = "codex-integration/codex-convergence-account-selectors.test.ts";
     expect(SERIAL_FULL_SUITE_FILES).toContain(appServerProcesses);
+    expect(SERIAL_FULL_SUITE_FILES).toContain(convergenceAccountSelectors);
     expect(plan).toHaveLength(SERIAL_FULL_SUITE_FILES.length + 2);
     expect(plan[0]?.label).toBe("full suite batch 1/2");
     expect(plan[0]?.args).toContain("--parallel=4");
@@ -211,6 +213,11 @@ describe("bun test argv", () => {
     expect(appServerLane?.args).toContain(`./tests/${appServerProcesses}`);
     expect(appServerLane?.timeoutMs).toBe(3 * 60 * 1000);
     expect(appServerLane?.retryOnFailure).toBeUndefined();
+    expect(plan.flatMap(lane => lane.args)).not.toContain(`tests/${convergenceAccountSelectors}`);
+    const convergenceLane = plan.find(lane => lane.label === "codex-convergence-account-selectors.test.ts");
+    expect(convergenceLane?.args).toContain(`./tests/${convergenceAccountSelectors}`);
+    expect(convergenceLane?.timeoutMs).toBe(3 * 60 * 1000);
+    expect(convergenceLane?.retryOnFailure).toBeUndefined();
     for (const file of SERIAL_FULL_SUITE_FILES) {
       // The serial lane label uses the basename while argv carries its path relative to tests/.
       expect(plan.find(lane => lane.label === basename(file))?.args).toEqual([
@@ -316,7 +323,7 @@ test("one-time flake", () => {
       });
       const output = new TextDecoder().decode(result.stdout) + new TextDecoder().decode(result.stderr);
       expect(result.exitCode).toBe(0);
-      expect(output).toContain("10 files in 2 fresh-process batches (size <= 2, each <= 20s, whole run <= 2m)");
+      expect(output).toContain("11 files in 2 fresh-process batches (size <= 2, each <= 20s, whole run <= 2m)");
       expect(output).toContain("full suite batch 1/2 finished");
       expect(output).toContain("full suite batch 1/2 first attempt exited 1; retrying once in a fresh Bun process.");
       expect(output).toContain("full suite batch 1/2 retry finished");

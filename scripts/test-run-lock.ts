@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { dlopen, ptr } from "bun:ffi";
 import {
   accessSync,
   constants,
@@ -8,7 +9,6 @@ import {
   readdirSync,
   renameSync,
   rmSync,
-  statSync,
   writeFileSync,
 } from "node:fs";
 import { hostname, tmpdir } from "node:os";
@@ -25,8 +25,10 @@ export const TEST_RUN_LOCK_PATH_ENV = "OCX_TEST_RUN_LOCK_PATH";
 export const TEST_RUN_LOCK_TOKEN_ENV = "OCX_TEST_RUN_LOCK_TOKEN";
 export const TEST_RUN_NO_QUEUE_ENV = "OCX_TEST_NO_QUEUE";
 const OWNER_FILE = "owner.json";
+const OWNER_IDENTITY_FILE = "owner.identity";
 const MEMBERS_DIR = "members";
 const INCOMPLETE_OWNER_GRACE_MS = 10_000;
+const OWNER_IDENTITY_RETRY_INTERVAL_MS = 5_000;
 const POSIX_PRIVATE_MODE = 0o700;
 
 interface RuntimeDirectoryEntry {
@@ -66,6 +68,8 @@ export interface TestRunLockOwner {
   token: string;
   pid: number;
   acquiredAt: string;
+  /** Windows process creation identity; absent in compatible pre-identity locks. */
+  processIdentity?: string;
 }
 
 export interface TestRunLock {
@@ -83,6 +87,8 @@ export interface AcquireTestRunLockOptions {
   pollMs?: number;
   maxWaitMs?: number;
   env?: NodeJS.ProcessEnv;
+  /** Test seam for a stable process-start identity (used by Windows in production). */
+  processIdentity?: (pid: number) => string | undefined;
   onWait?: (owner: TestRunLockOwner | null) => void;
   onAcquiredAfterWait?: (elapsedMs: number) => void;
 }
@@ -375,8 +381,55 @@ function ownerPath(lockPath: string): string {
   return join(lockPath, OWNER_FILE);
 }
 
+function ownerIdentityPath(lockPath: string): string {
+  return join(lockPath, OWNER_IDENTITY_FILE);
+}
+
 function memberPath(lockPath: string, owner: TestRunLockOwner, pid: number): string {
   return join(lockPath, MEMBERS_DIR, `${pid}-${owner.token}`);
+}
+
+function validProcessIdentity(value: unknown): value is string {
+  return typeof value === "string" && /^[0-9]{1,20}$/.test(value);
+}
+
+/**
+ * A Windows PID can be reused after its original process exits. FILETIME from
+ * GetProcessTimes is a kernel-backed process identity, unlike an executable name,
+ * and is stable for the life of one process. It avoids a PowerShell child in every
+ * preload worker. Lookup failure deliberately returns undefined so the caller
+ * keeps the lock live rather than risking an overlapping suite.
+ */
+function readWindowsProcessIdentity(pid: number): string | undefined {
+  try {
+    const kernel32 = dlopen("kernel32.dll", {
+      OpenProcess: { args: ["u32", "bool", "u32"], returns: "ptr" },
+      GetProcessTimes: { args: ["ptr", "ptr", "ptr", "ptr", "ptr"], returns: "bool" },
+      CloseHandle: { args: ["ptr"], returns: "bool" },
+    });
+    try {
+      const handle = kernel32.symbols.OpenProcess(0x1000, false, pid);
+      if (!handle) return undefined;
+      try {
+        const creation = new Uint8Array(8);
+        const exit = new Uint8Array(8);
+        const kernel = new Uint8Array(8);
+        const user = new Uint8Array(8);
+        if (!kernel32.symbols.GetProcessTimes(handle, ptr(creation), ptr(exit), ptr(kernel), ptr(user))) {
+          return undefined;
+        }
+        const view = new DataView(creation.buffer);
+        const value = ((BigInt(view.getUint32(4, true)) << 32n) | BigInt(view.getUint32(0, true))).toString();
+        return validProcessIdentity(value) ? value : undefined;
+      } finally {
+        kernel32.symbols.CloseHandle(handle);
+      }
+    } finally {
+      kernel32.close();
+    }
+  } catch {
+    return undefined;
+  }
 }
 
 function readOwner(lockPath: string): TestRunLockOwner | null {
@@ -386,9 +439,24 @@ function readOwner(lockPath: string): TestRunLockOwner | null {
       || !Number.isInteger(parsed.pid) || (parsed.pid ?? 0) <= 0 || typeof parsed.acquiredAt !== "string") {
       return null;
     }
-    return parsed as TestRunLockOwner;
+    const storedIdentity = validProcessIdentity(parsed.processIdentity)
+      ? parsed.processIdentity
+      : readOwnerIdentity(lockPath);
+    return {
+      ...parsed,
+      ...(storedIdentity ? { processIdentity: storedIdentity } : {}),
+    } as TestRunLockOwner;
   } catch {
     return null;
+  }
+}
+
+function readOwnerIdentity(lockPath: string): string | undefined {
+  try {
+    const value = readFileSync(ownerIdentityPath(lockPath), "utf8").trim();
+    return validProcessIdentity(value) ? value : undefined;
+  } catch {
+    return undefined;
   }
 }
 
@@ -401,28 +469,74 @@ function processIsAlive(pid: number): boolean {
   }
 }
 
-function liveMemberExists(lockPath: string, owner: TestRunLockOwner): boolean {
+function processMatchesIdentity(
+  pid: number,
+  expectedIdentity: string | undefined,
+  resolveProcessIdentity: ((pid: number) => string | undefined) | undefined,
+): boolean {
+  if (!processIsAlive(pid)) return false;
+  if (!expectedIdentity || !resolveProcessIdentity) return true;
+  const currentIdentity = resolveProcessIdentity(pid);
+  // A failed identity lookup must never reclaim a potentially live runner.
+  return currentIdentity === undefined || currentIdentity === expectedIdentity;
+}
+
+function readMemberIdentity(path: string): string | undefined {
+  try {
+    const parsed = JSON.parse(readFileSync(path, "utf8")) as { version?: unknown; processIdentity?: unknown };
+    return parsed.version === 1 && validProcessIdentity(parsed.processIdentity)
+      ? parsed.processIdentity
+      : undefined;
+  } catch {
+    // Empty legacy member files retain their previous fail-closed PID semantics.
+    return undefined;
+  }
+}
+
+function liveMemberExists(
+  lockPath: string,
+  owner: TestRunLockOwner,
+  resolveProcessIdentity: ((pid: number) => string | undefined) | undefined,
+): boolean {
   try {
     return readdirSync(join(lockPath, MEMBERS_DIR)).some(file => {
       const suffix = `-${owner.token}`;
       if (!file.endsWith(suffix)) return false;
-      const pid = Number.parseInt(file.slice(0, -suffix.length), 10);
-      return Number.isInteger(pid) && pid > 0 && processIsAlive(pid);
+      const pidText = file.slice(0, -suffix.length);
+      if (!/^[1-9][0-9]*$/.test(pidText)) return false;
+      const pid = Number(pidText);
+      return Number.isSafeInteger(pid)
+        && processMatchesIdentity(pid, readMemberIdentity(join(lockPath, MEMBERS_DIR, file)), resolveProcessIdentity);
     });
   } catch {
     return false;
   }
 }
 
-function lockIsLive(lockPath: string, owner: TestRunLockOwner): boolean {
-  return processIsAlive(owner.pid) || liveMemberExists(lockPath, owner);
+function lockIsLive(
+  lockPath: string,
+  owner: TestRunLockOwner,
+  resolveProcessIdentity: ((pid: number) => string | undefined) | undefined,
+): boolean {
+  const ownerIsLive = processMatchesIdentity(owner.pid, owner.processIdentity, resolveProcessIdentity);
+  return ownerIsLive || liveMemberExists(lockPath, owner, resolveProcessIdentity);
 }
 
-function registerMember(lockPath: string, owner: TestRunLockOwner, pid: number): boolean {
+function registerMember(
+  lockPath: string,
+  owner: TestRunLockOwner,
+  pid: number,
+  resolveProcessIdentity: ((pid: number) => string | undefined) | undefined,
+): boolean {
   const membersPath = join(lockPath, MEMBERS_DIR);
   try {
     mkdirSync(membersPath, { recursive: true, mode: 0o700 });
-    writeFileSync(memberPath(lockPath, owner, pid), "", { flag: "a", mode: 0o600 });
+    const processIdentity = resolveProcessIdentity?.(pid);
+    writeFileSync(
+      memberPath(lockPath, owner, pid),
+      `${JSON.stringify({ version: 1, pid, ...(validProcessIdentity(processIdentity) ? { processIdentity } : {}) })}\n`,
+      { flag: "w", mode: 0o600 },
+    );
   } catch {
     return false;
   }
@@ -451,6 +565,27 @@ function reclaimStaleLock(lockPath: string): boolean {
   return true;
 }
 
+function refreshOwnerIdentity(
+  lockPath: string,
+  owner: TestRunLockOwner,
+  resolveProcessIdentity: ((pid: number) => string | undefined) | undefined,
+): boolean {
+  if (owner.processIdentity) return true;
+  if (!resolveProcessIdentity) return false;
+  const identity = resolveProcessIdentity(owner.pid);
+  if (!validProcessIdentity(identity)) return false;
+  try {
+    writeFileSync(ownerIdentityPath(lockPath), `${identity}\n`, { flag: "wx", mode: 0o600 });
+    owner.processIdentity = identity;
+    return true;
+  } catch {
+    const existing = readOwnerIdentity(lockPath);
+    if (existing) owner.processIdentity = existing;
+    // A later tick can retry; until then PID liveness remains fail-closed.
+    return Boolean(existing);
+  }
+}
+
 function ownsLock(lockPath: string, owner: TestRunLockOwner): boolean {
   const current = readOwner(lockPath);
   return current?.runId === owner.runId && current.token === owner.token && current.pid === owner.pid;
@@ -474,6 +609,8 @@ export async function acquireTestRunLock(options: AcquireTestRunLockOptions): Pr
   const usesDefaultLockPath = options.lockPath === undefined || options.validatedRuntimePath === true;
   const lockPath = options.lockPath ?? resolveDefaultTestRunLockPath({ env });
   const ownerPid = options.ownerPid ?? process.pid;
+  const resolveProcessIdentity = options.processIdentity
+    ?? (process.platform === "win32" ? readWindowsProcessIdentity : undefined);
   const pollMs = Math.max(1, options.pollMs ?? 5_000);
   const maxWaitMs = Math.max(pollMs, options.maxWaitMs ?? 45 * 60 * 1000);
   const startedAt = Date.now();
@@ -484,8 +621,8 @@ export async function acquireTestRunLock(options: AcquireTestRunLockOptions): Pr
     if (
       current?.runId === options.runId
       && current.token === options.joinExistingOwnerToken
-      && lockIsLive(lockPath, current)
-      && registerMember(lockPath, current, process.pid)
+      && lockIsLive(lockPath, current, resolveProcessIdentity)
+      && registerMember(lockPath, current, process.pid, resolveProcessIdentity)
     ) {
       return { acquired: false, owner: current, release() {} };
     }
@@ -496,26 +633,42 @@ export async function acquireTestRunLock(options: AcquireTestRunLockOptions): Pr
   }
 
   for (;;) {
-    const owner: TestRunLockOwner = {
-      version: 1,
-      runId: options.runId,
-      token: randomUUID(),
-      pid: ownerPid,
-      acquiredAt: new Date().toISOString(),
-    };
     try {
       mkdirSync(lockPath, { mode: 0o700 });
+      // Do this only after mkdir won. The native kernel query is safe in preload
+      // workers and does not start a PowerShell child.
+      const ownerProcessIdentity = resolveProcessIdentity?.(ownerPid);
+      const owner: TestRunLockOwner = {
+        version: 1,
+        runId: options.runId,
+        token: randomUUID(),
+        pid: ownerPid,
+        acquiredAt: new Date().toISOString(),
+        ...(validProcessIdentity(ownerProcessIdentity) ? { processIdentity: ownerProcessIdentity } : {}),
+      };
       try {
         writeFileSync(ownerPath(lockPath), `${JSON.stringify(owner)}\n`, { encoding: "utf8", mode: 0o600, flag: "wx" });
+        refreshOwnerIdentity(lockPath, owner, resolveProcessIdentity);
       } catch (error) {
         rmSync(lockPath, { recursive: true, force: true });
         throw error;
       }
       if (announced) options.onAcquiredAfterWait?.(Date.now() - startedAt);
+      let identityTimer: ReturnType<typeof setInterval> | undefined;
+      if (!owner.processIdentity) {
+        identityTimer = setInterval(() => {
+          if (refreshOwnerIdentity(lockPath, owner, resolveProcessIdentity) && identityTimer) {
+            clearInterval(identityTimer);
+            identityTimer = undefined;
+          }
+        }, OWNER_IDENTITY_RETRY_INTERVAL_MS);
+        identityTimer.unref();
+      }
       return {
         acquired: true,
         owner,
         release() {
+          if (identityTimer) clearInterval(identityTimer);
           if (!ownsLock(lockPath, owner)) return;
           reclaimStaleLock(lockPath);
         },
@@ -535,13 +688,15 @@ export async function acquireTestRunLock(options: AcquireTestRunLockOptions): Pr
     }
 
     const current = readOwner(lockPath);
-    if (current?.runId === options.runId && lockIsLive(lockPath, current)) {
-      if (registerMember(lockPath, current, process.pid)) {
+    if (current?.runId === options.runId && lockIsLive(lockPath, current, resolveProcessIdentity)) {
+      if (registerMember(lockPath, current, process.pid, resolveProcessIdentity)) {
         return { acquired: false, owner: current, release() {} };
       }
       continue;
     }
-    const ownerIsLive = current ? lockIsLive(lockPath, current) : incompleteOwnerIsRecent(lockPath);
+    const ownerIsLive = current
+      ? lockIsLive(lockPath, current, resolveProcessIdentity)
+      : incompleteOwnerIsRecent(lockPath);
     if (!ownerIsLive && reclaimStaleLock(lockPath)) continue;
 
     if (!announced) {

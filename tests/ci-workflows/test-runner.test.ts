@@ -193,15 +193,18 @@ describe("bun test argv", () => {
     expect(plan).toHaveLength(SERIAL_FULL_SUITE_FILES.length + 2);
     expect(plan[0]?.label).toBe("full suite batch 1/2");
     expect(plan[0]?.args).toContain("--parallel=4");
-    expect(plan[0]?.args).toEqual(["--isolate", "--parallel=4", "tests/alpha.test.ts", "tests/bravo.test.ts"]);
+    expect(plan[0]?.args).toEqual([
+      "--isolate", "--parallel=4", "--timeout=60000", "tests/alpha.test.ts", "tests/bravo.test.ts",
+    ]);
     expect(plan[1]?.label).toBe("full suite batch 2/2");
-    expect(plan[1]?.args).toEqual(["--isolate", "--parallel=4", "tests/charlie.test.ts"]);
+    expect(plan[1]?.args).toEqual(["--isolate", "--parallel=4", "--timeout=60000", "tests/charlie.test.ts"]);
     expect(plan[0]?.timeoutMs).toBe(FULL_SUITE_FIXTURE_SETTINGS.batchTimeoutMs);
     for (const file of SERIAL_FULL_SUITE_FILES) {
       // The serial lane label uses the basename while argv carries its path relative to tests/.
       expect(plan.find(lane => lane.label === basename(file))?.args).toEqual([
         "--isolate",
         "--parallel=1",
+        "--timeout=60000",
         `./tests/${file}`,
       ]);
     }
@@ -218,6 +221,21 @@ describe("bun test argv", () => {
       expect(lane.args).not.toContain("--parallel=2");
       expect(lane.args).toContain("--only-failures");
     }
+  });
+
+  test("the full suite respects a caller per-test timeout instead of adding the default", () => {
+    const plan = fullSuitePlan(["--timeout", "120000"]);
+    for (const lane of plan) {
+      expect(lane.args).toContain("--timeout");
+      expect(lane.args).toContain("120000");
+      expect(lane.args).not.toContain("--timeout=60000");
+    }
+  });
+
+  test("focused runs keep Bun's ordinary per-test timeout", () => {
+    const plan = resolveBunTestPlan(["tests/clients/client-connect.test.ts"]);
+    expect(plan).toHaveLength(1);
+    expect(plan[0]?.args).not.toContain("--timeout=60000");
   });
 
   test("sharded and reporter-file runs stay a single caller-controlled lane", () => {

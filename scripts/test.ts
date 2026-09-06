@@ -74,6 +74,7 @@ function hasCliFlag(requested: string[], name: string): boolean {
 }
 
 const DEFAULT_TEST_PARALLELISM = 4;
+const DEFAULT_FULL_SUITE_TEST_TIMEOUT_MS = 60_000;
 export const DEFAULT_FULL_SUITE_BATCH_SIZE = 16;
 export const DEFAULT_FULL_SUITE_BATCH_TIMEOUT_SECONDS = 240;
 export const DEFAULT_FULL_SUITE_TIMEOUT_SECONDS = 45 * 60;
@@ -423,6 +424,13 @@ function withoutParallelOverride(requested: string[]): string[] {
   return requested.filter(arg => arg !== "--parallel" && !arg.startsWith("--parallel="));
 }
 
+/** Full-suite batches need CI's longer per-test budget, unless the caller chose one. */
+function withFullSuiteTestTimeout(requested: string[]): string[] {
+  return hasCliFlag(requested, "--timeout")
+    ? requested
+    : [`--timeout=${DEFAULT_FULL_SUITE_TEST_TIMEOUT_MS}`, ...requested];
+}
+
 function canUseSerialLanes(requested: string[]): boolean {
   if (!isFullSuiteRun(requested)) return false;
   return !["--changed", "--shard", "--reporter-outfile", "--update-timings"].some(flag => hasCliFlag(requested, flag));
@@ -444,18 +452,19 @@ export function resolveBunTestPlan(
     .filter(file => !serialPaths.has(file));
   if (mainFiles.length === 0) throw new Error("[test] full suite selected no non-serial test files.");
 
+  const fullSuiteRequested = withFullSuiteTestTimeout(requested);
   const mainLanes: BunTestLane[] = [];
   const totalBatches = Math.ceil(mainFiles.length / settings.batchSize);
   for (let index = 0; index < mainFiles.length; index += settings.batchSize) {
     const batch = mainFiles.slice(index, index + settings.batchSize);
     mainLanes.push({
       label: `full suite batch ${mainLanes.length + 1}/${totalBatches}`,
-      args: resolveBunTestArgs([...requested, ...batch], comparisonCommit),
+      args: resolveBunTestArgs([...fullSuiteRequested, ...batch], comparisonCommit),
       timeoutMs: settings.batchTimeoutMs,
     });
   }
 
-  const serialRequested = withoutParallelOverride(requested);
+  const serialRequested = withoutParallelOverride(fullSuiteRequested);
   return [
     ...mainLanes,
     ...SERIAL_FULL_SUITE_FILES.map(file => ({

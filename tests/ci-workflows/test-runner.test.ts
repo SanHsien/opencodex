@@ -194,12 +194,14 @@ describe("bun test argv", () => {
     const multiAgentCompat = "codex-integration/multi-agent-compat.test.ts";
     const convergenceAccountSelectors = "codex-integration/codex-convergence-account-selectors.test.ts";
     const reserveCatalogLifecycle = "codex-integration/reserve-catalog-lifecycle.test.ts";
+    const codexComposedAcceptance = "codex-integration/codex-composed-acceptance.test.ts";
     const cliStatusJson = "cli/cli-status-json.test.ts";
     const cliStartJournalOrder = "cli/cli-start-journal-order.test.ts";
     expect(SERIAL_FULL_SUITE_FILES).toContain(appServerProcesses);
     expect(SERIAL_FULL_SUITE_FILES).toContain(multiAgentCompat);
     expect(SERIAL_FULL_SUITE_FILES).toContain(convergenceAccountSelectors);
     expect(SERIAL_FULL_SUITE_FILES).toContain(reserveCatalogLifecycle);
+    expect(SERIAL_FULL_SUITE_FILES).toContain(codexComposedAcceptance);
     expect(SERIAL_FULL_SUITE_FILES).toContain(cliStatusJson);
     expect(SERIAL_FULL_SUITE_FILES).toContain(cliStartJournalOrder);
     expect(plan).toHaveLength(SERIAL_FULL_SUITE_FILES.length + 2);
@@ -233,6 +235,11 @@ describe("bun test argv", () => {
     expect(reserveCatalogLane?.args).toContain(`./tests/${reserveCatalogLifecycle}`);
     expect(reserveCatalogLane?.timeoutMs).toBe(3 * 60 * 1000);
     expect(reserveCatalogLane?.retryOnFailure).toBeUndefined();
+    expect(plan.flatMap(lane => lane.args)).not.toContain(`tests/${codexComposedAcceptance}`);
+    const codexComposedAcceptanceLane = plan.find(lane => lane.label === "codex-composed-acceptance.test.ts");
+    expect(codexComposedAcceptanceLane?.args).toContain(`./tests/${codexComposedAcceptance}`);
+    expect(codexComposedAcceptanceLane?.timeoutMs).toBe(3 * 60 * 1000);
+    expect(codexComposedAcceptanceLane?.retryOnFailure).toBeUndefined();
     expect(plan.flatMap(lane => lane.args)).not.toContain(`tests/${cliStatusJson}`);
     const cliStatusLane = plan.find(lane => lane.label === "cli-status-json.test.ts");
     expect(cliStatusLane?.args).toContain(`./tests/${cliStatusJson}`);
@@ -348,7 +355,7 @@ test("one-time flake", () => {
       });
       const output = new TextDecoder().decode(result.stdout) + new TextDecoder().decode(result.stderr);
       expect(result.exitCode).toBe(0);
-      expect(output).toContain("15 files in 2 fresh-process batches (size <= 2, each <= 20s, whole run <= 2m)");
+      expect(output).toContain("16 files in 2 fresh-process batches (size <= 2, each <= 20s, whole run <= 2m)");
       expect(output).toContain("full suite batch 1/2 finished");
       expect(output).toContain("full suite batch 1/2 first attempt exited 1; retrying once in a fresh Bun process.");
       expect(output).toContain("full suite batch 1/2 retry finished");

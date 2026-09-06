@@ -405,6 +405,9 @@ export const SERIAL_FULL_SUITE_FILES = [
   "codex-integration/codex-convergence-account-selectors.test.ts",
   // Exercises the isolated bundled catalog lifecycle and must not share a runtime cache with a batch.
   "codex-integration/reserve-catalog-lifecycle.test.ts",
+  // The composed acceptance suite starts several provider children and has twice needed its
+  // fresh batch retry under parallel load; keep that lifecycle isolated from batch peers.
+  "codex-integration/codex-composed-acceptance.test.ts",
   // Uses fallback-port process records that must not overlap a batch peer's proxy lifecycle.
   "cli/cli-status-json.test.ts",
   // Waits for the proxy owner runtime record and must not share its process lifecycle with a batch.
@@ -426,6 +429,9 @@ const SERIAL_LANE_TIMEOUT_MS: Partial<Record<SerialLaneBasename, number>> = {
   // The runtime fixture can contend with Codex cache initialization under host load.
   "codex-convergence-account-selectors.test.ts": 3 * 60 * 1000,
   "reserve-catalog-lifecycle.test.ts": 3 * 60 * 1000,
+  // Provider child startup is bounded by the suite's own checks, while this lane avoids
+  // concurrent host pressure that has made those checks need a batch retry.
+  "codex-composed-acceptance.test.ts": 3 * 60 * 1000,
   "cli-status-json.test.ts": 3 * 60 * 1000,
   "cli-start-journal-order.test.ts": 3 * 60 * 1000,
   // This file intentionally exercises 33 complete release-script subprocess trees.

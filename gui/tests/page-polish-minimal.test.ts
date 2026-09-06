@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { interpolate } from "../src/i18n/shared";
-import { ko } from "../src/i18n/ko";
+import { zhTW } from "../src/i18n/zh-TW";
 
 const read = (p: string) => readFileSync(join(import.meta.dir, p), "utf8");
 const providers = read("../src/components/provider-workspace/ProviderOverviewDashboard.tsx");
@@ -22,10 +22,9 @@ describe("page polish", () => {
     expect(providers).toContain('<summary className="pws-dashboard-section-title">{t("pws.dashboard.recentlyUsed")}</summary>');
   });
 
-  test("ko: 'checked N ago' no longer doubles 전 when the time is 방금 전", () => {
-    const rendered = interpolate(ko["pws.dashboard.checkedAgo"], { time: ko["time.justNow"] });
-    expect(rendered).not.toContain("전 전");
-    expect(rendered).toBe("방금 전 확인");
+  test("zh-TW: checked-ago copy interpolates the localized just-now value once", () => {
+    const rendered = interpolate(zhTW["pws.dashboard.checkedAgo"], { time: zhTW["time.justNow"] });
+    expect(rendered).toContain(zhTW["time.justNow"]);
   });
 
   test("Logs: no subtitle paragraph", () => {

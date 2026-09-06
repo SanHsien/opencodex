@@ -20,8 +20,8 @@ test("priority long-context lower bounds render with a greater-than-or-equal mar
 });
 
 test("the dollar shape is fixed under a non-English locale; only the unavailable label is translated", () => {
-  expect(formatEstimatedUsdValue(0.77, translator("de"), "de-DE", false)).toBe("$0.7700");
-  expect(formatEstimatedUsd({ kind: "unavailable" }, translator("de"), "de-DE")).toBe("nicht verfügbar");
+  expect(formatEstimatedUsdValue(0.77, translator("zh-TW"), "zh-TW", false)).toBe("$0.7700");
+  expect(formatEstimatedUsd({ kind: "unavailable" }, translator("zh-TW"), "zh-TW")).toBe("無法估算");
 });
 
 describe("conversation cost lower-bound aggregation", () => {

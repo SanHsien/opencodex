@@ -13,6 +13,7 @@ import { repoPath } from "../helpers/repo-root";
  * paragraph rewrap from breaking the suite over nothing.
  */
 const PARAGRAPH_START = "Source development requires the `bun` CLI on your `PATH`";
+const ZH_TW_PARAGRAPH_START = "從原始碼開發需要在 `PATH` 中有本機 `bun` CLI";
 
 const CASES = [
   {
@@ -23,10 +24,15 @@ const CASES = [
       + " `bun run prepush` run from your local Bun installation.",
   },
   {
-    path: "README.md",
+    path: "README.en.md",
     paragraph:
       "Source development requires the `bun` CLI on your `PATH`. This is separate from the published npm"
       + " package's bundled Bun runtime, which is used only by installed `ocx` commands.",
+  },
+  {
+    path: "README.md",
+    paragraph:
+      "從原始碼開發需要在 `PATH` 中有本機 `bun` CLI。這與已發佈 npm 套件內附、僅供已安裝 `ocx` 指令使用的 Bun 執行環境不同。",
   },
   {
     path: "docs-site/src/content/docs/contributing.md",
@@ -37,8 +43,8 @@ const CASES = [
 ] as const;
 
 /** The paragraph starting at `PARAGRAPH_START`, collapsed to single spaces. */
-function normalizedRequirementParagraph(text: string): string | undefined {
-  const start = text.indexOf(PARAGRAPH_START);
+function normalizedRequirementParagraph(text: string, startText = PARAGRAPH_START): string | undefined {
+  const start = text.indexOf(startText);
   if (start === -1) return undefined;
   const rest = text.slice(start);
   const end = rest.indexOf("\n\n");
@@ -49,6 +55,6 @@ function normalizedRequirementParagraph(text: string): string | undefined {
 test("source development docs require a local Bun CLI while preserving the bundled-runtime distinction", async () => {
   for (const entry of CASES) {
     const text = await Bun.file(repoPath(entry.path)).text();
-    expect(normalizedRequirementParagraph(text)).toBe(entry.paragraph);
+    expect(normalizedRequirementParagraph(text, entry.path === "README.md" ? ZH_TW_PARAGRAPH_START : PARAGRAPH_START)).toBe(entry.paragraph);
   }
 });

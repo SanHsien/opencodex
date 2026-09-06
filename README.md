@@ -182,7 +182,7 @@ reasoning 為 `low`。可用性仍受上游
 preview gate 限制；opencodex 只是準備好你的帳號/provider 可存取時所需的路由和目錄後設資料。
 
 <p align="center">
-  <img src="../assets/codex-app-picker.png" alt="Codex App 展示 opencodex 路由模型及 reasoning effort 選擇器" width="480">
+  <img src="assets/codex-app-picker.png" alt="Codex App 展示 opencodex 路由模型及 reasoning effort 選擇器" width="480">
 </p>
 
 ## OpenAI 供應商帳號模式
@@ -412,6 +412,8 @@ ocx recover-history --legacy-openai
 維護者的 source of truth 在 [`structure/`](../structure)，歷史調查與診斷筆記留在 [`docs/`](../docs)。
 
 ## 開發
+
+從原始碼開發需要在 `PATH` 中有本機 `bun` CLI。這與已發佈 npm 套件內附、僅供已安裝 `ocx` 指令使用的 Bun 執行環境不同。
 
 ```bash
 git clone https://github.com/lidge-jun/opencodex.git

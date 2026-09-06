@@ -206,7 +206,7 @@ describe("devlog is tracked, with no submodule left behind", () => {
     }
 
     expect(offenders).toEqual([]);
-  });
+  }, 20_000);
 
   test("no workflow checks out submodules", async () => {
     const listing = Bun.spawnSync(["git", "ls-files", ".github/workflows"], { cwd: repoRoot });

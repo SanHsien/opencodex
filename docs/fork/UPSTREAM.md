@@ -84,16 +84,15 @@ fork 只 fetch `main`（需要時才 fetch `dev`）。下次重看分支的觸�
 
 ## 下一次要做什麼
 
-目前水位見文末 **2026-08-27**（已審查到 `v2.34.0`、尚未合併）。操作仍是：
+目前水位為 **2026-09-06**：已審查到上游 `v2.43.0`
+（`06ec553630fa2ee51a96b5cbf694089021249194`）、closed-unmerged PR `#3717` 與 platform issue `#3661`。下一次只做增量檢查：
 
 ```powershell
-git fetch upstream main
+git fetch upstream main --tags
 bun tools/check-upstream-updates.ts --strict
 ```
 
-報告會同時列出「未審 commit」與「水位之後的新 `platform` issue」。處理完後同時推進
-`reviewed_through` 與 `reviewed_issue_through`，並把判斷寫進本檔。
-下次把上游帶進來時，照 2026-08-27 節在 `v2.34.0` 上重放 overlay，不要 merge。
+報告會同時列出未審 commit、closed-unmerged PR 與水位之後的新 `platform` issue。處理完後推進相應水位，並把判斷寫進本檔。2026-09-06 的 ancestry-only bridge 已恢復共同祖先；後續採一般、範圍受限的上游審查與整合，不再重放 orphan history，且絕不推送上游。
 
 ## 2026-08-23：重評「隨 release 進來」這個結論，並引用一支 dev 上的 Windows 修正
 

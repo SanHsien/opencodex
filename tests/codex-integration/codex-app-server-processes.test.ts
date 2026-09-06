@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import { spawn } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { setTrustedWindowsElevationExecutablesForTests } from "../../src/lib/windows-elevation";
 import {
@@ -28,6 +28,41 @@ import {
   WINDOWS_CODEX_BASENAME_CANDIDATE_RE,
 } from "../../src/codex/app-server-processes";
 import { repoPath } from "../helpers/repo-root";
+
+describe("Windows PowerShell fixture compiler", () => {
+  test("removes its partial directory when the fresh compiler reports failure", async () => {
+    let fixtureDir: string | undefined;
+    await expect(createWindowsPowerShellFixture({
+      platform: "win32",
+      onFixtureDirectory: dir => { fixtureDir = dir; },
+      compile: async () => ({ ok: false, detail: "intentional compile failure" }),
+    })).rejects.toThrow("Could not compile Windows PowerShell test fixture: intentional compile failure");
+    expect(fixtureDir).toBeDefined();
+    expect(existsSync(fixtureDir!)).toBe(false);
+  });
+
+  test("removes its partial directory when the fresh compiler throws", async () => {
+    let fixtureDir: string | undefined;
+    await expect(createWindowsPowerShellFixture({
+      platform: "win32",
+      onFixtureDirectory: dir => { fixtureDir = dir; },
+      compile: async () => { throw new Error("intentional compiler throw"); },
+    })).rejects.toThrow("intentional compiler throw");
+    expect(fixtureDir).toBeDefined();
+    expect(existsSync(fixtureDir!)).toBe(false);
+  });
+
+  test("reaps a timed-out fresh compiler before removing its fixture directory", async () => {
+    let fixtureDir: string | undefined;
+    await expect(createWindowsPowerShellFixture({
+      platform: "win32",
+      compileTimeoutMs: 1,
+      onFixtureDirectory: dir => { fixtureDir = dir; },
+    })).rejects.toThrow("timed out after 1ms; reaped=true");
+    expect(fixtureDir).toBeDefined();
+    expect(existsSync(fixtureDir!)).toBe(false);
+  });
+});
 
 describe("collectCodexAppServerCatalogState (#857)", () => {
 const APP_SERVER_CMD = "/usr/local/bin/codex app-server";

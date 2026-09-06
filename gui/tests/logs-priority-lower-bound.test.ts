@@ -12,7 +12,7 @@ function translator(locale: keyof typeof DICTS): TFn {
 }
 
 const en = translator("en");
-const de = translator("de");
+const zhTw = translator("zh-TW");
 
 describe("Logs priority lower-bound formatting", () => {
   test("prefixes confirmed unpriced priority estimates with the lower-bound marker", () => {
@@ -24,8 +24,8 @@ describe("Logs priority lower-bound formatting", () => {
   });
 
   test("keeps the fixed dollar shape under a non-English locale", () => {
-    expect(formatEstimatedUsdValue(1.6, de, "de-DE", false)).toBe("$1.6000");
-    expect(formatEstimatedUsdValue(1.6, de, "de-DE", true)).toBe("≥$1.6000");
+    expect(formatEstimatedUsdValue(1.6, zhTw, "zh-TW", false)).toBe("$1.6000");
+    expect(formatEstimatedUsdValue(1.6, zhTw, "zh-TW", true)).toBe("≥$1.6000");
   });
 });
 

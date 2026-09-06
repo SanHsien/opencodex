@@ -111,7 +111,7 @@ test("keeps the dialog open for whitespace and rejected tokens until one is acce
 
 test("uses the active UI locale instead of re-detecting browser storage", async () => {
   localStorage.setItem("ocx-lang", "en");
-  setActiveLocale("ko");
+  setActiveLocale("zh-TW");
 
   const pending = promptForAdminToken(async () => "accepted");
   const dialog = document.querySelector<HTMLDialogElement>("#opencodex-admin-token-dialog")!;
@@ -119,9 +119,9 @@ test("uses the active UI locale instead of re-detecting browser storage", async 
   const username = form.elements.namedItem("username") as HTMLInputElement;
   const password = form.elements.namedItem("password") as HTMLInputElement;
 
-  expect(dialog.querySelector("h3")?.textContent).toContain("관리자 토큰");
-  expect(form.querySelector(`label[for="${username.id}"]`)?.textContent).toBe("계정");
-  expect(form.querySelector(`label[for="${password.id}"]`)?.textContent).toBe("관리자 토큰");
+  expect(dialog.querySelector("h3")?.textContent).toContain("管理員金鑰");
+  expect(form.querySelector(`label[for="${username.id}"]`)?.textContent).toBe("帳號");
+  expect(form.querySelector(`label[for="${password.id}"]`)?.textContent).toBe("管理員金鑰");
 
   dialog.dispatchEvent(new testWindow.Event("cancel", { cancelable: true }));
   expect(await pending).toBeNull();

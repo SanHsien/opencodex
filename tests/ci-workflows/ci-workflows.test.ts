@@ -1335,7 +1335,8 @@ describe("GitHub Actions hardening", () => {
       "pull-requests": "write",
     });
     expect(job?.needs).toBe("resolve-pr");
-    expect(job?.["if"]).toBe("needs.resolve-pr.outputs.pull-number != ''");
+    expect(job?.["if"]).toContain("github.repository == 'lidge-jun/opencodex'");
+    expect(job?.["if"]).toContain("needs.resolve-pr.outputs.pull-number != ''");
     expect(job?.concurrency).toEqual({
       group: "pr-gate-comment-${{ needs.resolve-pr.outputs.pull-number }}",
       "cancel-in-progress": false,
@@ -5001,17 +5002,18 @@ describe("GitHub Actions hardening", () => {
     expect(workflow).toContain("github.rest.issues.updateComment");
     expect(workflow).toContain("group: issue-translation-${{ github.event.issue.number }}");
     expect(workflow).not.toContain("issue-comment-translation-${{ github.event.comment.id }}");
-    expect(workflow).toContain("if: github.event_name == 'issue_comment'");
+    expect(workflow).toContain("github.repository == 'lidge-jun/opencodex' &&");
+    expect(workflow).toContain("github.event_name == 'issue_comment'");
     // translate/validate skip open-area backfill; backfill job is area-only.
     expect(workflow).toContain("backfill_open_areas");
     expect(workflow).toContain("backfill-open-areas:");
     expect(workflow).toMatch(/inputs\.backfill_open_areas != true/);
     expect(workflow).toMatch(/inputs\.backfill_open_areas == true/);
     expect(workflow).toMatch(
-      /translate:\s*\n\s*name: Translate non-English issues\s*\n\s*if: >\s*\n\s*github\.event_name == 'issues' \|\|\s*\n\s*\(github\.event_name == 'workflow_dispatch' &&\s*\n\s*inputs\.backfill_open_areas != true &&\s*\n\s*inputs\.issue_number != ''\)/,
+      /translate:\s*\n\s*name: Translate non-English issues\s*\n\s*if: >\s*\n\s*github\.repository == 'lidge-jun\/opencodex' &&\s*\n\s*\(github\.event_name == 'issues' \|\|\s*\n\s*\(github\.event_name == 'workflow_dispatch' &&\s*\n\s*inputs\.backfill_open_areas != true &&\s*\n\s*inputs\.issue_number != ''\)\)/,
     );
     expect(workflow).toMatch(
-      /validate:\s*\n\s*# Wait for translate[\s\S]*?\n\s*needs: translate\s*\n\s*if: >\s*\n\s*always\(\) &&\s*\n\s*needs\.translate\.result != 'cancelled' &&\s*\n\s*\(github\.event_name == 'issues' \|\|\s*\n\s*\(github\.event_name == 'workflow_dispatch' &&\s*\n\s*inputs\.backfill_open_areas != true &&\s*\n\s*inputs\.issue_number != ''\)\)/,
+      /validate:\s*\n\s*# Wait for translate[\s\S]*?\n\s*needs: translate\s*\n\s*if: >\s*\n\s*github\.repository == 'lidge-jun\/opencodex' &&\s*\n\s*always\(\) &&\s*\n\s*needs\.translate\.result != 'cancelled' &&\s*\n\s*\(github\.event_name == 'issues' \|\|\s*\n\s*\(github\.event_name == 'workflow_dispatch' &&\s*\n\s*inputs\.backfill_open_areas != true &&\s*\n\s*inputs\.issue_number != ''\)\)/,
     );
 
     const commentJob = workflow.split(/\n {2}translate-comment:\n/)[1]!.split(/\n {2}[a-zA-Z]/)[0]!;

@@ -38,7 +38,13 @@ import { routeModel } from "../../src/router";
 import { handleManagementAPI } from "../../src/server/management-api";
 import { handleResponses } from "../../src/server/responses";
 import type { OcxConfig } from "../../src/types";
-import { syncCatalogModels } from "../../src/codex/catalog";
+import { loadBundledCodexCatalog, resetCatalogRuntimeStateForTests, syncCatalogModels } from "../../src/codex/catalog";
+import { setBundledCatalogCacheForTests } from "../../src/codex/catalog/bundled";
+import {
+  resetCodexRuntimeResolveCacheForTests,
+  setCodexRuntimeResolveCacheForTests,
+} from "../../src/codex/runtime";
+import * as appServerProcesses from "../../src/codex/app-server-processes";
 import { injectClaudeAgentDefs } from "../../src/claude/agents-inject";
 import { catalogConvergenceFactory } from "../helpers/catalog-convergence";
 import { removeTreeWithRetry } from "../helpers/remove-tree";
@@ -110,6 +116,48 @@ async function withTempHome<T>(run: (dir: string) => Promise<T> | T): Promise<T>
     else process.env.CLAUDE_CONFIG_DIR = previousClaudeConfigDir;
     removeTreeWithRetry(dir);
   }
+}
+
+async function withControlledCodexRuntime<T>(run: () => Promise<T>): Promise<T> {
+  return withTempHome(async () => {
+    const previousCodexCliPath = process.env.CODEX_CLI_PATH;
+    const runtime = {
+      command: "fixture-codex-runtime",
+      version: "0.145.0",
+      source: "environment" as const,
+    };
+    const bundledCatalog = {
+      models: [{
+        slug: "gpt-5.5",
+        display_name: "Fixture native",
+        description: "Fixture native runtime catalog.",
+        priority: 9,
+        visibility: "list",
+        supported_in_api: true,
+        shell_type: "unified_exec",
+        comp_hash: "fixture-comp-hash",
+        base_instructions: "Fixture instructions.",
+        model_messages: { instructions_template: "Fixture instructions." },
+        supported_reasoning_levels: [{ effort: "medium", description: "Fixture medium" }],
+        default_reasoning_level: "medium",
+      }],
+    };
+
+    try {
+      process.env.CODEX_CLI_PATH = runtime.command;
+      resetCatalogRuntimeStateForTests();
+      resetCodexRuntimeResolveCacheForTests();
+      setCodexRuntimeResolveCacheForTests({ runtime, failures: [] }, { discoverAlternatives: false });
+      setBundledCatalogCacheForTests(runtime, bundledCatalog);
+      expect(loadBundledCodexCatalog()?.models?.[0]?.slug).toBe("gpt-5.5");
+      return await run();
+    } finally {
+      if (previousCodexCliPath === undefined) delete process.env.CODEX_CLI_PATH;
+      else process.env.CODEX_CLI_PATH = previousCodexCliPath;
+      resetCatalogRuntimeStateForTests();
+      resetCodexRuntimeResolveCacheForTests();
+    }
+  });
 }
 
 function writeRawConfig(config: unknown): void {
@@ -831,38 +879,51 @@ describe("combo management API", () => {
   });
 
   test("GET subagent models exposes a combo alias as an available round-trip value", async () => {
-    const config = baseConfig({
-      subagentModels: ["deepseek-v4-flash"],
-      combos: {
-        free: { ...VALID_COMBO, alias: "deepseek-v4-flash" },
-      },
-    });
-    config.providers.a!.modelContextWindows = { m1: 128_000 };
+    // The response includes advisory app-server staleness, but this picker contract is about
+    // alias round-tripping. Keep its process scan out of the route's 15s picker budget.
+    const catalogState = spyOn(appServerProcesses, "collectCodexAppServerCatalogState")
+      .mockReturnValue({ state: "not_running", processes: [], catalogMtimeMs: null });
+    try {
+      await withControlledCodexRuntime(async () => {
+        const config = baseConfig({
+          subagentModels: ["deepseek-v4-flash"],
+          combos: {
+            free: { ...VALID_COMBO, alias: "deepseek-v4-flash" },
+          },
+        });
+        config.providers.a!.modelContextWindows = { m1: 128_000 };
+        // This picker round-trip only exercises configured aliases; provider discovery would
+        // otherwise make the 15s route contract depend on DNS and unrelated provider traffic.
+        for (const provider of Object.values(config.providers)) provider.liveModels = false;
 
-    const response = await comboApi(config, "GET", "/api/subagent-models");
-    expect(response?.status).toBe(200);
-    const body = await response!.json() as { chosen: string[]; available: string[] };
-    expect(body.chosen).toEqual(["deepseek-v4-flash"]);
-    expect(body.available).toContain("deepseek-v4-flash");
-    expect(body.available.filter(model => model === "deepseek-v4-flash")).toHaveLength(1);
-    expect(body.available).not.toContain("combo/free");
+        const response = await comboApi(config, "GET", "/api/subagent-models");
+        expect(response?.status).toBe(200);
+        const body = await response!.json() as { chosen: string[]; available: string[] };
+        expect(body.chosen).toEqual(["deepseek-v4-flash"]);
+        expect(body.available).toContain("deepseek-v4-flash");
+        expect(body.available.filter(model => model === "deepseek-v4-flash")).toHaveLength(1);
+        expect(body.available).not.toContain("combo/free");
 
-    // Disabling an alias hides it from the pickable set, but NOT while it still holds a
-    // saved roster slot: the dashboard PUTs exactly the rows it can render, so dropping a
-    // chosen id here silently truncates the persisted roster on the next Save. Covered by
-    // tests/routing/subagent-roster-retention.test.ts.
-    config.disabledModels = ["deepseek-v4-flash"];
-    const disabledResponse = await comboApi(config, "GET", "/api/subagent-models");
-    const disabledBody = await disabledResponse!.json() as { chosen: string[]; available: string[] };
-    expect(disabledBody.chosen).toEqual(["deepseek-v4-flash"]);
-    expect(disabledBody.available).toContain("deepseek-v4-flash");
-    expect(disabledBody.available.filter(model => model === "deepseek-v4-flash")).toHaveLength(1);
+        // Disabling an alias hides it from the pickable set, but NOT while it still holds a
+        // saved roster slot: the dashboard PUTs exactly the rows it can render, so dropping a
+        // chosen id here silently truncates the persisted roster on the next Save. Covered by
+        // tests/routing/subagent-roster-retention.test.ts.
+        config.disabledModels = ["deepseek-v4-flash"];
+        const disabledResponse = await comboApi(config, "GET", "/api/subagent-models");
+        const disabledBody = await disabledResponse!.json() as { chosen: string[]; available: string[] };
+        expect(disabledBody.chosen).toEqual(["deepseek-v4-flash"]);
+        expect(disabledBody.available).toContain("deepseek-v4-flash");
+        expect(disabledBody.available.filter(model => model === "deepseek-v4-flash")).toHaveLength(1);
 
-    // Once it no longer occupies a roster slot, the disable takes full effect.
-    config.subagentModels = [];
-    const unfeaturedResponse = await comboApi(config, "GET", "/api/subagent-models");
-    const unfeaturedBody = await unfeaturedResponse!.json() as { available: string[] };
-    expect(unfeaturedBody.available).not.toContain("deepseek-v4-flash");
+        // Once it no longer occupies a roster slot, the disable takes full effect.
+        config.subagentModels = [];
+        const unfeaturedResponse = await comboApi(config, "GET", "/api/subagent-models");
+        const unfeaturedBody = await unfeaturedResponse!.json() as { available: string[] };
+        expect(unfeaturedBody.available).not.toContain("deepseek-v4-flash");
+      });
+    } finally {
+      catalogState.mockRestore();
+    }
   }, 15_000);
 
   test("GET models round-trips a disabled combo alias for the Models GUI", async () => {

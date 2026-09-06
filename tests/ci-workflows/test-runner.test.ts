@@ -199,6 +199,8 @@ describe("bun test argv", () => {
     expect(plan[1]?.label).toBe("full suite batch 2/2");
     expect(plan[1]?.args).toEqual(["--isolate", "--parallel=4", "--timeout=60000", "tests/charlie.test.ts"]);
     expect(plan[0]?.timeoutMs).toBe(FULL_SUITE_FIXTURE_SETTINGS.batchTimeoutMs);
+    expect(plan[0]?.retryOnFailure).toBe(true);
+    expect(plan[1]?.retryOnFailure).toBe(true);
     for (const file of SERIAL_FULL_SUITE_FILES) {
       // The serial lane label uses the basename while argv carries its path relative to tests/.
       expect(plan.find(lane => lane.label === basename(file))?.args).toEqual([
@@ -207,6 +209,7 @@ describe("bun test argv", () => {
         "--timeout=60000",
         `./tests/${file}`,
       ]);
+      expect(plan.find(lane => lane.label === basename(file))?.retryOnFailure).toBeUndefined();
     }
     expect(plan.find(lane => lane.label === "release-helper.test.ts")?.timeoutMs).toBe(5 * 60 * 1000);
     expect(plan.find(lane => lane.label === "codex-shim.test.ts")?.timeoutMs).toBe(3 * 60 * 1000);
@@ -236,6 +239,7 @@ describe("bun test argv", () => {
     const plan = resolveBunTestPlan(["tests/clients/client-connect.test.ts"]);
     expect(plan).toHaveLength(1);
     expect(plan[0]?.args).not.toContain("--timeout=60000");
+    expect(plan[0]?.retryOnFailure).toBeUndefined();
   });
 
   test("sharded and reporter-file runs stay a single caller-controlled lane", () => {
@@ -271,10 +275,22 @@ describe("bun test argv", () => {
   test("the full-suite wrapper runs main batches in fresh bounded processes", () => {
     const fixtureRoot = mkdtempSync(join(tmpdir(), "opencodex-batched-suite-"));
     try {
+      const flakyMarker = join(fixtureRoot, "first-batch-flake.marker");
       for (const relative of FULL_SUITE_FIXTURE_FILES) {
         const path = join(fixtureRoot, relative);
         mkdirSync(dirname(path), { recursive: true });
-        writeFileSync(path, 'import { test } from "bun:test"; test(import.meta.path, () => {});\n');
+        const source = relative === "tests/alpha.test.ts"
+          ? `import { existsSync, writeFileSync } from "node:fs";
+import { test } from "bun:test";
+const marker = ${JSON.stringify(flakyMarker)};
+test("one-time flake", () => {
+  if (existsSync(marker)) return;
+  writeFileSync(marker, "first attempt failed");
+  throw new Error("intentional one-time batch flake");
+});
+`
+          : 'import { test } from "bun:test"; test(import.meta.path, () => {});\n';
+        writeFileSync(path, source);
       }
       const result = Bun.spawnSync([process.execPath, repoPath("scripts", "test.ts")], {
         cwd: fixtureRoot,
@@ -292,10 +308,45 @@ describe("bun test argv", () => {
       expect(result.exitCode).toBe(0);
       expect(output).toContain("9 files in 2 fresh-process batches (size <= 2, each <= 20s, whole run <= 2m)");
       expect(output).toContain("full suite batch 1/2 finished");
+      expect(output).toContain("full suite batch 1/2 first attempt exited 1; retrying once in a fresh Bun process.");
+      expect(output).toContain("full suite batch 1/2 retry finished");
+      expect(output).toContain("full suite batch 1/2 passed on its single fresh-process retry.");
       expect(output).toContain("full suite batch 2/2 finished");
       for (const file of SERIAL_FULL_SUITE_FILES) {
         expect(output).toContain(`${basename(file)} finished`);
       }
+    } finally {
+      removeTreeWithRetry(fixtureRoot);
+    }
+  });
+
+  test("the full-suite wrapper does not retry outside its overall deadline", () => {
+    const fixtureRoot = mkdtempSync(join(tmpdir(), "opencodex-batched-deadline-"));
+    try {
+      for (const relative of FULL_SUITE_FIXTURE_FILES) {
+        const path = join(fixtureRoot, relative);
+        mkdirSync(dirname(path), { recursive: true });
+        const source = relative === "tests/alpha.test.ts"
+          ? 'import { test } from "bun:test"; test("slow failure", async () => { await Bun.sleep(2_000); throw new Error("intentional deadline failure"); });\n'
+          : 'import { test } from "bun:test"; test(import.meta.path, () => {});\n';
+        writeFileSync(path, source);
+      }
+      const result = Bun.spawnSync([process.execPath, repoPath("scripts", "test.ts")], {
+        cwd: fixtureRoot,
+        env: {
+          ...process.env,
+          OCX_TEST_NO_QUEUE: "1",
+          OCX_TEST_FULL_SUITE_BATCH_SIZE: "2",
+          OCX_TEST_FULL_SUITE_BATCH_TIMEOUT_SECONDS: "20",
+          OCX_TEST_FULL_SUITE_TIMEOUT_SECONDS: "1",
+        },
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      const output = new TextDecoder().decode(result.stdout) + new TextDecoder().decode(result.stderr);
+      expect(result.exitCode).toBe(124);
+      expect(output).toContain("full suite batch 1/2 first attempt exited 124; no retry because the full-suite deadline is exhausted.");
+      expect(output).not.toContain("retrying once in a fresh Bun process");
     } finally {
       removeTreeWithRetry(fixtureRoot);
     }

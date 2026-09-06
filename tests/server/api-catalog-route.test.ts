@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { handleManagementAPI } from "../../src/server/management-api";
 import { loadConfig, saveConfig } from "../../src/config";
@@ -28,13 +28,16 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  isolatedCodexHome?.restore();
-  isolatedCodexHome = null;
-  if (previousOpencodexHome === undefined) {
-    delete process.env.OPENCODEX_HOME;
+  try {
+    isolatedCodexHome?.restore();
+  } finally {
+    isolatedCodexHome = null;
+    if (previousOpencodexHome === undefined) delete process.env.OPENCODEX_HOME;
+    else process.env.OPENCODEX_HOME = previousOpencodexHome;
     removeTreeWithRetry(TEST_DIR);
-  } else {
-    process.env.OPENCODEX_HOME = previousOpencodexHome;
+    // Full-suite workers already set OPENCODEX_HOME. Keep this branch covered so a
+    // restore cannot silently leave a repo-local fixture directory behind.
+    if (previousOpencodexHome !== undefined) expect(existsSync(TEST_DIR)).toBe(false);
   }
 });
 

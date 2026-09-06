@@ -12,7 +12,7 @@ on:
       - AGENTS.md
       - docs/fork/**
       - tools/**
-      - tests/fork-hygiene.test.ts
+      - tests/ci-workflows/fork-hygiene.test.ts
       - .github/workflows/fork-maintenance.yml
       - .github/workflows/upstream-check.yml
       - .github/workflows/codeql.yml
@@ -57,5 +57,5 @@ jobs:
       - name: Canonical fork gate
         if: runner.os != 'Windows'
         run: |
-          bun test tests/fork-hygiene.test.ts
+          bun test tests/ci-workflows/fork-hygiene.test.ts
           bun tools/check-links.ts

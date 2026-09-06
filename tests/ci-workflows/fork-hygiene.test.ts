@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
-import { checkDocument, iterDocuments } from "../tools/check-links";
+import { checkDocument, iterDocuments } from "../../tools/check-links";
 import {
   loadBaseline,
   renderIssueSection,
@@ -11,9 +11,9 @@ import {
   UpstreamCheckError,
   renderPullRequestSection,
   upstreamSlug,
-} from "../tools/check-upstream-updates";
+} from "../../tools/check-upstream-updates";
 
-const ROOT = fileURLToPath(new URL("../", import.meta.url));
+const ROOT = fileURLToPath(new URL("../../", import.meta.url));
 const NEWLINE = String.fromCharCode(10);
 const OFFICIAL_REPO_GUARD = "github.repository == 'lidge-jun/opencodex'";
 const FORK_OWNED_WORKFLOWS = new Set([

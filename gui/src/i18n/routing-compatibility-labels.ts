@@ -1,5 +1,3 @@
-import type { Locale } from "./catalogs";
-
 type CompatibilityFieldLabels = {
   maxEvidenceAgeMs: string;
   unknownEvidence: string;
@@ -12,7 +10,7 @@ type CompatibilityFieldLabels = {
  * into the UI without widening the compile-checked base catalog for three
  * CL-06-only labels.
  */
-export const ROUTING_COMPATIBILITY_FIELD_LABELS: Record<Locale, CompatibilityFieldLabels> = {
+export const ROUTING_COMPATIBILITY_FIELD_LABELS: Record<string, CompatibilityFieldLabels> = {
   en: {
     maxEvidenceAgeMs: "Maximum evidence age (ms)",
     unknownEvidence: "Unknown evidence",

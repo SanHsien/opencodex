@@ -3,7 +3,14 @@
 # are explicit guards so dev-only content never leaks into the published tarball.
 devlog/
 docs-site/
+docs/fork/
 .github/
+tools/
+FORK.md
+NOTICE.md
+CLAUDE.md
+SKILL.md
+REVIEW.md
 .codex/
 
 # GUI: ship only the built gui/dist (via "files"); never the source/deps/config.

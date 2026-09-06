@@ -23,6 +23,7 @@ concurrency:
 
 jobs:
   stale:
+    if: github.repository == 'lidge-jun/opencodex'
     name: Stale needs-info issues
     runs-on: ubuntu-latest
     steps:

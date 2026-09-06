@@ -45,6 +45,7 @@ concurrency:
 
 jobs:
   open-bump-pr:
+    if: github.repository == 'lidge-jun/opencodex'
     runs-on: ubuntu-latest
     permissions:
       # Push the new codex/dev-version-* branch. Ruleset `Protect dev` covers only

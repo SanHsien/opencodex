@@ -31,7 +31,8 @@ jobs:
     # before the write-capable job starts. The PR number is the stable identity
     # used by both gate writers even when a contributor pushes a new head SHA.
     if: >-
-      (github.event_name == 'status' &&
+      github.repository == 'lidge-jun/opencodex' &&
+      ((github.event_name == 'status' &&
        github.event.context == 'CodeRabbit' &&
        github.event.state == 'success' &&
        github.event.sender.login == 'coderabbitai[bot]' &&
@@ -44,7 +45,7 @@ jobs:
         github.event.label.name == 'test-exception-approved' ||
         github.event.label.name == 'suppression-approved' ||
         github.event.label.name == 'generated-change-approved' ||
-        github.event.label.name == 'dependency-change-approved'))
+        github.event.label.name == 'dependency-change-approved')))
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -138,7 +139,7 @@ jobs:
 
   enforce-target:
     needs: resolve-pr
-    if: needs.resolve-pr.outputs.pull-number != ''
+    if: github.repository == 'lidge-jun/opencodex' && needs.resolve-pr.outputs.pull-number != ''
     runs-on: ubuntu-latest
     # Job-scoped permissions replace, rather than extend, the workflow default.
     permissions:

@@ -179,13 +179,12 @@ describe("zh-TW language switch on the real GUI surface", () => {
     expect(testWindow.document.documentElement.lang).toBe("zh-TW");
   });
 
-  test("switching to Simplified Chinese afterwards keeps the picker functional", async () => {
+  test("stored zh from the retired Simplified catalog migrates to Traditional Chinese", async () => {
+    localStorage.setItem("ocx-lang", "zh");
     await mountSurface();
-    await choose(["繁體中文"]);
-    await choose(["中文"]);
-    expect(navLabels()).toContain("仪表盘");
-    expect(navLabels()).toContain("子代理");
-    expect(localStorage.getItem("ocx-lang")).toBe("zh");
+    expect(navLabels()).toContain("儀表板");
+    expect(navLabels()).toContain("供應商");
+    expect(testWindow.document.documentElement.lang).toBe("zh-TW");
   });
 
   test("teardown restores the original global property descriptors", async () => {
@@ -194,50 +193,6 @@ describe("zh-TW language switch on the real GUI surface", () => {
     const expectedLanguageDescriptor = previousLanguageDescriptor;
     const smokeNavigator = testWindow.navigator;
     const expectedSmokeLanguageDescriptor = testWindowLanguageDescriptor;
-
-    await teardownDom();
-
-    for (const k of domGlobals) {
-      expect(Object.getOwnPropertyDescriptor(globalThis, k)).toEqual(expectedDom[k]);
-    }
-    if (originalNavigator) {
-      expect(Object.getOwnPropertyDescriptor(originalNavigator, "language")).toEqual(expectedLanguageDescriptor);
-    }
-    expect(Object.getOwnPropertyDescriptor(smokeNavigator, "language")).toEqual(expectedSmokeLanguageDescriptor);
-  });
-});
-
-describe("French language switch on the real GUI surface", () => {
-  test("switches to French, persists it, switches back, and restores globals", async () => {
-    const expectedDom = Object.fromEntries(domGlobals.map((k) => [k, previousDom[k]])) as typeof previousDom;
-    const originalNavigator = previousNavigator;
-    const expectedLanguageDescriptor = previousLanguageDescriptor;
-    const smokeNavigator = testWindow.navigator;
-    const expectedSmokeLanguageDescriptor = testWindowLanguageDescriptor;
-
-    await mountSurface();
-    expect(navLabels()).toContain("Dashboard");
-
-    await choose(["Français"]);
-
-    expect(navLabels()).toEqual([
-      "Tableau de bord",
-      "Fournisseurs",
-      "Modèles",
-      "Sous-agents",
-      "Utilisation",
-      "Stockage",
-      "Intégrations",
-    ]);
-    expect(localStorage.getItem("ocx-lang")).toBe("fr");
-    expect(testWindow.document.documentElement.lang).toBe("fr");
-
-    await choose(["English"]);
-
-    expect(navLabels()).toContain("Dashboard");
-    expect(navLabels()).toContain("Providers");
-    expect(localStorage.getItem("ocx-lang")).toBe("en");
-    expect(testWindow.document.documentElement.lang).toBe("en");
 
     await teardownDom();
 

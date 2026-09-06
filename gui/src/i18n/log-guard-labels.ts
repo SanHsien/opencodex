@@ -1,5 +1,3 @@
-import type { Locale } from "./catalogs";
-
 export type LogGuardLabelKey =
   | "inspectionOnly"
   | "externalSqliteHome"
@@ -27,7 +25,7 @@ export type LogGuardLabelKey =
   | "error.database_error"
   | "error.config_write_failed";
 
-const LABELS: Record<Locale, Record<LogGuardLabelKey, string>> = {
+const LABELS: Record<string, Record<LogGuardLabelKey, string>> = {
   en: {
     compact: 'Compact',
     compactComplete: "Compaction complete (logical / on-disk reclaimed)",
@@ -276,3 +274,4 @@ const LABELS: Record<Locale, Record<LogGuardLabelKey, string>> = {
 export function logGuardLabel(locale: Locale, key: LogGuardLabelKey): string {
   return LABELS[locale][key];
 }
+import type { Locale } from "./catalogs";

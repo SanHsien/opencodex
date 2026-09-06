@@ -34,10 +34,11 @@ jobs:
   translate:
     name: Translate non-English issues
     if: >
-      github.event_name == 'issues' ||
+      github.repository == 'lidge-jun/opencodex' &&
+      (github.event_name == 'issues' ||
       (github.event_name == 'workflow_dispatch' &&
        inputs.backfill_open_areas != true &&
-       inputs.issue_number != '')
+       inputs.issue_number != ''))
     runs-on: ubuntu-latest
     # Serialize per-issue control-state RMW; workflow concurrency still cancels
     # superseded runs, but this queue avoids interleaved comment upserts.
@@ -442,7 +443,7 @@ jobs:
 
   translate-comment:
     name: Translate non-English issue comments
-    if: github.event_name == 'issue_comment' && github.event.issue.pull_request == null && github.event.comment.user.type != 'Bot'
+    if: github.repository == 'lidge-jun/opencodex' && github.event_name == 'issue_comment' && github.event.issue.pull_request == null && github.event.comment.user.type != 'Bot'
     runs-on: ubuntu-latest
     concurrency:
       # Shares the per-issue queue with the `translate` job: both jobs RMW the
@@ -750,6 +751,7 @@ jobs:
     # quality closure must not depend on translation success.
     needs: translate
     if: >
+      github.repository == 'lidge-jun/opencodex' &&
       always() &&
       needs.translate.result != 'cancelled' &&
       (github.event_name == 'issues' ||
@@ -1187,7 +1189,7 @@ jobs:
 
   backfill-open-areas:
     name: Backfill open issue area labels
-    if: github.event_name == 'workflow_dispatch' && inputs.backfill_open_areas == true
+    if: github.repository == 'lidge-jun/opencodex' && github.event_name == 'workflow_dispatch' && inputs.backfill_open_areas == true
     runs-on: ubuntu-latest
     permissions:
       # Read-only checkout of trusted scripts from the default branch.

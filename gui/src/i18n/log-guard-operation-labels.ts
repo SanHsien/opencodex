@@ -1,5 +1,3 @@
-import type { Locale } from "./catalogs";
-
 export type LogGuardOperationLabelKey =
   | "applying"
   | "error.generic"
@@ -12,7 +10,7 @@ export type LogGuardOperationLabelKey =
   | "error.auto_vacuum_not_incremental"
   | "error.integrity_check_failed";
 
-const LABELS: Record<Locale, Record<LogGuardOperationLabelKey, string>> = {
+const LABELS: Record<string, Record<LogGuardOperationLabelKey, string>> = {
   en: {
     applying: "Applying Log Guard change…",
     "error.generic": "Could not update Codex log storage.",
@@ -126,3 +124,4 @@ const LABELS: Record<Locale, Record<LogGuardOperationLabelKey, string>> = {
 export function logGuardOperationLabel(locale: Locale, key: LogGuardOperationLabelKey): string {
   return LABELS[locale][key];
 }
+import type { Locale } from "./catalogs";

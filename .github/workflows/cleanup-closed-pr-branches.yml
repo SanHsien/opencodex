@@ -24,6 +24,7 @@ concurrency:
 
 jobs:
   cleanup:
+    if: github.repository == 'lidge-jun/opencodex'
     name: Delete branches left by closed pull requests
     runs-on: ubuntu-latest
     timeout-minutes: 10

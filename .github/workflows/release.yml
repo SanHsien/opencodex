@@ -37,6 +37,7 @@ concurrency:
 
 jobs:
   validate-dispatch:
+    if: github.repository == 'lidge-jun/opencodex'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -70,6 +71,7 @@ jobs:
           }
           NODE
   publish:
+    if: github.repository == 'lidge-jun/opencodex'
     needs: validate-dispatch
     runs-on: ubuntu-latest
     timeout-minutes: 15

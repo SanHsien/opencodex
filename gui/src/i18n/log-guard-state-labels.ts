@@ -1,5 +1,3 @@
-import type { Locale } from "./catalogs";
-
 export type LogGuardSchemaState = "compatible" | "missing" | "unreadable" | "unsupported";
 export type LogGuardProtectionState = "off" | "active" | "drifted" | "unsupported" | "unknown";
 export type LogGuardProtectionMode = "off" | "compat" | "quiet" | "collision";
@@ -10,7 +8,7 @@ type StateLabels = {
   mode: Record<LogGuardProtectionMode, string>;
 };
 
-const LABELS: Record<Locale, StateLabels> = {
+const LABELS: Record<string, StateLabels> = {
   en: {
     schema: { compatible: "Compatible", missing: "Database not found", unreadable: "Database unavailable", unsupported: "Unsupported" },
     protection: { off: "Off", active: "Active", drifted: "Needs repair", unsupported: "Unsupported", unknown: "Unknown" },
@@ -69,3 +67,4 @@ export function logGuardProtectionStateLabel(locale: Locale, state: LogGuardProt
 export function logGuardProtectionModeLabel(locale: Locale, mode: LogGuardProtectionMode): string {
   return LABELS[locale].mode[mode];
 }
+import type { Locale } from "./catalogs";

@@ -29,6 +29,7 @@ permissions:
 
 jobs:
   label:
+    if: github.repository == 'lidge-jun/opencodex'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout labeler script (default-branch trusted code)

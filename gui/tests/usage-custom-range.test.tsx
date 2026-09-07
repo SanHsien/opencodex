@@ -8,6 +8,7 @@ import Usage from "../src/pages/Usage";
 
 const globals = ["document", "window", "navigator", "localStorage", "sessionStorage", "ResizeObserver", "IS_REACT_ACT_ENVIRONMENT"] as const;
 const originalFetch = globalThis.fetch;
+const initialTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 let previousGlobals: Record<(typeof globals)[number], unknown>;
 let testWindow: Window;
 let root: Root | undefined;
@@ -175,7 +176,7 @@ test("America/Santiago midnight DST retains final-day activity and tooltip", asy
     expect(container.querySelector(".heatmap-tip-date")?.textContent).toBe("2026-09-07");
     expect(container.querySelector(".heatmap-tip")?.textContent).toContain("700");
   } finally {
-    if (previous === undefined) delete process.env.TZ;
+    if (previous === undefined) process.env.TZ = initialTimeZone;
     else process.env.TZ = previous;
   }
 });

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { closeSync, existsSync, linkSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { ConfigMutationLockError, deleteConfigTopLevelKey, getConfigPath, initializePersistedConfigIfMissing, loadConfig, observeInitialConfigState, readConfigGeneration, saveConfig, withConfigMutationLockSync } from "../../src/config";
@@ -13,6 +14,20 @@ import { repoPath, repoRoot } from "../helpers/repo-root";
 
 let testRoot = "";
 let previousOpencodexHome: string | undefined;
+
+/** Windows without Developer Mode or admin cannot create file symlinks (EPERM). */
+const canFileSymlink = (() => {
+  const root = mkdtempSync(join(tmpdir(), "ocx-config-symlink-probe-"));
+  try {
+    symlinkSync(join(root, "target"), join(root, "link"), "file");
+    return true;
+  } catch (error: unknown) {
+    if ((error as NodeJS.ErrnoException).code === "EPERM") return false;
+    throw error;
+  } finally {
+    removeTreeWithRetry(root);
+  }
+})();
 
 function config(port = 10100): OcxConfig {
   // Initial publication validates the candidate before reaching the filesystem;
@@ -189,11 +204,13 @@ test.each(["", "not-json\n", '{"port":"broken"}', '\uFEFF{ "port":21002, "provid
   },
 );
 
-test("init refuses a directory and a dangling symlink without following either", () => {
+test("init refuses a directory without removing it", () => {
   mkdirSync(getConfigPath());
   expect(observeInitialConfigState()).toBe("invalid");
   expect(initializePersistedConfigIfMissing(config())).toBe("invalid");
-  removeTreeWithRetry(getConfigPath());
+});
+
+test.skipIf(!canFileSymlink)("init refuses a dangling symlink without following it", () => {
   const absent = join(testRoot, "absent");
   symlinkSync(absent, getConfigPath(), "file");
   expect(initializePersistedConfigIfMissing(config())).toBe("invalid");
@@ -312,7 +329,7 @@ test("a shared unpublished inode is never scrubbed", () => {
   expect(initTemps()).toEqual([]);
 });
 
-test("a swapped temporary symlink is neither written through nor removed as our inode", () => {
+test.skipIf(!canFileSymlink)("a swapped temporary symlink is neither written through nor removed as our inode", () => {
   const victim = join(testRoot, "victim");
   writeFileSync(victim, "untouched");
   expect(() => publishInitialConfigNoReplace(getConfigPath(), "candidate bytes", {

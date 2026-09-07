@@ -84,8 +84,8 @@ fork 只 fetch `main`（需要時才 fetch `dev`）。下次重看分支的觸�
 
 ## 下一次要做什麼
 
-目前水位為 **2026-09-06**：已審查到上游 `v2.43.0`
-（`06ec553630fa2ee51a96b5cbf694089021249194`）、closed-unmerged PR `#3717` 與 platform issue `#3661`。下一次只做增量檢查：
+目前水位為 **2026-09-07**：已審查並合併到上游 `v2.46.0`
+（`bba63222d3eeb5c8e397edae35798225e4fa1a6f`）、closed-unmerged PR `#3862` 與 platform issue `#3661`。下一次只做增量檢查：
 
 ```powershell
 git fetch upstream main --tags
@@ -307,4 +307,29 @@ Windows full-suite runner。
 
 - commit：`07b48da8fd63881e848d26e0bd50087864f5573e`
 - PR：`#3744`
+- issue：`#3661`
+
+## 2026-09-07：同步 v2.46.0，分流 `#3745`–`#3862`
+
+本 fork 已一般 merge 上游穩定 tag `v2.46.0`
+（`bba63222d3eeb5c8e397edae35798225e4fa1a6f`）。相對 v2.44.0 的 167 個
+`main` commits 全部由 stable tree 採用；合併前的 fork overlay、英／繁中語系限制、
+官方-repo-only workflow guard 與 Windows full-suite runner 保留。fork 的 post-release
+版本線因此由 `2.45.0` 推進到 `2.47.0`，不表示上游已發布 v2.47.0。
+
+### Closed-unmerged PR（`#3745`–`#3862`）
+
+| 分流 | PR | 結論 |
+| --- | --- | --- |
+| 已由 v2.46.0 commit 軸涵蓋 | `#3747 #3779 #3780 #3809 #3815 #3816` | 原 PR 雖關閉未合併，但 maintainer 的 carry／重作已進 `main`；容器 Codex home、Chat JSON-to-SSE、provider JSONL、Anthropic rate headers、Claude envelope、Grok control-frame 行為都直接取 stable 版本，不重放原 PR head。 |
+| 已落 `dev`，等待下一 stable | `#3769 #3837 #3839 #3840 #3841 #3843 #3845 #3849 #3856 #3858 #3860 #3862` | maintainer 已在 `#3866`–`#3881` 的 release train 內 carry／重作，且多筆含原 PR 沒有的 review 修正；截至本次水位都不是 `upstream/main` 的祖先。沒有本 fork 專屬重現證據時，不從仍前進的 113-commit `dev` train 拆半套。觸發條件是下一個 stable tag，或本機先重現相同缺陷後引用完整 maintainer landing。 |
+| 拒絕 | `#3853` | `[WRONG BRANCH]`，把 workflow YAML 寫進並覆蓋 `SECURITY.md`；既不會執行又會移除正式安全政策。 |
+
+以上 19 筆逐一讀過狀態、labels、檔案與 maintainer landing／關閉說明；
+`reviewed_pr_through` 推到 `#3862`。`#3661` 後仍沒有新的 `platform` issue，issue 水位不動。
+
+### 水位
+
+- commit：`bba63222d3eeb5c8e397edae35798225e4fa1a6f`（`v2.46.0`，已合併）
+- PR：`#3862`
 - issue：`#3661`

@@ -221,3 +221,19 @@ fork HEAD 不可重用已發布 tag 的 `2.44.0` 版本身分，因此本線將 
 **維持不變**：本 fork 不發 npm、不部署 docs-site、對外不寫 upstream；GUI 與
 docs-site 只保留英文／繁中。`reviewed_issue_through` 仍是 `3661`，因為本輪沒有新
 `platform` issue。
+
+## 2026-09-07：一般 merge v2.46.0；dev carry 等 stable
+
+**決定**：把 `upstream/main` 的 `v2.46.0`
+（`bba63222d3eeb5c8e397edae35798225e4fa1a6f`）一般 merge 進 fork，保留既有 overlay，
+版本推到 `2.47.0`。commit 水位推到該 SHA，closed-unmerged PR 水位推到 `#3862`，
+platform issue 水位維持 `#3661`。
+
+**PR 分流**：`#3747 #3779 #3780 #3809 #3815 #3816` 的 maintainer landing 已在
+v2.46 stable，不重放原 head；`#3769 #3837 #3839 #3840 #3841 #3843 #3845 #3849
+#3856 #3858 #3860 #3862` 只在 v2.46 後的 `dev` release train，等待下一 stable 或本機
+重現後再引用完整 landing；`#3853` 會以 workflow YAML 覆寫 `SECURITY.md`，拒絕。
+
+**理由**：後一組不是「沒看」，而是 maintainer carry 已加入原 PR 沒有的 review 修正，且彼此
+疊在仍前進的 `dev` train。直接搬原 PR head 會漏修，搬 stacked merge 會引入未發布依賴；在沒有
+本 fork 專屬重現的情況下，stable `main` 是可驗證且可維護的採用邊界。

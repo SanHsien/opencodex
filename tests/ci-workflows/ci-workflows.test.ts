@@ -506,17 +506,21 @@ describe("GitHub Actions hardening", () => {
     // allowlist. PRs always create the workflow and aggregate check; this list
     // decides whether the costly jobs run. Pin the entire list on both paths.
     const ciPaths = [
+      ".dockerignore",
       ".gitattributes",
       ".github/workflows/ci.yml",
       ".github/workflows/enforce-pr-target.yml",
       ".github/workflows/release.yml",
       ".github/workflows/stale-needs-info.yml",
       ".npmignore",
+      "Dockerfile",
       "LICENSE",
       "README.md",
       "assets/**",
       "bin/**",
       "bun.lock",
+      "compose.yaml",
+      "docker/**",
       "gui/**",
       "package.json",
       "scripts/**",
@@ -563,7 +567,7 @@ describe("GitHub Actions hardening", () => {
     expect(scopeIndex).toBeGreaterThan(filterIndex);
 
     const scopedCondition = "github.event_name != 'pull_request' || needs.changes.outputs.ci == 'true'";
-    for (const jobName of ["test", "storage-policy", "gates", "platform-macos", "keyring-smoke"]) {
+    for (const jobName of ["test", "storage-policy", "gates", "platform-macos", "keyring-smoke", "docker-smoke"]) {
       const job = ci.jobs?.[jobName] as { needs?: string; if?: string } | undefined;
       expect(`${jobName}:${job?.needs}`).toBe(`${jobName}:changes`);
       expect(`${jobName}:${job?.if}`).toBe(`${jobName}:${scopedCondition}`);
@@ -571,6 +575,34 @@ describe("GitHub Actions hardening", () => {
     const macosControlIf = ci.jobs?.["macos-control"] as { needs?: string; if?: string } | undefined;
     expect(macosControlIf?.needs).toBe("changes");
     expect(macosControlIf?.if).toBe("github.event_name == 'workflow_dispatch'");
+  });
+
+  test("Docker smoke executes the source-build lifecycle and gates its result", async () => {
+    const ci = Bun.YAML.parse(await readText(".github/workflows/ci.yml")) as {
+      jobs?: Record<string, {
+        "runs-on"?: string;
+        "timeout-minutes"?: number;
+        "continue-on-error"?: boolean;
+        needs?: string[];
+        permissions?: Record<string, string>;
+        steps?: Array<{ name?: string; run?: string; if?: string; "continue-on-error"?: boolean }>;
+      }>;
+    };
+    const smoke = ci.jobs?.["docker-smoke"];
+    expect(smoke?.["runs-on"]).toBe("ubuntu-latest");
+    expect(smoke?.["timeout-minutes"]).toBe(20);
+    expect(smoke?.["continue-on-error"]).toBeUndefined();
+    expect(smoke?.permissions).toBeUndefined(); // Inherits workflow contents:read.
+    const execution = smoke?.steps?.find(step =>
+      hasExactShellCommand(step.run, "bun scripts/ci/docker-smoke.ts"));
+    expect(execution).toBeDefined();
+    expect(execution?.if).toBeUndefined();
+    expect(execution?.["continue-on-error"]).toBeUndefined();
+    expect(ci.jobs?.ci?.needs).toContain("docker-smoke");
+    const typecheck = ci.jobs?.gates?.steps?.find(step => step.name === "Typecheck");
+    expect(hasExactShellCommand(typecheck?.run,
+      "bun x tsc --ignoreConfig --noEmit --strict --target ESNext --module ESNext --moduleResolution bundler --types bun-types --skipLibCheck scripts/ci/docker-smoke.ts",
+    )).toBe(true);
   });
 
   test("cross-platform CI keeps the GUI lint and build gates", async () => {

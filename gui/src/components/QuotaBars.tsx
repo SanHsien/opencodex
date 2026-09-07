@@ -20,7 +20,8 @@ export type QuotaBarRow = {
 /**
  * Window ordering is computed from RAW wire identities BEFORE localization
  * (ranking on translated labels breaks the moment a locale changes copy):
- * shorter windows first — 5h, weekly, cursor first-party, cursor API, monthly.
+ * shorter windows first — 5h, weekly, cursor first-party, cursor API, monthly,
+ * then subscription credits before other custom windows.
  */
 function rawCustomWindowRank(rawLabel: string): number {
   if (rawLabel === "5h") return 0;
@@ -33,10 +34,22 @@ function rawCustomWindowRank(rawLabel: string): number {
 const SUBSCRIPTION_CREDITS_LABEL = "Total subscription credits";
 
 function canonicalCustomWindowLabel(rawLabel: string): string {
-  const trimmed = rawLabel.trim();
-  return trimmed.toLowerCase() === SUBSCRIPTION_CREDITS_LABEL.toLowerCase()
+  return rawLabel.trim().toLowerCase() === SUBSCRIPTION_CREDITS_LABEL.toLowerCase()
     ? SUBSCRIPTION_CREDITS_LABEL
-    : trimmed;
+    : rawLabel;
+}
+
+/** Coverage metadata carries raw labels, while subscription rows use a canonical identity. */
+export function isCustomQuotaWindowIncomplete(
+  customLabel: string | undefined,
+  incompleteLabels?: ReadonlySet<string>,
+): boolean {
+  if (customLabel === undefined || !incompleteLabels) return false;
+  const canonical = canonicalCustomWindowLabel(customLabel);
+  for (const label of incompleteLabels) {
+    if (canonicalCustomWindowLabel(label) === canonical) return true;
+  }
+  return false;
 }
 
 function localizeCustomQuotaLabel(rawLabel: string, t: TFn): string {
@@ -149,8 +162,22 @@ function bcp47(locale: Locale): string {
   switch (locale) {
     case "en":
       return "en-GB";
+    case "de":
+      return "de-DE";
+    case "fr":
+      return "fr-FR";
+    case "ko":
+      return "ko-KR";
+    case "zh":
+      return "zh-CN";
     case "zh-TW":
       return "zh-TW";
+    case "ru":
+      return "ru-RU";
+    case "ja":
+      return "ja-JP";
+    case "tr":
+      return "tr-TR";
     default: {
       const _exhaustive: never = locale;
       return _exhaustive;
@@ -300,7 +327,7 @@ export default function QuotaBars({
             locale={locale}
             incomplete={row.windowKey
               ? incompleteWindowKeys?.has(row.windowKey) === true
-              : row.customLabel !== undefined && incompleteCustomWindowLabels?.has(row.customLabel) === true}
+              : isCustomQuotaWindowIncomplete(row.customLabel, incompleteCustomWindowLabels)}
           />
         ))}
       </div>
@@ -312,6 +339,7 @@ export default function QuotaBars({
       {rows.map(row => (
         <QuotaRow
           key={row.label}
+          credits={row.customLabel === SUBSCRIPTION_CREDITS_LABEL}
           label={row.label}
           percent={row.percent}
           resetAt={row.resetAt}
@@ -324,7 +352,8 @@ export default function QuotaBars({
   );
 }
 
-function QuotaRow({ label, percent, resetAt, threshold, t, locale }: {
+function QuotaRow({ credits, label, percent, resetAt, threshold, t, locale }: {
+  credits?: boolean;
   label: string;
   percent: number;
   resetAt?: number;
@@ -341,7 +370,7 @@ function QuotaRow({ label, percent, resetAt, threshold, t, locale }: {
     : undefined;
   const hasReset = reset.day !== "" || reset.time !== "";
   return (
-    <div className={`quota-row${warn ? " quota-row--warn" : ""}${exhausted ? " quota-row--exhausted" : ""}`}>
+    <div className={`quota-row${credits ? " quota-row--credits" : ""}${warn ? " quota-row--warn" : ""}${exhausted ? " quota-row--exhausted" : ""}`}>
       <span className="quota-label" title={resetTitle}>{label}</span>
       <span className="quota-reset-label">{hasReset ? t("codexAuth.resets") : ""}</span>
       <span className="quota-reset-day">{reset.day}</span>

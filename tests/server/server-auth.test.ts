@@ -38,7 +38,7 @@ import {
 import { clearRequestLogsForTests, getRequestLogEntries } from "../../src/server/request-log";
 import { readUsageEntries } from "../../src/usage/log";
 import { handleManagementAPI } from "../../src/server/management-api";
-import { handleResponses } from "../../src/server/responses";
+import { handleResponses, handleResponsesCompact } from "../../src/server/responses";
 import type { OcxConfig } from "../../src/types";
 import { fakeChatGptJwt } from "../helpers/fake-chatgpt-jwt";
 import { installIsolatedCodexHome, type IsolatedCodexHome } from "../helpers/isolated-codex-home";
@@ -602,18 +602,48 @@ describe("server local API auth", () => {
     })).toBe(false);
   });
 
-  test("compact route opts out of the request timeout before it buffers the compaction", () => {
-    // `/v1/responses/compact` answers only after the whole upstream turn has been collected,
-    // so unlike the streaming route it never sends a byte that would keep the connection
-    // alive. Without this opt-out the server-level `idleTimeout` closes a long remote
-    // compact mid-flight and the client sees a truncated body, not an error.
-    const source = readFileSync(new URL("../../src/server/index.ts", import.meta.url), "utf8");
-    const compactStart = source.indexOf('url.pathname === "/v1/responses/compact" && req.method === "POST"');
-    expect(compactStart).toBeGreaterThan(-1);
-    const handlerCall = source.indexOf("await handleResponsesCompact(req, config, logCtx", compactStart);
-    expect(handlerCall).toBeGreaterThan(compactStart);
-    expect(source.slice(compactStart, handlerCall)).toContain("disableResponsesRequestTimeout(req, requestServer);");
+  test("compact keeps the idle guard until a valid request body is complete", async () => {
+    let bodyController!: ReadableStreamDefaultController<Uint8Array>;
+    const readerWaiting = Promise.withResolvers<void>();
+    let readRequests = 0;
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) { bodyController = controller; },
+      pull(controller) {
+        if (readRequests++ === 0) controller.enqueue(new TextEncoder().encode('{"model":"fixture/gpt-test","input":['));
+        else readerWaiting.resolve();
+      },
+    }, { highWaterMark: 0 });
+    const cfg = config();
+    cfg.defaultProvider = "fixture";
+    cfg.providers = { fixture: { ...cfg.providers.openai!, disabled: true } };
+    const request = new Request("http://localhost/v1/responses/compact", {
+      method: "POST", headers: { "content-type": "application/json" }, body,
+    });
+    let accepted = 0;
+    const result = handleResponsesCompact(request, cfg, { model: "unknown", provider: "unknown" }, undefined, undefined, {
+      onRequestBodyRead: () => { accepted++; },
+    });
+    await readerWaiting.promise;
+    expect(accepted).toBe(0);
+    bodyController.enqueue(new TextEncoder().encode(']}'));
+    bodyController.close();
+    expect((await result).status).toBe(404);
+    expect(accepted).toBe(1);
   });
+
+  for (const body of ["{", "[]", "{}", '{"model":0}', '{"model":""}']) {
+    test(`compact does not release idle protection for rejected body ${body}`, async () => {
+      let accepted = false;
+      const request = new Request("http://localhost/v1/responses/compact", {
+        method: "POST", headers: { "content-type": "application/json" }, body,
+      });
+      const response = await handleResponsesCompact(request, config(), { model: "unknown", provider: "unknown" }, undefined, undefined, {
+        onRequestBodyRead: () => { accepted = true; },
+      });
+      expect(response.status).toBe(400);
+      expect(accepted).toBe(false);
+    });
+  }
 
   test("responses handler keeps the request timeout until the body is fully accepted", async () => {
     let controller!: ReadableStreamDefaultController<Uint8Array>;

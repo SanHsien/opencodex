@@ -1,14 +1,17 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { INTERNAL_DEADLINE_MS, STORE_BUDGET_MS } from "../helpers/test-budget";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import * as atomicWrite from "../../src/config/atomic-write";
 import * as oauthStore from "../../src/oauth/store";
+import { flushConfigDirHardeningForTests } from "../../src/config/paths";
 import {
   resetHardenedStateForTests,
+  setAsyncIcaclsRunnerForTests,
   setIcaclsRunnerForTests,
+  setPlatformForTests,
 } from "../../src/lib/windows-secret-acl";
+import { setSyntheticWindowsPrincipalForTests } from "../../src/lib/windows-user-principal";
 import {
   getAccountCredential,
   getAccountSet,
@@ -34,8 +37,19 @@ import {
 import type { OAuthCredentials } from "../../src/oauth/types";
 import { removeTreeWithRetry } from "../helpers/remove-tree";
 
-let testDir = "";
+const TEST_DIR = join(import.meta.dir, ".tmp-oauth-store-multi-test");
 let previousOpencodexHome: string | undefined;
+const ICACLS_OK = { success: true, exitCode: 0, timedOut: false, stdout: "" };
+
+async function cleanupOAuthStoreFixture(): Promise<void> {
+  await flushConfigDirHardeningForTests();
+  setIcaclsRunnerForTests(null);
+  setAsyncIcaclsRunnerForTests(null);
+  resetHardenedStateForTests();
+  if (previousOpencodexHome === undefined) delete process.env.OPENCODEX_HOME;
+  else process.env.OPENCODEX_HOME = previousOpencodexHome;
+  if (existsSync(TEST_DIR)) removeTreeWithRetry(TEST_DIR);
+}
 
 const cred = (over: Partial<OAuthCredentials> = {}): OAuthCredentials => ({
   access: "access-1",
@@ -58,31 +72,74 @@ async function selectionAccounts() {
 describe("multi-account auth store", () => {
   beforeEach(() => {
     previousOpencodexHome = process.env.OPENCODEX_HOME;
-    // A fixed in-repository home can remain held by a preceding fresh process on Windows.
-    // Give each case a private temp root so a failed batch cannot poison its fresh retry.
-    testDir = mkdtempSync(join(tmpdir(), "opencodex-oauth-store-multi-"));
-    process.env.OPENCODEX_HOME = testDir;
+    if (existsSync(TEST_DIR)) removeTreeWithRetry(TEST_DIR);
+    mkdirSync(TEST_DIR, { recursive: true });
+    process.env.OPENCODEX_HOME = TEST_DIR;
     resetHardenedStateForTests();
-    setIcaclsRunnerForTests(() => ({
-      success: true,
-      exitCode: 0,
-      timedOut: false,
-      stdout: "",
-    }));
+    setIcaclsRunnerForTests(() => ICACLS_OK);
+    setAsyncIcaclsRunnerForTests(async () => ICACLS_OK);
   });
 
-  afterEach(() => {
-    setIcaclsRunnerForTests(null);
-    resetHardenedStateForTests();
-    if (previousOpencodexHome === undefined) delete process.env.OPENCODEX_HOME;
-    else process.env.OPENCODEX_HOME = previousOpencodexHome;
-    if (testDir) removeTreeWithRetry(testDir);
-    testDir = "";
-  });
+  afterEach(cleanupOAuthStoreFixture);
+
+  test("fixture cleanup waits for a held config-directory ACL flight before restoring home or deleting files", async () => {
+    let release!: () => void;
+    const held = new Promise<void>(resolve => { release = resolve; });
+    let markStarted!: () => void;
+    const started = new Promise<void>(resolve => { markStarted = resolve; });
+    let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
+    let cleaning: Promise<unknown> | undefined;
+    let cleanupSettled = false;
+    setPlatformForTests("win32");
+    // Keep SID discovery hermetic on Windows as well as on forced POSIX lanes.
+    setSyntheticWindowsPrincipalForTests("*S-1-5-21-1-2-3-1001");
+    setAsyncIcaclsRunnerForTests(async () => {
+      markStarted();
+      await held;
+      return ICACLS_OK;
+    });
+    try {
+      // A real store read starts the production-tracked directory hardening flight.
+      expect(getAccountSet("xai")).toBeNull();
+      await Promise.race([
+        started,
+        new Promise<never>((_, reject) => {
+          deadlineTimer = setTimeout(() => reject(new Error("ACL runner did not start")), INTERNAL_DEADLINE_MS);
+        }),
+      ]);
+      clearTimeout(deadlineTimer);
+      cleaning = cleanupOAuthStoreFixture().then(
+        () => { cleanupSettled = true; return null; },
+        (error: unknown) => { cleanupSettled = true; return error; },
+      );
+      // An event-loop checkpoint lets an incorrectly unawaited cleanup finish; no sleep oracle.
+      await new Promise<void>(resolve => setImmediate(resolve));
+      expect(cleanupSettled).toBe(false);
+      expect(process.env.OPENCODEX_HOME).toBe(TEST_DIR);
+      expect(existsSync(TEST_DIR)).toBe(true);
+
+      release();
+      expect(await cleaning).toBeNull();
+      expect(cleanupSettled).toBe(true);
+      expect(process.env.OPENCODEX_HOME).toBe(previousOpencodexHome);
+      expect(existsSync(TEST_DIR)).toBe(false);
+    } finally {
+      if (deadlineTimer !== undefined) clearTimeout(deadlineTimer);
+      // Even a broken cleanup must not release the held flight into the real runner.
+      setAsyncIcaclsRunnerForTests(async () => ICACLS_OK);
+      release();
+      try {
+        await cleaning;
+        await flushConfigDirHardeningForTests();
+      } finally {
+        setPlatformForTests(null);
+      }
+    }
+  }, STORE_BUDGET_MS);
 
   test("legacy single-credential auth.json normalizes and round-trips without losing login", async () => {
-    const authPath = join(testDir, "auth.json");
-    mkdirSync(testDir, { recursive: true, mode: 0o700 });
+    const authPath = join(TEST_DIR, "auth.json");
+    mkdirSync(TEST_DIR, { recursive: true, mode: 0o700 });
     writeFileSync(authPath, JSON.stringify({
       xai: { access: "legacy-access", refresh: "legacy-refresh", expires: Date.now() + 1000, email: "old@example.com" },
     }));
@@ -99,8 +156,8 @@ describe("multi-account auth store", () => {
     // Legacy stores are re-normalized on EVERY load without being persisted, so the
     // derived id must be stable: a time-salted id would make getAccountSet and
     // getAccountCredential disagree (spurious logout) and refresh persists no-op.
-    const authPath = join(testDir, "auth.json");
-    mkdirSync(testDir, { recursive: true, mode: 0o700 });
+    const authPath = join(TEST_DIR, "auth.json");
+    mkdirSync(TEST_DIR, { recursive: true, mode: 0o700 });
     writeFileSync(authPath, JSON.stringify({
       cursor: { access: "legacy-access", refresh: "legacy-refresh", expires: Date.now() + 3600_000 },
     }));
@@ -311,8 +368,8 @@ describe("multi-account auth store", () => {
   });
 
   test("invalid account entries are dropped on load", async () => {
-    const authPath = join(testDir, "auth.json");
-    mkdirSync(testDir, { recursive: true, mode: 0o700 });
+    const authPath = join(TEST_DIR, "auth.json");
+    mkdirSync(TEST_DIR, { recursive: true, mode: 0o700 });
     writeFileSync(authPath, JSON.stringify({
       xai: { activeAccountId: "gone", accounts: [
         { id: "ok", credential: { access: "a", refresh: "r", expires: 1 } },
@@ -340,7 +397,7 @@ describe("multi-account auth store", () => {
   test("selection revision preserves credential-only refresh and unrelated account metadata", async () => {
     const { idA, idB } = await selectionAccounts();
     // Seed a persisted revision independently to catch normalization dropping it.
-    const authPath = join(testDir, "auth.json");
+    const authPath = join(TEST_DIR, "auth.json");
     const raw = JSON.parse(readFileSync(authPath, "utf8"));
     const revision = "f4abbddc-5c7c-4e87-bd8a-b5775a182860";
     raw.xai.selectionRevision = revision;
@@ -396,7 +453,7 @@ describe("multi-account auth store", () => {
   });
 
   test("selection commit supports revisionless legacy snapshots and guards the original id", async () => {
-    const authPath = join(testDir, "auth.json");
+    const authPath = join(TEST_DIR, "auth.json");
     writeFileSync(authPath, JSON.stringify({ xai: {
       activeAccountId: "legacy-a",
       accounts: [{ id: "legacy-a", credential: cred() }, { id: "legacy-b", credential: cred({ access: "b" }) }],

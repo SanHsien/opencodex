@@ -1,4 +1,5 @@
 import { MAX_CLIENT_SSE_FRAME_BYTES } from "../sse-frame-buffer";
+import { isSafeResponseHeader } from "../safe-response-headers";
 import { CodexWsMetadata, type CodexWsQuotaObserver } from "./codex-ws-metadata";
 import { CODEX_RESPONSES_HTTP_URL, type PreparedCodexWsRequest } from "./codex-ws-request";
 import { CodexWsCorrelation } from "./codex-ws-correlation";
@@ -16,48 +17,67 @@ interface ExchangeOptions {
   beforeDispatch?: (headers: Headers) => void;
 }
 
-// The frame's headers describe the upstream's HTTP representation. The body is
-// re-encoded as plain JSON below, so the framing and encoding headers would lie.
-const REBUILT_REJECTION_DROPPED_HEADERS = new Set([
-  "content-encoding", "content-length", "content-type", "transfer-encoding", "connection", "keep-alive",
-]);
+const HTTP_HEADER_TOKEN = /^[!#$%&'*+.^_`|~0-9a-z-]+$/i;
 
-/**
- * Turn a refused create frame back into the HTTP error it stands for.
- *
- * When the backend rejects a turn before it starts (an expired token, a usage
- * limit), it does not open a response. It sends one `error` frame carrying a
- * `status_code`, the error object and the response headers, then closes. Codex's
- * own WebSocket client maps that frame to the HTTP error (codex-api
- * `responses_websocket.rs`, `map_wrapped_websocket_error_event`). Relayed as an
- * SSE `error` event it is lost twice: the relay does not count `error` as a
- * terminal and appends an `adapter_eof` incomplete, and Codex's SSE parser has no
- * arm for `error`, so the client sees only the `adapter_eof` (#3029) and the
- * pre-stream quota, refresh and rotation handlers never see the status.
- *
- * 4xx only: those refusals come before generation, so answering with the status
- * cannot double-generate. 5xx keeps the stream path and its no-resend rule. This
- * reaches only the canonical ChatGPT lane: an opt-in `upstreamWebsocket` provider
- * commits its response on send, before any frame can be inspected.
- */
-function wrappedRejectionResponse(payload: Record<string, unknown>): Response | null {
-  const raw = payload.status_code ?? payload.status;
-  if (typeof raw !== "number" || !Number.isInteger(raw) || raw < 400 || raw > 499) return null;
-  const headers = new Headers();
-  const source = payload.headers;
-  if (source && typeof source === "object" && !Array.isArray(source)) {
-    for (const [name, value] of Object.entries(source as Record<string, unknown>)) {
-      if (typeof value !== "string" || REBUILT_REJECTION_DROPPED_HEADERS.has(name.toLowerCase())) continue;
-      try { headers.set(name, value); } catch { /* an invalid upstream header name/value is not ours to relay */ }
+function record(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+/** Rebuild only permitted metadata: upstream framing describes a different body. */
+function rejectionHeaders(source: Record<string, unknown>, prelude: Headers): Headers {
+  const connectionHeaders = new Set<string>();
+  for (const [name, value] of Object.entries(source)) {
+    if (name.toLowerCase() !== "connection" || typeof value !== "string") continue;
+    for (const token of value.split(",")) {
+      const lower = token.trim().toLowerCase();
+      if (HTTP_HEADER_TOKEN.test(lower)) connectionHeaders.add(lower);
     }
   }
-  headers.set("content-type", "application/json");
-  // The body is account-specific and rebuilt here, never a cacheable representation.
-  headers.set("cache-control", "no-store");
-  const error = payload.error && typeof payload.error === "object" && !Array.isArray(payload.error)
-    ? payload.error
-    : { type: "upstream_error", message: "Upstream rejected the request" };
-  return new Response(JSON.stringify({ error }), { status: raw, headers });
+  // Reuse the metadata owner's count/value/family budgets and window freshness
+  // rules, without publishing quota twice. The unmarked HTTP response owns it.
+  const projected = new CodexWsMetadata();
+  try {
+    for (const values of [Object.fromEntries(prelude), source]) {
+      const headers = Object.fromEntries(Object.entries(values).filter(([name, value]) => {
+        if (!HTTP_HEADER_TOKEN.test(name) || !isSafeResponseHeader(name)
+          || connectionHeaders.has(name.toLowerCase())) return false;
+        if (typeof value !== "string" && typeof value !== "number" && typeof value !== "boolean") return false;
+        return !(typeof value === "number" && !Number.isFinite(value)) && !/[\r\n\0]/.test(String(value));
+      }));
+      if (Object.keys(headers).length === 0) continue;
+      const event = { type: "codex.response.metadata", headers };
+      // Bound the combined serialized seed and updates, even for replacements.
+      projected.consume(event, Buffer.byteLength(JSON.stringify(event)));
+    }
+    const headers = projected.snapshot();
+    headers.set("content-type", "application/json");
+    headers.set("cache-control", "no-store");
+    return headers;
+  } finally {
+    projected.finish();
+  }
+}
+
+/**
+ * Carry #3740's refused-create status back to the HTTP recovery path. Codex's
+ * responses_websocket.rs accepts status/status_code and scalar header values;
+ * unlike its native client, this relay converts only precommit 4xx. Returning a
+ * post-send 5xx or fetch rejection could cause the outer retry wrapper to resend.
+ */
+function wrappedRejectionResponse(payload: Record<string, unknown>, prelude: Headers): Response | null {
+  if (payload.type !== "error" || payload.stream_id !== undefined) return null;
+  // The native typed wrapper has one aliased field, not two competing statuses.
+  if (Object.hasOwn(payload, "status_code") && Object.hasOwn(payload, "status")) return null;
+  const status = Object.hasOwn(payload, "status_code") ? payload.status_code : payload.status;
+  if (typeof status !== "number" || !Number.isInteger(status) || status < 400 || status > 499) return null;
+  const error = payload.error;
+  if (error != null && (!record(error)
+    || [error.code, error.message].some(value => value != null && typeof value !== "string"))) return null;
+  if (payload.headers != null && !record(payload.headers)) return null;
+  const headers = rejectionHeaders(record(payload.headers) ? payload.headers : {}, prelude);
+  return new Response(JSON.stringify({
+    error: error ?? { type: "upstream_error", message: "Upstream rejected the request" },
+  }), { status, headers });
 }
 
 /** The sole SSE exchange state machine for both one-shot and retained sockets. */
@@ -215,18 +235,6 @@ export function codexWsExchange(options: ExchangeOptions): Promise<Response> {
       const normalized = normalizeResponsesWsRelayEvent(text);
       if (!normalized) return;
       const { type } = normalized;
-      // Nothing has been committed to the client yet, so a wrapped rejection
-      // can still become the real HTTP response instead of a 200 stream.
-      if (!responseCommitted && type === "error") {
-        const rejection = wrappedRejectionResponse(normalized.payload);
-        if (rejection) {
-          terminal = true;
-          cleanup();
-          session.dispose();
-          resolve(rejection);
-          return;
-        }
-      }
       let relayText = normalized.text;
       let controlFrame = false;
       if (metadata) {
@@ -249,6 +257,21 @@ export function codexWsExchange(options: ExchangeOptions): Promise<Response> {
       if (!controlFrame && !type.startsWith("response.") && type !== "error") return;
       if (!controlFrame) {
         try { correlation?.accept(normalized.payload); } catch (error) { failStream(error); return; }
+        // Correlation must run first: a reused socket's foreign-stream error
+        // must not become an HTTP refusal that could authorize account replay.
+        if (metadata && sent && !responseCommitted && type === "error") {
+          let rejection: Response | null;
+          try { rejection = wrappedRejectionResponse(normalized.payload, metadata.snapshot()); }
+          catch (error) { failStream(error); return; }
+          if (rejection) {
+            terminal = true;
+            cleanup();
+            try { controller.close(); } catch { /* unused stream already closed */ }
+            session.dispose();
+            resolve(rejection);
+            return;
+          }
+        }
         commitResponse();
       }
       const prefix = encoder.encode(`event: ${type}\ndata: `);

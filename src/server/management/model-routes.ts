@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
+import { shouldInjectApiAuthHeader } from "../../codex/loopback-target";
 
 /**
  * Codex parses a catalog entry's `input_modalities` as a closed enum, and one out-of-enum
@@ -480,6 +481,13 @@ export async function handleModelRoutes(ctx: ManagementContext): Promise<Respons
       if (!(error instanceof ClientPathError)) throw error;
       return jsonResponse({ error: error.message }, 400, req, config);
     }
+    if (requested === "raycast" && shouldInjectApiAuthHeader(config)) {
+      return jsonResponse({
+        error: "Raycast export requires an unauthenticated loopback destination; this listener requires an admission header Raycast cannot supply.",
+        reason: "non_loopback",
+      }, 400, req, config);
+    }
+    const baseUrl = opencodeProxyBaseUrl(Number(url.port) || config.port, config.hostname, config);
     let models: ExportModel[];
     try {
       // The ONE loader every export surface uses. It carries the visibility
@@ -499,7 +507,7 @@ export async function handleModelRoutes(ctx: ManagementContext): Promise<Respons
       );
     }
     const built = buildClientConfigText(requested, {
-      baseUrl: opencodeProxyBaseUrl(Number(url.port) || config.port, config.hostname),
+      baseUrl,
       models,
       config,
     });

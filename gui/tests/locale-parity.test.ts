@@ -118,6 +118,8 @@ const ZH_TW_KEEP_ENGLISH: ReadonlySet<string> = new Set([
   "api.clientConfig.clientPrime",
   "api.clientConfig.clientAside",
   "integrations.tab.aside",
+  "integrations.tab.raycast",
+  "api.clientConfig.clientRaycast",
   "integrations.codex.title",
   "integrations.tab.cursor",
   "integrations.cursor.title",

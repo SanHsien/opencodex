@@ -9,8 +9,8 @@
     "lint": "oxlint .",
     "test": "bun test tests",
     "lint:i18n": "oxlint src/pages src/components src/App.tsx src/main.tsx src/ui.tsx src/provider-workspace-data.ts",
-    "doctor": "npx --yes react-doctor@0.9.11 --verbose --scope changed --base origin/main --no-telemetry",
-    "doctor:full": "npx --yes react-doctor@0.9.11 --verbose --scope full --no-telemetry",
+    "doctor": "bun ../scripts/run-react-doctor.ts changed react-doctor@0.9.11",
+    "doctor:full": "bun ../scripts/run-react-doctor.ts full react-doctor@0.9.11",
     "preview": "vite preview"
   },
   "dependencies": {

@@ -340,7 +340,7 @@ describe("multi-account auth store", () => {
   test("selection revision preserves credential-only refresh and unrelated account metadata", async () => {
     const { idA, idB } = await selectionAccounts();
     // Seed a persisted revision independently to catch normalization dropping it.
-    const authPath = join(TEST_DIR, "auth.json");
+    const authPath = join(testDir, "auth.json");
     const raw = JSON.parse(readFileSync(authPath, "utf8"));
     const revision = "f4abbddc-5c7c-4e87-bd8a-b5775a182860";
     raw.xai.selectionRevision = revision;
@@ -396,7 +396,7 @@ describe("multi-account auth store", () => {
   });
 
   test("selection commit supports revisionless legacy snapshots and guards the original id", async () => {
-    const authPath = join(TEST_DIR, "auth.json");
+    const authPath = join(testDir, "auth.json");
     writeFileSync(authPath, JSON.stringify({ xai: {
       activeAccountId: "legacy-a",
       accounts: [{ id: "legacy-a", credential: cred() }, { id: "legacy-b", credential: cred({ access: "b" }) }],

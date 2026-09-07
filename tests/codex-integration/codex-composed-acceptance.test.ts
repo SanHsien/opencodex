@@ -31,7 +31,9 @@ import { removeTreeWithRetry } from "../helpers/remove-tree";
  * the watchdogs inside it or the case dies before the watchdog it was meant to bound can
  * report anything useful. On CI those watchdogs take the 30s floor, so this scales with them.
  */
-const CASE_TIMEOUT_MS = process.env.CI === "true" ? 150_000 : 45_000;
+const CASE_TIMEOUT_MS = process.env.CI === "true" || process.env.OCX_TEST_FULL_SUITE === "1"
+  ? 150_000
+  : 45_000;
 
 import {
   canonicalizeCodexHome,

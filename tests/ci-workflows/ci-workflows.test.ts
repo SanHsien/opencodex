@@ -5260,6 +5260,18 @@ describe("GitHub Actions hardening", () => {
     expect(rootPkg).toContain("bun run typecheck && bun run lint:gui:if-changed && bun run test");
     expect(rootPkg).toContain("bun run privacy:scan && bun run doctor:gui:if-changed");
   });
+
+  test("React Doctor package scripts bypass Bun's npx alias with the native npm launcher", async () => {
+    const { resolveReactDoctorInvocation } = await import("../../scripts/run-react-doctor");
+    expect(resolveReactDoctorInvocation("changed", "react-doctor@0.9.11", "win32")).toEqual({
+      command: "npx.cmd",
+      args: ["--yes", "react-doctor@0.9.11", "--verbose", "--scope", "changed", "--base", "origin/main", "--no-telemetry"],
+    });
+    expect(resolveReactDoctorInvocation("full", "react-doctor@0.9.11", "linux")).toEqual({
+      command: "npx",
+      args: ["--yes", "react-doctor@0.9.11", "--verbose", "--scope", "full", "--no-telemetry"],
+    });
+  });
 });
 
 describe("doctor-gui-if-changed", () => {

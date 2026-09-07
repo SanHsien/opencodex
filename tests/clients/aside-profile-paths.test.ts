@@ -38,6 +38,20 @@ function directoryLink(target: string, path: string): void {
   symlinkSync(target, path, process.platform === "win32" ? "junction" : "dir");
 }
 
+/** Windows without Developer Mode or admin cannot create file symlinks (EPERM). */
+const canFileSymlink = (() => {
+  const home = mkdtempSync(join(tmpdir(), "ocx-aside-symlink-probe-"));
+  try {
+    symlinkSync(join(home, "target"), join(home, "link"), "file");
+    return true;
+  } catch (error: unknown) {
+    if ((error as NodeJS.ErrnoException).code === "EPERM") return false;
+    throw error;
+  } finally {
+    removeTreeWithRetry(home);
+  }
+})();
+
 describe("Aside profile manifest", () => {
   test("projects only safe metadata for cloud and local accounts", () => fixture((home, root) => {
     manifest(root, {
@@ -145,7 +159,7 @@ describe("Aside profile filesystem boundary", () => {
     }));
   }
 
-  test("rejects leaf links, including dangling links", () => fixture((home, root) => {
+  test.skipIf(!canFileSymlink)("rejects leaf links, including dangling links", () => fixture((home, root) => {
     const profiles = listAsideProfiles({}, home);
     const selected = profiles[0]!;
     const target = join(root, "u", "1", "models.json");
@@ -205,7 +219,7 @@ describe("Aside profile filesystem boundary", () => {
     }));
   }
 
-  test("rechecks leaf collisions immediately before all config mutations", () => fixture(home => {
+  test.skipIf(!canFileSymlink)("rechecks leaf collisions immediately before all config mutations", () => fixture(home => {
     const profiles = listAsideProfiles({}, home);
     const selected = profiles[0]!;
     const sibling = profiles[1]!;
@@ -218,7 +232,7 @@ describe("Aside profile filesystem boundary", () => {
     expect(readFileSync(selected.configPath, "utf8")).toBe("original");
   }));
 
-  test("rejects a selected leaf replaced by a link after guard capture", () => fixture(home => {
+  test.skipIf(!canFileSymlink)("rejects a selected leaf replaced by a link after guard capture", () => fixture(home => {
     const profiles = listAsideProfiles({}, home);
     const selected = profiles[0]!;
     const guarded = guardAsideProfileIO(selected, ioFor(home).io, profiles);

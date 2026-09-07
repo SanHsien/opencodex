@@ -61,6 +61,8 @@ const FULL_SUITE_FIXTURE_SETTINGS = {
   batchSize: 2,
   batchTimeoutMs: 20_000,
   totalTimeoutMs: 90_000,
+  startBatch: 1,
+  priorElapsedMs: 0,
 };
 function fullSuitePlan(requested: string[] = []) {
   return resolveBunTestPlan(requested, undefined, {
@@ -305,16 +307,46 @@ describe("bun test argv", () => {
       batchSize: 16,
       batchTimeoutMs: 600_000,
       totalTimeoutMs: 7_200_000,
+      startBatch: 1,
+      priorElapsedMs: 0,
     });
     expect(resolveFullSuiteSettings({
       OCX_TEST_FULL_SUITE_BATCH_SIZE: "7",
       OCX_TEST_FULL_SUITE_BATCH_TIMEOUT_SECONDS: "31",
       OCX_TEST_FULL_SUITE_TIMEOUT_SECONDS: "801",
-    })).toEqual({ batchSize: 7, batchTimeoutMs: 31_000, totalTimeoutMs: 801_000 });
+      OCX_TEST_FULL_SUITE_START_BATCH: "2",
+      OCX_TEST_FULL_SUITE_PRIOR_ELAPSED_SECONDS: "17",
+    })).toEqual({
+      batchSize: 7,
+      batchTimeoutMs: 31_000,
+      totalTimeoutMs: 801_000,
+      startBatch: 2,
+      priorElapsedMs: 17_000,
+    });
     expect(() => resolveFullSuiteSettings({ OCX_TEST_FULL_SUITE_BATCH_SIZE: "0" }))
       .toThrow("OCX_TEST_FULL_SUITE_BATCH_SIZE must be a positive integer");
     expect(() => resolveFullSuiteSettings({ OCX_TEST_FULL_SUITE_TIMEOUT_SECONDS: "999999999999999999999" }))
       .toThrow("OCX_TEST_FULL_SUITE_TIMEOUT_SECONDS must be a safe positive integer");
+    expect(() => resolveFullSuiteSettings({ OCX_TEST_FULL_SUITE_START_BATCH: "0" }))
+      .toThrow("OCX_TEST_FULL_SUITE_START_BATCH must be a positive integer");
+    expect(() => resolveFullSuiteSettings({ OCX_TEST_FULL_SUITE_PRIOR_ELAPSED_SECONDS: "-1" }))
+      .toThrow("OCX_TEST_FULL_SUITE_PRIOR_ELAPSED_SECONDS must be a non-negative integer");
+  });
+
+  test("the full-suite plan resumes at the original batch number and keeps every serial lane", () => {
+    const plan = resolveBunTestPlan([], undefined, {
+      fullSuiteFiles: FULL_SUITE_FIXTURE_FILES,
+      settings: { ...FULL_SUITE_FIXTURE_SETTINGS, startBatch: 2, priorElapsedMs: 17_000 },
+    });
+    expect(plan[0]?.label).toBe("full suite batch 2/2");
+    expect(plan.some(lane => lane.label === "full suite batch 1/2")).toBe(false);
+    for (const file of SERIAL_FULL_SUITE_FILES) {
+      expect(plan.some(lane => lane.label === basename(file))).toBe(true);
+    }
+    expect(() => resolveBunTestPlan([], undefined, {
+      fullSuiteFiles: FULL_SUITE_FIXTURE_FILES,
+      settings: { ...FULL_SUITE_FIXTURE_SETTINGS, startBatch: 4 },
+    })).toThrow("OCX_TEST_FULL_SUITE_START_BATCH 4 exceeds the final resumable batch 3");
   });
 
   test("full-suite discovery includes the relocated fork guard and only runnable test names", () => {

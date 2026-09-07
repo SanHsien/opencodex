@@ -87,6 +87,8 @@ export interface FullSuiteSettings {
   batchSize: number;
   batchTimeoutMs: number;
   totalTimeoutMs: number;
+  startBatch: number;
+  priorElapsedMs: number;
 }
 
 function positiveIntegerEnv(
@@ -102,6 +104,23 @@ function positiveIntegerEnv(
   const value = Number(raw);
   if (!Number.isSafeInteger(value)) {
     throw new Error(`[test] ${name} must be a safe positive integer, got ${JSON.stringify(raw)}.`);
+  }
+  return value;
+}
+
+function nonNegativeIntegerEnv(
+  name: string,
+  fallback: number,
+  env: Record<string, string | undefined>,
+): number {
+  const raw = env[name];
+  if (raw === undefined || raw === "") return fallback;
+  if (!/^\d+$/.test(raw)) {
+    throw new Error(`[test] ${name} must be a non-negative integer, got ${JSON.stringify(raw)}.`);
+  }
+  const value = Number(raw);
+  if (!Number.isSafeInteger(value)) {
+    throw new Error(`[test] ${name} must be a safe non-negative integer, got ${JSON.stringify(raw)}.`);
   }
   return value;
 }
@@ -122,6 +141,8 @@ export function resolveFullSuiteSettings(
       DEFAULT_FULL_SUITE_TIMEOUT_SECONDS,
       env,
     ) * 1000,
+    startBatch: positiveIntegerEnv("OCX_TEST_FULL_SUITE_START_BATCH", 1, env),
+    priorElapsedMs: nonNegativeIntegerEnv("OCX_TEST_FULL_SUITE_PRIOR_ELAPSED_SECONDS", 0, env) * 1000,
   };
 }
 
@@ -491,10 +512,17 @@ export function resolveBunTestPlan(
   const fullSuiteRequested = withFullSuiteTestTimeout(requested);
   const mainLanes: BunTestLane[] = [];
   const totalBatches = Math.ceil(mainFiles.length / settings.batchSize);
+  if (settings.startBatch > totalBatches + 1) {
+    throw new Error(
+      `[test] OCX_TEST_FULL_SUITE_START_BATCH ${settings.startBatch} exceeds the final resumable batch ${totalBatches + 1}.`,
+    );
+  }
   for (let index = 0; index < mainFiles.length; index += settings.batchSize) {
+    const batchNumber = Math.floor(index / settings.batchSize) + 1;
+    if (batchNumber < settings.startBatch) continue;
     const batch = mainFiles.slice(index, index + settings.batchSize);
     mainLanes.push({
-      label: `full suite batch ${mainLanes.length + 1}/${totalBatches}`,
+      label: `full suite batch ${batchNumber}/${totalBatches}`,
       args: resolveBunTestArgs([...fullSuiteRequested, ...batch], comparisonCommit),
       timeoutMs: settings.batchTimeoutMs,
       retryOnFailure: true,
@@ -684,17 +712,26 @@ if (import.meta.main) {
         settings: fullSuiteSettings,
       });
       if (fullSuite && fullSuiteSettings && fullSuiteFiles) {
-        const mainBatchCount = plan.length - SERIAL_FULL_SUITE_FILES.length;
+        const serialPaths = new Set(SERIAL_FULL_SUITE_FILES.map(file => `tests/${file}`));
+        const mainFileCount = fullSuiteFiles.filter(file => !serialPaths.has(file)).length;
+        const mainBatchCount = Math.ceil(mainFileCount / fullSuiteSettings.batchSize);
         console.warn(
           `[test] full suite: ${fullSuiteFiles.length} files in ${mainBatchCount} fresh-process batches `
           + `(size <= ${fullSuiteSettings.batchSize}, each <= ${Math.round(fullSuiteSettings.batchTimeoutMs / 1000)}s, `
           + `whole run <= ${Math.round(fullSuiteSettings.totalTimeoutMs / 60_000)}m).`,
         );
+        if (fullSuiteSettings.startBatch > 1) {
+          console.warn(
+            `[test] full suite resume: starting at batch ${fullSuiteSettings.startBatch}/${mainBatchCount}; `
+            + `batches 1-${Math.min(fullSuiteSettings.startBatch - 1, mainBatchCount)} are prior-pass evidence `
+            + `and ${Math.round(fullSuiteSettings.priorElapsedMs / 1000)}s is charged to the overall limit.`,
+          );
+        }
       }
       let exitCode = 0;
       let captured = "";
       for (const lane of plan) {
-        const elapsedMs = Date.now() - startedAt;
+        const elapsedMs = (fullSuiteSettings?.priorElapsedMs ?? 0) + Date.now() - startedAt;
         const remainingMs = fullSuiteSettings ? fullSuiteSettings.totalTimeoutMs - elapsedMs : lane.timeoutMs;
         if (remainingMs <= 0) {
           console.error(`[test] full suite exceeded its ${Math.round(fullSuiteSettings!.totalTimeoutMs / 60_000)}m overall limit before ${lane.label}.`);
@@ -714,7 +751,8 @@ if (import.meta.main) {
           && ![130, 143].includes(result.exitCode)
           && fullSuiteSettings
         ) {
-          const retryRemainingMs = fullSuiteSettings.totalTimeoutMs - (Date.now() - startedAt);
+          const retryRemainingMs = fullSuiteSettings.totalTimeoutMs
+            - (fullSuiteSettings.priorElapsedMs + Date.now() - startedAt);
           if (retryRemainingMs <= 0) {
             console.error(`[test] ${lane.label} first attempt exited ${result.exitCode}; no retry because the full-suite deadline is exhausted.`);
           } else {
@@ -746,7 +784,7 @@ if (import.meta.main) {
           exitCode = 1;
         }
       }
-      const elapsedSeconds = Math.round((Date.now() - startedAt) / 1000);
+      const elapsedSeconds = Math.round(((fullSuiteSettings?.priorElapsedMs ?? 0) + Date.now() - startedAt) / 1000);
       if (fullSuite && elapsedSeconds > 600) {
         console.warn(
           `[test] the suite took ${elapsedSeconds}s; with --parallel=${DEFAULT_TEST_PARALLELISM} it should finish in a few minutes on an idle machine. `

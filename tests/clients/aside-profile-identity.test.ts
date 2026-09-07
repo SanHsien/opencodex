@@ -12,7 +12,21 @@ const nativeStat = fs.statSync;
 const FIRST_INODE = 2n ** 53n;
 const SECOND_INODE = FIRST_INODE + 1n;
 
-test("Aside preserves high file identities without admitting shared targets or directory replacement", async () => {
+/** Windows without Developer Mode or admin cannot create file symlinks (EPERM). */
+const canFileSymlink = (() => {
+  const home = fs.mkdtempSync(join(tmpdir(), "ocx-aside-identity-symlink-probe-"));
+  try {
+    fs.symlinkSync(join(home, "target"), join(home, "link"), "file");
+    return true;
+  } catch (error: unknown) {
+    if ((error as NodeJS.ErrnoException).code === "EPERM") return false;
+    throw error;
+  } finally {
+    removeTreeWithRetry(home);
+  }
+})();
+
+test("Aside preserves high file identities without admitting shared files or directory replacement", async () => {
   const home = fs.mkdtempSync(join(tmpdir(), "ocx-aside-identity-"));
   const root = join(home, ".aside");
   const paths = [0, 1].map(id => join(root, "u", String(id), "models.json"));
@@ -115,6 +129,32 @@ test("Aside preserves high file identities without admitting shared targets or d
       expect(() => assertAsideProfileBoundary(profile, profiles, true))
         .toThrow("the model catalog is a link, shared file or non-regular file.");
     }
+  } finally {
+    observingBoundary = false;
+    identities.clear();
+    reads.clear();
+    for (const restore of restoreSpies.reverse()) restore();
+    removeTreeWithRetry(home);
+  }
+});
+
+test.skipIf(!canFileSymlink)("Aside refuses file symlinks without weakening the identity boundary", async () => {
+  const home = fs.mkdtempSync(join(tmpdir(), "ocx-aside-identity-symlink-"));
+  const root = join(home, ".aside");
+  try {
+    for (const id of [0, 1]) fs.mkdirSync(join(root, "u", String(id)), { recursive: true });
+    fs.writeFileSync(join(root, "accounts.json"), JSON.stringify({
+      currentAccountId: 0, accounts: [{ id: 0 }, { id: 1 }],
+    }));
+    const paths = [0, 1].map(id => join(root, "u", String(id), "models.json"));
+    for (const path of paths) fs.writeFileSync(path, "{}");
+
+    const { assertAsideProfileBoundary, listAsideProfiles } =
+      await import("../../src/clients/aside-profiles");
+    const [selected, peer] = listAsideProfiles({}, home);
+    if (!selected || !peer) throw new Error("fixture requires two profiles");
+    const profiles = [selected, peer];
+
     fs.unlinkSync(peer.configPath);
     fs.symlinkSync(selected.configPath, peer.configPath, "file");
     expect(nativeLstat(peer.configPath, { bigint: true }).isSymbolicLink()).toBe(true);
@@ -123,10 +163,6 @@ test("Aside preserves high file identities without admitting shared targets or d
     expect(() => assertAsideProfileBoundary(peer, profiles, true))
       .toThrow("the model catalog is a link, shared file or non-regular file.");
   } finally {
-    observingBoundary = false;
-    identities.clear();
-    reads.clear();
-    for (const restore of restoreSpies.reverse()) restore();
     removeTreeWithRetry(home);
   }
 });

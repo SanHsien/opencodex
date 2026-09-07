@@ -31,7 +31,7 @@
 
 ## 分支與 remote
 
-- `origin/main`：SanHsien 維護主線。產品基底為上游 `v2.46.0`（`bba63222d3eeb5c8e397edae35798225e4fa1a6f`）加上 fork overlay；此產品來源不會自行推進 `tools/upstream_baseline.json` 的審查水位。
+- `origin/main`：SanHsien 維護主線。產品基底為上游 `v2.47.0`（`f7f890ff72a5ccccadb5a935c1ea106922562cd2`）加上 fork overlay；此產品來源不會自行推進 `tools/upstream_baseline.json` 的審查水位。
 - `upstream/main`：上游發版線；`upstream/dev` 是上游 PR 整合線，需要時再 fetch。
 - 2026-09-06 replay 加上 ancestry-only bridge 已恢復共同上游祖先；後續從此祖先做一般、範圍受限的上游審查與整合，不再需要 orphan replay，且絕不推送上游。詳見 [`docs/fork/UPSTREAM.md`](docs/fork/UPSTREAM.md)。
 - 本 fork 的一般修改**直接推 `origin/main`**，不開功能分支、不開維護 PR（維護者 2026-08-22 指示，與其他 repo 一致）。

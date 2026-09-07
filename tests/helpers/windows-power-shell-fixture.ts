@@ -17,7 +17,8 @@ export interface WindowsPowerShellFixtureOptions {
 }
 
 const FIXTURE_COMPILE_TIMEOUT_MS = 30_000;
-const FIXTURE_COMPILE_RETRY_DELAY_MS = 150;
+const FIXTURE_COMPILE_RETRY_DELAY_MS = 250;
+const FIXTURE_COMPILE_MAX_ATTEMPTS = 4;
 const FIXTURE_OUTPUT_LIMIT = 4_000;
 const BUN_WINDOWS_COMPILE_COPY_ENOENT = "failed to copy bun executable into temporary file: ENOENT";
 
@@ -122,7 +123,7 @@ async function buildWindowsExecutableFixture(
         options.compileTimeoutMs,
       ));
     const attempts: string[] = [];
-    for (let attempt = 1; attempt <= 2; attempt += 1) {
+    for (let attempt = 1; attempt <= FIXTURE_COMPILE_MAX_ATTEMPTS; attempt += 1) {
       // Bun's --compile copies its runtime through TMP/TEMP before publishing --outfile.
       // Isolate every compiler child so a long suite's stale temp state or first failed
       // attempt cannot make the fresh attempt reuse an unavailable staging path.
@@ -141,11 +142,13 @@ async function buildWindowsExecutableFixture(
           cleanup: () => removeFixtureDirectory(dir),
         };
       }
-      if (attempt === 1 && !result.ok && result.detail.includes(BUN_WINDOWS_COMPILE_COPY_ENOENT)) {
+      if (attempt < FIXTURE_COMPILE_MAX_ATTEMPTS
+        && !result.ok
+        && result.detail.includes(BUN_WINDOWS_COMPILE_COPY_ENOENT)) {
         // Bun can leave an empty or partial output at --outfile. Do not let a successful
         // fresh compiler mistake it for its own completed executable.
         rmSync(executable, { force: true });
-        await Bun.sleep(FIXTURE_COMPILE_RETRY_DELAY_MS);
+        await Bun.sleep(FIXTURE_COMPILE_RETRY_DELAY_MS * attempt);
         continue;
       }
       throw new Error(

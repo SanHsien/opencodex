@@ -34,7 +34,7 @@ describe("Windows PowerShell fixture compiler", () => {
     "error: failed to copy bun executable into temporary file: ENOENT",
   )}`;
 
-  test("retries the precise Bun compile-copy ENOENT once after removing a partial executable", async () => {
+  test("boundedly retries the precise Bun compile-copy ENOENT in fresh directories", async () => {
     let fixtureDir: string | undefined;
     let attempts = 0;
     let firstSource: string | undefined;
@@ -44,7 +44,7 @@ describe("Windows PowerShell fixture compiler", () => {
       onFixtureDirectory: dir => { fixtureDir = dir; },
       compile: async (source, executable) => {
         attempts += 1;
-        if (attempts === 1) {
+        if (attempts < 4) {
           firstSource = source;
           firstExecutable = executable;
           writeFileSync(executable, "partial executable");
@@ -57,13 +57,13 @@ describe("Windows PowerShell fixture compiler", () => {
         return { ok: true, detail: "exit=0" };
       },
     });
-    expect(attempts).toBe(2);
+    expect(attempts).toBe(4);
     expect(existsSync(fixture.executable)).toBe(true);
     await fixture.cleanup();
     expect(existsSync(fixtureDir!)).toBe(false);
   });
 
-  test("reports both attempts when the precise Bun compile-copy ENOENT repeats", async () => {
+  test("reports every bounded attempt when the precise Bun compile-copy ENOENT repeats", async () => {
     let fixtureDir: string | undefined;
     let attempts = 0;
     await expect(createWindowsPowerShellFixture({
@@ -73,8 +73,8 @@ describe("Windows PowerShell fixture compiler", () => {
         attempts += 1;
         return { ok: false, detail: bunCompileCopyEnoent };
       },
-    })).rejects.toThrow(/attempt 1: .*ENOENT.*attempt 2: .*ENOENT/);
-    expect(attempts).toBe(2);
+    })).rejects.toThrow(/attempt 1: .*ENOENT.*attempt 2: .*ENOENT.*attempt 3: .*ENOENT.*attempt 4: .*ENOENT/);
+    expect(attempts).toBe(4);
     expect(existsSync(fixtureDir!)).toBe(false);
   });
 

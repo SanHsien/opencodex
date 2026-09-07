@@ -261,3 +261,14 @@ PR／issue 水位維持 `#3908`／`#3661`。
 **理由**：`#3908` 的 OrcaRouter 功能、maintainer `#3921` landing 與其後續修正現在已成為
 stable 的一部分，先前「不拆 auth surface」的等待條件已滿足。採完整 promotion tree 可保留
 上游審查與回歸修正；只需解已知 locale／README overlay 衝突，不再承擔 dev-only 依賴。
+
+## 2026-09-08：納入 v2.47.0 final roster correction
+
+**決定**：完整 suite 執行期間再次 fetch，發現 `upstream/main` 新增
+`f7f890ff72a5ccccadb5a935c1ea106922562cd2`（`release: apply final roster correction to main
+(#3933)`）。一般 merge 此 7-commit／3-file GUI-only stable 修正；PR 水位推到 `#3943`，
+platform issue 水位維持 `#3661`。
+
+**理由**：`#3933` 修正 refreshed subagent roster 與 fallback choices 的隔離，屬 v2.47 stable
+勘誤；不採用會使 fork 與上游正式 stable 行為不同。其餘新 PR 仍在 dev 或 open，closed-unmerged
+項目已有 maintainer landing，等待下一次 stable 可避免拆取未發布依賴。

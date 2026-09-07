@@ -84,8 +84,8 @@ fork 只 fetch `main`（需要時才 fetch `dev`）。下次重看分支的觸�
 
 ## 下一次要做什麼
 
-目前水位為 **2026-09-08**：已審查並合併上游 `v2.47.0` promotion
-（`6f71931dec81dffdfe40053d8df5074d40b3c406`）、closed-unmerged PR `#3908` 與 platform issue `#3661`。下一次只做增量檢查：
+目前水位為 **2026-09-08**：已審查並合併上游 `v2.47.0` promotion 與 final roster correction
+（`f7f890ff72a5ccccadb5a935c1ea106922562cd2`）、PR `#3943` 與 platform issue `#3661`。下一次只做增量檢查：
 
 ```powershell
 git fetch upstream main --tags
@@ -371,4 +371,21 @@ post-release 版本前推至 `2.48.0`。`#3661` 後仍沒有新的 `platform` is
 
 - commit：`6f71931dec81dffdfe40053d8df5074d40b3c406`（v2.47.0 promotion，已合併）
 - PR：`#3908`（已由 stable commit 軸涵蓋）
+- issue：`#3661`
+
+### 同日後續：同步 v2.47.0 final roster correction
+
+完整 suite 執行期間，`upstream/main` 又新增 `#3933`，把 `#3931` 的 GUI subagent fallback
+roster 修正套到 stable main。增量範圍 `6f71931d..f7f890ff` 只有 7 commits、3 個 GUI
+檔案；本 fork 以一般 merge 完整接收，沒有額外衝突。
+
+PR `#3909`–`#3943` 已逐筆分流：`#3929` 與 `#3933` 已進 stable；其餘 open/dev
+workstream 不提前拆取。closed-unmerged `#3917`／`#3934` 分別已有 `#3942`／`#3937`
+的 maintainer dev landing，等下一個 stable 再隨完整產品樹採用。`#3661` 後仍沒有新的
+`platform` issue。
+
+更新後水位：
+
+- commit：`f7f890ff72a5ccccadb5a935c1ea106922562cd2`（v2.47.0 final roster correction，已合併）
+- PR：`#3943`
 - issue：`#3661`

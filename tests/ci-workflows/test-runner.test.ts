@@ -1185,6 +1185,24 @@ describe("bun test user lock", () => {
     }
   });
 
+  test("a fresh lock directory without owner metadata keeps its publication grace", async () => {
+    const root = mkdtempSync(join(tmpdir(), "opencodex-test-lock-"));
+    const lockPath = join(root, "suite.lock");
+    try {
+      mkdirSync(lockPath);
+      await expect(acquireTestRunLock({
+        runId: "competing-run",
+        lockPath,
+        pollMs: 5,
+        maxWaitMs: 20,
+      })).rejects.toThrow("timed out");
+      expect(existsSync(lockPath)).toBe(true);
+      expect(existsSync(join(lockPath, "owner.json"))).toBe(false);
+    } finally {
+      removeTreeWithRetry(root);
+    }
+  });
+
   test("a dead owner is reclaimed even when the next bare invocation derives the same run ID", async () => {
     const root = mkdtempSync(join(tmpdir(), "opencodex-test-lock-"));
     const lockPath = join(root, "suite.lock");

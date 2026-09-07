@@ -234,30 +234,39 @@ function seedObservedRuntimeSupport(efforts = ["low", "medium", "high", "xhigh"]
 }
 
 function createCodexRuntimeFixture(efforts = ["low", "medium", "high", "xhigh"]): string {
-  const scriptPath = join(root, "codex-runtime-fixture.js");
-  const bundled = JSON.stringify({
+  const catalogFixturePath = join(root, "codex-runtime-fixture.json");
+  writeFileSync(catalogFixturePath, JSON.stringify({
     models: [{
       ...nativeMetadataEntry("gpt-5.5", "Fixture runtime instructions.", 9),
       supported_reasoning_levels: efforts.map(effort => ({ effort, description: effort })),
       default_reasoning_level: "medium",
     }],
-  });
-  writeFileSync(scriptPath, [
-    'if (process.argv.includes("--version")) {',
-    '  console.log("codex-cli 0.145.0");',
-    '} else {',
-    `  process.stdout.write(${JSON.stringify(bundled)});`,
-    '}',
-  ].join("\n"));
+  }));
 
   if (process.platform === "win32") {
     const commandPath = join(root, "codex-runtime-fixture.cmd");
-    writeFileSync(commandPath, `@echo off\r\n"${process.execPath}" "${scriptPath}" %*\r\n`);
+    writeFileSync(commandPath, [
+      "@echo off",
+      'echo %* | "%SystemRoot%\\System32\\findstr.exe" /C:"--version" >nul',
+      "if not errorlevel 1 (",
+      "  echo codex-cli 0.145.0",
+      ") else (",
+      `  type "${catalogFixturePath}"`,
+      ")",
+      "",
+    ].join("\r\n"));
     return commandPath;
   }
 
   const commandPath = join(root, "codex-runtime-fixture");
-  writeFileSync(commandPath, `#!/bin/sh\nexec "${process.execPath}" "${scriptPath}" "$@"\n`);
+  writeFileSync(commandPath, [
+    "#!/bin/sh",
+    'case " $* " in',
+    '  *" --version "*) printf \'codex-cli 0.145.0\\n\' ;;',
+    `  *) cat "${catalogFixturePath}" ;;`,
+    "esac",
+    "",
+  ].join("\n"));
   chmodSync(commandPath, 0o755);
   return commandPath;
 }

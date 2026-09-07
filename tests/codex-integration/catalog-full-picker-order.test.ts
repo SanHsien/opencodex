@@ -185,22 +185,32 @@ describe("picker ordering through production catalog writers", () => {
   // Same executable-fixture protocol as codex-convergence-account-selectors.test.ts:
   // a forced resolver refresh must receive the same version and catalog as a warm read.
   function createRuntimeFixture(catalog: RawCatalog): string {
-    const script = join(root, "fixture-codex.js");
-    writeFileSync(script, [
-      'if (process.argv.includes("--version")) {',
-      '  console.log("codex-cli 0.145.0");',
-      '} else {',
-      `  process.stdout.write(${JSON.stringify(JSON.stringify(catalog))});`,
-      '}',
-    ].join("\n"));
+    const catalogFixture = join(root, "fixture-codex.json");
+    writeFileSync(catalogFixture, JSON.stringify(catalog));
     if (process.platform === "win32") {
       const command = join(root, "fixture-codex.cmd");
-      writeFileSync(command, `@echo off\r\n"${process.execPath}" "${script}" %*\r\n`);
+      writeFileSync(command, [
+        "@echo off",
+        'echo %* | "%SystemRoot%\\System32\\findstr.exe" /C:"--version" >nul',
+        "if not errorlevel 1 (",
+        "  echo codex-cli 0.145.0",
+        ") else (",
+        `  type "${catalogFixture}"`,
+        ")",
+        "",
+      ].join("\r\n"));
       return command;
     }
     const command = join(root, "fixture-codex");
     const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
-    writeFileSync(command, `#!/bin/sh\nexec ${quote(process.execPath)} ${quote(script)} "$@"\n`);
+    writeFileSync(command, [
+      "#!/bin/sh",
+      'case " $* " in',
+      '  *" --version "*) printf \'codex-cli 0.145.0\\n\' ;;',
+      `  *) cat ${quote(catalogFixture)} ;;`,
+      "esac",
+      "",
+    ].join("\n"));
     chmodSync(command, 0o755);
     return command;
   }

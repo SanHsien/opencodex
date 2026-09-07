@@ -984,16 +984,16 @@ describe("Windows Win32_Process owner enumeration (#476)", () => {
         [
           "-NoProfile", "-NoLogo", "-NonInteractive",
           "-Command",
-          "Start-Sleep -Seconds 45 # codex app-server integration-probe",
+          "Start-Sleep -Seconds 120 # codex app-server integration-probe",
         ],
         { stdio: "ignore", windowsHide: true },
       );
       try {
         expect(child.pid).toBeGreaterThan(1);
         // Brief settle so Win32_Process can observe the child. A loaded Windows
-        // runner can also exhaust one CIM enumeration deadline, so tolerate one
-        // transient empty result OR one thrown deadline (ETIMEDOUT propagates by
-        // design) while keeping the production timeout unchanged.
+        // runner can also exhaust several CIM enumeration deadlines or briefly
+        // omit GetOwner for the new process, so poll within a test-local deadline
+        // while keeping the production timeout unchanged.
         Bun.sleepSync(250);
         const enumerate = (): ReturnType<typeof listWindowsSnapshots> | undefined => {
           try {
@@ -1002,18 +1002,14 @@ describe("Windows Win32_Process owner enumeration (#476)", () => {
             return undefined; // transient CIM deadline on a contended runner
           }
         };
-        let snapshots = enumerate() ?? [];
-        let match = snapshots.find(snapshot => snapshot.pid === child.pid);
-        if (!match) {
-          Bun.sleepSync(250);
+        const deadline = Date.now() + 60_000;
+        let snapshots: ReturnType<typeof listWindowsSnapshots> = [];
+        let match: (typeof snapshots)[number] | undefined;
+        do {
           snapshots = enumerate() ?? [];
           match = snapshots.find(snapshot => snapshot.pid === child.pid);
-        }
-        if (!match) {
-          Bun.sleepSync(1_000);
-          snapshots = enumerate() ?? [];
-          match = snapshots.find(snapshot => snapshot.pid === child.pid);
-        }
+          if (!match && Date.now() < deadline) Bun.sleepSync(500);
+        } while (!match && Date.now() < deadline);
         expect(match).toBeDefined();
         expect(match!.owner).toMatch(/\\/);
         expect(match!.commandLine.toLowerCase()).toContain("codex app-server");
@@ -1026,7 +1022,7 @@ describe("Windows Win32_Process owner enumeration (#476)", () => {
         }
       }
     },
-    { timeout: 35_000 },
+    { timeout: 75_000 },
   );
 });
 

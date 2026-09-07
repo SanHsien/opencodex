@@ -71,16 +71,28 @@ function makeSandbox(models: RawEntry[] = [nativeRow()], rootFields: RawEntry = 
   for (const path of [home, codexHome, ocxHome, runtime]) mkdirSync(path, { recursive: true, mode: 0o700 });
   const owned = claimOwnedServiceHome(codexHome, ocxHome, home);
   const bundledPath = join(root, "bundled-models.json");
-  const runtimeScript = join(root, "codex-fixture.mjs");
-  writeFileSync(runtimeScript, [
-    'import { readFileSync } from "node:fs";',
-    'if (process.argv.includes("--version")) console.log("codex-cli 0.999.0");',
-    `else process.stdout.write(readFileSync(${JSON.stringify(bundledPath)}, "utf8"));`,
-  ].join("\n"));
   const command = join(root, process.platform === "win32" ? "codex-fixture.cmd" : "codex-fixture");
-  writeFileSync(command, process.platform === "win32"
-    ? `@echo off\r\n"${process.execPath}" "${runtimeScript}" %*\r\n`
-    : `#!/bin/sh\nexec "${process.execPath}" "${runtimeScript}" "$@"\n`);
+  if (process.platform === "win32") {
+    writeFileSync(command, [
+      "@echo off",
+      'echo %* | "%SystemRoot%\\System32\\findstr.exe" /C:"--version" >nul',
+      "if not errorlevel 1 (",
+      "  echo codex-cli 0.999.0",
+      ") else (",
+      `  type "${bundledPath}"`,
+      ")",
+      "",
+    ].join("\r\n"));
+  } else {
+    writeFileSync(command, [
+      "#!/bin/sh",
+      'case " $* " in',
+      '  *" --version "*) printf \'codex-cli 0.999.0\\n\' ;;',
+      `  *) cat "${bundledPath}" ;;`,
+      "esac",
+      "",
+    ].join("\n"));
+  }
   if (process.platform !== "win32") chmodSync(command, 0o700);
   const catalogPath = join(codexHome, "opencodex-catalog.json");
   writeFileSync(catalogPath, JSON.stringify({ ...rootFields, models }));

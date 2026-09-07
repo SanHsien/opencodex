@@ -472,6 +472,8 @@ export interface BunTestLane {
   timeoutMs: number;
   /** Only ordinary full-suite batches get one fresh-process retry for a transient failure. */
   retryOnFailure?: boolean;
+  /** This Windows-only lane must observe the real user profile and process owner. */
+  useWindowsHostProfile?: boolean;
 }
 
 export interface BunTestPlanOptions {
@@ -538,8 +540,27 @@ export function resolveBunTestPlan(
       label: basename(file),
       args: resolveBunTestArgs(["--parallel=1", ...serialRequested, `./tests/${file}`]),
       timeoutMs: SERIAL_LANE_TIMEOUT_MS[basename(file) as SerialLaneBasename] ?? 3 * 60 * 1000,
+      useWindowsHostProfile: file === "codex-integration/codex-app-server-processes.test.ts",
     })),
   ];
+}
+
+export function resolveTestLaneEnvironment(
+  lane: BunTestLane,
+  isolatedEnv: Record<string, string | undefined>,
+  platform: NodeJS.Platform = process.platform,
+): Record<string, string | undefined> {
+  if (platform !== "win32" || !lane.useWindowsHostProfile) return isolatedEnv;
+  const realHome = isolatedEnv.OCX_REAL_HOME;
+  if (!realHome) throw new Error(`[test] ${lane.label} requires OCX_REAL_HOME on Windows.`);
+  return {
+    ...isolatedEnv,
+    // This lane compiles a real executable and verifies Win32_Process ownership.
+    // Keep product homes sandboxed through CODEX_HOME and OPENCODEX_HOME, but let
+    // Windows/Bun resolve the effective user's actual profile for those host probes.
+    HOME: realHome,
+    USERPROFILE: realHome,
+  };
 }
 
 function waitWithTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T | null> {
@@ -577,7 +598,7 @@ async function runTestLane(
   const startedAt = Date.now();
   let interrupted: NodeJS.Signals | null = null;
   const child = Bun.spawn([process.execPath, "test", ...lane.args], {
-    env: isolated.env,
+    env: resolveTestLaneEnvironment(lane, isolated.env),
     stdin: "inherit",
     stdout: capture ? "pipe" : "inherit",
     stderr: capture ? "pipe" : "inherit",

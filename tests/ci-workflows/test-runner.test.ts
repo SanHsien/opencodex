@@ -12,6 +12,7 @@ import {
   resolveBunTestArgs,
   resolveBunTestPlan,
   resolveFullSuiteSettings,
+  resolveTestLaneEnvironment,
   selectChangedComparisonRef,
   SERIAL_FULL_SUITE_FILES,
 } from "../../scripts/test";
@@ -225,6 +226,7 @@ describe("bun test argv", () => {
     expect(appServerLane?.args).toContain(`./tests/${appServerProcesses}`);
     expect(appServerLane?.timeoutMs).toBe(3 * 60 * 1000);
     expect(appServerLane?.retryOnFailure).toBeUndefined();
+    expect(appServerLane?.useWindowsHostProfile).toBe(true);
     expect(plan.flatMap(lane => lane.args)).not.toContain(`tests/${multiAgentCompat}`);
     const multiAgentLane = plan.find(lane => lane.label === "multi-agent-compat.test.ts");
     expect(multiAgentLane?.args).toContain(`./tests/${multiAgentCompat}`);
@@ -267,6 +269,30 @@ describe("bun test argv", () => {
     }
     expect(plan.find(lane => lane.label === "release-helper.test.ts")?.timeoutMs).toBe(5 * 60 * 1000);
     expect(plan.find(lane => lane.label === "codex-shim.test.ts")?.timeoutMs).toBe(3 * 60 * 1000);
+  });
+
+  test("the Windows host-process lane restores only profile identity, not product homes", () => {
+    const isolated = {
+      OCX_REAL_HOME: "C:\\Users\\owner",
+      HOME: "C:\\Temp\\suite",
+      USERPROFILE: "C:\\Temp\\suite",
+      CODEX_HOME: "C:\\Temp\\suite\\.codex",
+      OPENCODEX_HOME: "C:\\Temp\\suite\\.opencodex",
+    };
+    const resolved = resolveTestLaneEnvironment({
+      label: "codex-app-server-processes.test.ts",
+      args: [],
+      timeoutMs: 1,
+      useWindowsHostProfile: true,
+    }, isolated, "win32");
+    expect(resolved).toMatchObject({
+      HOME: "C:\\Users\\owner",
+      USERPROFILE: "C:\\Users\\owner",
+      CODEX_HOME: "C:\\Temp\\suite\\.codex",
+      OPENCODEX_HOME: "C:\\Temp\\suite\\.opencodex",
+    });
+    expect(resolveTestLaneEnvironment({ label: "ordinary", args: [], timeoutMs: 1 }, isolated, "win32"))
+      .toBe(isolated);
   });
 
   test("serial lanes override caller parallelism without changing fresh main batches", () => {

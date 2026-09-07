@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -116,12 +116,24 @@ async function buildWindowsExecutableFixture(
       "}",
     ].join("\n");
 
+    let privateBunRuntime: string | undefined;
     const compile = options.compile
-      ?? ((nextSource: string, nextExecutable: string) => compileWindowsExecutableFixture(
-        nextSource,
-        nextExecutable,
-        options.compileTimeoutMs,
-      ));
+      ?? ((nextSource: string, nextExecutable: string) => {
+        // A Bun test process spawned by scripts/test.ts has a still-running Bun parent.
+        // On Windows, `bun build --compile` can then fail while copying that shared image
+        // into its compiler staging file. Compile through a fixture-private runtime so
+        // the parent wrapper and compiler never share the source executable.
+        if (!privateBunRuntime) {
+          privateBunRuntime = join(dir, "compiler-bun.exe");
+          copyFileSync(process.execPath, privateBunRuntime);
+        }
+        return compileWindowsExecutableFixture(
+          nextSource,
+          nextExecutable,
+          options.compileTimeoutMs,
+          privateBunRuntime,
+        );
+      });
     const attempts: string[] = [];
     for (let attempt = 1; attempt <= FIXTURE_COMPILE_MAX_ATTEMPTS; attempt += 1) {
       // Bun's --compile copies its runtime through TMP/TEMP before publishing --outfile.
@@ -174,10 +186,11 @@ async function compileWindowsExecutableFixture(
   source: string,
   executable: string,
   timeoutMs = FIXTURE_COMPILE_TIMEOUT_MS,
+  runtimeExecutable = process.execPath,
 ): Promise<{ ok: boolean; detail: string }> {
   try {
     const child = Bun.spawn([
-      process.execPath,
+      runtimeExecutable,
       "build",
       source,
       "--compile",

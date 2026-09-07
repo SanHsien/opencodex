@@ -320,9 +320,8 @@ export default function Subagents({ apiBase }: { apiBase: string }) {
         </Notice>
       )}
       <SubagentsWorkspace
-        // Discovery excludes disabled models; configured roster/fallback entries stay
-        // in their separate ordered lists so saving cannot silently discard them.
-        available={fallbackAvailable ?? available}
+        available={available}
+        fallbackAvailable={fallbackAvailable ?? []}
         chosen={chosen}
         busy={busy}
         onToggle={toggle}

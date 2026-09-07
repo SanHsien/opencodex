@@ -32,6 +32,7 @@ import type { DelegationPatch, DelegationModelOption, UltraModePatch, UltraModeS
 
 export interface SubagentsWorkspaceProps {
   available: string[];
+  fallbackAvailable?: string[];
   chosen: string[];
   busy?: boolean;
   onToggle: (m: string) => void;
@@ -64,6 +65,7 @@ export const FEATURED_MAX = 5;
 
 export default function SubagentsWorkspace({
   available,
+  fallbackAvailable,
   chosen,
   busy = false,
   onToggle,
@@ -247,7 +249,7 @@ export default function SubagentsWorkspace({
             fallback={fallback}
             fallbackPollMs={fallbackPollMs}
             fallbackBusy={fallbackBusy}
-            availableModels={available}
+            availableModels={fallbackAvailable ?? available}
             onFallbackChange={onFallbackChange}
             onFallbackPollMsChange={onFallbackPollMsChange}
             onFallbackSave={onFallbackSave}

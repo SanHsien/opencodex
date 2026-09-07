@@ -308,6 +308,52 @@ test("fallback discovery excludes roster-only stale choices without losing confi
   expect(putBodies()).toEqual([{ models: [UNAVAILABLE_MODEL, "a-2"], pollMs: 45_000 }]);
 });
 
+test.each([503, 200])("fresh roster choices stay independent of cached fallback discovery (HTTP %s)", async status => {
+  available = ["a-1", "a-2"];
+  fallbackAvailable = ["a-1"];
+  testWindow.sessionStorage.setItem(CACHE_KEY, JSON.stringify({
+    available: ["a-1"], chosen: ["a-1"], fallback: ["a-1"], pollMs: 90_000, fallbackAvailable: ["a-1"],
+  }));
+  if (status === 503) {
+    pendingFallbackResponse = Promise.resolve(Response.json({ error: "Fallback unavailable" }, { status: 503 }));
+  } else {
+    fallbackSettings.models = [];
+  }
+  await mount();
+
+  expect(pollInput().disabled).toBe(status === 503);
+  expect(saveButton().disabled).toBe(status === 503);
+  expect(labelledButton(editor(), en["sub.fallbackAdd"]).disabled).toBe(status === 503);
+  await click(labelledButton(container, en["sub.workspace.addToFeatured"].replace("{m}", "a-2")));
+  const rosterSaveRow = container.querySelector(".swi-save-row");
+  if (!rosterSaveRow) throw new Error("Roster Save row not found");
+  await click(saveButton(rosterSaveRow));
+  expect(putBodies(ROSTER_PATH)).toEqual([{ models: ["a-1", "a-2"] }]);
+  expect(cached()?.available).toEqual(["a-1", "a-2"]);
+  expect(cached()?.fallbackAvailable).toEqual(["a-1"]);
+
+  if (status === 503) {
+    expect(container.textContent).toContain("Fallback unavailable");
+    expectOrder(["a-1"]);
+    await act(async () => { saveButton().click(); });
+    expect(putBodies()).toEqual([]);
+  } else {
+    // Neither model is already in the chain: discovery alone must exclude a-2 from fallback choices.
+    expectOrder([]);
+    const trigger = labelledButton(editor(), en["sub.fallbackAdd"]);
+    await click(trigger);
+    const listbox = testWindow.document.getElementById(trigger.getAttribute("aria-controls") ?? "");
+    if (!listbox) throw new Error("Fallback model listbox not found");
+    const options = Array.from(listbox.querySelectorAll('[role="option"]'), option => option.textContent?.trim());
+    expect(options).toContain("a-1");
+    expect(options).not.toContain("a-2");
+    await click(trigger);
+    await addFallback("a-1");
+    await click(saveButton());
+    expect(putBodies()).toEqual([{ models: ["a-1"], pollMs: 45_000 }]);
+  }
+});
+
 test("cached fallback availability survives remount while discovery is pending", async () => {
   available.push(UNAVAILABLE_MODEL);
   chosen = [UNAVAILABLE_MODEL, "a-1"];
@@ -604,14 +650,14 @@ test("a legacy cache keeps fallback disabled through GET failure, roster Save, a
 });
 
 test.each([false, true])("a captured old fallback GET cannot overwrite a newer draft or save (saved=%s)", async (saveNewer) => {
-  const committedA = { available, chosen: ["a-1"], fallback: ["a-2"], pollMs: 45_000 };
+  const committedA = { available, fallbackAvailable: available, chosen: ["a-1"], fallback: ["a-2"], pollMs: 45_000 };
   testWindow.sessionStorage.setItem(CACHE_KEY, JSON.stringify(committedA));
   // Serialize A before any edit or PUT. Reading mutable fallbackSettings after the gate
   // would accidentally return B and let the stale-response regression pass.
   const capturedOldResponse = Response.json({ models: ["a-2"], pollMs: 45_000, available });
   let releaseGet!: (response: Response) => void;
   pendingFallbackResponse = new Promise<Response>(resolve => { releaseGet = resolve; });
-  const committedB = { available, chosen: ["a-1"], fallback: ["a-3"], pollMs: 90_000 };
+  const committedB = { available, fallbackAvailable: available, chosen: ["a-1"], fallback: ["a-3"], pollMs: 90_000 };
 
   try {
     await mount();

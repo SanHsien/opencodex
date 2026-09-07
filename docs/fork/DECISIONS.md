@@ -237,3 +237,15 @@ v2.46 stable，不重放原 head；`#3769 #3837 #3839 #3840 #3841 #3843 #3845 #3
 **理由**：後一組不是「沒看」，而是 maintainer carry 已加入原 PR 沒有的 review 修正，且彼此
 疊在仍前進的 `dev` train。直接搬原 PR head 會漏修，搬 stacked merge 會引入未發布依賴；在沒有
 本 fork 專屬重現的情況下，stable `main` 是可驗證且可維護的採用邊界。
+
+## 2026-09-08：OrcaRouter maintainer carry 等 stable
+
+**決定**：`upstream/main` 沒有新 commit，platform issue 也沒有增量；closed-unmerged PR
+`#3908` 的內容已由 maintainer 以 `#3921`／`c41232aa5e9981284acece3cedf81a36859dab05`
+重作並合併到 `dev`。本 fork 不引用原 PR head，也不提前拆取 maintainer landing；
+`reviewed_pr_through` 推到 `#3908`，其餘水位不動。
+
+**理由**：這是新的 OAuth／credential／live-catalog 安全面，maintainer landing 已修正原 PR
+的 provider icon 問題並保留 attribution；直接採原 head會漏修，提前採 dev landing 則會帶入
+未發布依賴與本 fork 已刪除的多語 locale 衝突。它也沒有對應本 fork 現在已重現的缺陷，所以下一個
+stable 是成本最低且可完整驗證的採用邊界。

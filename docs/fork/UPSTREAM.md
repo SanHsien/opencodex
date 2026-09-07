@@ -84,8 +84,8 @@ fork 只 fetch `main`（需要時才 fetch `dev`）。下次重看分支的觸�
 
 ## 下一次要做什麼
 
-目前水位為 **2026-09-07**：已審查並合併到上游 `v2.46.0`
-（`bba63222d3eeb5c8e397edae35798225e4fa1a6f`）、closed-unmerged PR `#3862` 與 platform issue `#3661`。下一次只做增量檢查：
+目前水位為 **2026-09-08**：已審查並合併到上游 `v2.46.0`
+（`bba63222d3eeb5c8e397edae35798225e4fa1a6f`）、closed-unmerged PR `#3908` 與 platform issue `#3661`。下一次只做增量檢查：
 
 ```powershell
 git fetch upstream main --tags
@@ -332,4 +332,25 @@ Windows full-suite runner。
 
 - commit：`bba63222d3eeb5c8e397edae35798225e4fa1a6f`（`v2.46.0`，已合併）
 - PR：`#3862`
+- issue：`#3661`
+
+## 2026-09-08：stable 無增量；分流 OrcaRouter `#3908`
+
+`upstream/main` 仍是 `bba63222d3eeb5c8e397edae35798225e4fa1a6f`，沒有可同步的新
+stable commit，也沒有 `#3661` 之後的新 `platform` issue。`upstream/dev` 則從
+`f802f71122c8f166cf775e4d5ed8f47c2b909084` 前進 19 commits 到
+`09f669a75c397d05c2063de87728a6b7d769505f`；其中唯一新的產品 landing 是 OrcaRouter，
+其餘是 sponsor／release-train 文件與開啟 2.48.0 dev 的版本提交。
+
+| 分流 | PR | 結論 |
+| --- | --- | --- |
+| 已由 maintainer 落 `dev`，等待 stable | `#3908` | contributor PR 已關閉未合併並標記 `landed-via-maintainer`；上游以 `#3921`／`c41232aa5e9981284acece3cedf81a36859dab05` 重作 PKCE、安全檢查、live catalog、GUI 與英／中說明。maintainer landing 保留原作者 attribution 並修正原 PR 的 raster icon 問題。功能未解本 fork 已登記的 Windows／安全缺陷，且會碰本 fork 刪除的多語 locale；不拆取仍未發布的 auth surface，等下一個 stable。 |
+
+`reviewed_pr_through` 推到 `#3908`；commit 與 issue 水位不動。下一次 stable 同步時直接採用
+maintainer landing，不重放 `#3908` 的原 head `9e90d8271e4b8dc9b229b478196270c0c4eae7bb`。
+
+### 水位
+
+- commit：`bba63222d3eeb5c8e397edae35798225e4fa1a6f`（`v2.46.0`，已合併）
+- PR：`#3908`
 - issue：`#3661`

@@ -3159,7 +3159,7 @@ describe("fetchProviderQuotaReports", () => {
         });
         const result = await fetchProviderQuotaReports(config(), true);
         const urls = fallback ? [summaryUrl, modelsUrl] : [summaryUrl];
-        expect(resolved).toEqual(urls.map(url => ({ url, benchmark: true, private: false, mihomo: false })));
+        expect(resolved).toEqual(urls.map(url => ({ url, benchmark: true, private: false, mihomo: true })));
         expect(posted).toEqual(urls.map(url => ({ url, address: "198.18.56.214", tls: true, auth: "Bearer agy-canonical-access", body: JSON.stringify({ project: "agy-canonical-project" }), signal: true })));
         expect(result.reports[0]?.source).toBe(fallback ? "google-antigravity:fetchAvailableModels" : "google-antigravity:retrieveUserQuotaSummary");
         expect(result.reports[0]?.quota.customWindows).toEqual([{ label: "Gem", percent: fallback ? 25 : 40 }]);

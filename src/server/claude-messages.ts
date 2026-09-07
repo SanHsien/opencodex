@@ -7,6 +7,7 @@
  * unchanged. The Responses output (SSE or JSON) is converted back to Anthropic shape.
  */
 import { FORWARD_HEADERS } from "../adapters/openai-responses";
+import { jsonUtf8Bytes } from "../lib/json-byte-size";
 import { sseFieldValue } from "../lib/sse-decoder";
 import { enforceAnthropicImageLimits, sniffImageDimensions } from "../adapters/anthropic-image-guard";
 import { normalizeAnthropicImages } from "../adapters/anthropic-image-normalize";
@@ -753,13 +754,13 @@ async function handleClaudeMessagesWithBudget(
       };
       delete anthropicBody.thinking;
     }
-    const translation = anthropicToResponsesTranslation(anthropicBody, config.claudeCode);
+    const translation = anthropicToResponsesTranslation(anthropicBody, config.claudeCode, translatorBudget);
     internalBody = translation.body;
     // The Anthropic translator builds its body from model/input/store/stream plus sampling
     // fields only, so the caller intent is applied to the TRANSLATED body rather than the
     // inbound one.
     if (fastRow) internalBody.service_tier = "priority";
-    translatorBudget.chargeRetained(new TextEncoder().encode(JSON.stringify(internalBody)).byteLength, { kind: "request_copies" });
+    translatorBudget.chargeRetained(jsonUtf8Bytes(internalBody), { kind: "request_copies" });
     cacheKeySource = translation.cacheKeySource;
   } catch (err) {
     const overflow = isTranslatorBudgetExceededError(err);
@@ -862,13 +863,26 @@ async function handleClaudeMessagesWithBudget(
       headers.set("session_id", uuidFromHex(internalBody.prompt_cache_key));
     }
   }
-  const internalBodyJson = JSON.stringify(internalBody);
-  translatorBudget.chargeRetained(new TextEncoder().encode(internalBodyJson).byteLength, { kind: "request_copies" });
-  const internalReq = new Request("http://localhost/v1/responses", {
-    method: "POST",
-    headers,
-    body: internalBodyJson,
-  });
+  let internalReq: Request;
+  try {
+    // The UTF-16 JSON string and the Request's UTF-8 body coexist until dispatch.
+    const bodyBytes = jsonUtf8Bytes(internalBody);
+    const reservation = translatorBudget.reserveTransient(3 * bodyBytes, { kind: "request_copies" });
+    try {
+      internalReq = new Request("http://localhost/v1/responses", {
+        method: "POST",
+        headers,
+        body: JSON.stringify(internalBody),
+      });
+    } finally {
+      reservation.release();
+    }
+    translatorBudget.chargeRetained(bodyBytes, { kind: "request_copies" });
+  } catch (err) {
+    if (!isTranslatorBudgetExceededError(err)) throw err;
+    if (logIds) addFinalRequestLog(logIds.requestId, logIds.start, logCtx, 413, { closeReason: "non_stream" });
+    return anthropicErrorResponse(413, "request translation buffer exceeded the safe limit", "request_too_large", "translation_buffer_limit");
+  }
 
   // Request-log wiring mirrors the /v1/responses route: native passthrough finalizes
   // via the terminal callbacks; routed streams get the Responses-vocabulary log tap
@@ -1006,7 +1020,13 @@ async function handleClaudeMessagesWithBudget(
     }
     return anthropicErrorResponse(502, error?.message ?? "upstream request failed", "api_error");
   }
-  const message = responsesJsonToAnthropicMessage(json, requestedModel);
+  let message: Rec;
+  try {
+    message = responsesJsonToAnthropicMessage(json, requestedModel, translatorBudget);
+  } catch (err) {
+    if (!isTranslatorBudgetExceededError(err)) throw err;
+    return anthropicErrorResponse(413, "upstream translation buffer exceeded the safe limit", "request_too_large", "translation_buffer_limit");
+  }
   if ((message as Rec).type === "error") {
     return new Response(JSON.stringify(message), {
       status: 529,

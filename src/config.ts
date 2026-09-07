@@ -9,6 +9,9 @@ export { DEFAULT_SUBAGENT_MODELS } from "./config/subagent-models";
 import {
   apiKeyTransportConfigError,
   booleanRecordConfigError,
+  configReasoningPinsConfigError,
+  modelPinnedEffortsConfigError,
+  pinnedReasoningEffortConfigError,
   modelAdapterRecordConfigError,
   modelDisplayNamesConfigError,
   nonBlankStringArrayConfigError,
@@ -515,11 +518,25 @@ const modelDisplayNamesSchema = z.unknown().superRefine((value, ctx) => {
   return labels;
 });
 
+const pinnedReasoningEffortSchema = z.unknown().superRefine((value, ctx) => {
+  const error = pinnedReasoningEffortConfigError(value);
+  if (error) ctx.addIssue({ code: "custom", message: error });
+}).transform(value => value as string);
+
+const modelPinnedEffortsSchema = z.unknown().superRefine((value, ctx) => {
+  const error = modelPinnedEffortsConfigError(value);
+  if (error) ctx.addIssue({ code: "custom", message: error });
+}).transform(value => Object.fromEntries(
+  Object.entries(value as Record<string, string>).map(([key, effort]) => [key.trim(), effort]),
+));
+
 /**
  * Zod schema for one provider entry: known fields are validated strictly while unknown
  * fields pass through (preserved for runtime extensions).
  */
 const providerConfigSchema = z.object({
+  pinnedReasoningEffort: pinnedReasoningEffortSchema.optional(),
+  modelPinnedReasoningEfforts: modelPinnedEffortsSchema.optional(),
   adapter: z.string().min(1),
   baseUrl: z.string().min(1),
   alias: z.string().optional(),
@@ -856,6 +873,8 @@ const codexQuotaAutoRefreshEntrySchema = z.object({
   weekly: z.boolean().optional(),
   lastFiveHourResetAt: z.number().finite().nonnegative().optional(),
   lastWeeklyResetAt: z.number().finite().nonnegative().optional(),
+  nextFiveHourResetAt: z.number().finite().nonnegative().optional(),
+  nextWeeklyResetAt: z.number().finite().nonnegative().optional(),
 }).strict();
 const CODEX_QUOTA_AUTO_REFRESH_KEY_ERROR =
   "quota auto-refresh keys must be a Codex pool-account id or the main Codex account and cannot be reserved JavaScript object keys";
@@ -1120,6 +1139,7 @@ const configSchema = z.object({
     z.object({ enabled: z.literal(true), port: z.number().int().min(1).max(65535) }),
   ]).optional().catch(undefined),
   providers: z.record(z.string(), providerConfigSchema),
+  modelPinnedEfforts: modelPinnedEffortsSchema.optional(),
   defaultProvider: z.string().min(1).default("openai"),
   defaultModelAliases: z.boolean().optional(),
   // Malformed hand edits disable this opt-in projection without rejecting providers.
@@ -1610,6 +1630,49 @@ export function hardenExistingSecret(path: string): void {
     }
   }
 }
+/** Load only: discard invalid optional pins without rewriting the file or losing providers. */
+function sanitizeReasoningPinsForLoad(parsed: unknown): void {
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return;
+  const root = parsed as Record<string, unknown>;
+  let degraded = false;
+  const sanitizeMap = (owner: Record<string, unknown>, field: string) => {
+    const value = owner[field];
+    if (value === undefined) return;
+    if (!value || typeof value !== "object" || Array.isArray(value)
+      || ![Object.prototype, null].includes(Object.getPrototypeOf(value))) {
+      delete owner[field];
+      degraded = true;
+      return;
+    }
+    const counts = new Map<string, number>();
+    for (const key of Object.keys(value)) counts.set(key.trim(), (counts.get(key.trim()) ?? 0) + 1);
+    const valid: Record<string, string> = Object.create(null);
+    for (const [key, effort] of Object.entries(value)) {
+      if (counts.get(key.trim()) !== 1 || modelPinnedEffortsConfigError({ [key]: effort }) !== null) {
+        degraded = true;
+        continue;
+      }
+      valid[key.trim()] = effort as string;
+    }
+    if (Object.keys(valid).length) owner[field] = valid;
+    else delete owner[field];
+  };
+  sanitizeMap(root, "modelPinnedEfforts");
+  if (root.providers && typeof root.providers === "object" && !Array.isArray(root.providers)) {
+    for (const value of Object.values(root.providers)) {
+      if (!value || typeof value !== "object" || Array.isArray(value)) continue;
+      const provider = value as Record<string, unknown>;
+      if (pinnedReasoningEffortConfigError(provider.pinnedReasoningEffort)) {
+        delete provider.pinnedReasoningEffort;
+        degraded = true;
+      }
+      sanitizeMap(provider, "modelPinnedReasoningEfforts");
+    }
+  }
+  // Never include a provider/model name or value: malformed pins can contain secrets.
+  if (degraded) console.warn("config.json contains invalid optional reasoning pins — ignoring invalid fields or entries");
+}
+
 /**
  * The schema's `.catch(undefined)` silently degrades an invalid persisted
  * `streamMode` to "auto"; surface that once so a hand-edited typo (e.g.
@@ -2188,6 +2251,7 @@ export function loadConfig(): OcxConfig {
     const raw = readFileSync(configPath, "utf-8").replace(/^\uFEFF/, "");
     const parsed = JSON.parse(raw);
     sanitizeAliasesForLoad(parsed);
+    sanitizeReasoningPinsForLoad(parsed);
     sanitizeModelDisplayNamesForLoad(parsed);
     sanitizeRetryOn429ForLoad(parsed);
     sanitizeModelCostsForLoad(parsed);
@@ -2720,7 +2784,8 @@ function managementIngressConfigError(value: unknown): string | null {
 }
 
 export function validateConfigCandidate(value: unknown): { ok: true; config: OcxConfig } | { ok: false; error: string } {
-  const boundaryError = blankHostnameError(value)
+  const boundaryError = configReasoningPinsConfigError(value)
+    ?? blankHostnameError(value)
     ?? claudeSubagentEffortError(value)
     ?? appOwnedMemoryBudgetError(value)
     ?? upstreamHostCircuitThresholdError(value)
@@ -2750,6 +2815,7 @@ export function validateConfigCandidate(value: unknown): { ok: true; config: Ocx
 function configDiagnosticsFromRaw(raw: string): ConfigDiagnostics {
   try {
     const parsed = JSON.parse(raw.replace(/^\uFEFF/, ""));
+    sanitizeReasoningPinsForLoad(parsed);
     // Same degradation as loadConfig: a hand-edited invalid retryOn429 must not trip the
     // schema and send the caller a default-config fallback (the config command could then
     // persist that fallback over the user's providers/keys).
@@ -3099,6 +3165,8 @@ export const withExpectedConfigGenerationSync: WithExpectedConfigGenerationSync 
  * every save path.
  */
 function persistConfigUnlocked(config: OcxConfig): boolean {
+  const pinError = configReasoningPinsConfigError(config);
+  if (pinError) throw new Error(pinError);
   const configPath = getConfigPath();
   const rawBeforeWrite = readRawConfigJson();
   const clientPersistenceError = failClosedClientPersistenceError(rawBeforeWrite, config);
@@ -3174,6 +3242,8 @@ export function initializePersistedConfigIfMissing(
 
 /** Persist `config` to config.json under the config-mutation lock. */
 export function saveConfig(config: OcxConfig): void {
+  const pinError = configReasoningPinsConfigError(config);
+  if (pinError) throw new Error(pinError);
   // Keep the real-home assertion ahead of even lock-directory preparation.
   assertNotRealHomeUnderTest(getConfigDir());
   withConfigMutationLockSync(() => {
@@ -3631,6 +3701,8 @@ function readPersistedServerBinding(
  * edits and deletions across stale whole-config saves.
  */
 export function saveConfigPreservingClaudeCode(config: OcxConfig): void {
+  const pinError = configReasoningPinsConfigError(config);
+  if (pinError) throw new Error(pinError);
   withConfigMutationLockSync(() => {
     const bindingBaseline = persistedLiveServerBinding.get(config);
     // One authoritative pre-write read feeds both the live-config reconciliation and

@@ -249,3 +249,15 @@ v2.46 stable，不重放原 head；`#3769 #3837 #3839 #3840 #3841 #3843 #3845 #3
 的 provider icon 問題並保留 attribution；直接採原 head會漏修，提前採 dev landing 則會帶入
 未發布依賴與本 fork 已刪除的多語 locale 衝突。它也沒有對應本 fork 現在已重現的缺陷，所以下一個
 stable 是成本最低且可完整驗證的採用邊界。
+
+## 2026-09-08：上游 v2.47.0 promotion 出現後立即轉為 stable merge
+
+**決定**：在 v2.46 候選的 exact-SHA CI 完成後重新 fetch，發現 `upstream/main` 已新增
+`6f71931dec81dffdfe40053d8df5074d40b3c406`（`release: promote 2.47.0 to main (#3929)`）。
+一般 merge 此 152-commit stable 範圍，保留 fork 的繁中 README、英／繁中語系限制、workflow
+guard 與 Windows runner；fork package 前推到 `2.48.0`。commit 水位更新到 promotion SHA，
+PR／issue 水位維持 `#3908`／`#3661`。
+
+**理由**：`#3908` 的 OrcaRouter 功能、maintainer `#3921` landing 與其後續修正現在已成為
+stable 的一部分，先前「不拆 auth surface」的等待條件已滿足。採完整 promotion tree 可保留
+上游審查與回歸修正；只需解已知 locale／README overlay 衝突，不再承擔 dev-only 依賴。

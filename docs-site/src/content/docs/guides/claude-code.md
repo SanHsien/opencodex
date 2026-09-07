@@ -309,8 +309,16 @@ canonical ids. The synthetic 2026 date is an internal slot, not a release date. 
 and `claude-ocx-<provider>--<model>` ids from older configs still resolve.
 
 If Claude Desktop's footer picker does not change the model for an already-running 3P
-conversation, use `/model <id>` in that conversation. OpenCodex cannot observe picker state; it
-routes the model id carried by each request. Confirm the result under **Logs → requestedModel**.
+conversation, you can try `/model <id>`, but this workaround may also fail on affected Desktop
+builds. [Issue #3782](https://github.com/lidge-jun/opencodex/issues/3782) reports that on Windows
+with Claude Desktop 1.46388.4, the conversation continues using its initial model after both
+footer-picker and `/model` changes. The report does not establish which client or routing
+component causes the behavior.
+
+You can also try selecting the intended default model in the OpenCodex Claude Desktop profile,
+reapplying the profile, and starting a new conversation. This is a troubleshooting step, not a
+guaranteed fix. OpenCodex cannot observe picker state; it routes the model id carried by each
+request. Confirm what the client sends under **Logs → requestedModel**.
 
 Models with an authoritative 1M context window get an extra `…[1m]` picker row: selecting it makes
 Claude Code account a full 1M context for that model (auto-compaction stays on) — the proxy strips

@@ -84,8 +84,8 @@ fork 只 fetch `main`（需要時才 fetch `dev`）。下次重看分支的觸�
 
 ## 下一次要做什麼
 
-目前水位為 **2026-09-08**：已審查並合併到上游 `v2.46.0`
-（`bba63222d3eeb5c8e397edae35798225e4fa1a6f`）、closed-unmerged PR `#3908` 與 platform issue `#3661`。下一次只做增量檢查：
+目前水位為 **2026-09-08**：已審查並合併上游 `v2.47.0` promotion
+（`6f71931dec81dffdfe40053d8df5074d40b3c406`）、closed-unmerged PR `#3908` 與 platform issue `#3661`。下一次只做增量檢查：
 
 ```powershell
 git fetch upstream main --tags
@@ -353,4 +353,22 @@ maintainer landing，不重放 `#3908` 的原 head `9e90d8271e4b8dc9b229b4781962
 
 - commit：`bba63222d3eeb5c8e397edae35798225e4fa1a6f`（`v2.46.0`，已合併）
 - PR：`#3908`
+- issue：`#3661`
+
+### 同日後續：同步 v2.47.0 promotion
+
+在 fork 的 v2.46 候選完成遠端 CI 後，`upstream/main` 新增
+`6f71931dec81dffdfe40053d8df5074d40b3c406`（`release: promote 2.47.0 to main (#3929)`）。
+本 fork 重新 fetch 並審查 `bba63222d..6f71931d` 的 152 commits／262 files，採一般 merge
+完整接收 stable tree；先前暫緩的 OrcaRouter `#3908` 已由 maintainer landing `#3921`
+及其後續 OAuth／GUI 修正進入此 stable，不再重放原 PR head。
+
+衝突只出現在 fork 明確維護的語系與 README overlay：非英／繁中的 GUI、docs-site 與 README
+仍維持刪除，繁中主 README 保留；其餘產品碼全部採 stable。上游 package 是 `2.47.0`，fork
+post-release 版本前推至 `2.48.0`。`#3661` 後仍沒有新的 `platform` issue。
+
+更新後水位：
+
+- commit：`6f71931dec81dffdfe40053d8df5074d40b3c406`（v2.47.0 promotion，已合併）
+- PR：`#3908`（已由 stable commit 軸涵蓋）
 - issue：`#3661`

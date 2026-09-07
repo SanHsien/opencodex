@@ -53,6 +53,7 @@ beforeEach(() => {
         return next ? response(next.body, next.ok, next.status ?? (next.ok ? 200 : 500)) : response({ enabled: false });
       }
       if (path === "/api/subagent-models") return response({ available: [], chosen: [] });
+      if (path === "/api/subagent-model-fallback") return response({ available: [], models: [], pollMs: 60_000 });
       if (path === "/api/injection-model") return response({ available: [], efforts: [] });
       return response({});
     },
@@ -108,13 +109,15 @@ test("clears the page load error after a successful Ultra mode retry", async () 
   await mount();
 
   expect(container.textContent).toContain("Failed to load Ultra mode settings");
-  const retry = Array.from(container.querySelectorAll("button"))
-    .find(button => button.textContent?.trim() === "Retry");
+  const ultraErrorRow = Array.from(container.querySelectorAll(".swi-delegation-row"))
+    .find(row => row.textContent?.includes("Failed to load Ultra mode settings"));
+  const retry = ultraErrorRow?.querySelector<HTMLButtonElement>("button");
   expect(retry).toBeTruthy();
 
-  await act(async () => { (retry as HTMLButtonElement).click(); });
+  await act(async () => { retry!.click(); });
   await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)); });
 
+  expect(v2Call).toBe(2);
   expect(container.textContent).not.toContain("Failed to load Ultra mode settings");
   expect(ultraSwitch().disabled).toBe(false);
 });
@@ -145,6 +148,7 @@ test("a save refresh from an old API server cannot overwrite a newer server", as
       }
       if (path === "/new/api/v2") return response({ enabled: false, multiAgentMode: "default", multiAgentModeHintText: null });
       if (path.endsWith("/api/subagent-models")) return response({ available: [], chosen: [] });
+      if (path.endsWith("/api/subagent-model-fallback")) return response({ available: [], models: [], pollMs: 60_000 });
       if (path.endsWith("/api/injection-model")) return response({ available: [], efforts: [] });
       return response({});
     },

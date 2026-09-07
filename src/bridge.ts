@@ -493,7 +493,7 @@ export function bridgeToResponsesSSE(
         const previousBytes = pendingSignatureBytes
           + pendingRedacted.reduce((sum, value) => sum + bytesOf(value), 0)
           + (hiddenText ? hiddenThinkingBytes : 0);
-        const encoded = encodeReasoningEnvelope(envelope);
+        const encoded = encodeReasoningEnvelope(envelope, budget);
         const reservation = budget?.reserveTransient(bytesOf(encoded), { kind: "reasoning" });
         pendingSignature = undefined;
         pendingSignatureBytes = 0;
@@ -533,7 +533,7 @@ export function bridgeToResponsesSSE(
         if (!hiddenRawReasoningText) return;
         rawReasoningForNextToolCall = hiddenRawReasoningText;
         const previousBytes = hiddenRawReasoningBytes;
-        const encrypted = encodeReasoningEnvelope({ txt: hiddenRawReasoningText });
+        const encrypted = encodeReasoningEnvelope({ txt: hiddenRawReasoningText }, budget);
         const reservation = budget?.reserveTransient(bytesOf(encrypted), { kind: "reasoning" });
         hiddenRawReasoningText = "";
         hiddenRawReasoningBytes = 0;
@@ -556,7 +556,7 @@ export function bridgeToResponsesSSE(
       const flushKiroRedactedReasoning = () => {
         if (!pendingKiroRedacted) return;
         const previousBytes = pendingKiroRedactedBytes;
-        const encrypted = encodeReasoningEnvelope({ krc: pendingKiroRedacted });
+        const encrypted = encodeReasoningEnvelope({ krc: pendingKiroRedacted }, budget);
         const reservation = budget?.reserveTransient(bytesOf(encrypted), { kind: "reasoning" });
         pendingKiroRedacted = undefined;
         pendingKiroRedactedBytes = 0;
@@ -901,6 +901,16 @@ export function bridgeToResponsesSSE(
         disposeOwnedBudget();
         gated = true;
         stepping = false;
+      };
+      const attemptTerminationCleanup = (action: () => void): boolean => {
+        try {
+          action();
+          return !terminated && !closed;
+        } catch (error) {
+          if (!isTranslatorBudgetExceededError(error)) throw error;
+          terminateForTranslatorOverflow(error);
+          return false;
+        }
       };
       const step = async () => {
         if (stepping || closed) return;
@@ -1415,10 +1425,12 @@ export function bridgeToResponsesSSE(
           return;
         }
         if (!terminated) {
-          flushHiddenRawReasoning();
-          if (currentToolCall) failCurrentToolCall();
-          if (currentWebSearch) closeCurrentWebSearch("failed", []);
-          releasePendingWebSources();
+          if (!attemptTerminationCleanup(() => {
+            flushHiddenRawReasoning();
+            if (currentToolCall) failCurrentToolCall();
+            if (currentWebSearch) closeCurrentWebSearch("failed", []);
+            releasePendingWebSources();
+          })) return;
           const failure = responseError(
             500,
             "proxy_error",
@@ -1448,13 +1460,15 @@ export function bridgeToResponsesSSE(
       if (!terminated) {
         // The adapter generator ended without an explicit done/error event. Mark as incomplete
         // rather than completed so Codex can distinguish a clean finish from a truncated stream.
-        if (currentMsg) closeCurrentMessage();
-        if (currentReasoning) closeCurrentReasoning();
-        if (currentRawReasoning) closeCurrentRawReasoning();
-        flushHiddenRawReasoning();
-        if (currentToolCall) failCurrentToolCall();
-        if (currentWebSearch) closeCurrentWebSearch("failed", []);
-        releasePendingWebSources();
+        if (!attemptTerminationCleanup(() => {
+          if (currentMsg) closeCurrentMessage();
+          if (currentReasoning) closeCurrentReasoning();
+          if (currentRawReasoning) closeCurrentRawReasoning();
+          flushHiddenRawReasoning();
+          if (currentToolCall) failCurrentToolCall();
+          if (currentWebSearch) closeCurrentWebSearch("failed", []);
+          releasePendingWebSources();
+        })) return;
         options?.onUsage?.(undefined);
         await awaitThoughtSignatureDurability();
         emit("response.incomplete", {
@@ -1493,13 +1507,15 @@ export function bridgeToResponsesSSE(
             upstreamActivity = false;
             stallTicks = 0;
           } else if (++stallTicks >= maxStallTicks) {
-            if (currentMsg) closeCurrentMessage();
-            if (currentReasoning) closeCurrentReasoning();
-            if (currentRawReasoning) closeCurrentRawReasoning();
-            flushHiddenRawReasoning();
-            if (currentToolCall) failCurrentToolCall();
-            if (currentWebSearch) closeCurrentWebSearch("failed", []);
-            releasePendingWebSources();
+            if (!attemptTerminationCleanup(() => {
+              if (currentMsg) closeCurrentMessage();
+              if (currentReasoning) closeCurrentReasoning();
+              if (currentRawReasoning) closeCurrentRawReasoning();
+              flushHiddenRawReasoning();
+              if (currentToolCall) failCurrentToolCall();
+              if (currentWebSearch) closeCurrentWebSearch("failed", []);
+              releasePendingWebSources();
+            })) return;
             // #1926 gap 2 residual: this beat callback is synchronous, so the durability
             // barrier is not awaited on the stall-timeout kill path. The in-memory store is
             // already updated; only a crash between here and the queued write loses it,
@@ -1728,7 +1744,7 @@ function buildResponseJSONWithBudget(
     if (batchRedacted.length > 0) envelope.red = batchRedacted;
     const hidden = options?.hideThinkingSummary === true;
     if (hidden && currentSummaryReasoning && (envelope.sig || envelope.red)) envelope.txt = currentSummaryReasoning;
-    const encrypted = envelope.sig || envelope.red || envelope.txt ? encodeReasoningEnvelope(envelope) : undefined;
+    const encrypted = envelope.sig || envelope.red || envelope.txt ? encodeReasoningEnvelope(envelope, budget) : undefined;
     const sourceBytes = currentSummaryReasoningBytes + batchSignatureBytes + batchRedactedBytes;
     batchSignature = undefined;
     batchSignatureBytes = 0;
@@ -1756,7 +1772,7 @@ function buildResponseJSONWithBudget(
       // Same contract as the streaming path: no visible reasoning, txt-only envelope round-trip.
       pushOutput({
         type: "reasoning", id: `rs_${uuid()}`, summary: [],
-        encrypted_content: encodeReasoningEnvelope({ txt: currentRawReasoning }),
+        encrypted_content: encodeReasoningEnvelope({ txt: currentRawReasoning }, budget),
       }, currentRawReasoningBytes, "reasoning");
       currentRawReasoning = "";
       currentRawReasoningBytes = 0;
@@ -2044,7 +2060,7 @@ function buildResponseJSONWithBudget(
     // pushOutput reserves the item itself and releases the retained raw blob it replaces.
     pushOutput({
       type: "reasoning", id: `rs_${uuid()}`, summary: [],
-      encrypted_content: encodeReasoningEnvelope({ krc: batchKiroRedacted }),
+      encrypted_content: encodeReasoningEnvelope({ krc: batchKiroRedacted }, budget),
     }, batchKiroRedactedBytes, "reasoning");
     batchKiroRedacted = undefined;
     batchKiroRedactedBytes = 0;

@@ -391,7 +391,9 @@ test("one-time flake", () => {
       });
       const output = new TextDecoder().decode(result.stdout) + new TextDecoder().decode(result.stderr);
       expect(result.exitCode).toBe(0);
-      expect(output).toContain("16 files in 2 fresh-process batches (size <= 2, each <= 20s, whole run <= 2m)");
+      expect(output).toContain(
+        `${FULL_SUITE_FIXTURE_FILES.length} files in 2 fresh-process batches (size <= 2, each <= 20s, whole run <= 2m)`,
+      );
       expect(output).toContain("full suite batch 1/2 finished");
       expect(output).toContain("full suite batch 1/2 first attempt exited 1; retrying once in a fresh Bun process.");
       expect(output).toContain("full suite batch 1/2 retry finished");

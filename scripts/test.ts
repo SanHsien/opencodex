@@ -428,6 +428,8 @@ export const SERIAL_FULL_SUITE_FILES = [
   "codex-integration/multi-agent-compat.test.ts",
   // Mutates the Codex runtime cache and executes a temporary Windows .cmd runtime fixture.
   "codex-integration/codex-convergence-account-selectors.test.ts",
+  // Mutates process env, global fetch and catalog runtime caches across long writer cases.
+  "codex-integration/catalog-full-picker-order.test.ts",
   // Exercises the isolated bundled catalog lifecycle and must not share a runtime cache with a batch.
   "codex-integration/reserve-catalog-lifecycle.test.ts",
   // The composed acceptance suite starts several provider children and has twice needed its

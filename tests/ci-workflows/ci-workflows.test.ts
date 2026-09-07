@@ -5337,6 +5337,22 @@ describe("doctor-gui-if-changed", () => {
     expect(run.stderr.toString()).toContain("skipping scan");
   });
 
+  test("soft-skips end to end when the native npx launcher is missing", () => {
+    const run = Bun.spawnSync(["bun", doctorGuiIfChangedScript], {
+      env: {
+        ...process.env,
+        DOCTOR_FILES: "gui/src/App.tsx",
+        OCX_REACT_DOCTOR_NPX: "definitely-missing-native-npx",
+      },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const output = run.stdout.toString() + run.stderr.toString();
+    expect(run.exitCode).toBe(0);
+    expect(output).toContain("OCX_DOCTOR_LAUNCHER_UNAVAILABLE");
+    expect(output).toContain("skipping scan");
+  });
+
   test("propagates a non-zero doctor exit so findings gate the push", () => {
     const run = Bun.spawnSync(["bun", doctorGuiIfChangedScript], {
       env: {

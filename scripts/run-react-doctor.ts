@@ -20,12 +20,19 @@ if (import.meta.main) {
     console.error("usage: bun scripts/run-react-doctor.ts <changed|full> react-doctor@<version>");
     process.exit(64);
   }
-  const { command, args } = resolveReactDoctorInvocation(scope, packageSpec);
-  const result = Bun.spawnSync([command, ...args], {
-    cwd: join(import.meta.dir, "..", "gui"),
-    stdin: "inherit",
-    stdout: "inherit",
-    stderr: "inherit",
-  });
-  process.exit(result.exitCode ?? 1);
+  const invocation = resolveReactDoctorInvocation(scope, packageSpec);
+  const command = process.env.OCX_REACT_DOCTOR_NPX ?? invocation.command;
+  try {
+    const result = Bun.spawnSync([command, ...invocation.args], {
+      cwd: join(import.meta.dir, "..", "gui"),
+      stdin: "inherit",
+      stdout: "inherit",
+      stderr: "inherit",
+    });
+    process.exit(result.exitCode ?? 1);
+  } catch (error: unknown) {
+    const code = (error as NodeJS.ErrnoException).code ?? "UNKNOWN";
+    console.error(`OCX_DOCTOR_LAUNCHER_UNAVAILABLE: ${command} (${code})`);
+    process.exit(75);
+  }
 }

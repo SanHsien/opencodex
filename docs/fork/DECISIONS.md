@@ -287,3 +287,30 @@ maintainer landing 已在此 stable commit 軸，不能也不需重放原 PR。`
 dev carry，`#3999` 還違反 fork locale 及 credential-surface 限制，均不提前採用。新 platform
 issues `#4023`（macOS launchd stop ordering）與 `#4032`（hub context-window metadata）均未在
 Windows fork 重現、亦無 stable fix；記錄 defer 與明確 re-review trigger，不自行改產品碼。
+
+## 2026-09-09：一般 merge v2.49.0；不重放 superseded closed PR
+
+**決定**：將 `v2.49.0` / `2f3f736299dca38861f8fb9c4326a4b4d7c664bc` 的完整 stable tree
+以一般 merge 納入，package development version 由 upstream release `2.49.0` 前推至
+`2.50.0`。保留 fork 的繁中 README、英文／繁中 locale、official-repo-only
+workflow guards、Windows long-suite runner 與 run-lock hardening。
+
+**理由**：`#4004 #4006 #4008 #4012 #4014 #4015 #4018 #4025 #4034 #4039 #4041
+#4043 #4059 #4065 #4081` 均已有 `landed-via-maintainer` 的 stable carry；必須取 commit
+軸而非重放 contributor head。`#4016` 由維護者以 `#3954` supersede，現行 stable
+已含等價 Muse Spark Responses 路由行為；原 branch 同時帶有舊基底與審查發現的重複
+結構，不宜再用。`#4107` 是 contributor 確認的 wrong-branch draft，未有 maintainer
+landing，拒絕；僅在 Windows fork 重現或上游 stable landing 時重審。沒有新 platform
+issue 超過 `#4032`，故 issue 水位不動；PR 水位則推進至 `#4107`。
+
+## 2026-09-09：#4137 Spark quota header attribution 等 stable
+
+**決定**：不採用 closed-unmerged `#4137` head；PR 水位推進至 `#4137`，commit 與 issue
+水位維持不變。
+
+**理由**：作者在關閉說明中確認 `#4137` 已被 merged `#4128` supersede。`#4137` 的
+`CodexQuotaScope` positional API 與 `#4128` 已落 `dev` 的 `{ modelId }` API 不相容，且後者
+已將 Spark 5h 歸入 `customWindows`、保留 shared/custom windows，並包含較強的跨路徑回歸覆蓋。
+目前 `upstream/main` 沒有新的 commit，因此以 fork-only 重放舊 head 會製造未發布依賴與未來
+衝突。下一個 stable 若包含 `#4128` 即完整採用；若此前 Windows fork 重現同一 header attribution
+缺陷，再以當時 maintainer landing 重新審查。

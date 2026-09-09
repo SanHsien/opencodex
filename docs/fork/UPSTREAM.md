@@ -346,6 +346,41 @@ promotion，已由 stable commit 軸處理，不是 closed-unmerged item。
 - PR：`#4000`
 - issue：`#4032`
 
+## 2026-09-09：合併 v2.49.0 stable（`9a27e869..2f3f736`）
+
+上游 `main` 已標記 `v2.49.0`，exact SHA 為
+`2f3f736299dca38861f8fb9c4326a4b4d7c664bc`（promotion `#4117`）。本 fork 以一般 merge
+完整採用 stable tree，不提前拆取 `dev` 或重放已由維護者 carry 的 PR head。上游
+發布版本為 `2.49.0`；fork package 則前推為 post-release development
+version `2.50.0`，不代表發布 npm 套件。英文／繁中 locale、official-repo-only
+workflow guards、Windows long-suite runner 與 run-lock hardening 均保留。
+
+### Closed-unmerged PR（`#4004`–`#4107`）
+
+| 分流 | PR | 結論 |
+| --- | --- | --- |
+| 維護者 landing 已在 stable 採用 | `#4004 #4006 #4008 #4012 #4014 #4015 #4018 #4025 #4034 #4039 #4041 #4043 #4059 #4065 #4081` | 這些 closed PR 均有 `landed-via-maintainer` 標籤；對應 carry、修正與測試已在 `v2.49.0` stable tree。由 commit 軸完整採用，不重放原 PR head。 |
+| superseded 且 stable 已有等價行為 | `#4016` | 維護者明確以 `#3954` supersede；`v2.49.0` 已含 Muse Spark free model 的 Responses 路由與 web-search 相容處理。原 head 含舊 `dev` 基底與被審查指出的重複結構，不重放。 |
+| reject | `#4107` | contributor 確認為誤開至 upstream `main`，且 PR 是 draft、wrong-branch；沒有維護者 landing。若未來在 fork 重現計畫用量上限被 429 retry 掩蓋，或 upstream 將完整修正納入 stable，再以完整 landing 重審。 |
+
+指定範圍內的 promotion/main merged PR 一律由 stable commit 軸採用，不另行
+重放。strict report 對 `#4032` 之後沒有新 platform issue，所以 issue 水位維持 `#4032`。
+
+### 水位
+
+- stable tag / commit：`v2.49.0` / `2f3f736299dca38861f8fb9c4326a4b4d7c664bc`
+- PR：`#4107`
+- issue：`#4032`
+
+### 2026-09-09 incremental triage：`#4137`
+
+| 分流 | PR | 結論與重審條件 |
+| --- | --- | --- |
+| defer 至 stable | [`#4137`](https://github.com/lidge-jun/opencodex/pull/4137) | draft、base `dev` 的單一 head `292e382…` 在準備期間已被 merged `#4128`／`b2142586…` supersede。後者以 `{ modelId }` options API 將 Spark 5h header 歸入 `customWindows`，並覆蓋 HTTP、WebSocket、compact 與較完整的 Spark/non-Spark/legacy regression；原 PR 的第五個 positional `quotaScope` 會與該 landing 衝突。`#4128` 尚未進本輪 stable，所以不重放 `#4137`；下一個 stable 納入 `#4128` 時採完整 commit tree。若 Windows fork 在該前重現 Spark 5h header 被誤寫至 account `short*` 欄位，才依當時 maintainer landing 重新審查。 |
+
+`reviewed_pr_through` 推至 `#4137`；沒有新 upstream commit 或 platform issue，commit／issue
+水位分別維持 `2f3f736…`／`#4032`。
+
 ## 2026-09-07：同步 v2.46.0，分流 `#3745`–`#3862`
 
 本 fork 已一般 merge 上游穩定 tag `v2.46.0`

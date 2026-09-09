@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { Window } from "happy-dom";
+import { resolve } from "node:path";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import { LanguageProvider } from "../src/i18n/provider";
@@ -8,7 +9,6 @@ import Usage from "../src/pages/Usage";
 
 const globals = ["document", "window", "navigator", "localStorage", "sessionStorage", "ResizeObserver", "IS_REACT_ACT_ENVIRONMENT"] as const;
 const originalFetch = globalThis.fetch;
-const initialTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 let previousGlobals: Record<(typeof globals)[number], unknown>;
 let testWindow: Window;
 let root: Root | undefined;
@@ -155,31 +155,49 @@ for (const connected of [false, true]) {
 }
 
 test("America/Santiago midnight DST retains final-day activity and tooltip", async () => {
-  const previous = process.env.TZ;
-  process.env.TZ = "America/Santiago";
-  try {
-    expect(new Date(2026, 8, 6, 0).getHours()).toBe(1);
-    await mount();
-    await respond(0, "preset-marker");
-    await enter("2026-09-05T00:00", "2026-09-07T23:59");
-    await apply();
-    const gate = requests.at(-1)!;
-    const data = report(gate, "santiago-marker", "2026-09-07");
-    data.days = ["2026-09-05", "2026-09-06", "2026-09-07"].map(date => ({
-      date, requests: date === "2026-09-07" ? 7 : 0, measuredRequests: 0, reportedRequests: 0,
-      totalTokens: date === "2026-09-07" ? 700 : 0, models: [],
-    }));
-    await act(async () => gate.resolve(Response.json(data)));
-    const active = container.querySelector<HTMLElement>('.heatmap-grid .heatmap-cell:not(.heatmap-cell-0)');
-    expect(active).not.toBeNull();
-    await act(async () => active!.dispatchEvent(new testWindow.MouseEvent("mouseover", { bubbles: true })));
-    expect(container.querySelector(".heatmap-tip-date")?.textContent).toBe("2026-09-07");
-    expect(container.querySelector(".heatmap-tip")?.textContent).toContain("700");
-  } finally {
-    if (previous === undefined) process.env.TZ = initialTimeZone;
-    else process.env.TZ = previous;
+  if (process.env.OCX_USAGE_SANTIAGO_CHILD !== "1") {
+    // Restoring an absent TZ can change Bun's effective timezone on Windows.
+    // Start the DST case in its timezone without mutating this suite's clock.
+    const timezone = { present: Object.hasOwn(process.env, "TZ"), value: process.env.TZ };
+    const localTime = new Date(2020, 8, 15, 10, 20).getTime();
+    const child = Bun.spawnSync([
+      process.execPath, "test", import.meta.path,
+      "-t", "^America/Santiago midnight DST retains final-day activity and tooltip$",
+      "--timeout", "10000",
+    ], {
+      cwd: resolve(import.meta.dir, ".."),
+      env: { ...process.env, TZ: "America/Santiago", OCX_USAGE_SANTIAGO_CHILD: "1" },
+      stdout: "pipe", stderr: "pipe", timeout: 12000, killSignal: "SIGKILL",
+    });
+    const diagnostics = `${child.stdout.toString()}\n${child.stderr.toString()}`;
+    expect(child.exitedDueToTimeout, diagnostics).not.toBe(true);
+    expect(child.signalCode, diagnostics).toBeUndefined();
+    expect(child.exitCode, diagnostics).toBe(0);
+    expect(child.stdout.toString().split(/\r?\n/), diagnostics).toContain("OCX_SANTIAGO_CASE_COMPLETED");
+    expect({ present: Object.hasOwn(process.env, "TZ"), value: process.env.TZ }).toEqual(timezone);
+    expect(new Date(2020, 8, 15, 10, 20).getTime()).toBe(localTime);
+    return;
   }
-});
+  expect(process.env.TZ).toBe("America/Santiago");
+  expect(new Date(2026, 8, 6, 0).getHours()).toBe(1);
+  await mount();
+  await respond(0, "preset-marker");
+  await enter("2026-09-05T00:00", "2026-09-07T23:59");
+  await apply();
+  const gate = requests.at(-1)!;
+  const data = report(gate, "santiago-marker", "2026-09-07");
+  data.days = ["2026-09-05", "2026-09-06", "2026-09-07"].map(date => ({
+    date, requests: date === "2026-09-07" ? 7 : 0, measuredRequests: 0, reportedRequests: 0,
+    totalTokens: date === "2026-09-07" ? 700 : 0, models: [],
+  }));
+  await act(async () => gate.resolve(Response.json(data)));
+  const active = container.querySelector<HTMLElement>('.heatmap-grid .heatmap-cell:not(.heatmap-cell-0)');
+  expect(active).not.toBeNull();
+  await act(async () => active!.dispatchEvent(new testWindow.MouseEvent("mouseover", { bubbles: true })));
+  expect(container.querySelector(".heatmap-tip-date")?.textContent).toBe("2026-09-07");
+  expect(container.querySelector(".heatmap-tip")?.textContent).toContain("700");
+  if (process.env.OCX_USAGE_SANTIAGO_CHILD === "1") console.log("OCX_SANTIAGO_CASE_COMPLETED");
+}, process.env.OCX_USAGE_SANTIAGO_CHILD === "1" ? 10000 : 15000);
 
 test("Apply submits inclusive bounds once; Clear restores the held preset without custom cache entries", async () => {
   await mount();

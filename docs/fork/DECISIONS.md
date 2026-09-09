@@ -272,3 +272,18 @@ platform issue 水位維持 `#3661`。
 **理由**：`#3933` 修正 refreshed subagent roster 與 fallback choices 的隔離，屬 v2.47 stable
 勘誤；不採用會使 fork 與上游正式 stable 行為不同。其餘新 PR 仍在 dev 或 open，closed-unmerged
 項目已有 maintainer landing，等待下一次 stable 可避免拆取未發布依賴。
+
+## 2026-09-08：一般 merge v2.48.0，defer 未發布 PR 與 platform issue
+
+**決定**：把 tag `v2.48.0` / `9a27e86992d7a014e0aa92c046199b9fac148201` 的完整 stable
+tree 一般 merge 到 fork，將 package development version 由 upstream release `2.48.0` 前推為
+`2.49.0`。保留 fork 的英文／繁中語系、官方 repo-only workflow guards、Windows long-suite
+runner（71 fresh-process batches、每 batch <=600 秒、整體 <=120 分鐘、serial lanes、124=incomplete）
+及 run-lock hardening。
+
+**理由**：相對 `b2d14b6` 的 73 commits 已是已標記 stable release；完整 merge 保留上游原始
+attribution、整合測試及修正相依。closed-unmerged `#3944 #3949 #3950 #3951 #3953 #3995` 的
+maintainer landing 已在此 stable commit 軸，不能也不需重放原 PR。`#3988 #3990 #4000` 仍只在
+dev carry，`#3999` 還違反 fork locale 及 credential-surface 限制，均不提前採用。新 platform
+issues `#4023`（macOS launchd stop ordering）與 `#4032`（hub context-window metadata）均未在
+Windows fork 重現、亦無 stable fix；記錄 defer 與明確 re-review trigger，不自行改產品碼。

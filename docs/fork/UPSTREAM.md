@@ -309,6 +309,43 @@ Windows full-suite runner。
 - PR：`#3744`
 - issue：`#3661`
 
+## 2026-09-08：同步 v2.48.0 stable（`f7f890ff..9a27e869`）
+
+上游 `main` 在本輪 fetch 的穩定邊界為 tag `v2.48.0`，exact SHA
+`9a27e86992d7a014e0aa92c046199b9fac148201`（promotion `#4011`）。相對本 fork
+交付基線 `b2d14b616f14aa70db3b611879c36057faca822f` 有 73 個 commits；以一般 merge
+完整採用 stable tree，不提前採用後續 `dev` 或 open PR。fork 維持繁中／英文語系限制、官方
+repo-only workflow guard、Windows 71 fresh-process batch runner 與 run-lock hardening。
+上游 release 版本為 `2.48.0`，fork package 前推為 post-release development version
+`2.49.0`，不代表本 fork 發布 npm 套件。
+
+### Closed-unmerged PR（`#3944`–`#4000`）
+
+| 分流 | PR | 結論 |
+| --- | --- | --- |
+| 已由 v2.48.0 commit 軸涵蓋 | `#3944 #3949 #3950 #3951 #3953 #3995` | 以 maintainer landing／stable 修正完整採用：proxy v2 guidance、Go session affinity、Santiago DST fixture、server-owned delegation preset、quota capture retention、manual credit-reset cooldown。不重放原 PR head。 |
+| 等下一 stable 或本 fork 可重現 | `#3988 #3990 #4000` | Google model-tail、Hermes source-preserving YAML 與 AI Studio discovery 僅在後續 dev carry；尚非本次 `main` 的祖先。未證明本 fork 目前獨有缺陷，不拆取會帶入未發布依賴的 patch。 |
+| 不採用 | `#3999` | Cockpit clipboard auth import 尚未進 stable，且修改九語 locale（與 fork 英／繁中政策衝突）並擴大 credential/UI surface；若要採用須先有明確產品授權與繁中／英文重作。 |
+
+以上 closed-unmerged PR 均已查閱 state、labels、檔案與可用 maintainer/stable landing；
+`reviewed_pr_through` 推到 `#4000`。`#4010`／`#4011` 是已合併 preview/main release
+promotion，已由 stable commit 軸處理，不是 closed-unmerged item。
+
+### platform issue（`#4023`、`#4032`）
+
+| Issue | 決定 | 理由與觸發條件 |
+| --- | --- | --- |
+| [`#4023`](https://github.com/lidge-jun/opencodex/issues/4023) | defer | macOS launchd dashboard Stop 可能在 native restore 前卸載自己；本 fork 的 Windows-first overlay 不改寫 macOS lifecycle。若 Windows Task Scheduler 或 native restore 出現同類未完成 teardown，或 upstream stable 修復時再審。 |
+| [`#4032`](https://github.com/lidge-jun/opencodex/issues/4032) | defer | provider-hub chained client 將 per-model context window 落到 128k fallback；目前是 Ubuntu/macOS hub/client 報告，沒有本 fork Windows 本地重現，且尚無 stable fix。若 fork 使用 hub topology 重現、或上游修復進 stable，採完整 stable tree。 |
+
+兩筆均實際 read-only 查閱內容，非空結果推論；`reviewed_issue_through` 推到 `#4032`。
+
+### 水位
+
+- stable tag / commit：`v2.48.0` / `9a27e86992d7a014e0aa92c046199b9fac148201`
+- PR：`#4000`
+- issue：`#4032`
+
 ## 2026-09-07：同步 v2.46.0，分流 `#3745`–`#3862`
 
 本 fork 已一般 merge 上游穩定 tag `v2.46.0`

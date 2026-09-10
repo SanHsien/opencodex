@@ -1430,7 +1430,7 @@ export async function injectCodexConfig(
   const historyMessage =
     keepRootOverrideAlongsideTable
       ? (keptUserBaseUrl
-        ? `  Codex resume history: left unchanged; threads already tagged openai follow your own root openai_base_url, not the proxy.\n`
+        ? `  Codex resume history: left unchanged; threads already tagged openai follow your configured root openai_base_url.\n`
         : `  Codex resume history: left unchanged; existing threads keep reaching the proxy through the retained openai_base_url override.\n`)
       : config?.syncResumeHistory === false
       ? `  Codex resume history: left unchanged (syncResumeHistory=false).\n`
@@ -1447,6 +1447,7 @@ export async function injectCodexConfig(
   // The client-compaction form writes a provider table as well, so "nothing was injected" would
   // misdescribe the file it just produced: new threads do use the injected table. Report that
   // mixed result on its own terms, and never tell the operator to delete a setting of theirs.
+  // Ownership alone says nothing about destination: their line may already target this proxy.
   if (keptUserBaseUrl && keepRootOverrideAlongsideTable) {
     return {
       success: true,
@@ -1459,7 +1460,7 @@ export async function injectCodexConfig(
         managedDefaultsMessage +
         `  New threads use the injected opencodex provider and route through the proxy.\n` +
         `  Threads already tagged openai resolve through Codex's built-in provider, which your root openai_base_url points at.\n` +
-        `  Remove that line and rerun 'ocx start' only if you want those threads on the proxy too.\n` +
+        `  No root URL change is required to enable client-side compaction for new threads.\n` +
         `  Fallback: codex --profile opencodex (same behavior)`,
     };
   }

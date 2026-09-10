@@ -381,6 +381,43 @@ workflow guards、Windows long-suite runner 與 run-lock hardening 均保留。
 `reviewed_pr_through` 推至 `#4137`；沒有新 upstream commit 或 platform issue，commit／issue
 水位分別維持 `2f3f736…`／`#4032`。
 
+## 2026-09-10：同步 v2.50.0 stable（`2f3f736..2d4d7a2`）
+
+上游 `main` 的新穩定邊界為 tag `v2.50.0`、exact SHA
+`2d4d7a22381a2e497c2442902104619e25f937c7`（promotion `#4195`）。相對 v2.49 的
+129 commits 以一般 merge 完整採用，沒有 cherry-pick `dev` head。fork package 前推為
+post-release development version `2.51.0`；保留英文／繁中 locale、official-repo-only
+workflow guards、Windows 71 fresh-process batch runner（每 batch <=600 秒、整體 <=120 分鐘、
+serial lanes、124=incomplete）及 run-lock hardening。
+
+上游的 README 翻譯 parity test 與 `readme/i18n-manifest.json` 假定所有多語 README 都存在，
+與本 fork 只保留英文／繁中的已記錄政策直接不相容；兩者及非保留 locale 一併移除。既有
+`fork-hygiene.test.ts` 繼續驗證繁中主 README、英文 README 與 fork guard，沒有弱化
+fork-owned CI / CodeQL / upstream-check。繁中 README 保留原翻譯並補入 v2.50 的私密漏洞
+回報說明，不以未翻譯的英文 README 取代它。
+
+### Closed-unmerged PR
+
+查詢 `#4137` 之後沒有新的 closed-unmerged PR；`reviewed_pr_through` 維持 `#4137`。
+promotion `#4195` 與此範圍的 merged PR 均由 stable commit 軸採用，不另行重放。
+
+### platform issue（`#4106 #4131 #4141 #4182`）
+
+| Issue | 決定 | 理由與觸發條件 |
+| --- | --- | --- |
+| [`#4106`](https://github.com/lidge-jun/opencodex/issues/4106) | defer | Windows non-ASCII username/codepage report被 issue-template bot 以 `not_planned` 自動關閉，沒有 stable fix。若以合格 template 重開並有 maintainer landing，或 fork 實際重現，再審。 |
+| [`#4131`](https://github.com/lidge-jun/opencodex/issues/4131) | superseded | issue 自述由 `#4141` 取代，不單獨採用。 |
+| [`#4141`](https://github.com/lidge-jun/opencodex/issues/4141) | stable 採用 | macOS launchd update/repair 的 bootout recovery 已由 `#4164` / `95a3f6a` 落地並包含在 v2.50；取完整 stable tree。 |
+| [`#4182`](https://github.com/lidge-jun/opencodex/issues/4182) | defer，Windows re-review required | issue 因空 Summary 被 bot 關閉，但後續 maintainer comment 證實 fresh `schtasks /create` 缺 `/f` 會令 elevation classifier 到不了 locale-independent fallback；尚無 stable landing。不得在 stable-only sync 拆取 patch。若 Windows fork 重現此 fresh-install denial，或上游以完整 maintainer landing 發布 stable，優先重審。 |
+
+上述 issue 均以 read-only 內容與 comment 實查；`reviewed_issue_through` 推至 `#4182`。
+
+### 水位
+
+- stable tag / commit：`v2.50.0` / `2d4d7a22381a2e497c2442902104619e25f937c7`
+- PR：`#4137`
+- issue：`#4182`
+
 ## 2026-09-07：同步 v2.46.0，分流 `#3745`–`#3862`
 
 本 fork 已一般 merge 上游穩定 tag `v2.46.0`

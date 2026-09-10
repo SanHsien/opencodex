@@ -1,4 +1,4 @@
-> 這是 [SanHsien/opencodex](https://github.com/SanHsien/opencodex) 維護型 fork。產品行為以上游 v2.49.0 為準；維護規則見 [FORK.md](FORK.md)。
+> 這是 [SanHsien/opencodex](https://github.com/SanHsien/opencodex) 維護型 fork。產品行為以上游 v2.50.0 為準；維護規則見 [FORK.md](FORK.md)。
 
 <h3 align="center">make codex open!</h3>
 <p align="center"><b>適用於 OpenAI Codex 與 Claude Code 的通用供應商代理</b><br>
@@ -413,6 +413,10 @@ ocx recover-history --legacy-openai
 完整文件——安裝、供應商設定、路由、sidecar、Codex 整合、Codex App 模型選擇器、CLI／設定參考——由 [`docs-site/`](../docs-site) 目錄的 Astro 站點建置，發布於 **[opencodex.me](https://opencodex.me/zh-tw/)**。
 
 維護者的 source of truth 在 [`structure/`](../structure)，歷史調查與診斷筆記留在 [`docs/`](../docs)。
+
+未公開漏洞請透過 [GitHub 私密漏洞回報](https://github.com/lidge-jun/opencodex/security/advisories/new)
+提交，不要建立公開 issue。這是唯一技術回報管道（沒有 security email）；後續請留在私密回報中，公開
+issue 只能作協調用途且不可包含漏洞細節。收到回報不等於已完成分流，也不承諾首次回覆時限。
 
 ## 開發
 

@@ -1428,9 +1428,13 @@ async function handleStatus() {
     }
   }
   const { collectOAuthHealthEntriesForCli, oauthLoginSummary } = await import("../oauth");
+  const { emailMaskingEnabled } = await import("../lib/privacy");
   const { formatOAuthHealthForStatus } = await import("./status-oauth");
   console.log(`   OAuth logins:`);
-  for (const e of oauthLoginSummary()) {
+  // The operator's own `privacy.maskEmails` decision applies to the CLI too: `ocx status` is not
+  // the dashboard, but it reads the same stored addresses, and a flag that only moved one of the
+  // two would leave the operator unable to tell which surface they had configured.
+  for (const e of oauthLoginSummary(emailMaskingEnabled(loadConfig()))) {
     console.log(`     ${e.provider.padEnd(10)} ${e.loggedIn ? `✓ logged in${e.email ? ` (${e.email})` : ""}` : "✗ not logged in"}`);
   }
   const oauthHealthBlock = formatOAuthHealthForStatus(await collectOAuthHealthEntriesForCli());

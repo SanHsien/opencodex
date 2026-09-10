@@ -2,7 +2,7 @@
 
 > **SanHsien 維護型 fork overlay。** `origin` 是 [`SanHsien/opencodex`](https://github.com/SanHsien/opencodex)，`upstream` 是 [`lidge-jun/opencodex`](https://github.com/lidge-jun/opencodex)。
 > 維護規則以 [`FORK.md`](FORK.md) 為準；不要推 `upstream`、不要在本 fork 發 npm、不要部署 `docs-site` 到 GitHub Pages。
-> 其餘產品行為與測試規則維持上游 v2.49.0。
+> 其餘產品行為與測試規則維持上游 v2.50.0。
 
 Guidance for AI agents (and humans) working on or reviewing this repository.
 
@@ -154,8 +154,8 @@ say where it is; do not add it to `devlog/`, `structure/`, or `docs-site/`.
 ## User-consent actions
 
 Some actions write to the **user's own accounts and identity** rather than to
-this repository, and an agent must never perform or auto-answer them. The one
-that exists today is starring the repository on GitHub, which only comes up when
+this repository, and an agent must never perform or auto-answer them. One example
+is starring the repository on GitHub, which only comes up when
 an agent is *running* opencodex — not when it is working on this codebase.
 
 The rule lives in [`AGENTS_INSTALL.md`](./AGENTS_INSTALL.md), which is the file

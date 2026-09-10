@@ -314,3 +314,20 @@ issue 超過 `#4032`，故 issue 水位不動；PR 水位則推進至 `#4107`。
 目前 `upstream/main` 沒有新的 commit，因此以 fork-only 重放舊 head 會製造未發布依賴與未來
 衝突。下一個 stable 若包含 `#4128` 即完整採用；若此前 Windows fork 重現同一 header attribution
 缺陷，再以當時 maintainer landing 重新審查。
+
+## 2026-09-10：一般 merge v2.50.0；保留 fork locale policy
+
+**決定**：將 `v2.50.0` / `2d4d7a22381a2e497c2442902104619e25f937c7` 一般 merge 進候選，
+並將 package development version 前推至 `2.51.0`。移除上游重新加入的非英／繁中 GUI、docs-site
+與 README locale；同時移除只適用於完整多語 README 集合的 upstream parity test / manifest，並從
+test-layout 登錄移除其條目。fork 既有 `fork-hygiene.test.ts` 保留為此政策的機器驗證。
+
+**理由**：上游 parity test 的正確前提是每個 registered locale 都在磁碟；fork 的明確產品政策是
+只維護英文與繁中，保留該 test 會讓每次上游文件同步產生假失敗。這不是停用任何 fork CI、CodeQL、
+upstream-check 或 runner safeguard。主 README 採既有繁中完整說明、同步 stable version，並翻譯私密
+漏洞回報通道；英文 README 保留英文入口。
+
+**platform 分流**：`#4141` 的 launchd recovery 已由 v2.50 stable 完整採用；`#4106` 與
+`#4182` 雖指出 Windows codepage / fresh scheduler-elevation 風險，均被 template bot 關閉且無
+stable maintainer landing，故不在本次 stable-only sync 製造 fork patch。`#4182` 對 Windows
+fork 是必須重審項：本機重現 fresh-install access denial 或出現 stable landing 時即重新檢視。

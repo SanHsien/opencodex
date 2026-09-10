@@ -331,3 +331,9 @@ upstream-check 或 runner safeguard。主 README 採既有繁中完整說明、�
 `#4182` 雖指出 Windows codepage / fresh scheduler-elevation 風險，均被 template bot 關閉且無
 stable maintainer landing，故不在本次 stable-only sync 製造 fork patch。`#4182` 對 Windows
 fork 是必須重審項：本機重現 fresh-install access denial 或出現 stable landing 時即重新檢視。
+
+**merge 後 ledger refresh**：closed-unmerged `#4184`（OpenCode Go session affinity）與 `#4188`
+（ChatGPT Free warmup fallback）都由 maintainer 在 `dev` 以後續 landing 取代，沒有 stable
+commit，均 defer 至 stable promotion。open platform `#4200`（remote-hub docs）、`#4204`
+（Windows stale CLI catalog clamp）與 `#4236`（macOS launchd repair）也沒有 stable landing；其中
+`#4204`、`#4236` 是實際平台重現時的優先重審項，但不在 stable-only merge 補未發布 patch。

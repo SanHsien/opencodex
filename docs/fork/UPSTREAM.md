@@ -418,6 +418,21 @@ promotion `#4195` 與此範圍的 merged PR 均由 stable commit 軸採用，不
 - PR：`#4137`
 - issue：`#4182`
 
+### 2026-09-11：v2.50 merge 後的 remote ledger refresh（無新 stable commit）
+
+`upstream/main` 仍為 `2d4d7a22381a2e497c2442902104619e25f937c7`；strict 查詢只發現
+closed-unmerged PR 與 platform issue，沒有可加入本 stable-only merge 的新 commit。
+
+| 項目 | 決定 | 理由與重新審查條件 |
+| --- | --- | --- |
+| PR [`#4184`](https://github.com/lidge-jun/opencodex/pull/4184) | defer | closed-unmerged，owner 說明已由 dev `#4226` / `9e75542ff` 取代；這是 request-scoped OpenCode Go session affinity，沒有 v2.50 stable landing。待 maintainer stable promotion 後按該完整 landing 審查。 |
+| PR [`#4188`](https://github.com/lidge-jun/opencodex/pull/4188) | defer | closed-unmerged，owner 說明由 dev maintainer landing `#4230` / `ad36a595` 取代；ChatGPT Free warmup 的 400/404 fallback 屬後續 dev 工作，不能從 closed PR 拆取。待 stable landing 再審。 |
+| Issue [`#4200`](https://github.com/lidge-jun/opencodex/issues/4200) | defer | remote-hub 文件的缺失 parent-object 與 macOS data-TLS 範例問題仍 open，沒有 stable docs landing；下一個 stable 文件整合或 fork 實際重現時再審。 |
+| Issue [`#4204`](https://github.com/lidge-jun/opencodex/issues/4204) | defer，Windows re-review required | stale standalone CLI 可把 Desktop 已支援的 max/ultra 從 shared catalog clamp 掉；仍是 open 的設計問題，沒有 stable landing。若本 fork 安裝後重現 catalog rung 遺失，或 maintainer landing 進 stable，優先審查。 |
+| Issue [`#4236`](https://github.com/lidge-jun/opencodex/issues/4236) | defer，macOS service re-review required | 回報 launchd repair 可能中斷健康 hub 且不能可靠復原；範圍大於 v2.50 的 `#4141` bootout recovery，仍 open、未進 stable。不得在 stable-only sync 自行重設計 service lifecycle；maintainer stable landing 或可重現的 fork macOS incident 時再審。 |
+
+水位前推：closed-unmerged PR `#4188`、platform issue `#4236`。
+
 ## 2026-09-07：同步 v2.46.0，分流 `#3745`–`#3862`
 
 本 fork 已一般 merge 上游穩定 tag `v2.46.0`

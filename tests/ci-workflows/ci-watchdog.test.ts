@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 
-import { watchdogMs } from "./ci-watchdog";
+import { watchdogMs } from "../helpers/ci-watchdog";
 
 const initialCi = process.env.CI;
 const initialFullSuite = process.env.OCX_TEST_FULL_SUITE;

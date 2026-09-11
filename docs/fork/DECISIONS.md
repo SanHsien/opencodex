@@ -337,3 +337,10 @@ fork 是必須重審項：本機重現 fresh-install access denial 或出現 sta
 commit，均 defer 至 stable promotion。open platform `#4200`（remote-hub docs）、`#4204`
 （Windows stale CLI catalog clamp）與 `#4236`（macOS launchd repair）也沒有 stable landing；其中
 `#4204`、`#4236` 是實際平台重現時的優先重審項，但不在 stable-only merge 補未發布 patch。
+
+**2026-09-11 closed-PR refresh**：`#4203` 的 pnpm self-update 雖帶
+`landed-via-maintainer` 標籤，仍是 base `dev` 的 closed-unmerged PR，reviewed stable
+`2d4d7a2` 不含該後續 landing，故等待完整 stable promotion。`#4210` 是未有 maintainer landing
+證據的 BigModel Responses quota-reader contributor PR，且作者未宣稱本機 product tests 綠；不從
+未發布 head 拆取 quota／credential surface。兩者僅在 maintainer stable landing 或 fork 實際重現時
+重審。closed-unmerged PR 水位推至 `#4210`；platform issue 水位維持 `#4236`。

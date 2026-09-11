@@ -433,6 +433,20 @@ closed-unmerged PR 與 platform issue，沒有可加入本 stable-only merge 的
 
 水位前推：closed-unmerged PR `#4188`、platform issue `#4236`。
 
+### 2026-09-11：post-v2.50 closed-PR refresh（無新 stable commit）
+
+`upstream/main` 仍為 `2d4d7a22381a2e497c2442902104619e25f937c7`；這兩筆 PR 都以
+`dev` 為 base、closed-unmerged，不能加入 stable-only candidate。
+
+| PR | 決定 | 理由與重新審查條件 |
+| --- | --- | --- |
+| [`#4203`](https://github.com/lidge-jun/opencodex/pull/4203) | defer 至 stable | pnpm global self-update 修正帶有 `landed-via-maintainer` 標籤，但 PR 本身未 merge，且目前 reviewed stable SHA 不含它。保留 maintainer 的完整後續 landing，等其 promotion 至 stable；若 Windows pnpm-managed global 安裝實際重現 updater 在 proxy shutdown 後失敗，再依當時 maintainer landing 審查。 |
+| [`#4210`](https://github.com/lidge-jun/opencodex/pull/4210) | defer 至 stable | BigModel Responses quota-reader omission 的 closed contributor PR 沒有 maintainer landing 證據，作者亦明確未聲稱本機 product test 綠。不得從未發布 head 拆取 credential／quota 變更；待 maintainer stable landing，或 fork 實際重現這個 preset 缺 quota visibility 時再審。 |
+
+兩筆均以 read-only `gh pr view` 實查其 closed-unmerged 狀態、`dev` base、標籤與作者的
+驗證聲明；platform issue 沒有超過既有 `#4236` 的新項目。水位前推：closed-unmerged PR
+`#4210`，platform issue 維持 `#4236`。
+
 ## 2026-09-07：同步 v2.46.0，分流 `#3745`–`#3862`
 
 本 fork 已一般 merge 上游穩定 tag `v2.46.0`

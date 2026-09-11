@@ -33,6 +33,21 @@ function shimChildEnv(overrides: Record<string, string> = {}): NodeJS.ProcessEnv
   delete env.OCX_SHIM_PROBE_ACTIVE;
   return env;
 }
+
+/**
+ * The cmd fixture needs an executable path that cmd.exe can actually parse. A Bun test worker
+ * can expose its local package runtime under a non-ASCII checkout path; that is not the path the
+ * shim token-scope test is meant to cover (profile-path indirection has its own regression).
+ */
+function cmdFixtureBunPath(): string {
+  const worktreePrefix = `${repoRoot().toLowerCase()}\\`;
+  const external = (process.env.PATH ?? "")
+    .split(delimiter)
+    .filter(Boolean)
+    .map(dir => join(dir, "bun.exe"))
+    .find(path => existsSync(path) && !path.toLowerCase().startsWith(worktreePrefix));
+  return external ?? Bun.which("bun") ?? process.execPath;
+}
 const skipStabilityWait = () => {};
 const python3Path = process.platform === "win32"
   ? ""
@@ -1319,7 +1334,7 @@ printf '%s\\n' child-codex
           writeFileSync(ensurePath, `import { writeFileSync } from "node:fs"; writeFileSync(${JSON.stringify(ensureLog)}, "ensure"); process.exit(19);`);
           if (shell === "cmd") {
             writeFileSync(realPath, "@echo off\r\necho child:%OPENCODEX_API_AUTH_TOKEN%\r\nexit /b 37\r\n");
-            writeFileSync(wrapperPath, buildWindowsCodexShim(realPath, process.execPath, ensurePath, "process"));
+            writeFileSync(wrapperPath, buildWindowsCodexShim(realPath, cmdFixtureBunPath(), ensurePath, "process"));
             writeFileSync(driverPath, `@echo off\r\ncall "${wrapperPath}" exec "arg value"\r\nset "result=%ERRORLEVEL%"\r\necho after:%OPENCODEX_API_AUTH_TOKEN%\r\necho result:%result%\r\nexit /b 0\r\n`);
           } else {
             writeFileSync(realPath, '"child:$env:OPENCODEX_API_AUTH_TOKEN"\nexit 37\n');

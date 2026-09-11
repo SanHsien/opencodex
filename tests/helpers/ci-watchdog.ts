@@ -19,7 +19,8 @@
  * so a genuinely hung test is still bounded by something rather than running to the ceiling.
  */
 export function watchdogMs(base: number): number {
-  if (process.env.CI !== "true") return base;
+  const underLoad = process.env.CI === "true" || process.env.OCX_TEST_FULL_SUITE === "1";
+  if (!underLoad) return base;
   return Math.max(base, process.platform === "win32" ? 45_000 : 30_000);
 }
 

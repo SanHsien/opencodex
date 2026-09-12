@@ -68,3 +68,11 @@ bun run test
 - **使用者指示「不留分支」時，本地與遠端（`origin`）必須同步清理**：
   除執行本地 `git branch -d` 外，必須主動檢查 GitHub 遠端（`SanHsien/<repo>`）是否有殘留的過期分支（如先前同步或 replay 的舊分支），透過 `git push origin --delete <branch>` 刪除，確保遠端只保留 `main`。
 
+## 上游同步收尾檢查清單
+
+每次完成上游穩定版同步（如 merge stable）並準備收尾時，必須逐項核對：
+1. **文檔版本基準一致性**：除 `package.json`、`UPSTREAM.md`、`DECISIONS.md` 與 `AGENTS.md` 外，必須同步檢查並更新 `README.md`、`README.en.md` 與 `FORK.md` 首部的上游基準版本標示（如 `v2.51.0`）。
+2. **GitHub Repo About 雙語格式**：檢查 GitHub 專案的 About Description，遵循 SanHsien fork 規範採用「繁體中文｜English」雙語描述，不可遺漏繁體中文。
+3. **分支整潔度**：完成推送後確認遠端 `origin` 僅保留 `main`，清理所有已合併之臨時分支。
+
+

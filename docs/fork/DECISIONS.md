@@ -357,3 +357,21 @@ commit，均 defer 至 stable promotion。open platform `#4200`（remote-hub doc
 - platform issue `#4236` 之後無新 issue；既有 `#4204`（Windows stale CLI catalog clamp）維持 PARKED design。
 - 水位更新：commit `c155cc7923dbc0102e27d79185505a85d4357b2c`、PR `#4293`、issue `#4236`。
 
+## 2026-09-12：一般 merge v2.52.0；納入 Devin、Cline、Grok Coupons 與 Context Relay
+
+**決定**：將上游穩定版本 `v2.52.0`（`4d37c35155fe283722566d32892b8753c1230be7`，promotion `#4407`）一般 merge 進本 fork。維持英文／繁中 locale overlay，清理非保留之 docs-site 語系（ko, tr, fr, ja 等）及非繁中 i18n 檔。採納上游原生之 host-native pnpm shim 測試修復（`#4379`）。
+
+**理由**：v2.52.0 帶來多項重大架構強化與新供應商適配：
+- **Codex 配額與路由避讓機制**：引進 quota refusal 避讓窗口與 clear-cooldown 解除（#4396, #4397, #4368）。
+- **Devin 與 Devin CLI 供應商**：支援 Cognition 雲端模型與基於 ACP stdio 的本地 Devin CLI，並修正 Windows 平台路徑語意（#4285, #4288, #4322, #4335, #4400）。
+- **xAI Grok Reset Coupons**：支援透過 gRPC-Web 讀取並兌換重置券（#4306, #4330）。
+- **Cline CLI 整合**：新增 Cline CLI 整合、日誌化設定寫入與 catalog sync（#4371, #4390）。
+- **最小權限 Context History Relay**：Codex 歷史 relay 機制與 loopback 認證強化（#4360）。
+- **GUI 目錄搜尋與 Local 頁籤**：跨頁籤統一搜尋、Local 獨立頁籤與長備註彈跳窗（#4325, #4328, #4331）。
+
+**PR 與 Issue 分流**：
+- closed-unmerged PR `#4313`（Codex history pagination writes）與 `#4386`（Cline registration contracts）均標記為 `landed-via-maintainer`，已由 maintainer landing 隨 release train 正式進主幹。
+- platform issues 檢查至 `#4414` 無新增條目。
+- 水位更新：commit `4d37c35155fe283722566d32892b8753c1230be7`、PR `#4414`、issue `#4414`。
+
+

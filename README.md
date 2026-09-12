@@ -1,4 +1,4 @@
-> 這是 [SanHsien/opencodex](https://github.com/SanHsien/opencodex) 維護型 fork。產品行為以上游 v2.51.0 為準；維護規則見 [FORK.md](FORK.md)。
+> 這是 [SanHsien/opencodex](https://github.com/SanHsien/opencodex) 維護型 fork。產品行為以上游 v2.52.0 為準；維護規則見 [FORK.md](FORK.md)。
 
 <h3 align="center">make codex open!</h3>
 <p align="center"><b>適用於 OpenAI Codex 與 Claude Code 的通用供應商代理</b><br>

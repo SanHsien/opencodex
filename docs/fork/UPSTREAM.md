@@ -570,3 +570,28 @@ workstream 不提前拆取。closed-unmerged `#3917`／`#3934` 分別已有 `#39
 - commit：`f7f890ff72a5ccccadb5a935c1ea106922562cd2`（v2.47.0 final roster correction，已合併）
 - PR：`#3943`
 - issue：`#3661`
+
+## 2026-09-12：同步 v2.51.0 與 v2.52.0
+
+### v2.51.0 同步摘要（commit `c155cc7`）
+- 合併上游 `v2.51.0`（497 commits）：包含 One-port Hub、Pool 降級保護、Sessionless requests 隔離與 pnpm 更新支援。
+- 衝突處理：移除非英／繁中 docs-site 與 GUI i18n 檔案；適配 Windows 環境下的 `tests/update/update-pnpm.test.ts`（以 `canSymlink` 探針跳過符號連結測試，並略過 POSIX 權限檢查）。
+- closed-unmerged PR：`#3944`–`#4271` 均已結案；platform issue 水位維持至 `#4236`。
+
+### v2.52.0 同步摘要（commit `4d37c35`）
+- 合併上游 `v2.52.0`（`4d37c35155fe283722566d32892b8753c1230be7`）：
+  - **Devin / Devin CLI**：引進 Cognition 雲端支援與本地 ACP stdio Devin CLI（修正 Windows 平台 APPDATA 路徑語意）。
+  - **xAI Grok Coupons**：支援透過 gRPC-Web 讀取並兌換重置券。
+  - **Cline CLI**：支援 Cline CLI 整合與 catalog sync。
+  - **Context History Relay**：Codex 歷史 relay 機制與 loopback 認證強化。
+  - **Codex 避讓機制**：引進配額拒絕避讓窗口與 clear-cooldown 解除。
+  - **測試適配**：採納上游原生之 `writeHostShims`（`#4379`），使 pnpm update 測試在 Windows 原生環境正常通過。
+- Closed-unmerged PR：
+  - `#4313`（Codex history pagination writes）與 `#4386`（Cline registration contracts）均標記為 `landed-via-maintainer`，已由 maintainer 隨 release train 正式進主幹。
+- Platform issue：檢查至 `#4414` 無新增條目。
+
+### 水位更新
+- commit：`4d37c35155fe283722566d32892b8753c1230be7`（`v2.52.0`，已合併）
+- PR：`#4414`
+- issue：`#4414`
+

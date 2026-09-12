@@ -62,3 +62,9 @@ bun run test
 - 不要提交 API key、ChatGPT token、OAuth、帳號池真實資料。
 - 不要把帳號池描述成可以規避 OpenAI / 其他 provider 條款。
 - 測試不要打真實第三方帳號；fork 測試只鎖維護骨架。
+
+## 分支與遠端清理維護
+
+- **使用者指示「不留分支」時，本地與遠端（`origin`）必須同步清理**：
+  除執行本地 `git branch -d` 外，必須主動檢查 GitHub 遠端（`SanHsien/<repo>`）是否有殘留的過期分支（如先前同步或 replay 的舊分支），透過 `git push origin --delete <branch>` 刪除，確保遠端只保留 `main`。
+

@@ -447,6 +447,49 @@ closed-unmerged PR 與 platform issue，沒有可加入本 stable-only merge 的
 驗證聲明；platform issue 沒有超過既有 `#4236` 的新項目。水位前推：closed-unmerged PR
 `#4210`，platform issue 維持 `#4236`。
 
+## 2026-09-12：同步 v2.51.0 stable（`2d4d7a2..c155cc7`）
+
+上游 `main` 發布穩定版本 tag `v2.51.0`、exact SHA
+`c155cc7923dbc0102e27d79185505a85d4357b2c`（promotion `#4271`）。相對 v2.50.0 的
+34 個 commits 以一般 merge 完整採用。fork post-release 版本線前推為 `2.52.0`。
+保留英文／繁中 locale overlay、official-repo-only workflow guard、Windows full-suite runner。
+
+本輪帶入的核心產品能力：
+- One-port Hub 同埠 loopback companion listener 與閘道通知（`#4250`）
+- Hub 資料平面 Token 自動核發、`ocx hub invite` 與狀態面板（`#4252`、`#4255`）
+- Pool 降級帳號排除：自動移出輪替避免無效重試（`#4211`、`#4238`）
+- 無 session 請求配置獨立 session lane（`#4226`）
+- Integrations 設定檔持有者防覆寫保護（`#4227`）
+- ChatGPT Free 新帳號暖機機制（`#4230`）
+- BigModel Responses Coding Plan 配額讀取支援（`#4231`）
+- Qoder CLI 腳手架防禦（`#4234`）
+- 原生 pnpm global 自我更新支援（`#4235`）
+
+解衝突處理：上游重新加入的非英／繁中 docs-site（`fr, ja, ko, ru, tr, zh-cn`）依既有政策
+予以刪除；test layout 登錄檔（`scripts/test-layout/layout.json` 與 `tests/fixtures/test-layout-expected.json`）
+已加入 upstream 新增之 docs 與 watchdog 測試條目。
+
+### Closed-unmerged PR（`#4211`–`#4293`）
+
+| PR | 決定 | 理由與重新審查條件 |
+| --- | --- | --- |
+| [`#4258`](https://github.com/lidge-jun/opencodex/pull/4258) | stable 採用 | Command Code v4.1-flash 與 Qwen3.8-Flash effort ladders；帶有 `landed-via-maintainer` 標籤，已隨 maintainer landing 進入 v2.51.0 stable commit 軸。 |
+| [`#4272`](https://github.com/lidge-jun/opencodex/pull/4272) | defer 至 stable | 處理 bare tools 被提供者誤加 default. 命名空間問題；closed-unmerged，已由 dev maintainer landing `#4264` / `391e40d` 取代（含完整回歸測試）。待下一 stable promotion 隨完整產品樹採用。 |
+| [`#4291`](https://github.com/lidge-jun/opencodex/pull/4291) | superseded | OpenCode attachment/modalities 導出修正，已被 `#4293` 取代。 |
+| [`#4293`](https://github.com/lidge-jun/opencodex/pull/4293) | defer 至 stable | OpenCode 圖片與模態能力導出；closed-unmerged，已由 dev maintainer landing `#4300` / `ad09340` 取代。待下一 stable promotion 隨完整產品樹採用。 |
+
+上述 4 筆均以 read-only `gh pr view` 實查其狀態、標籤與 maintainer replacement；`reviewed_pr_through` 推至 `#4293`。
+
+### Platform issue
+
+`#4236` 之後無新的 `platform` issue；`reviewed_issue_through` 維持 `#4236`。
+
+### 水位
+
+- stable tag / commit：`v2.51.0` / `c155cc7923dbc0102e27d79185505a85d4357b2c`
+- PR：`#4293`
+- issue：`#4236`
+
 ## 2026-09-07：同步 v2.46.0，分流 `#3745`–`#3862`
 
 本 fork 已一般 merge 上游穩定 tag `v2.46.0`

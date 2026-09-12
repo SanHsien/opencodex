@@ -344,3 +344,16 @@ commit，均 defer 至 stable promotion。open platform `#4200`（remote-hub doc
 證據的 BigModel Responses quota-reader contributor PR，且作者未宣稱本機 product tests 綠；不從
 未發布 head 拆取 quota／credential surface。兩者僅在 maintainer stable landing 或 fork 實際重現時
 重審。closed-unmerged PR 水位推至 `#4210`；platform issue 水位維持 `#4236`。
+
+## 2026-09-12：一般 merge v2.51.0；package 前推至 2.52.0
+
+**決定**：將上游穩定版本 `v2.51.0`（`c155cc7923dbc0102e27d79185505a85d4357b2c`，promotion `#4271`）一般 merge 進本 fork，package development version 前推至 `2.52.0`。維持英文／繁中 locale overlay，清除非保留之 docs-site 語系，test layout 合併 upstream 新增之測試清單。
+
+**理由**：v2.51.0 包含完整的 One-port Hub 同埠本機/連線管理、Pool 降級保護、Sessionless requests 隔離及 pnpm 更新支援，具備高度穩定性與架構價值。先前在 v2.50 deferred 的 `#4203`（pnpm 自我更新）、`#4210`（Responses preset quota）、`#4184`（Go session affinity）、`#4188`（ChatGPT Free warmup）均已隨 maintainer release train 正式進入 stable `main`，無須手動拆取補丁。
+
+**PR 與 Issue 分流**：
+- closed-unmerged PR `#4258`（effort ladder）已由 stable commit 涵蓋。
+- closed-unmerged PR `#4272`（bare tool 命名空間）與 `#4293`（OpenCode 圖片能力）已分別由 maintainer landing `#4264` 與 `#4300` 合併至 `dev`，無本 fork 專屬痛點前不拆取未發布依賴，等待下一 stable。
+- platform issue `#4236` 之後無新 issue；既有 `#4204`（Windows stale CLI catalog clamp）維持 PARKED design。
+- 水位更新：commit `c155cc7923dbc0102e27d79185505a85d4357b2c`、PR `#4293`、issue `#4236`。
+

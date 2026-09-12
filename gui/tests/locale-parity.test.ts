@@ -120,6 +120,12 @@ const ZH_TW_KEEP_ENGLISH: ReadonlySet<string> = new Set([
   "integrations.tab.aside",
   "integrations.tab.raycast",
   "api.clientConfig.clientRaycast",
+  // "omo" is the product's own lowercase spelling, identical in every locale.
+  "integrations.tab.omo",
+  "api.clientConfig.clientOmo",
+  // Cline product name and CLI acronym are intentionally preserved.
+  "integrations.tab.cline",
+  "api.clientConfig.clientCline",
   "integrations.codex.title",
   "integrations.tab.cursor",
   "integrations.cursor.title",

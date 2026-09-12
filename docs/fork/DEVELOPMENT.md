@@ -74,5 +74,7 @@ bun run test
 1. **文檔版本基準一致性**：除 `package.json`、`UPSTREAM.md`、`DECISIONS.md` 與 `AGENTS.md` 外，必須同步檢查並更新 `README.md`、`README.en.md` 與 `FORK.md` 首部的上游基準版本標示（如 `v2.51.0`）。
 2. **GitHub Repo About 雙語格式**：檢查 GitHub 專案的 About Description，遵循 SanHsien fork 規範採用「繁體中文｜English」雙語描述，不可遺漏繁體中文。
 3. **分支整潔度**：完成推送後確認遠端 `origin` 僅保留 `main`，清理所有已合併之臨時分支。
+4. **GitHub Release 與最新 Tag 發布**：完成 `main` 分支推送與 CI 確認後，必須在遠端 `SanHsien/<repo>` 上對目前的 `main` 建立並發布最新穩定版本的 Tag 與 GitHub Release（例如 `v2.52.0`），附上對應的同步改動摘要，不可只推 `main` 而遺漏發布最新 Tag。
+
 
 

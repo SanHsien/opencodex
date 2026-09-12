@@ -28,6 +28,20 @@ import { updateCommand, updateCommandStr } from "../../src/update/index";
 
 const PKG = "@bitkyc08/opencodex";
 
+/** Windows without Developer Mode or elevated privilege cannot create directory symlinks (EPERM). */
+const canSymlink = (() => {
+  const root = mkdtempSync(join(tmpdir(), "ocx-pnpm-symlink-probe-"));
+  try {
+    symlinkSync(root, join(root, "link"), "dir");
+    return true;
+  } catch (error: unknown) {
+    if ((error as NodeJS.ErrnoException).code === "EPERM") return false;
+    throw error;
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+})();
+
 describe("pnpm installation detection", () => {
   test("requires strong evidence for legacy global/vN paths", () => {
     expect(detectInstallFromPath("/work/opencodex/src/update")).toBe("source");
@@ -49,7 +63,7 @@ describe("pnpm installation detection", () => {
     expect(detectInstallFromPath("C:\\work\\node_modules\\.pnpm\\@bitkyc08+opencodex@2.49.0\\node_modules\\@bitkyc08\\opencodex\\bin")).toBe("pnpm");
   });
 
-  test("follows a preserved npm-looking symlink to the pnpm package target", () => {
+  test.skipIf(!canSymlink)("follows a preserved npm-looking symlink to the pnpm package target", () => {
     const root = mkdtempSync(join(tmpdir(), "ocx-pnpm-detect-link-"));
     try {
       const target = join(root, "pnpm", "global", "v11", "node_modules", ".pnpm", "pkg", "node_modules", PKG, "bin");
@@ -333,7 +347,7 @@ function makePackageFixture(
 }
 
 describe("pnpm package tree verification", () => {
-  test("resolves dependencies through a custom virtual store and hoisted-style links", () => {
+  test.skipIf(!canSymlink)("resolves dependencies through a custom virtual store and hoisted-style links", () => {
     const root = mkdtempSync(join(tmpdir(), "ocx-pnpm-tree-"));
     try {
       const packageDir = makePackageFixture(root, join(root, "custom-virtual-store", "node_modules"));
@@ -360,7 +374,7 @@ describe("pnpm package tree verification", () => {
     }
   });
 
-  test("resolves dependencies through a pnpm package-root symlink", () => {
+  test.skipIf(!canSymlink)("resolves dependencies through a pnpm package-root symlink", () => {
     const root = mkdtempSync(join(tmpdir(), "ocx-pnpm-linked-tree-"));
     try {
       const target = makePackageFixture(root, join(root, "store", "node_modules"));
@@ -373,7 +387,7 @@ describe("pnpm package tree verification", () => {
     }
   });
 
-  test("does not accept a package tree whose runtime dependency cannot resolve", () => {
+  test.skipIf(!canSymlink)("does not accept a package tree whose runtime dependency cannot resolve", () => {
     const root = mkdtempSync(join(tmpdir(), "ocx-pnpm-tree-missing-"));
     try {
       const packageDir = makePackageFixture(root, join(root, "deps"));
@@ -386,7 +400,7 @@ describe("pnpm package tree verification", () => {
 });
 
 describe("pnpm generated shims", () => {
-  test("verifies POSIX shims point at the active package", () => {
+  test.skipIf(process.platform === "win32")("verifies POSIX shims point at the active package", () => {
     const root = mkdtempSync(join(tmpdir(), "ocx-pnpm-shims-"));
     try {
       const packageDir = join(root, "global", "v11", "node_modules", PKG);
@@ -407,7 +421,7 @@ describe("pnpm generated shims", () => {
     }
   });
 
-  test("accepts a pnpm group alias when it resolves to the active package", () => {
+  test.skipIf(!canSymlink)("accepts a pnpm group alias when it resolves to the active package", () => {
     const root = mkdtempSync(join(tmpdir(), "ocx-pnpm-shim-alias-"));
     try {
       const activeGroup = join(root, "global", "v11", "active");

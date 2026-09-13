@@ -1,0 +1,377 @@
+# 維護決策
+
+## 2026-08-28：最小移植 `#2557`，不提前重放 2.34
+
+**決定**：把上游 `v2.33.0` 的桌面 app 探針修正接到本線：`listPackageProcesses` 用換行串 PowerShell，失敗回 `process_probe_failed`，CLI 不再說「沒在跑」。不因此把整棵 `v2.34.0` merge 進來。
+
+**理由**：這是本線自己引用 `#2292` 之後立刻會痛的 Windows 洞。完整重放 overlay 仍是下一步，但使用端現在就可能打 `--restart-desktop-app`。
+
+## 2026-08-27：批次審查 `v2.32.0`–`v2.34.0`，暫不合併；下次在 tag 上重放 overlay
+
+**決定**：把 `6ae83b1f189c353935d4977bb01227484fbdb52b` 到
+`80fff9a7f47332a4445df2b26ea175053fa55b0b`（`v2.34.0`）這段發版線當一批看完，
+水位推進，但**不把上游 merge 進本線**。下次同步在 `v2.34.0` 上重放 overlay，
+不要 `git merge` / `merge --allow-unrelated-histories`。
+
+**理由**：
+
+1. 2026-08-23 的 `chore: 壓縮歷史為單一提交` 是無父提交。本線與上游沒有
+   merge-base。硬 merge 會變成兩棵不相關的樹對撞，衝突不可審。
+2. 本線為 Windows 引用的 `--restart-desktop-app` 已在上游被 `#2557` 證明壞掉
+  （PowerShell 用空白串陳述、探針失敗誤報成沒在跑）。正確解法是改吃上游檔，
+   不是在 2.31 副本上再 cherry-pick 一次。
+3. 上游多了 `cleanup-closed-pr-branches.yml`（排程、`contents: write`、刪關閉
+   PR 的 branch）。進本 fork 前必須加官方-repo-only guard。
+4. 514 筆 commit 的內容會隨重放進來；本輪不逐檔移植 Kiro／xAI／catalog 那些
+   本線沒在用的路徑。
+
+**維持不變**：不採用未合併的 open PR。不在本 fork 發 npm、不部署 docs-site。
+
+## 2026-08-23：PR／issue 一律 `--state all`，並在 `dev` 上選擇性引用
+
+**決定**：修正 2026-08-22 那條「上游的 PR 不是本 fork 的審查單位」。審查單位仍是 `main` 上的
+release commit，但增加兩條：
+
+1. 查 PR 與 issue **一律用 `--state all`**。未合併就關閉的 PR 永遠不會經由 commit 路徑抵達，
+   而那正是「上游拒收、但可能對本 fork 有價值」的一類。
+2. 已合併但只在 `dev` 的修正，若**本 fork 現在就會痛**，就選擇性引用，不等 release。
+
+**理由**：`dev` 目前領先 `main` 69 個 commit，實測 `#2398` 的 merge commit 在 `dev` 不在 `main`
+——「合併後會隨 release 進 `main`」在時間上可能是好幾週。本輪依此引用了兩支「讀取沒有上限」的
+修正（`#2395`、`#2398` 前半），兩者的缺陷都在本 fork 的程式碼裡實查確認過。
+
+**維持不變**：不逐筆採用未合併的 open PR。那是提案，不是上游已接受的變更；採用等於接手維護一份
+還會變動的補丁。逐項證據與觸發條件記在 [`UPSTREAM.md`](UPSTREAM.md)。
+
+## 2026-08-22：上游的 PR 與分支不是本 fork 的審查單位，issue 只追 platform
+
+**決定**：不逐筆評估上游的 open PR（43 個，全部 base 在 `dev`）與分支（71 個，多為那些 PR 的
+head）。審查單位是 `main` 上的 release commit。issue 只追 `platform` 標籤，並在
+`tools/upstream_baseline.json` 記 `reviewed_issue_through` 水位；`check-upstream-updates.ts`
+只報水位之後的新 issue，`gh` 不可用時報「未檢查」而不是「沒有待審」。本次分流到 `#2379`。
+
+**理由**：上游 PR 合併後本來就會隨 release 進 `main`，事前逐筆看等於把同一份改動看兩次，
+而且看的是還會變動的版本。反過來，把 40 幾個 PR 與 50 幾個 issue 每週報一次，會讓這支檢查
+變成固定紅燈——喊狼來了的檢查沒有人看。`platform` 是唯一會改變「本 fork 要在 Windows 上驗
+什麼」的類別，值得每週問一次。
+
+**已知結論**（避免下次重推）：`ci.yml` 的 `windows <shard>/4` job 只有 `workflow_dispatch`
+會跑，所以 Cross-platform CI 的綠燈不包含那套 shard；上游 `#2152` 記錄了那套 shard 既有的
+六個失敗。本 fork 的 Windows 覆蓋來自 `keyring windows`、`npm-global windows-latest` 與
+`fork gate (windows-latest)`。逐項證據見 [`UPSTREAM.md`](UPSTREAM.md)。
+
+
+## 2026-08-22：文件與語系只留繁中、英文
+
+**決定**：`README.md` 以繁體中文為主，英文另存 `README.en.md`。GUI 與 docs-site 只保留英文與繁體中文，刪除法文、日文、韓文、俄文、土耳其文、簡體中文。簡體中文瀏覽器對應到繁中。
+
+**理由**：維護線以繁中溝通；多語系會跟上游每週翻譯衝突，也不符合本 fork 的使用場景。
+
+## 2026-08-22：fork 可管理多帳號的 lidge-jun/opencodex
+
+**決定**：fork [`lidge-jun/opencodex`](https://github.com/lidge-jun/opencodex)，保留 MIT 授權與完整歷史，預設分支維持 `main`。本線聚焦 Windows 開發 gate、fork CI、危險 workflow 隔離，以及逐筆審查的上游追蹤。產品 README 以繁體中文為主，英文另存 `README.en.md`。
+
+**理由**：要的是「可管理多帳號」的那一個。此專案在 dashboard 管理 ChatGPT / Codex account pool（配額、affinity、failover），並把任意 LLM 接到 Codex / Claude Code。GitHub 上另有遠端桌面中介與 OpenCode 改名專案，名稱相近但不是這個。fork 當下 HEAD 為 `6ae83b1f189c353935d4977bb01227484fbdb52b`（`release: v2.31.0`）。
+
+**限制**：
+
+- 不把 fork 包裝成原創專案，不移除原作者與 MIT 標示。
+- `README.md` 為繁體中文產品說明；英文在 `README.en.md`。
+- GUI 與 docs-site 只保留英文、繁體中文語系。
+- `CONTRIBUTING.md`、`MAINTAINERS.md`、`SECURITY.md`、`src/` 以上游為準。
+- 上游更新必須逐筆審查。
+- 本 fork 不發 npm、不部署 GitHub Pages。
+- 帳號池只做路由與韌性，不拿來規避 provider 條款。
+- 日常 PR 只打 `SanHsien/opencodex`。對上游開 PR 必須維護者這次對話明確同意回貢。
+
+## 2026-08-22：禁止裸跑 gh pr create
+
+**決定**：本 fork 開 PR 一律 `gh pr create --repo SanHsien/opencodex`。建完核對 URL owner。對上游開 PR 的唯一例外是維護者明確同意回貢。
+
+**理由**：2026-08-22 裸跑 `gh pr create` 把維護骨架打進 `lidge-jun/opencodex#2373`。GitHub CLI 在有 `upstream` 的 fork clone 上預設 target 是母 repo。已關閉該 PR。禁止再犯。
+
+## 2026-08-22：隔離會在 fork 上造成傷害或噪音的上游 workflow
+
+**決定**：下列 workflow 加上 `github.repository == 'lidge-jun/opencodex'`，只在官方 repo 跑：
+
+- `release.yml`（npm Trusted Publishing）
+- `deploy-docs.yml`（GitHub Pages）
+- `service-lifecycle.yml`
+- issue / PR 治理：`enforce-issue-quality.yml`、`enforce-pr-target.yml`、`issue-triage.yml`、`pr-hygiene.yml`、`pr-labeler.yml`、`stale-needs-info.yml`、`cleanup-orphaned-workflows.yml`
+
+**保留在本 fork 跑**：`ci.yml`（產品回歸）、`react-doctor.yml`、`issue-quality-tests.yml`。
+
+**理由**：`release.yml` 在 fork 上若被手動觸發，有機會對 npm 做 Trusted Publishing。`enforce-pr-target` 會把 PR 逼去上游的 `dev` 線，與本 fork 的 `main` 工作流衝突。治理 bot 在個人 fork 沒有對應的 Copilot / CodeRabbit 設定，只會製造失敗與亂關 issue。
+
+## 2026-08-22：本 fork 日常走 main，不跟上游的 dev PR 政策
+
+**決定**：SanHsien 維護線以 `main` 為整合分支。只有維護者在這次對話明確同意回貢時，才對 `lidge-jun/opencodex` 的 `dev` 開 PR。
+
+**理由**：上游 `main` 是 release 線、`dev` 是 PR 整合線。fork 若同時模仿兩條線，Windows gate 與上游同步都會加倍。clone 時已用 `--default-branch-only` 對齊 `main`。
+
+## 2026-08-22：Dependabot 不啟用 npm
+
+**決定**：不幫上游的 `bun.lock` / `package.json` 開 npm Dependabot。fork-owned workflow 的 action pin 用 CodeQL / checkout SHA，之後若要自動升，只開 `github-actions`。
+
+**理由**：上游幾乎每天發版。對 lockfile 開 Dependabot 會與上游 merge 持續衝突。
+
+
+## 2026-08-29：上游 PR 面向補上「關閉未合併」那一類
+
+**決定**：`tools/check-upstream-updates.ts` 新增 `collectUnmergedPullRequests()` 與
+`renderPullRequestSection()`，只列**上游關閉但未合併**、且編號大於 `reviewed_pr_through` 的 PR；
+併進報告、`needs_attention` 與 `--strict` 的 exit code。workflow 補 `GH_TOKEN`。issue 面向維持
+原本的 `platform` 標籤窄化，不動。
+
+**理由**：本檔原本的判斷是「上游的東西反正會經由 `main` 的 release 進來，所以不追 PR」。那句話
+對**已合併**的 PR 成立，而且只對它成立——**關閉但未合併**的 PR 永遠不會變成 commit，所以永遠
+不會進來。`reviewed_pr_through: 2767` 就一直躺在 baseline 裡沒有任何程式讀，那一整類從頭到尾
+沒人看。
+
+窄化到「未合併」跟 `TRACKED_ISSUE_LABEL` 是同一個道理：上游關閉未合併的 PR 遠少於合併的，
+所以這支檢查不會變成每週喊狼來了的那種——而喊狼來了的檢查會被忽略。
+
+**fail closed**：`gh` 列舉不到時回 `undefined` 而不是空陣列，報告寫 Not checked，
+`needs_attention` 與 exit 2 一起紅。「沒查到」和「沒有」在綠色報告裡長得一樣，只有一個是真的。
+
+**證據**：`bun run typecheck` 乾淨；`tests/fork-hygiene.test.ts` 21 pass（新增 3 條）；實跑檢查器
+發現 `#2767` 之後有 **23 筆**上游關閉未合併的 PR——移植前這 23 筆一律不會出現在任何報告裡。
+
+**觸發條件**：逐筆讀那 23 筆、把採用／不採用理由寫進 `docs/fork/UPSTREAM.md`，再推進
+`reviewed_pr_through`。在那之前每週的 upstream-check 會是紅的，那是真實狀態不是故障。
+
+
+## 2026-08-30：31 筆「關閉未合併」的分類（水位不推進）
+
+`tix` 補上之後，`#2767` 以上出現 **31 筆上游關閉但未合併**的 PR——這一類永遠不會經由 commit 軸
+抵達，正是本 fork 只補這一類的理由（見上方 2026-08-29 條目）。本輪把它們分成三類：
+
+| 類別 | 筆數 | 依據 |
+| --- | --- | --- |
+| 帶 `landed-via-maintainer` 標籤 | **11** | 上游自己的標籤，意思是維護者已另行落地。內容會經由 commit 軸抵達，不需要在 PR 軸另行決定 |
+| `[WRONG BRANCH]` | **4** | 標題自述推錯分支（`#2823`／`#2824`／`#2829` 等 promote／release 動作）。沒有內容，只有分支機制 |
+| **需逐筆讀 diff** | **16** | 下表 |
+
+### 需逐筆判斷的 16 筆，以及它們與本 fork 的檔案重疊
+
+重疊數字是「該 PR 動到的檔案裡，本 fork 也有幾個」——用來排優先序，不是判準本身。
+
+| PR | 標籤 | 重疊 | 題目 |
+| --- | --- | --- | --- |
+| `#2793` | bug, hygiene-blocked | **51/78** | keyring 管理的原生 passthrough |
+| `#2902` | bug | 6/18 | GUI sidecar 提示的行內保留 |
+| `#2950` | bug | 6/9 | 額度到期無法解析時保留 capacity panel |
+| `#2796` | bug | 3/4 | agentrouter 支援 openai-chat 身分與 framing |
+| `#2927` | bug | **3/3** | service 每次啟動列舉一次機器，而不是每次檢查 |
+| `#2949` | bug, review-ready | 3/4 | Bun 測試鎖的範圍限縮到使用者 |
+| `#2884` | bug | 2/3 | 比對 `codex.opencodex-real` launcher 備份 |
+| `#2935` | bug, review-ready | **2/2** | 把輪替後的 refresh grant 帶給閒置同帳號 |
+| `#2947` | bug | **2/2** | proxy 設定持有 schema 不接受的值時仍能啟動 |
+| `#2795` | enhancement | 1/5 | cursor 觀察串流中的 envelope echo 與 call-id 損壞 |
+| `#2807` | bug | 1/2 | 每次 OAuth 429 輪替重新綁定憑證身分 |
+| `#2904` | bug, hygiene-blocked | **1/1** | GUI log 表格依動態視窗高度設上限 |
+| `#2938` | bug, review-ready | 1/3 | 用行掃描分類失敗的 exec wrapper |
+| `#2951` | bug, review-ready | 1/2 | 丟掉沒有任何日期格式器能解析的到期時間戳 |
+| `#2870` | bug, review-ready | 0/4 | 合併 prompt 探測並取消已放棄的探測 |
+| `#2770` | documentation | 0/20 | devlog 紀錄 |
+
+### 為什麼水位不推進
+
+`reviewed_pr_through` 是單一數字，最低一筆未判定就不能往上推——推了等於宣稱中間全部審過。
+`#2770` 是最低的一筆，所以本輪維持 `2767`。
+
+同時 commit 軸上還有 **112 個 commit** 未審。
+
+**下一步**：從重疊最高、且標籤是 `bug` 的幾筆開始逐筆讀 diff（`#2793`／`#2927`／`#2935`／
+`#2947`／`#2904` 是 2/2、3/3、1/1 這種「動到的檔本 fork 幾乎都有」的），確認缺陷在本 fork
+是否存在，再決定。做完最低編號那一筆才動水位。
+
+## 2026-09-01：264 commits 維持 bounded defer
+
+只看三筆入口修正，未證明其測試與 proxy 前提可分離；`80fff9a` 仍是唯一真 watermark。下一切片為
+十筆 runtime/test commits，通過 Windows `tools\dev_check.ps1` 才能採用。
+
+## 2026-09-06：在 v2.43.0 重放 overlay，不重作產品 patch
+
+**決定**：從 `v2.43.0`（`06ec553630fa2ee51a96b5cbf694089021249194`）建立 replay tree，僅重放
+fork 文件、Windows 維護工具、workflow guard、英語／繁中 locale 與 upstream watermarks；最後以
+`ours` merge 保留舊 `origin/main` 為第二父系。`src/`、產品測試與 Astra 實作全部取 stable upstream。
+
+**理由**：舊 fork 是 orphan history，直接 merge 會把過期的產品補丁與 v2.43.0 對撞。上游已完整提供
+`gpt-6-astra` 支援，fork 再實作一份會造成 catalog、pricing、identity 與 subagent migration 漂移。
+
+**ticket 水位**：已分流 closed-unmerged PR `#2768`–`#3717`（含 36 個
+`landed-via-maintainer`，由 commit 軸處理；其餘 14 個不採用）及 8 個 `platform` issue
+`#3245 #3320 #3376 #3449 #3464 #3494 #3522 #3661`；baseline 更新為 commit `06ec553...`、PR `3717`、issue `3661`。
+
+## 2026-09-07：重放 v2.44.0，並採用三個關閉未合併 PR
+
+**決定**：以上游 `v2.44.0` (`07b48da8fd63881e848d26e0bd50087864f5573e`) 作產品
+tree，重放 fork overlay 與 Windows full-suite runner，再以 `ours` merge 保留舊 main
+ancestry。另外保留原作者 commits 採用 `#3728`、`#3740`、`#3744`。
+fork HEAD 不可重用已發布 tag 的 `2.44.0` 版本身分，因此本線將 `package.json`
+推進到 `2.45.0`；這是 fork development line，不是上游 v2.45.0 release 聲明。
+
+**理由**：v2.44.0 是 350 commits 的已發布穩定邊界，replay 可令產品檔案以上游為準，
+且不帶回舊 fork patch。三個 PR 都被關閉未合併，所以不會自動隨之後 release
+進入；其中兩個是可在本 fork 實查的 Responses 錯誤，一個是已有後端資料但 GUI
+漏顯示的小型修補。上游 maintainer 對三者的審查均建議合併，原 PR 也有聚焦
+回歸測試。
+
+**維持不變**：本 fork 不發 npm、不部署 docs-site、對外不寫 upstream；GUI 與
+docs-site 只保留英文／繁中。`reviewed_issue_through` 仍是 `3661`，因為本輪沒有新
+`platform` issue。
+
+## 2026-09-07：一般 merge v2.46.0；dev carry 等 stable
+
+**決定**：把 `upstream/main` 的 `v2.46.0`
+（`bba63222d3eeb5c8e397edae35798225e4fa1a6f`）一般 merge 進 fork，保留既有 overlay，
+版本推到 `2.47.0`。commit 水位推到該 SHA，closed-unmerged PR 水位推到 `#3862`，
+platform issue 水位維持 `#3661`。
+
+**PR 分流**：`#3747 #3779 #3780 #3809 #3815 #3816` 的 maintainer landing 已在
+v2.46 stable，不重放原 head；`#3769 #3837 #3839 #3840 #3841 #3843 #3845 #3849
+#3856 #3858 #3860 #3862` 只在 v2.46 後的 `dev` release train，等待下一 stable 或本機
+重現後再引用完整 landing；`#3853` 會以 workflow YAML 覆寫 `SECURITY.md`，拒絕。
+
+**理由**：後一組不是「沒看」，而是 maintainer carry 已加入原 PR 沒有的 review 修正，且彼此
+疊在仍前進的 `dev` train。直接搬原 PR head 會漏修，搬 stacked merge 會引入未發布依賴；在沒有
+本 fork 專屬重現的情況下，stable `main` 是可驗證且可維護的採用邊界。
+
+## 2026-09-08：OrcaRouter maintainer carry 等 stable
+
+**決定**：`upstream/main` 沒有新 commit，platform issue 也沒有增量；closed-unmerged PR
+`#3908` 的內容已由 maintainer 以 `#3921`／`c41232aa5e9981284acece3cedf81a36859dab05`
+重作並合併到 `dev`。本 fork 不引用原 PR head，也不提前拆取 maintainer landing；
+`reviewed_pr_through` 推到 `#3908`，其餘水位不動。
+
+**理由**：這是新的 OAuth／credential／live-catalog 安全面，maintainer landing 已修正原 PR
+的 provider icon 問題並保留 attribution；直接採原 head會漏修，提前採 dev landing 則會帶入
+未發布依賴與本 fork 已刪除的多語 locale 衝突。它也沒有對應本 fork 現在已重現的缺陷，所以下一個
+stable 是成本最低且可完整驗證的採用邊界。
+
+## 2026-09-08：上游 v2.47.0 promotion 出現後立即轉為 stable merge
+
+**決定**：在 v2.46 候選的 exact-SHA CI 完成後重新 fetch，發現 `upstream/main` 已新增
+`6f71931dec81dffdfe40053d8df5074d40b3c406`（`release: promote 2.47.0 to main (#3929)`）。
+一般 merge 此 152-commit stable 範圍，保留 fork 的繁中 README、英／繁中語系限制、workflow
+guard 與 Windows runner；fork package 前推到 `2.48.0`。commit 水位更新到 promotion SHA，
+PR／issue 水位維持 `#3908`／`#3661`。
+
+**理由**：`#3908` 的 OrcaRouter 功能、maintainer `#3921` landing 與其後續修正現在已成為
+stable 的一部分，先前「不拆 auth surface」的等待條件已滿足。採完整 promotion tree 可保留
+上游審查與回歸修正；只需解已知 locale／README overlay 衝突，不再承擔 dev-only 依賴。
+
+## 2026-09-08：納入 v2.47.0 final roster correction
+
+**決定**：完整 suite 執行期間再次 fetch，發現 `upstream/main` 新增
+`f7f890ff72a5ccccadb5a935c1ea106922562cd2`（`release: apply final roster correction to main
+(#3933)`）。一般 merge 此 7-commit／3-file GUI-only stable 修正；PR 水位推到 `#3943`，
+platform issue 水位維持 `#3661`。
+
+**理由**：`#3933` 修正 refreshed subagent roster 與 fallback choices 的隔離，屬 v2.47 stable
+勘誤；不採用會使 fork 與上游正式 stable 行為不同。其餘新 PR 仍在 dev 或 open，closed-unmerged
+項目已有 maintainer landing，等待下一次 stable 可避免拆取未發布依賴。
+
+## 2026-09-08：一般 merge v2.48.0，defer 未發布 PR 與 platform issue
+
+**決定**：把 tag `v2.48.0` / `9a27e86992d7a014e0aa92c046199b9fac148201` 的完整 stable
+tree 一般 merge 到 fork，將 package development version 由 upstream release `2.48.0` 前推為
+`2.49.0`。保留 fork 的英文／繁中語系、官方 repo-only workflow guards、Windows long-suite
+runner（71 fresh-process batches、每 batch <=600 秒、整體 <=120 分鐘、serial lanes、124=incomplete）
+及 run-lock hardening。
+
+**理由**：相對 `b2d14b6` 的 73 commits 已是已標記 stable release；完整 merge 保留上游原始
+attribution、整合測試及修正相依。closed-unmerged `#3944 #3949 #3950 #3951 #3953 #3995` 的
+maintainer landing 已在此 stable commit 軸，不能也不需重放原 PR。`#3988 #3990 #4000` 仍只在
+dev carry，`#3999` 還違反 fork locale 及 credential-surface 限制，均不提前採用。新 platform
+issues `#4023`（macOS launchd stop ordering）與 `#4032`（hub context-window metadata）均未在
+Windows fork 重現、亦無 stable fix；記錄 defer 與明確 re-review trigger，不自行改產品碼。
+
+## 2026-09-09：一般 merge v2.49.0；不重放 superseded closed PR
+
+**決定**：將 `v2.49.0` / `2f3f736299dca38861f8fb9c4326a4b4d7c664bc` 的完整 stable tree
+以一般 merge 納入，package development version 由 upstream release `2.49.0` 前推至
+`2.50.0`。保留 fork 的繁中 README、英文／繁中 locale、official-repo-only
+workflow guards、Windows long-suite runner 與 run-lock hardening。
+
+**理由**：`#4004 #4006 #4008 #4012 #4014 #4015 #4018 #4025 #4034 #4039 #4041
+#4043 #4059 #4065 #4081` 均已有 `landed-via-maintainer` 的 stable carry；必須取 commit
+軸而非重放 contributor head。`#4016` 由維護者以 `#3954` supersede，現行 stable
+已含等價 Muse Spark Responses 路由行為；原 branch 同時帶有舊基底與審查發現的重複
+結構，不宜再用。`#4107` 是 contributor 確認的 wrong-branch draft，未有 maintainer
+landing，拒絕；僅在 Windows fork 重現或上游 stable landing 時重審。沒有新 platform
+issue 超過 `#4032`，故 issue 水位不動；PR 水位則推進至 `#4107`。
+
+## 2026-09-09：#4137 Spark quota header attribution 等 stable
+
+**決定**：不採用 closed-unmerged `#4137` head；PR 水位推進至 `#4137`，commit 與 issue
+水位維持不變。
+
+**理由**：作者在關閉說明中確認 `#4137` 已被 merged `#4128` supersede。`#4137` 的
+`CodexQuotaScope` positional API 與 `#4128` 已落 `dev` 的 `{ modelId }` API 不相容，且後者
+已將 Spark 5h 歸入 `customWindows`、保留 shared/custom windows，並包含較強的跨路徑回歸覆蓋。
+目前 `upstream/main` 沒有新的 commit，因此以 fork-only 重放舊 head 會製造未發布依賴與未來
+衝突。下一個 stable 若包含 `#4128` 即完整採用；若此前 Windows fork 重現同一 header attribution
+缺陷，再以當時 maintainer landing 重新審查。
+
+## 2026-09-10：一般 merge v2.50.0；保留 fork locale policy
+
+**決定**：將 `v2.50.0` / `2d4d7a22381a2e497c2442902104619e25f937c7` 一般 merge 進候選，
+並將 package development version 前推至 `2.51.0`。移除上游重新加入的非英／繁中 GUI、docs-site
+與 README locale；同時移除只適用於完整多語 README 集合的 upstream parity test / manifest，並從
+test-layout 登錄移除其條目。fork 既有 `fork-hygiene.test.ts` 保留為此政策的機器驗證。
+
+**理由**：上游 parity test 的正確前提是每個 registered locale 都在磁碟；fork 的明確產品政策是
+只維護英文與繁中，保留該 test 會讓每次上游文件同步產生假失敗。這不是停用任何 fork CI、CodeQL、
+upstream-check 或 runner safeguard。主 README 採既有繁中完整說明、同步 stable version，並翻譯私密
+漏洞回報通道；英文 README 保留英文入口。
+
+**platform 分流**：`#4141` 的 launchd recovery 已由 v2.50 stable 完整採用；`#4106` 與
+`#4182` 雖指出 Windows codepage / fresh scheduler-elevation 風險，均被 template bot 關閉且無
+stable maintainer landing，故不在本次 stable-only sync 製造 fork patch。`#4182` 對 Windows
+fork 是必須重審項：本機重現 fresh-install access denial 或出現 stable landing 時即重新檢視。
+
+**merge 後 ledger refresh**：closed-unmerged `#4184`（OpenCode Go session affinity）與 `#4188`
+（ChatGPT Free warmup fallback）都由 maintainer 在 `dev` 以後續 landing 取代，沒有 stable
+commit，均 defer 至 stable promotion。open platform `#4200`（remote-hub docs）、`#4204`
+（Windows stale CLI catalog clamp）與 `#4236`（macOS launchd repair）也沒有 stable landing；其中
+`#4204`、`#4236` 是實際平台重現時的優先重審項，但不在 stable-only merge 補未發布 patch。
+
+**2026-09-11 closed-PR refresh**：`#4203` 的 pnpm self-update 雖帶
+`landed-via-maintainer` 標籤，仍是 base `dev` 的 closed-unmerged PR，reviewed stable
+`2d4d7a2` 不含該後續 landing，故等待完整 stable promotion。`#4210` 是未有 maintainer landing
+證據的 BigModel Responses quota-reader contributor PR，且作者未宣稱本機 product tests 綠；不從
+未發布 head 拆取 quota／credential surface。兩者僅在 maintainer stable landing 或 fork 實際重現時
+重審。closed-unmerged PR 水位推至 `#4210`；platform issue 水位維持 `#4236`。
+
+## 2026-09-12：一般 merge v2.51.0；package 前推至 2.52.0
+
+**決定**：將上游穩定版本 `v2.51.0`（`c155cc7923dbc0102e27d79185505a85d4357b2c`，promotion `#4271`）一般 merge 進本 fork，package development version 前推至 `2.52.0`。維持英文／繁中 locale overlay，清除非保留之 docs-site 語系，test layout 合併 upstream 新增之測試清單。
+
+**理由**：v2.51.0 包含完整的 One-port Hub 同埠本機/連線管理、Pool 降級保護、Sessionless requests 隔離及 pnpm 更新支援，具備高度穩定性與架構價值。先前在 v2.50 deferred 的 `#4203`（pnpm 自我更新）、`#4210`（Responses preset quota）、`#4184`（Go session affinity）、`#4188`（ChatGPT Free warmup）均已隨 maintainer release train 正式進入 stable `main`，無須手動拆取補丁。
+
+**PR 與 Issue 分流**：
+- closed-unmerged PR `#4258`（effort ladder）已由 stable commit 涵蓋。
+- closed-unmerged PR `#4272`（bare tool 命名空間）與 `#4293`（OpenCode 圖片能力）已分別由 maintainer landing `#4264` 與 `#4300` 合併至 `dev`，無本 fork 專屬痛點前不拆取未發布依賴，等待下一 stable。
+- platform issue `#4236` 之後無新 issue；既有 `#4204`（Windows stale CLI catalog clamp）維持 PARKED design。
+- 水位更新：commit `c155cc7923dbc0102e27d79185505a85d4357b2c`、PR `#4293`、issue `#4236`。
+
+## 2026-09-12：一般 merge v2.52.0；納入 Devin、Cline、Grok Coupons 與 Context Relay
+
+**決定**：將上游穩定版本 `v2.52.0`（`4d37c35155fe283722566d32892b8753c1230be7`，promotion `#4407`）一般 merge 進本 fork。維持英文／繁中 locale overlay，清理非保留之 docs-site 語系（ko, tr, fr, ja 等）及非繁中 i18n 檔。採納上游原生之 host-native pnpm shim 測試修復（`#4379`）。
+
+**理由**：v2.52.0 帶來多項重大架構強化與新供應商適配：
+- **Codex 配額與路由避讓機制**：引進 quota refusal 避讓窗口與 clear-cooldown 解除（#4396, #4397, #4368）。
+- **Devin 與 Devin CLI 供應商**：支援 Cognition 雲端模型與基於 ACP stdio 的本地 Devin CLI，並修正 Windows 平台路徑語意（#4285, #4288, #4322, #4335, #4400）。
+- **xAI Grok Reset Coupons**：支援透過 gRPC-Web 讀取並兌換重置券（#4306, #4330）。
+- **Cline CLI 整合**：新增 Cline CLI 整合、日誌化設定寫入與 catalog sync（#4371, #4390）。
+- **最小權限 Context History Relay**：Codex 歷史 relay 機制與 loopback 認證強化（#4360）。
+- **GUI 目錄搜尋與 Local 頁籤**：跨頁籤統一搜尋、Local 獨立頁籤與長備註彈跳窗（#4325, #4328, #4331）。
+
+**PR 與 Issue 分流**：
+- closed-unmerged PR `#4313`（Codex history pagination writes）與 `#4386`（Cline registration contracts）均標記為 `landed-via-maintainer`，已由 maintainer landing 隨 release train 正式進主幹。
+- platform issues 檢查至 `#4414` 無新增條目。
+- 水位更新：commit `4d37c35155fe283722566d32892b8753c1230be7`、PR `#4414`、issue `#4414`。
+
+

@@ -8,15 +8,31 @@ opencodex 以多種客戶端方言呈現一個本機代理。Codex 客戶端可�
 正常轉譯路徑為：
 
 ```text
-客戶端方言 → 內部 Responses 模型 → 供應商 adapter → 供應商 wire 格式
-供應商事件 → 內部 adapter 事件 → 客戶端方言
+client dialect → internal Responses model → provider adapter → provider wire format
+provider events → internal adapter events → client dialect
 ```
 
-Responses 表示是橋接的中心。原生相容的路由可跳過部分轉譯並 passthrough 請求，但認證、路由、許可控制與回應安全仍在代理邊界發生。在[設定](/zh-tw/reference/configuration/)中設定監聽器與許可金鑰；當一個公開模型 id 應在多個目標間選擇時使用[組合](/zh-tw/guides/combos/)。
+Responses 表示是橋接的中心。原生相容的路由可跳過部分轉譯並 passthrough 請求，但認證、路由、許可控制與回應安全仍在代理邊界發生。在[設定](/reference/configuration/)中設定監聽器與許可金鑰；當一個公開模型 id 應在多個目標間選擇時使用[組合](/guides/combos/)。
 
 ## 上游重新導向
 
 攜帶憑證的模型、圖片、影片和搜尋請求不會自動跟隨 HTTP 重新導向，包括同源重新導向。請設定最終上游 API URL，而非會重新導向的別名。伺服器不會向重新導向目標再次傳送憑證或請求內文。各回應處理路徑保留原有的錯誤處理或轉送行為；原生 Responses 和 compact 路徑仍可向用戶端回傳原始 3xx 與 `Location`。用戶端的重新導向行為與此伺服器傳輸政策屬於不同邊界。
+
+## Console 上傳拒絕
+
+一個來自規範 OpenCode Zen/Go 生成端點、逐字相符的 Console 或 Console Go `Invalid upload request.` HTTP 400，會在 800 毫秒後收到一次重試。代理會重用同一個序列化過的請求，並把這次復原記錄進 Logs。其他 400 錯誤、自訂目的地、取消動作，以及重複的上傳拒絕，仍維持失敗。這不會重試被過濾的模型回應或中斷的串流。
+
+## 空白搜尋答案
+
+在託管搜尋之後，一次乾淨但空白的強制回答會再多一次回答嘗試，移除工具並保留既有結果。這可能會產生另一次模型請求。第二次空白回答會失敗；格式錯誤的呼叫，以及供應商拒絕或截斷的結果，都不會套用這次重試。
+
+## Cursor context overflow
+
+Cursor 第一次的裸 context overflow 會直接呈現給客戶端。之後帶有穩定客戶端執行緒的合格請求，在每個保留的 scope 內最多可以用三次對話 remint 來復原。這個記憶體內的額度會在閒置一小時、被驅逐或重新啟動後過期。沒有穩定執行緒的請求、獨立的輔助程式、工具結果續接、部分輸出，以及壓縮與配額錯誤，都不會使用這個復原機制。持續合格的 overflow 會讓既有額度維持生效，即使它已經用盡；它們不會為額度充值。這不會用來推斷一個任務是否正在取得進展。
+
+## Live sideband 連線失敗
+
+代理會在接受客戶端 WebSocket 之前，先完成上游即時旁帶的握手。上游拒絕會讓升級以 502 失敗；十秒的握手逾時回傳 504，客戶端取消則回傳 499。Bun 不會暴露確切的上游握手狀態，所以目前無法精確轉送一個上游的 404/410。連線成功時會依序保留最初的 session frame。這個握手政策與 Responses WebSocket 傳輸是分開的。
 
 ## 端點概覽
 
@@ -27,8 +43,77 @@ Responses 表示是橋接的中心。原生相容的路由可跳過部分轉譯�
 | Anthropic Messages | `POST /v1/messages` | Anthropic `message` JSON | Anthropic Messages SSE |
 | Anthropic token 計數 | `POST /v1/messages/count_tokens` | `{ "input_tokens": number }` | 不適用 |
 | 模型探索 | `GET /v1/models` | 目錄或明確指定的 Desktop 快照 | 不適用 |
+| 檔案轉寫 | `POST /v1/audio/transcriptions` | `{ "text": string }` 或純文字 | 這個檔案端點不支援 |
+| 串流聽寫 | `WS /v1/audio/transcriptions/stream` | 不適用 | Desktop 聽寫 JSON 事件 |
 | 語音與 Realtime | `POST /v1/live`, `POST /v1/realtime/calls` | 中繼的 call-creation 回應 | 一個獨立的 sideband WebSocket 雙向中繼 frame |
 | Responses compaction | `POST /v1/responses/compact` | 取代歷史 JSON | 不適用 |
+
+## 檔案轉寫
+
+Connections > API keys 有各自獨立的**聽寫**與**即時語音**區塊。請輸入 OpenCodex 的資料金鑰，
+而不是供應商或管理金鑰。聽寫會上傳你選取的檔案，並提供取消與複製逐字稿的功能。即時語音的
+**檢查連線**會在不使用麥克風存取或音訊 frame 的情況下開啟一個 session，等待供應商的 session
+確認，並在一分鐘後或你離開面板時斷線。金鑰只會留在該面板的記憶體中。**已設定，尚未驗證**描述
+的是供應商設定，不是帳號健康狀態或權限。請使用明確的動作來觀察結果。範例使用金鑰佔位符，絕不
+包含實際輸入的密鑰。沒有音訊中繼資料的較舊伺服器，會讓這些控制項無法使用。
+
+`POST /v1/audio/transcriptions` 接受以 `Authorization: Bearer`、`x-opencodex-api-key` 或
+`x-api-key` 送出的 OpenCodex 資料平面金鑰，包括在本機監聽器上。明確提供但無效的金鑰會被拒絕。
+請以 multipart `file` 上傳一個音訊檔案，並為已連接的 ChatGPT 帳號提供
+`model=gpt-4o-transcribe`。OpenCodex 會自行解析上游憑證；絕不要把 ChatGPT token 當成客戶端 API
+金鑰提供。
+
+```bash
+curl "$OPENCODEX_BASE_URL/audio/transcriptions" \
+  -H "Authorization: Bearer $OPENCODEX_API_KEY" \
+  -F 'model=gpt-4o-transcribe' \
+  -F 'file=@recording.wav' \
+  -F 'language=ko'
+```
+
+請把 `OPENCODEX_BASE_URL` 設成你的 proxy URL，並以 `/v1` 結尾。選用欄位有 `prompt`、`language`
+與 `response_format`（`json` 為預設，或 `text`）。JSON 結果只包含 `text`。檔案必須非空，且不得
+超過 25,000,000 位元組；multipart 主體上限為 32 MiB，文字欄位上限為 16 KiB。已設定的監聽器主體
+上限可能會施加更低的上限。重複或不支援的欄位（包括 `stream`）會被拒絕。這個端點不保證提供
+時間戳記、語者分離、字幕或 token 用量中繼資料。
+
+ChatGPT 訂閱路徑使用 `gpt-4o-transcribe` 作為相容性識別碼，不會把模型名稱送到那個私有的轉寫
+端點。這不代表 backend 內部使用的就是那個模型。啟用的 OpenAI API-key 供應商也支援
+`gpt-4o-mini-transcribe` 與 `whisper-1`；當選擇的是 ChatGPT 供應商時，一次認證失敗不會悄悄切換
+到那個要另外付費的供應商。Direct 模式在既有的 profile 准入規則下使用已儲存的 main 帳號；Pool
+模式使用選定的已儲存帳號。憑證缺失、過期或正在耗盡都會回傳錯誤。取消會停止出站請求，且音訊內容
+不會被寫入請求日誌。
+
+## 串流聽寫
+
+`WS /v1/audio/transcriptions/stream` 是給已連接 ChatGPT 帳號使用的 OpenCodex 擴充功能。它與
+OpenAI 公開的 Realtime 轉寫協定是分開的。認證方式與檔案轉寫相同，使用相同的 proxy-key 標頭。
+瀏覽器客戶端則改為提供以下這兩個 WebSocket 子協定：
+
+```text
+opencodex-audio
+opencodex-key.<canonical-base64url-of-UTF8-proxy-key>
+```
+
+回應中只會選定 `opencodex-audio`。編碼只是傳輸語法，不是加密。明確的 HTTP 憑證標頭優先。
+ChatGPT token 只留在 proxy 上；一個只有 API-key 的上游無法服務這個聽寫協定。
+
+連線後，請送出：
+
+```json
+{"type":"session.start","config":{"input_audio_format":"pcm16","sample_rate_hz":48000,"num_channels":1,"max_buffer_size_bytes":4194304,"max_utterance_duration_ms":30000,"session_ttl_ms":300000,"provider_mode":"streaming_sse","transcript_delivery_mode":"segment","vad":{"type":"server_vad","threshold":0.5,"prefix_padding_ms":300,"silence_duration_ms":500}}}
+```
+
+請使用單聲道 PCM16 音訊實際的取樣率。等待 `session.started`，然後送出
+`{"type":"audio.append","audio":"<base64 PCM bytes>"}`。這些是 JSON text frame，不是 WAV 檔案
+或二進位 WebSocket frame。閘道接受 8,000 到 192,000 Hz 之間的取樣率；上游是否支援取決於帳號／
+服務。客戶端 frame 上限 64 KiB，session 上限五分鐘。不受支援或格式錯誤的事件／設定欄位會以
+代碼 1008 關閉串流。
+
+`transcript.segment` 與 `transcript.final` 包含 `utterance_id`、`revision` 與 `text`。當同一個
+utterance 的 revision 增加時，請取代先前的文字；不要把各版本串接起來。以
+`{"type":"session.close"}` 結束，並等待最終文字與 `session.status="closed"` 的
+`session.updated`。
 
 ## `POST /v1/responses`
 
@@ -50,12 +135,79 @@ Responses 表示是橋接的中心。原生相容的路由可跳過部分轉譯�
 | 延伸 Responses 欄位 | `background`、`include`、`prompt`、`text` 與 `truncation` 對相容路由被接受 |
 
 未知的項目型別被接受為鬆散的型別項目以向前相容。轉譯的 adapter 僅處理它識別的項目型別，且可能拒絕其供應商無法表示的功能。
+在規範的 ChatGPT Codex forward 路由上，純文字的 `system` 輸入訊息會被併入頂層的 `instructions`，
+`truncation` 則會被移除，因為那個目的地會拒絕這兩種公開的 Responses 形狀。其他 Responses 目的地
+會保留它們。同一個規範邊界也會移除巢狀、僅限客戶端使用的 `prompt_cache_breakpoint` 標記，並且
+只在 `store: false` 的延續請求上捨棄 `item_reference` 項目；工具呼叫／結果的配對不受影響。
+
+圖片檔案 ID 是供應商範圍內的參考，不是可攜的圖片位元組。Responses passthrough 會保留它們；
+轉譯的 adapter 則會為訊息或 function／自訂工具輸出中只有檔案 ID 的圖片部分，收到一個
+`[image: file_id]` 的文字標記。當轉譯後的模型需要看到圖片時，請改用一個圖片 URL 或 base64
+data URL。託管的 `computer_call_output` 項目需要一條 Responses passthrough 路由；轉譯路由會
+回傳 HTTP 400，而不是悄悄丟掉截圖。若只是要觀察一張截圖、不需要託管電腦工具語意，請改用使用者
+的 `input_image`。
 
 ### JSON 與 SSE 輸出
 
 在 `stream: true` 時，回應為 `text/event-stream`。橋接發出 Responses 事件如 `response.created`、output-item 與 text/tool delta，以及恰好一個終端 `response.completed`、`response.failed` 或 `response.incomplete` 事件。正常串流以 `data: [DONE]` 結束。
 
 在 `stream: false` 或無 `stream` 時，相同的 adapter 事件被收集為一個 Responses JSON 物件。兩種形式都保留所選模型、輸出項目、終端狀態與 usage。
+
+當供應商過濾或截斷一個回應時，一個未完成的工具呼叫在 JSON 與 SSE 中都會維持 `incomplete`。
+部分輸出會被保留，橋接不會為那個開放中的呼叫發出引數完成事件。已完成的呼叫維持它們的狀態。這
+保留了供應商本身的結果；客戶端對不完整回應的重試行為不受影響。
+
+在 #4112 待處理的 `dev` 實作上，這個介面上最終的上游 HTTP 413，會被分類為
+`invalid_request_error` / `context_length_exceeded`。非串流的呼叫端維持 HTTP 413 搭配一個 JSON
+`error`；串流的呼叫端維持終端 SSE 失敗。兩者都使用一個固定訊息，而不會暴露上游的錯誤主體。路由
+過的合成壓縮會傳播這個已分類的失敗；這不會縮小輸入或重試壓縮。原生 compact passthrough 與本機
+的准入大小限制錯誤，仍維持各自獨立的契約。
+
+對原生 HTTP/SSE passthrough 而言，一次沒有觀測到上游終端事件的客戶端取消，會被記錄為 `499`，
+`closeReason: "client_cancel"`，且不會懲罰帳號池。這適用於 tee 檢視與 eager relay，包括
+Windows 改寫流量，即使在回應主體取消掛鉤執行之前，上游讀取就先被拒絕也一樣。在有界的斷線後
+排空期間所捕捉到的終端事件，會保留它實際的結果。
+
+若原生 passthrough 改寫失敗，包括超過轉譯緩衝預算的情況，relay 會直接回報失敗，不等上游檢視
+結束。它會取消上游的工作，並依序發出 `response.failed` 與 `data: [DONE]`；緩衝超額時使用
+`translation_buffer_limit` 錯誤碼。
+
+面向客戶端的 Responses SSE frame，每個 frame 上限 4 MiB，以 SSE 區塊分隔符之前的原始位元組計算。
+在 HTTP 上，一個超過限制、未終結的上游 frame，會以一個合成的 `response.failed` 事件搭配後續的
+`data: [DONE]` fail closed。在 Responses WebSocket 橋接上，同樣的情況會發出一個 502
+`websocket_protocol_error` 並取消上游讀取器。一個完整的 Responses 終端 frame 具權威性：終端事件
+之後過大或格式錯誤的尾端位元組會被丟棄，而不會讓一次已完成的回合被一個傳輸失敗取代。
+
+:::note
+對原生 passthrough 而言，一個 Responses 終端事件具權威性。過早出現的 `data: [DONE]` 會被保留，
+直到該事件出現。在一般的原生路徑上，一個乾淨的 HTTP 200 EOF、卻沒有解析出終端事件，會發出一個
+`response.incomplete`，`incomplete_details.reason: "adapter_eof"`，接著是一個 `data: [DONE]`；
+語法上合法、沒有分隔符的終端 JSON 只會被接受一次，格式錯誤或被截斷的 JSON 則維持 incomplete。
+對選擇加入 model-scoped 終端修復的供應商，沒有框架的類終端後綴，以及 EOF 時過早出現的
+`data: [DONE]`，在找不到任何可被提升的完整生命週期候選時，會以 `missing_terminal_event`
+fail closed；一個完整的候選會被提升為 `response.completed`。高信心度的 `cyber_policy` 終端
+形狀，會正規化為 `response.failed`，`error.code: "cyber_policy"`，用於語意層級的記錄／計費
+（狀態 400），而一個已經開始串流的 HTTP 回應仍維持 200。這個已提交請求的邊界不會重試或重播，
+也不會解決 [#2423](https://github.com/lidge-jun/opencodex/issues/2423) 或
+[#2486](https://github.com/lidge-jun/opencodex/issues/2486)。
+:::
+
+對規範 ChatGPT forward 串流而言，穩定版 Bun 1.4.0 或更新版本，可能會透明地使用 Codex 的上游
+WebSocket 傳輸。搭售的 Bun 1.3.14、預先發布版，以及無法驗證的 runtime 身分，會使用 HTTP/SSE。
+上游的 WS adapter 保留與下游相同的 SSE 契約，把原始 JSON frame 與它的 SSE 封套都限制在 4 MiB，
+並在它 8 MiB 的位元組佇列即將溢出時關閉上游。那次溢出會發出一個終端的下游 `response.failed`
+事件，接著是 `[DONE]`。
+
+上游 WebSocket 會先檢查 `NO_PROXY`/`no_proxy`。否則它會使用第一個非空的 `HTTPS_PROXY`、
+`https_proxy`、`ALL_PROXY` 或 `all_proxy` 值；單獨的 `HTTP_PROXY` 不會代理一個 WSS 連線。HTTP
+與 HTTPS 的代理 URL 會被傳給 Bun。若選定的值無效或使用不受支援的協定，opencodex 會跳過
+WebSocket 嘗試，改用 HTTP/SSE，而不是直接連往上游。
+
+這些規則屬於上游 WebSocket 傳輸，與所選的供應商 adapter 無關。以 HTTP fetch 為基礎的 Responses
+請求，包括 SSE 後備，使用 Bun 的 HTTP 代理規則，不使用 `ALL_PROXY`。`config.proxy` 會填補缺少的
+`HTTP_PROXY`/`HTTPS_PROXY` 值；解出的 scheme 專屬值，對 WebSocket 而言也會勝過既有的
+`ALL_PROXY`。對需要代理的 HTTPS 上游，請設定 `HTTPS_PROXY` 或 `config.proxy`；單獨的
+`HTTP_PROXY` 會讓 WSS 與它的 HTTPS 後備都沒有對應 scheme 的代理可用。
 
 每個終端 Responses usage 物件都包含兩個 detail 物件，即使供應商未回報那些細節：
 
@@ -82,6 +234,9 @@ Responses 表示是橋接的中心。原生相容的路由可跳過部分轉譯�
 ### 同路徑上的 WebSocket 升級
 
 當 `websockets` 啟用時，客戶端可升級 `/v1/responses` 而非開啟 HTTP POST。認證與來源許可在 WebSocket 握手期間發生。它們不在每個 frame 內重複。
+
+這個面向客戶端的升級，與上面描述的、透明的上游 ChatGPT WebSocket 選擇是分開的；`websockets`
+這項設定只控制面向客戶端的端點。
 
 客戶端發送 JSON text frame：
 
@@ -123,17 +278,64 @@ Responses 表示是橋接的中心。原生相容的路由可跳過部分轉譯�
 
 此端點接受帶有必填 `model` 與非空 `messages` 陣列的 OpenAI 相容 Chat Completions 請求。它將 system、user、assistant 與 tool 訊息轉譯為內部 Responses 項目；轉譯 function 工具、tool choice、圖片、reasoning effort 與支援的回應格式；執行正常 Responses 路由管線；然後將結果轉譯回來。
 
+圖片 URL 與 base64 data URL 使用 Chat 的 `image_url` 內容部分。轉譯會保留受支援的 `detail` 值
+（`auto`、`low`、`high`）。在轉譯路由上，OpenCodex 也接受帶影像的工具結果陣列，作為一項相容性
+擴充：Responses 路由保留結構化輸出，而 `openai-chat` adapter 會把工具影像放進之後的一則使用者
+訊息，因為 Chat 的工具內容只能是文字。其他下游 adapter 各自擁有其供應商專屬的放置方式。純文字
+結果仍維持字串。原生 passthrough 遵循它自己的上游契約；影像支援與否仍取決於選定的模型與供應商
+設定。
+
+Reasoning 是這項轉譯的一部分。`reasoning_effort`（或 `reasoning.effort`）會變成內部的
+`reasoning.effort`。因為 Responses 解析器在 `reasoning.summary` 未設定或為 `none` 時會隱藏
+思考內容，要求 effort 的 Chat Completions 請求預設會把 `reasoning.summary` 設為 `"auto"`，所以
+思考內容會以 `delta.reasoning_content` 串流回傳。客戶端仍可用 `include_reasoning: false` 或
+`reasoning.summary: "none"` 隱藏這些軌跡。明確設定的 `reasoning.summary`（`auto`、`concise`、
+`detailed` 或 `none`）會勝過 `include_reasoning`。
+
 結構化輸出是該轉譯的一部分：帶 `json_object` 或 `json_schema` 的 `response_format` 被轉發到路由的 `openai-chat` 模型。在 `POST /v1/responses` 上，等效請求欄位是 `text.format`：原生 Responses 路由在原始 Responses body 中保留它，並在模型路由到 `openai-chat` 供應商時轉譯為 `response_format`。列在供應商 `noStructuredOutputModels` 中的模型會在該 chat wire 上省略 `response_format`；同儕模型保留轉譯。未分類的後端收到該欄位並回傳自己的錯誤，而非由代理猜測其能力。
 
 非串流輸出有 `object: "chat.completion"`。串流輸出使用帶有
 `object: "chat.completion.chunk"`、choice delta、帶有 `finish_reason` 的終端 choice 與
 `data: [DONE]` 的 SSE 物件。Tool-call 與 usage 資訊在來源事件帶有它們時被轉譯回來。
 
+若一個串流的 Chat 請求在上游收到一個完整的 JSON Responses 結果，代理會從轉換後的完成結果合成
+SSE。它會保留答案與 reasoning 內容、function 工具呼叫（每個呼叫各有獨立的串流 `index`）、
+usage，以及轉換後的 `finish_reason`（包括 `tool_calls` 與 `length`）。這個後備會把已完成的結果
+分塊送出；它無法在上游 JSON 回應抵達之前提供逐 token 的傳遞，也不會發出額外的推論請求。一個因
+輸出 token 上限或內容過濾而不完整的回應，會維持 `length` 或 `content_filter`，即使它包含工具
+輸出也一樣。其他不完整的邊界情況，會回傳一個上游錯誤，而不是宣稱正常完成。
+
+拒絕文字與答案文字分開保存：JSON 完成結果使用可為 null 的 `message.refusal`，串流片段使用
+`delta.refusal`。原生 Chat 的 JSON 轉 SSE 與 SSE 轉 JSON 轉換都會保留這個欄位；原生串流中繼會
+保留供應商自己的拒絕差異片段。在轉譯後的 Responses 串流上，拒絕部分會被緩衝到終端事件，再依它們
+原本輸出／內容的順序一次發出。相容的重複或稀疏快照不會重複或清除文字。互相矛盾的拒絕快照與緩衝
+溢位，會產生一個有型別的錯誤，而不會有成功的完成或 `[DONE]`。這保留了上游的拒絕結果；它不會
+引入一個代理自己的政策判斷。
+
 由於內部執行路徑基於 Responses，供應商 adapter 可施加較窄的功能集。例如，所選 adapter 無法表示的請求功能以錯誤回傳，而非靜默變更其意義。
 
 ## `POST /v1/messages` 與 `count_tokens`
 
 這些端點說 Claude Code 與相容客戶端使用的 Anthropic Messages 方言。多數請求被轉譯為 Responses、正常路由，然後轉譯回 Anthropic JSON 或 Anthropic SSE。
+
+在轉譯後的 Messages 請求上，reasoning 重播會共用這次請求的轉譯預算。封套准入計算的是編碼／
+解碼的複製額外開銷，不只是原始簽章的長度。超過這個預算的請求會回傳 HTTP 413，搭配
+`translation_buffer_limit`；簽章與不透明的 reasoning 資料絕不會被截斷來讓請求塞得下。原生
+Anthropic passthrough 維持它自己獨立的主體大小契約。
+
+Base64 與 URL 圖片來源會在使用者訊息與巢狀工具結果中被轉譯。以檔案為後盾的圖片
+（`source.type: "file"`）需要原生 Anthropic passthrough；轉譯路由會回傳一個固定的 HTTP 400
+錯誤，要求提供 base64 或 URL 輸入。OpenCodex 不會代為解析另一個供應商的檔案儲存，也不會代表
+呼叫端上傳所參照的圖片。
+
+當重播的歷史中出現一個帶圖片的工具結果、卻沒有相鄰的呼叫時，Anthropic 與 Command Code adapter
+會把圖片保留在一個標明來源的使用者載體中，而不是把它的位元組內嵌進提示文字。它們不會捏造一次
+成功的工具呼叫。合法待處理呼叫的結果，仍會排在這些載體之前，維持上游的配對契約。
+
+對 Cursor 外部模型而言，目前拖尾的工具結果批次中，data-URL 截圖會附加到延續請求上。既有的
+12 張圖片現用附件上限，適用於整個批次。即使較舊的歷史被修剪，有界的來源標籤仍會留在附件旁邊。
+原生 Composer／MCP 的處理方式、歷史圖片回想，以及遠端 URL 省略政策都不變；這不保證每個模型都能
+看到每一種圖片來源。
 
 原生 Anthropic passthrough 僅在以下全部為真時合格：
 
@@ -186,25 +388,70 @@ user-agent。回應為 `{ "version": 1, "models": [...] }`，帶有 `Cache-Contr
 客戶端連線流程處理。輪換保留模型項目和選擇；CLI 的 `rotation` 區分 `committed` 與
 `rolled_back`。中斷會還原管理設定，或對已確認的舊設定檔回報標準回退，同時保留使用者欄位和
 後來有效的選擇。衝突或未完成的復原不會標為完成。需要重新啟動 Desktop 才會讀取磁碟變更；
-中斷不會自動撤銷 hub 金鑰。參見 [Desktop 指南](/zh-tw/guides/claude-code/)。
+中斷不會自動撤銷 hub 金鑰。參見 [Claude Desktop 生命週期](/guides/claude-code/)。
 thinking 重播與提示快取仍由獨立的 [#3719](https://github.com/lidge-jun/opencodex/issues/3719) 跟進。
 
 ## `POST /v1/live` 與 Realtime sideband
 
-下方帳戶綁定說明適用於原生 Codex 用戶端。透過外部 API 金鑰使用語音轉寫及 GPT-Live，請參閱[英文音訊 API 規格](/reference/proxy-formats/#streaming-dictation)。
+### 外部 API 金鑰
 
-Connections > API keys 包含獨立的聽寫與即時語音區域。資料金鑰僅保留在表單記憶體中。聽寫會上傳選取的檔案；語音連線檢查不使用麥克風，而是等待工作階段確認。已設定不代表連線成功。
+外部客戶端可以在任何支援的音訊憑證標頭中使用 OpenCodex 金鑰，或使用上面描述的瀏覽器子協定組合。
+獨立的 `WS /v1/live?model=gpt-live-1-codex` 使用 Frameless 協定；省略模型時預設為這個識別碼，
+`gpt-live-1` 是它的 proxy 別名。這不代表每一個公開的 OpenAI Realtime SDK 或 API 金鑰都支援
+GPT-Live。
 
-`POST /v1/live` 接受 ChatGPT/Codex App Frameless call-creation 介面。
-`POST /v1/realtime/calls` 接受 OpenAI Realtime call-creation 介面。opencodex 選擇一個合格的 OpenAI 家族路由、為上游認證模式正規化 call-creation 請求，並中繼有界的回應。
+對一個全新的獨立連線，請在 socket 開啟後送出下面這個原始碼相容的初始化內容，並等待帶有非空
+`session.id` 的 `session.started`。原生客戶端也接受形狀相同的 session 更新事件。
 
-在 call 建立後，客戶端可使用任何支援的入站形式加入 sideband WebSocket：
+```json
+{"type":"session.update","session":{"instructions":"","audio":{"output":{"voice":"cove"}},"delegation":{"type":"client"}}}
+```
+
+Frameless 使用 `input_audio.append` 與 `output_audio.delta`，不同於聽寫的 `audio.append`。
+一次只檢查連線不需要麥克風或音訊 frame；就緒後送出 `{"type":"session.close"}` 並關閉 socket。
+delegation 事件是工作請求，不是就緒訊號，外部客戶端擁有它們的執行與回應。
+
+對 WebRTC 而言，請以 multipart 的 `sdp` 加上選用的 JSON `session`、JSON `{sdp, session?}`，或
+原始的 `application/sdp`，POST 到 `/v1/live`。回應包含 answer 與一個帶有不透明 `rtc_ocx_` call
+ID 的 proxy 相對 `Location`。請用同一把 proxy 金鑰加入那個 location。即使 Pool 選擇之後改變，
+proxy 仍會解析建立通話時的那個供應商與實體帳號。未知、過期，或屬於其他金鑰的別名，會在建立上游
+連線之前就失敗。客戶端金鑰輪替會依金鑰 ID 保留所有權；替換一個帶金鑰的上游憑證需要一次新的
+call。既有 call 的旁帶連線不需要另一次 session 更新。
+
+Call 綁定會維持 30 分鐘，每個伺服器上限 1024 筆，並在伺服器重新啟動時結束。Socket 的生命週期
+是各自獨立計算的；媒體流量直接透過 WebRTC 傳輸，不經過 proxy。proxy 絕不會自己執行 delegation
+請求。OpenAI 帳號的可用性，是由實際的上游回應決定的，而不是儀表板上是否出現一個模型名稱。
+
+### 原生 Codex 相容性
+
+在受信任的本機監聽器上，原生 API-key 模式的呼叫端，可以使用為規範 OpenAI API 層級設定的那把
+精確憑證。其他呈現的 bearer 值，則需要一把已註冊的 proxy 金鑰，或一組明確、相符的 ChatGPT
+token／帳號配對；任意的金鑰前綴不能證明它是原生憑證。不帶憑證、受信任本機的原生呼叫，維持它們
+既有的行為。
+
+`POST /v1/live` 接受 ChatGPT/Codex App 的 Frameless call-creation 介面。
+`POST /v1/realtime/calls` 接受 OpenAI Realtime 的 call-creation 介面。opencodex 會選擇一個合格
+的 OpenAI 家族路由、為上游認證模式正規化 call-creation 請求，並中繼有界的回應。
+
+call 建立後，客戶端可以用任何支援的入站形式加入一個旁帶 WebSocket：
 
 - `/v1/live/{callId}`
 - `/v1/realtime/calls/{callId}`
 - `/v1/realtime?call_id={callId}`
 
-代理正規化上游 join URL，然後雙向透明中繼 text 與 binary frame。客戶端協定標頭被保留，而上游認證保持代理擁有。
+代理會正規化上游的 join URL，然後在兩個方向上透明中繼文字與二進位 frame。客戶端協定標頭會被
+保留，而上游認證仍由 proxy 自己擁有。
+
+call 建立與旁帶加入必須在同一個 OpenAI 帳號底下執行，否則加入會在上游被拒絕（`404`）。兩端都
+帶有 Codex 的 `session-id` 與 `thread-id` 標頭；在 Pool 模式下，帳號選擇會綁定在那組配對上
+（行程本地），所以一次抵達 proxy 的加入請求，會重用建立那次 call 的帳號，而 Direct 模式則在兩端
+都轉送呼叫端目前的 bearer。被中繼的客戶端標頭精確地是 `openai-alpha`、`x-session-id`、
+`session-id`、`thread-id`、`originator` 與 `x-oai-attestation`（`src/server/live.ts` 中的
+`LIVE_CLIENT_PROTOCOL_HEADERS`）；在以 ChatGPT 為後盾的路由上，`Authorization` 與 ChatGPT 帳號 id
+由 proxy 擁有（Pool 會用已儲存的帳號取代它們，Direct 會轉送已驗證的呼叫端 bearer），而一個
+API-key 供應商則使用它自己的 bearer。只有當 `experimental_realtime_ws_base_url` 指向 proxy 時，
+Codex 才會把加入請求送給它；`ocx start` 會把那個 key 注入在 `openai_base_url` 旁邊（見
+[Codex 整合](/guides/codex-integration/)）。
 
 ## `POST /v1/responses/compact`
 
@@ -212,8 +459,42 @@ Compaction 為需要縮短長 Responses 對話的客戶端回傳取代歷史。
 
 | 路由型別 | 行為 |
 | --- | --- |
-| 規範 ChatGPT 或官方 OpenAI 路由 | 以解析的帳號與模型認證將請求轉發到原生 `/responses/compact` 端點 |
+| 規範 ChatGPT 或官方 OpenAI 路由 | 以解析的帳號與模型認證嘗試原生的 `/responses/compact` 端點；HTTP 404 會退回一次一般的 Responses 壓縮回合 |
 | 其他路由模型 | 執行一個內部、非串流、無工具的 compaction 回合，帶有 `compaction_trigger`；需要恰好一個合成的 `compaction` 項目，其 `encrypted_content` 為 `ocx1:` 封裝；將該摘要解碼為 v1 取代歷史 |
+
+若原生 compact 端點回傳 HTTP 404，OpenCodex 會透過一個一般的 Responses 回合、使用相同的模型
+選擇器與 session 標頭，重試壓縮。規範 ChatGPT 的後備回合使用上游 SSE；compact 的呼叫端仍會收到
+JSON。一個已完成的原生不透明壓縮項目會被保留，而一個 `ocx1:` 摘要則會被解碼為取代用的使用者
+歷史。失敗或不完整的後備回合會回傳一個錯誤，而不是取代歷史。其他原生 compact 狀態維持既有的
+處理方式。
+
+無論維運方把一般回合路由到哪個供應商，Codex 都會為它的壓縮回合指名一個裸的 OpenAI 家族模型
+（例如 `gpt-5.6-sol`）。一般請求會把這類 id 保留給規範的 `openai` 供應商。只有在壓縮這個介面
+上——`POST /v1/responses/compact`，以及帶有 `compaction_trigger` 的 `POST /v1/responses`
+回合——一個沒有啟用規範 `openai` 供應商的裸原生模型，會退回已設定的 `defaultProvider` 作為摘要
+產生者，而不是回傳 404。這個後備只有在預設供應商已啟用、且它本身不是 OpenAI 家族項目時才適用；
+像 `side/gpt-5.6-sol` 這種帳號限定的選擇器仍會 fail closed。這個後備生效時，proxy 每個供應商
+只會記錄一則通知。已啟用規範 `openai` 供應商的設定不受影響。
+
+`/v1/responses` 與 `/v1/responses/compact` 兩者的進站主體，都遵循共用的 256 MiB wire／解壓縮
+准入上限。應用層級的大小拒絕會回傳 HTTP 413，`type` 與 `code` 都是 `invalid_request_error`。它的
+訊息包含一個有界的診斷後綴，例如：
+
+```text
+Decompressed request body exceeds 268435456 bytes [measurement=decoded_lower_bound; bytes=268435457]
+```
+
+| 量測方式 | `bytes` 的意義 |
+| --- | --- |
+| `declared_wire` | 傳送端宣告的數值 `Content-Length`；在讀取之前就被拒絕，不是一個量測到的解碼大小 |
+| `observed_wire_lower_bound` | 讀取停止時已遇到的 wire 位元組數；完整主體可能更大 |
+| `decoded_exact` | 送進 identity 解碼器、或由某個解碼器回傳的緩衝區確切大小 |
+| `decoded_lower_bound` | 准入上限加一（在解壓縮中止之後）；一個下限，絕非確切的解碼大小 |
+
+這個後綴只包含一個固定的分類與一個有限的數值位元組值。被拒絕的主體不會被進一步讀取或解壓縮、
+不會被解析來計算項目數，也不會為了診斷而被保留。沒有量測來源的舊版錯誤，維持只有上限的訊息。
+Bun 的監聽器可能在應用層診斷執行之前，就先拒絕一個過大的 wire 主體，所以不是每一個 413 都帶有
+這個後綴。一個下限診斷無法確立完整 compact payload 的大小。准入上限與重試行為不變。
 
 原生 compact 回應以 32 MiB 上限緩衝，包含其宣告的 `Content-Length` 已超過限制的回應。Compact 專屬失敗包含：
 
@@ -248,7 +529,7 @@ Responses 系列和 Chat 請求接受專用標頭或 Bearer 欄位中的代理�
 Claude replay 只會以目前 turn 已取得所有權的記憶體 snapshot 保留 main 憑證，並且僅在最終目標為正規 ChatGPT 路由時還原它。
 
 :::caution
-Data-plane 金鑰不是管理憑證。管理 API 使用獨立的管理秘密；請見[管理 API](/zh-tw/reference/management-api/)。絕不為兩個平面重用同一個秘密。
+Data-plane 金鑰不是管理憑證。管理 API 使用獨立的管理秘密；請見[管理 API](/reference/management-api/)。絕不為兩個平面重用同一個秘密。
 :::
 
 ## 常見錯誤詞彙
@@ -269,4 +550,15 @@ Anthropic 來源的失敗以 Anthropic 的錯誤封裝渲染，因此該方言�
 
 代理將真實的後端密文視為不透明。結構有效的密文被逐位元組保留：opencodex 不解密它、轉譯其內容，或為另一個供應商重新加密它。
 
-某些 agent hook 在歷史上曾將明文控制文字放入 `encrypted_content` 插槽。為相容性，代理將該明文分離為 text 部分，同時保留任何結構有效的 Fernet run 不變。若 `agent_message` 在該修復期間失去所有加密部分，它成為普通使用者訊息。若目前的 v2 task 保持真正加密但所選路由目標無法讀取原生 ChatGPT 密文，opencodex 以 `unreadable_encrypted_agent_task` 失敗，而非發送不可讀的位元組給該供應商。關於 worker task 周圍的客戶端行為，請見[子代理介面](/zh-tw/guides/sub-agent-surface/)。
+某些 agent hook 在歷史上曾將明文控制文字放入 `encrypted_content` 插槽。為相容性，代理將該明文分離為 text 部分，同時保留任何結構有效的 Fernet run 不變。若 `agent_message` 在該修復期間失去所有加密部分，它成為普通使用者訊息。若目前的 v2 task 保持真正加密但所選路由目標無法讀取原生 ChatGPT 密文，opencodex 以 `unreadable_encrypted_agent_task` 失敗，而非發送不可讀的位元組給該供應商。關於 worker task 周圍的客戶端行為，請見[子代理介面](/guides/sub-agent-surface/)。
+
+歷史紀錄也會被處理，而且處理方式不同，因為遺失一則被重播的訊息不應該終結一段對話。一則混合了
+可讀文字與後端密文的重播 `agent_message`，無法被降級成一則公開訊息，所以一個路由過的 Responses
+目的地，原本會連同一個只有 ChatGPT backend 才會宣告的項目型別，一起收到那段密文。在派送之前，
+opencodex 會把那段密文換成 `[encrypted content omitted]`——與上游解密失敗後已經在使用的同一個
+標記——這樣該項目仍可被降級，可讀文字也維持完整。供應商永遠不會看到那段密文或那個私有項目，
+對話也能繼續。組合目標會被各自獨立修復，因為每一個目標都會收到自己那份請求的副本。規範的
+ChatGPT Codex backend 是例外，因為它正是鑄造出這些位元組、也能讀取它們的目的地；一個指向其他
+origin 的 `forward` 供應商則不是例外。被明確信任的 `allowEncryptedV2AgentTasks` 路由，以及轉譯
+後的 Chat 或 Anthropic wire 都不受影響，其他項目型別（例如 reasoning 與工具輸出 blob）也一樣，
+它們保留既有的解密失敗復原機制。

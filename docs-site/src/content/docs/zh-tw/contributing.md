@@ -5,6 +5,9 @@ description: opencodex 的開發環境、結構、約定，以及新增 provider
 
 ## 環境搭建
 
+原始碼開發需要 `PATH` 上有 `bun` CLI。發佈到 npm 的套件為使用者內建了自己的 Bun runtime，但這份
+checkout 的 script 是透過你本機的 Bun 安裝執行的。
+
 ```bash
 git clone https://github.com/lidge-jun/opencodex.git
 cd opencodex
@@ -27,16 +30,31 @@ bun run test                      # complete suite (PR-ready / explicit ask)
 
 ```bash
 bun run typecheck                 # 嚴格 TypeScript 檢查
-bun run test                      # 完整 tests/ suite
+bun run test:changed              # 針對已解析 dev merge base 的 import-graph 測試
+bun run test                      # 完整 tests/ suite（PR-ready／明確要求時）
 bun test tests/routing/router.test.ts     # 聚焦單個測試檔案
 bun run build:gui                 # Vite GUI 建置 + package 準備
 bun run privacy:scan              # CI 使用的 credential/privacy 掃描
 bun run prepare:package           # 重新整理 package launcher/asset
 ```
 
-測試是按 `src/` 劃分的領域目錄（`tests/<domain>/`）下的 Bun test，對應表在 `scripts/test-layout/layout.json`。`tests/helpers/` 存放共享 fixture，
-`tests/e2e-style/` 存放範圍更廣的原生一致性場景。請在對應 subsystem 的現有測試附近加入聚焦的
-迴歸測試；若改動涉及共享 routing、adapter、config 或 server 行為，還應執行完整 suite。
+`test:changed` 會依序選擇第一個存在的比較參照：`upstream/dev`、`origin/dev`，接著是本機的
+`dev`。它會回報該參照與精確的 `git merge-base HEAD <ref>` commit，然後把該 merge-base SHA 傳給
+Bun。
+
+若某個測試 lane 逾時，執行器會印出它已經擷取到的 stdout 與 stderr，並以
+結束碼 124 退出。行程結束後，已擷取的管線有一秒鐘的排空上限，因此一個持續佔用管線的子行程
+不會拖住執行器。不完整的擷取會被明確回報，且不算作成功執行，即使直接子行程是以結束碼 0
+退出的也一樣。
+
+測試是鏡射 `src/` 結構的領域目錄下的 Bun test：`tests/server/`、`tests/providers/`、
+`tests/adapters/openai/`、`tests/cli/` 等等。`scripts/test-layout/layout.json` 是對應表，
+`tests/test-layout.test.ts` 會強制執行它，所以新測試必須放進對應的領域目錄，並在對應表中有
+一個項目（這個工具測試會告訴你缺了哪一個）。`tests/helpers/` 存放共享 fixture，
+`tests/helpers/repo-root.ts` 是測試存取儲存庫檔案的方式；`tests/e2e-style/` 存放範圍更廣的原生
+一致性場景。請在你改動的 subsystem 的現有測試附近加入聚焦的迴歸測試（`bun test tests/<domain>`
+可執行單一 subsystem）；若改動涉及共享 routing、adapter、config 或 server 行為，還應執行完整
+suite。
 
 你正在閱讀的文件站點位於 `docs-site/`（Astro + Starlight）：
 
@@ -46,7 +64,7 @@ cd docs-site && bun install && bun dev
 
 ## 文件釋出
 
-公開文件釋出到 GitHub Pages：<https://opencodex.me/zh-tw/>。
+公開文件釋出到 GitHub Pages：<https://opencodex.me/>。
 `.github/workflows/deploy-docs.yml` 會在 `main` push 中 `docs-site/**` 或 workflow 本身發生變化時
 執行，建置 `docs-site` 並部署生成的網站。推送文件變更前請執行：
 
@@ -67,6 +85,18 @@ GitHub Actions 有意只保留必要步驟：
   完成 npm global install。
 - **Release**（`.github/workflows/release.yml`）只能手動執行。它不是第二套完整 CI；dry-run 或
   publish 前，精確的 release commit（`GITHUB_SHA`）必須已有成功的 Cross-platform CI run。
+- **Stale needs-info**（`.github/workflows/stale-needs-info.yml`）在預設分支上每天執行。標記為
+  `needs-info`且 14 天沒有活動的 open issue 會收到警告；再過 7 天閒置後會以「not planned」關閉。
+  任何更新都會清除這個過時警告。若要讓長期進行中的工作保持開啟，請移除 `needs-info`（例如把
+  issue 提升為 `roadmap` 時）。
+- **Issue quality**（`.github/workflows/enforce-issue-quality.yml`）會在新建與編輯的 issue 上驗證
+  範本結構，套用種類標籤（`bug`、`enhancement`、`provider-compatibility`、`documentation`），並
+  從表單的 Area 欄位加上正交的**領域**標籤，輔以簡單的標題／Summary 啟發式判斷：`provider`、
+  `account-pool`、`catalog`、`gui`、`cli`、`proxy`、`platform`、`streaming`、`tools`、`install`
+  與 `service`。種類／流程標籤保持獨立，所以你可以篩選 `bug` + `account-pool` 而不會混淆這兩個
+  維度。請優先使用 Area 下拉選單，而不是自創每個供應商各自的標籤。Area: Documentation 不會再加上
+  第二個領域標籤（文件表單本身已經帶有 `documentation`）。維護者可以在該 workflow 進入預設分支後，
+  用 workflow_dispatch 的 `backfill_open_areas` 為所有 open issue 重新套用領域標籤。
 
 釋出請使用 helper：
 
@@ -117,6 +147,11 @@ bun run release:watch               # 觀察最新的 Release workflow run
 目前維護者、其職責，以及 review 與 merge 政策記錄在
 [`MAINTAINERS.md`](https://github.com/lidge-jun/opencodex/blob/main/MAINTAINERS.md)。repository 與
 安全敏感路徑的 GitHub review 所有權宣告在 `.github/CODEOWNERS`。
+
+貢獻者的 pull request 通常需要維護者核准。擁有 GitHub `maintain` 或 `admin` 權限的現任
+維護者，可以明確將一個 PR（包括自己開的）整合進 `dev`，不需要第二位維護者核准。這個決定與精確
+head 的驗證必須被記錄；CI、安全性審查與其他維護者尚未解決的反對意見仍然適用。這項例外不會改變
+`main`/`preview` 的審查規則，也不允許直接 push、force-push 或刪除分支。
 
 ## 約定
 
@@ -181,14 +216,27 @@ canonical registry。Directory row 帶有明確的 `verification` 等級（`offi
 ## 新增 adapter
 
 在 `src/adapters/` 中實作 `ProviderAdapter`（參見
-[Adapters](/zh-tw/reference/adapters/)），在 `src/server/adapter-resolve.ts` 註冊其名稱，
-並把輸出橋接成內部 `AdapterEvent`。圖像處理請複用 `image.ts`；普通 streaming/tool call 以
-`openai-chat.ts` 為參考。只有 adapter 自己負責 transport retry 時才使用 `fetchResponse`；Cursor
-這類真正的雙向 transport 應使用 `runTurn`。在 `tests/` 中新增聚焦測試；如果 factory 屬於 public
-package API，還要從 `src/index.ts` export。
+[Adapters](/reference/adapters/)），在 `src/adapters/registry.ts` 中註冊它的 factory，並把
+輸出橋接成內部 `AdapterEvent`。`src/server/adapter-resolve.ts` 會在委派給 registry 之前選擇
+有效的協定。圖像處理請複用 `image.ts`；普通 streaming/tool call 以 `openai-chat.ts` 為參考。
+只有 adapter 自己負責 transport retry 時才使用 `fetchResponse`；Cursor 這類真正的雙向 transport
+應使用 `runTurn`。在 `tests/` 中新增聚焦測試；如果 factory 屬於 public package API，還要從
+`src/index.ts` export。
+
+### 新增相容性宣告
+
+相容性宣告位於 `src/compatibility/` 之下。一個宣告比 adapter 更狹窄：它會指名確切的供應商、
+正規化後的上游 base URL、驗證模式、入站協定、上游協定，以及被證實過其行為的模型 id。不要把
+一個宣告複製到每個使用相同 adapter 的供應商，或另一個使用相同線路格式的目的地。
+
+請使用其中一種已版本化的判定：`passthrough`、`translated`、`degraded` 或 `unsupported`。每個
+非 `passthrough` 的宣告都必須陳述其限制，每個以 fixture 為依據的宣告都必須指名證明它的確切
+assertion id。請把不含機密的請求向量加進 `tests/fixtures/compatibility/`，並在一個聚焦測試中
+對正式環境的 adapter 執行它。相容性 manifest 是被動資料：一般的路由器、Responses handler 與
+伺服器啟動路徑都不得匯入 manifest 目錄，或啟動 Compatibility Lab。
 
 ## 在聲稱完成前先驗證
 
 先執行能證明改動的最小命令：型別檢查用 `bun run typecheck`，行為檢查用聚焦的
-`bun test tests/<name>.test.ts` 或 runtime probe，然後再執行適合影響範圍的更寬 gate。
+`bun test tests/<domain>/<name>.test.ts` 或 runtime probe，然後再執行適合影響範圍的更寬 gate。
 opencodex 傾向於小而可驗證的 commit，而不是大批次改動。

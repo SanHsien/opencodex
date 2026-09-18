@@ -28,10 +28,16 @@ test("the fallback guide URL matches the runtime constant", async () => {
   expect(SUBAGENT_SURFACE_GUIDE_URL).toStartWith("https://opencodex.me/guides/");
 });
 
-test("every locale defines the dialog keys, and Korean uses the wording that was asked for", () => {
+test("every shipped locale defines the dialog keys", () => {
   // Read the loaded catalogs, not the source text: a key mentioned only in a comment would
   // satisfy a grep and still render the raw key id to the operator.
-  expect(LOCALES.length).toBe(9);
+  //
+  // Fork divergence: upstream pins 9 locales here and then asserts the Korean wording it had
+  // just landed. This fork ships English and Traditional Chinese only (FORK.md) and deletes the
+  // other seven i18n catalogs, so the count is 2 and there is no Korean dictionary to assert
+  // against. The count stays pinned rather than derived, because the point of the assertion is
+  // to fail when a locale is silently lost.
+  expect(LOCALES.length).toBe(2);
   for (const { code } of LOCALES) {
     for (const key of KEYS) {
       const value = DICTS[code][key as keyof (typeof DICTS)[typeof code]];
@@ -40,9 +46,6 @@ test("every locale defines the dialog keys, and Korean uses the wording that was
       expect(value).not.toBe(key);
     }
   }
-
-  expect(DICTS.ko["subagentSurface.continue"]).toBe("계속하기");
-  expect(DICTS.ko["subagentSurface.switchToV1"]).toBe("v1으로 바꾸기");
 });
 
 test("a runtime that does not send the advisory yields null instead of a raised notice", () => {

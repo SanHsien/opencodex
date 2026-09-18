@@ -10,7 +10,7 @@ description: 將一個虛擬模型路由到多個供應商，以進行 failover 
 - **Failover：** 偏好一個模型，但隨時備有後備。
 - **負載平衡：** 以加權批次將成功請求分散到多個模型或供應商。
 
-Combo 位於一般供應商路由之前。若 `provider/model` 選擇器對你而言是新的，請先閱讀[模型路由](/zh-tw/guides/model-routing/)。
+Combo 位於一般供應商路由之前。若 `provider/model` 選擇器對你而言是新的，請先閱讀[模型路由](/guides/model-routing/)。
 
 ## 60 秒快速入門
 
@@ -53,13 +53,25 @@ ocx combo show main
 - 可為裸名（例如 `daily-fast`），或含一個 `/`（例如 `team/daily-fast`）；
 - 不能是 `combo` 或以 `combo/` 開頭；
 - 不能與另一個 combo 別名重複；且
-- 不能是以 `gpt-`、`o1-`、`o3-`、`o4-` 或 `codex-` 開頭的裸原生 OpenAI 系列名稱。
+- 通常不能是以 `gpt-`、`o1-`、`o3-`、`o4-` 或 `codex-` 開頭的裸原生 OpenAI 系列名稱——下方明確的
+  Desktop 相容模式是唯一例外。
 
 即使設定了別名，規範的 `combo/<id>` 形式仍可解析。規範查詢在別名匹配之前執行，因此別名無法接管另一個 combo 的規範 id。
 
 :::note
 別名改變客戶端請求的公開名稱；不改變 combo 儲存的 id 或其背後的具體供應商/模型選擇器。
 :::
+
+## 切換 combo 後的 compaction
+
+當客戶端在切換 combo 後使用裸模型名稱進行 compaction 時，opencodex 可以回想該對話線路上最近一次
+成功完成的 combo。模型必須與已完成的回應相符，且該 combo 及其目標必須仍存在於目前設定中。之後的
+請求會依正常的 combo 選擇與 failover 流程進行。
+
+明確的供應商／combo 選擇器與已設定的 combo 別名優先於這項回想。失敗、未完成或已取消的回應不會
+取代最後一次成功的選擇。回想是行程本機的，且以對話線路為單位，上限 256 條、保留 30 分鐘；它不會
+儲存帳號憑證。若沒有可用的對話身分或有效的記憶狀態，則套用一般的 compaction 路由。重新啟動會
+清除記憶狀態。
 
 ## Codex Desktop 原生 allowlist 相容性
 
@@ -142,17 +154,17 @@ ocx combo set balanced \
 權重是相對的，不是百分比。權重 `2,1` 與 `200,100` 表達同一比例。偏好能傳達意圖的小數值。
 :::
 
-### `random`：每個請求各自進行加權抽選
+### Random：每個請求的加權抽選
 
 `random` 針對每個請求抽選一個合格目標，中選機率與 `weight` 成正比。每個請求都是獨立抽選，因此流量會分散至各目標，同時不會呈現 `round-robin` 的確定性模式或黏著性。`stickyLimit` 不影響此策略。
 
-### `least-used`：優先選擇成功次數最少的目標
+### Least-used：優先選擇成功次數最少的目標
 
-`least-used` 將每個請求路由至這個 opencodex 行程所記錄成功請求數最少的合格目標。重新啟動後，計數從零開始；若計數相同，則維持設定順序。`weight` 與 `stickyLimit` 不影響此策略。
+`least-used` 將每個請求路由至這個 opencodex 行程所記錄成功請求數最少的合格目標。重新啟動後，計數從零開始；若計數相同，則維持設定順序。權重與 `stickyLimit` 不影響此策略。
 
-### `reset-window`：跟隨最早的配額重設
+### Reset-window：跟隨最早的配額重設
 
-`reset-window` 將每個請求路由至快取供應商配額快照顯示下一個時段最早重設的合格目標（五小時、每週、每月或自訂）。這會優先使用最早重新取得額度的供應商。沒有最新配額資料的目標，以及發生平手時，皆維持設定順序。`weight` 與 `stickyLimit` 不影響此策略。
+`reset-window` 將每個請求路由至快取供應商配額快照顯示下一個時段最早重設的合格目標（五小時、每週、每月或自訂）。這會優先使用最早重新取得額度的供應商。沒有最新配額資料的目標，以及發生平手時，皆維持設定順序。權重與 `stickyLimit` 不影響此策略。
 
 此排序與傳送前的供應商排除，需要適用於目前單一 API 金鑰全部模型推論的最新限額資訊。OAuth／目前帳戶摘要、轉送呼叫者憑證的路由、多金鑰，以及憑證或目的地位址已變更的快照，在這項預先判斷中僅供顯示。透過 `Authorization`、`x-api-key` 或 `x-goog-api-key` 標頭覆寫憑證時也適用相同規則；僅供搜尋或 MCP 使用的時段不參與判斷。若所有符合條件的目標都沒有適用的重設時間，則依設定順序選擇。實際帳戶選擇與重試仍套用一般限制。
 
@@ -163,18 +175,53 @@ Combo 失敗分為**跳轉**失敗與**終端**失敗。
 | 結果 | 行為 |
 | --- | --- |
 | HTTP 401、403、404、408、429 或任何 5xx | 冷卻目標並跳到下一個合格目標。 |
+| HTTP 410，且帶有明確的模型終止使用、已退役、已棄用、已停用或不再提供的訊號 | 冷卻該目標並跳轉。不相關的 410 回應仍視為終端錯誤。 |
 | 分類為認證、訂閱、配額、限流、過載或上游伺服器錯誤 | 冷卻目標並跳轉，即使單靠狀態碼不足。 |
 | 客戶端取消（499）、`origin_rejected`、cyber-policy 拒絕、上下文溢出或其他無效請求 | 停止並回傳錯誤；另一個目標不會讓請求變為有效。 |
-| 結構化 HTTP 400，明確拒絕 `user`、對 `reasoning.effort`/`reasoning_effort` 回傳不支援值，或回傳模型特定影像輸入拒絕（`param: input`） | 在輸出開始前跳轉到下一個符合條件的目標，且不記錄冷卻時間；參見下方選用參數相容性。 |
+| 結構化 HTTP 400，明確拒絕 `user`、對 `reasoning.effort`/`reasoning_effort` 回傳不支援值，或回傳模型特定影像輸入拒絕（`param: input`） | 在輸出開始前跳轉到下一個符合條件的目標，且不記錄冷卻時間；參見下方請求層級目標相容性。 |
 | 任何其他未分類錯誤 | 停止並回傳錯誤。 |
 
-跳轉的目標預設進入 60 秒冷卻。若上游回應包含有效的 `Retry-After` 值，opencodex 改用它。接受數字秒與 HTTP-date 值，且每次冷卻上限為 10 分鐘。
+當 `cooldownMs` 未設定時，被跳轉的目標會使用上游退回值：帶有上游代碼 `1302` 或 `1305` 的請求速率
+429 為 5 秒，其餘情況為 60 秒。設定時，`cooldownMs` 會在沒有可用的上游 `Retry-After` 或 Codex
+reset 訊號時套用，包含這些請求速率 429。可接受數字秒數與 HTTP-date 格式的 `Retry-After`，且每次
+冷卻上限為 10 分鐘。優先順序由強到弱為：明確的 `Retry-After` → Codex reset 標頭
+（`x-codex-primary-reset-at`、`x-codex-secondary-reset-at` 或 `x-codex-tertiary-reset-at`）→
+combo 的 `cooldownMs`（若已設定）→ 上游限流代碼 `1302`/`1305` 的 5 秒請求速率退回值 → 60 秒預設
+值。有效且立即的 `Retry-After: 0` 仍會被視為立即的上游指示，不會被已設定的冷卻取代。
 
-目前請求永不重試同一已嘗試目標。後續請求會略過它直到冷卻到期。若無合格目標剩餘，代理回傳 HTTP 503 並帶 `error.code = "combo_unavailable"`。
+目前請求絕不會重試同一個已嘗試過的目標。後續請求會略過冷卻中的目標，直到冷卻到期；請求層級目標
+相容性的拒絕不會讓目標進入冷卻。已經過期的 `Retry-After` HTTP-date 同樣會被視為立即的上游指示，
+如同 `Retry-After: 0`。設定 `waitForCooldownMs` 可讓後續請求等待最早合格目標的冷卻結束，每次選擇
+嘗試最多等到該上限，然後再進行一次全新選擇。因此，跨越多次 failover 跳轉時，一個請求最多可能等待
+`hops × waitForCooldownMs`。預設值為 `0`，代表當所有合格目標都在冷卻時立即以 HTTP 503 關閉失敗；
+該 `combo_unavailable` 503 會帶有 `Retry-After` 標頭，其值等於最早剩餘冷卻時間，無條件進位到整數
+秒且最少為 1。等待不會加入隨機抖動，因此可能出現同步喚醒。被中止的請求會取消這次等待，並回傳一般
+的 `client_cancelled` 回應；取消後不會派發備援目標。combo 目標的冷卻是每個 combo 各自的行程本機
+狀態，與原生帳號路由使用的帳號層級 Codex 配額冷卻是分開的。
 
 :::note
 Failover 是刻意受限的。它有助於目標特定的可用性、認證、配額與過載失敗；不會隱藏呼叫者錯誤或策略拒絕。
 :::
+
+對於串流請求，上游 HTTP 狀態不是最終決定。OpenCodex 會為所選子請求的 Responses SSE 緩衝一段有界
+的輸出前置區段。若串流在任何文字、reasoning、工具呼叫或其他輸出事件之前，回報可重試的
+`response.failed` 終止事件，該子請求會被記錄為失敗，combo 可以嘗試下一個合格目標。一旦任何輸出
+事件開始，該目標即被視為已確定：之後的串流失敗會直接回傳給用戶端，絕不會在另一個供應商上重播，
+以避免重複的文字與工具執行。若輸出前置緩衝區在沒有終止事件或輸出邊界的情況下達到其安全上限，
+OpenCodex 同樣會確定使用目前目標，而不是無限成長記憶體。
+
+## 請求層級目標相容性
+
+在把 Claude Code 路由到規範的 ChatGPT Codex 後端時，OpenCodex 會移除不受支援的頂層 `user` 中繼
+資料欄位，且不會改變 session/cache key、輸入訊息、工具 schema 或安全識別碼。公開的 Responses API
+與非規範的 forward 閘道器仍保留該欄位。
+
+當一個完整的 HTTP 400 `invalid_request_error` 明確拒絕 `user`、對 `reasoning.effort`/
+`reasoning_effort` 回報 `unsupported_value`，或針對 `param: input` 回報精確的模型範圍
+`does not support image inputs` 拒絕時，combo 同樣可以繼續嘗試下一個目標。這只代表該請求與該
+目標不相符，不代表該目標不健康，因此不會記錄冷卻。這項相容性復原不會悄悄把 `none` 改成其他
+effort 值，也不會把這個例外擴大到任意的無效請求。政策拒絕、取消與已經確定的輸出仍然不可重播。
+單一目標的請求仍會回傳未解決的上游拒絕。
 
 ## 預設推理 effort
 
@@ -182,12 +229,42 @@ Failover 是刻意受限的。它有助於目標特定的可用性、認證、�
 
 預設值補入會保留既有 effort 與其他 reasoning 欄位。下述能力正規化可另外移除不支援的 effort/thinking 控制。預設值支援 `low`、`medium`、`high`、`xhigh`、`max`、`ultra`；省略欄位或設為 `null` 可關閉注入。
 
+### 混合能力群組（`reasoningEffortMode`）
 
-## 混合 reasoning 能力
+combo 公開的 effort 層級是其所有目標公開層級的交集。明確宣告**沒有** effort 控制的目標也會參與
+這個交集運算，所以只要有一個不支援 effort 的後備目標，就會清空整個 combo 的 effort 選擇器——
+即使其他目標確實支援調整也一樣。
 
-`reasoningEffortMode` 預設為 `"strict"`，發布所有目標 effort 清單的交集，包括明確空清單。`"adaptive"` 計算交集時排除空清單，讓混合 combo 保留選擇器。未知清單在兩種模式下都不限制目錄交集。
+把 `reasoningEffortMode` 設為 `"adaptive"`，可以改為在計算公開交集時排除那些空清單。選擇器接著
+會顯示其餘目標共有的層級，而那個不支援 effort 的目標仍保有被路由的資格。清單狀態單純*未知*的
+目標，在兩種模式下都會被當成萬用字元處理。
 
-傳送時，明確空清單在兩種模式下都會移除 effort 與 thinking 控制；未知清單只在 adaptive 移除這些控制。`reasoning.summary` 與其他非 effort 欄位保持不變，已知非空目標仍按現有規則解析 effort。strict 的未知目標及一般 native Chat 的未知宣告保留呼叫者控制。預設值補入不會覆寫現有 effort，但能力正規化可移除不支援的控制。
+```json
+{
+  "combos": {
+    "mixed": {
+      "targets": [
+        { "provider": "openai-apikey", "model": "gpt-5.6-luna" },
+        { "provider": "local", "model": "no-effort-model" }
+      ],
+      "reasoningEffortMode": "adaptive"
+    }
+  }
+}
+```
+
+預設值是 `"strict"`，維持原本的選擇器行為。這項設定不會改變目標順序或 failover 政策。在派發時，
+明確為空的目標清單，無論在哪種模式下都會移除不支援的 effort/thinking 控制，同時保留受支援的非
+effort reasoning 欄位（例如 `reasoning.summary`）；`"adaptive"` 會對未知的目標能力套用相同的
+正規化處理，而已知且非空的目標則維持其既有的個別 effort 解析方式。在儀表板中，這是 combo 的
+Capabilities 區段裡的 **Adaptive reasoning ladder** 開關。
+
+## 圖像／多模態能力
+
+依預設，combo 會公開其所有目標輸入模態的**交集**（只有當每個目標都宣告支援圖像時，圖像才會被
+啟用）。將 `imageInput` 設為 `"disabled"` 可強制純文字，即使每個目標都支援圖像——目錄會從
+`inputModalities` 中移除 `image`，且帶有圖像的請求會在呼叫任何目標之前就以 HTTP 400 被拒絕。
+`"auto"`（或省略此欄位）維持自動交集。
 
 ## 加密的 v2 子代理任務
 
@@ -213,7 +290,7 @@ Codex v2 子代理有一個重要限制（[issue #92](https://github.com/lidge-j
 3. 對跨不同供應商的委派使用 v1 介面。
 4. 若你控制呼叫者，將任務以明文 v2 `agent_message` 內容重送。
 
-關於 v1/base/v2 模式與完整的加密任務工作流程，請見[子代理介面](/zh-tw/guides/sub-agent-surface/)。
+關於 v1/base/v2 模式與完整的加密任務工作流程，請見[子代理介面](/guides/sub-agent-surface/)。
 
 ## 管理 combo
 
@@ -221,7 +298,7 @@ Codex v2 子代理有一個重要限制（[issue #92](https://github.com/lidge-j
 
 開啟本機儀表板並選擇 **Combos**。該工作區可建立、編輯、重新命名與移除 combo，且其目標 picker 會排除已停用的模型與巢狀 combo。
 
-每個目標也會顯示即時額度徽章：**可用**、**額度已用盡**或**額度未知**。只有當每個可用目標均有目前有效的伺服器確認，顯示其所設定憑證的推論限額已耗盡時，編輯器才會因配額而停用儲存與建立。僅供顯示的帳戶、模型、搜尋與 MCP 配額，以及缺失或已過期的路由依據，都不會觸發此限制。此限制會在適用的重設時間或資料有效期限結束時解除，並在頁面變為作用中或可見狀態時重新檢查；重新整理會同時重新載入 Combo 資料與配額。
+每個目標也會顯示即時額度徽章：**可用**、**額度已用盡**或**額度未知**。只有當每個可用目標均有目前有效的伺服器確認，顯示其所設定憑證的推論限額已耗盡時，編輯器才會因配額而停用儲存與建立。僅供顯示的帳戶、模型、搜尋與 MCP 配額，以及缺失或已過期的路由依據，都不會觸發此限制。此限制會在適用的重設時間或資料有效期限結束時解除，並在頁面變為作用中或可見狀態時重新檢查；重新整理會同時重新載入 Combo 資料與配額。儀表板編輯器目前尚未公開 `cooldownMs` 或 `waitForCooldownMs`；在後續 UI 工作完成前，請使用設定檔或管理 API。
 
 ### CLI
 
@@ -234,14 +311,22 @@ ocx combo set <id> --targets provider/model[:weight],...
 ocx combo remove <id> --yes
 ```
 
-`set` 也接受 `--strategy`、`--sticky`、`--effort`、`--alias` 與 `--rename-from`。用 `-` 作為 `--effort` 或 `--alias` 的值可清除該欄位。`create` 與 `update` 為 `set` 的別名；`delete` 為 `remove` 的別名；且相同子指令在 `ocx route combo` 下也可用。
+`set` 也接受 `--strategy`、`--sticky`、`--effort`、`--alias`、`--native-alias`、
+`--display-name` 與 `--rename-from`。用 `-` 作為 `--effort`、`--alias` 或 `--display-name` 的值
+可清除該欄位。`--native-alias` 需要一個目前受支援的裸原生模型別名，並搭配非空的顯示名稱。
+`create` 與 `update` 為 `set` 的別名；`delete` 為 `remove` 的別名；且相同子指令在
+`ocx route combo` 下也可用。
 
 ### 管理 API
 
 無頭客戶端在 `/api/combos` 上使用 `GET`、`PUT` 與 `DELETE`。`GET` 列出規範化的 combo 定義，`PUT` 建立或取代一個（且可重新命名一個），`DELETE` 接受 id 查詢參數。認證與請求/回應細節請見
-[管理 API 參考](/zh-tw/reference/management-api/)。
+[管理 API 參考](/reference/management-api/)。當 `PUT` 主體省略 `cooldownMs` 或
+`waitForCooldownMs` 時，API 會保留該 combo 已儲存的值；要變更時請明確傳送新值。明確設定的
+`cooldownMs`（即使是 `60000`）會原樣持久化，因為它會覆寫請求速率退回值。已儲存的 `cooldownMs`
+只能透過編輯設定檔來移除；由於精簡序列化器會省略預設值，當 `PUT` 明確傳送 `0` 時，
+`waitForCooldownMs` 會重設為其預設值。省略這兩個欄位會保留原值，且儀表板目前尚未公開它們。
 
-完整的持久化設定請見[設定](/zh-tw/reference/configuration/)。
+完整的持久化設定請見[設定](/reference/configuration/)。
 
 ## 設定參考
 
@@ -270,9 +355,14 @@ Combo 儲存於頂層 `combos` 物件中，以 combo id 為 key：
 | `targets[].weight` | 否 | `1` | 1 到 10,000 的整數。由 `round-robin` 與 `random` 使用；`failover`、`least-used` 與 `reset-window` 忽略。 |
 | `strategy` | 否 | `"failover"` | 可用值為 `"failover"`、`"round-robin"`、`"random"`、`"least-used"`、`"reset-window"`。 |
 | `stickyLimit` | 否 | `1` | 僅適用於 `round-robin`：每次選擇的成功請求數，1 到 100 的整數。 |
+| `cooldownMs` | 否 | 未設定 → 上游退回值（請求速率 429 代碼 `1302`/`1305` 為 5 秒，否則為 60 秒） | 1 到 600000 的整數。設定時，會在沒有可用的上游 `Retry-After` 或 Codex reset 訊號時套用為每個目標的冷卻時間，包含請求速率 429；未設定時使用上游退回值。 |
+| `waitForCooldownMs` | 否 | `0` | 0 到 600000 的整數。回傳 `combo_unavailable` 之前，等待最早合格冷卻目標的最長時間；中止會取消等待。 |
 | `defaultEffort` | 否 | `null` | `low`、`medium`、`high`、`xhigh`、`max` 或 `ultra`；僅在呼叫者省略 effort 且目標宣告支援時套用。 |
-| `reasoningEffortMode` | 否 | `"strict"` | `strict` 或 `adaptive`；選擇混合能力交集及目標層級控制正規化。 |
+| `reasoningEffortMode` | 否 | `"strict"` | `"strict"` 會取所有已知目標清單的交集，所以只要有一個目標宣告沒有 effort 控制，就會清空整個 combo 的選擇器。`"adaptive"` 會在計算公開交集時排除那些空清單。派發時，明確為空或 adaptive 下未知的清單都會移除不支援的 effort/thinking 控制，同時保留受支援的非 effort reasoning 欄位（例如 `reasoning.summary`）；已知且非空的目標則維持既有的 effort 解析方式。 |
+| `imageInput` | 否 | `"auto"` | `"auto"` 或 `"disabled"`。`"auto"` 只在每個目標都支援圖像時才公開圖像支援；`"disabled"` 強制純文字（從公開模態中移除 image，並在派發前拒絕帶圖像的請求）。 |
 | `alias` | 否 | 無 | 可選的修剪後公開模型 id；使用上述別名規則。空值儲存為無別名。 |
+| `nativeAlias` | 否 | `false` | 明確允許目前受支援的裸原生 `alias` 取得路由與目錄的優先權。絕不會從別名自動推斷。 |
+| `displayName` | 否 | 無 | 有長度上限、僅供顯示的目錄標籤。當 `nativeAlias` 為 `true` 時為必填且不可為空。 |
 
 ## 疑難排解
 
@@ -282,7 +372,7 @@ Combo id 未知。回應為 HTTP 404 並帶 type `invalid_request_error`。執�
 
 ### 為什麼我得到 `combo_unavailable`？
 
-每個目標目前都不合格：例如其供應商已停用、冷卻中、已為此請求嘗試過，或加密 v2 任務排除它。檢查目標供應商狀態與近期上游錯誤。對於冷卻，等待 60 秒預設或上游 `Retry-After` 期間（絕不超過 10 分鐘），然後重試。
+每個目標目前都不合格：例如其供應商已停用、冷卻中、已為此請求嘗試過，或加密 v2 任務排除它。檢查目標供應商狀態與近期上游錯誤。對於冷卻，請先依觀察到的 `Retry-After` 值；Codex reset 標頭同樣優先於 `cooldownMs`。若兩者都無法使用，則套用已設定的 `cooldownMs`，或在未設定時套用上游退回值（請求速率代碼 `1302`/`1305` 為 5 秒，其餘為 60 秒）；每次冷卻上限為 10 分鐘。
 
 ### 為什麼我的別名被拒絕？
 
@@ -291,9 +381,3 @@ Combo id 未知。回應為 HTTP 404 並帶 type `invalid_request_error`。執�
 ### 為什麼 failover 在第一個錯誤後就停止了？
 
 該錯誤是終端的而非目標特定的。修正無效輸入、縮減過大的上下文、處理策略拒絕，或更正被拒的請求來源。Combo 對那些情況不會跳轉。
-
-## 選用參數相容性
-
-一般 400 錯誤仍會終止請求，但明確拒絕 `user`、對 `reasoning.effort`/`reasoning_effort` 回傳不支援值，或回傳模型特定影像輸入拒絕（`param: input`）的結構化錯誤，可讓 combo 在輸出開始前嘗試下一個符合條件的目標，而不記錄冷卻時間。安全政策拒絕、取消及已開始的輸出仍不可重播。
-
-[Canonical compatibility details](/guides/combos/#request-local-target-compatibility).

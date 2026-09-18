@@ -1,6 +1,6 @@
 ---
 title: 整合
-description: 從儀表板把 opencodex 連接到 OpenCode、Pi、OMP、Hermes、OpenClaw、Kimi Code、gjc、DeepSeek Harness、MiniMax Code、ZCode、Prime Agent、Aside、Raycast 與 omo——每個客戶端一個開關，每次寫入前都會先備份。
+description: 從儀表板把 opencodex 連接到 OpenCode、Pi、OMP、Hermes、OpenClaw、Kimi Code、gjc、DeepSeek Harness、MiniMax Code、ZCode、Prime Agent、Aside、Raycast、omo 與 Cline CLI——每個客戶端一個開關，每次寫入前都會先備份。
 ---
 
 **整合（Integrations）** 分頁會把 opencodex 的 provider 區塊寫入客戶端自己的設定檔，也會把它移除。共有十五個客戶端以這種方式運作，每個都有一個開關：
@@ -21,7 +21,16 @@ description: 從儀表板把 opencodex 連接到 OpenCode、Pi、OMP、Hermes、
 | Aside | `~/.aside/u/<account>/models.json` | JSON | 完全結束並重新開啟 Aside 後 | loopback 佔位符 |
 | Raycast | `~/.config/raycast/ai/providers.yaml` | YAML | 儲存後立即生效——Raycast 會監看該檔案 | 無——僅限 loopback |
 | omo | `~/.omo/agent/models.json` | JSON | 新工作階段 | loopback 佔位符 |
-| Cline CLI | `~/.cline/data/settings/providers.json` + `models.json` | JSON | 結束並重新啟動後 | 僅限 loopback |
+| Cline CLI | `~/.cline/data/settings/providers.json` 及同層的 `models.json` | JSON 組 | 結束並重新啟動 Cline 後 | loopback 佔位符 |
+
+產生的目錄只包含每個 provider 選擇中已啟用的模型。這適用於下載檔案，也適用於受管理整合，
+包括 Pi 與 Aside。管理端的模型清單仍會顯示完整名單，方便你啟用更多模型。
+
+受管理的 OpenCode 整合擁有兩個片段：`provider.opencodex`（opencode V1）與
+`providers.opencodex`（opencode V2）。只有 V2 區塊帶有逐模型的 reasoning-effort 變體，
+所以兩者都會寫入並保持同步；它們指名相同的 provider 與 model id，opencode V2 會把它們合併
+成一個 provider 項目。Apply、Refresh、Disable 與 Restore 會同時作用於這兩個片段，你的其他
+provider、agent、按鍵綁定與 MCP 項目都不會被動到。
 
 受管理 DSH 支援的相容性下限是 **DSH 0.1.0-rc.6**。OpenCodex 只擁有
 `llm-pi-ai.providers.opencodex`：Apply 與 Refresh 會取代該片段，Disable 只移除該片段，
@@ -36,12 +45,33 @@ MiniMax Code 依序遵循 `MINIMAX_DATA_DIR`、`MAVIS_DATA_DIR`，最後才回�
 逐模型 context window 與 reasoning-effort 選項；未知能力會省略，而 MCode session
 目前選取的 effort 不會被覆寫。
 
-Raycast 有兩個前提。Custom Providers 是 **Raycast Pro** 功能：免費方案下檔案仍會被寫入，但
-`ocx integration client status --client raycast` 與整合頁面會回報警告，因為 Raycast 不會讀取它。
-另外，Raycast 只有在你開啟一次 Raycast → Settings → AI → **Reveal Providers Config** 後才會建立
-`ai` 資料夾；opencodex 以該資料夾作為安裝訊號，在它存在之前都會回報客戶端尚未安裝。Raycast 在
-macOS 與 Windows 上同樣讀取 `~/.config/raycast/ai/providers.yaml`，且不遵循 `XDG_CONFIG_HOME`，
-所以該路徑無法搬移。
+Prime Agent 依循 `PRIME_AGENT_CODING_AGENT_DIR`，找不到才回退到 `~/.prime/agent`；
+相對路徑會被拒絕，這樣 proxy 與 agent 才不會對「指的是哪個檔案」產生分歧。它的受管理
+區塊只擁有 `providers.opencodex`，所以其他 provider 與你自訂的任何 `modelOverrides`
+都不會被動到。Prime Agent 在 session 開始時讀取 `models.json`，所以連接後請開啟新
+session。
+
+Aside 為每個已註冊的 profile（包括本機 profile）各自維護獨立的模型目錄。OpenCodex 會列出
+所有已註冊的 profile（包括本機 profile），可以一起同步，也可以逐一控制單一 profile。切換
+整合絕不會變更 Aside 目前使用的帳號。先前的 Aside 連線預設會啟用所有 profile；個別排除
+的設定在之後的同步中仍會保留。
+
+Aside 有一個特別注意事項：執行中的應用程式自己會改寫 `models.json`，所以套用後請完全結束
+並重新開啟 Aside，就像 Claude Desktop 需要重新啟動一樣。Aside 的區塊僅限 loopback，絕不
+會攜帶真實憑證。
+
+受管理的 Raycast 整合支援 **macOS 與 Windows**。Custom Providers 是 **Raycast Pro** 功能：
+免費方案下檔案仍會被寫入，但 `ocx integration client status --client raycast` 與整合頁面
+會回報警告，因為 Raycast 不會讀取它。在 macOS 或 Windows 上，請先開啟一次 Raycast →
+Settings → AI → **Reveal Providers Config**，讓 `ai` 資料夾存在。在這些受支援的平台上，
+opencodex 以該資料夾作為安裝訊號，在它存在之前都會回報客戶端尚未安裝。Linux 不受支援，
+即使該資料夾存在也一樣。
+
+狀態欄位 `aiDirPresent` 只回報 `~/.config/raycast/ai` 是否存在，與 Raycast 應用程式是否
+已安裝或平台是否受支援無關。它不能證明 Raycast 已安裝或可用。CLI 會在獨立一行印出
+`plan`，並在 `aiDirPresent` 為 false 時附上 macOS/Windows 的設定指示；`--json` 會保留原始
+狀態，包括巢狀的 `raycast` 區塊。Raycast 在 macOS 與 Windows 上同樣讀取
+`~/.config/raycast/ai/providers.yaml`，且不遵循 `XDG_CONFIG_HOME`，所以該路徑無法搬移。
 
 受管理區塊是檔案 `providers` 序列中的單一元素 `id: opencodex`：`name: OpenCodex`、
 `base_url: http://<host>:<port>/v1`，以及每個路由模型及其 `abilities`——`tools` 與
@@ -50,15 +80,23 @@ macOS 與 Windows 上同樣讀取 `~/.config/raycast/ai/providers.yaml`，且不
 元素。檔案一儲存 Raycast 就會套用變更，不需重新啟動；模型會在 Raycast 的模型選擇器中歸在
 **OpenCodex** 群組下。Raycast 支援選填的 `api_keys`，但 OpenCodex 刻意省略該欄位，並拒絕
 非 loopback 或需要准入驗證的目標，因為此整合無法提供 OpenCodex 要求的准入標頭。
-macOS 私有偏好設定僅提供 Pro 狀態提示；Windows 完全不讀取該設定，狀態會是未知。
-此提示不會阻擋寫入。匯出中繼資料並未證實每個模型的工具能力。其他 provider 的值會保留，
-但不保證 YAML 格式與註解不變。格式說明見
+
+macOS 私有偏好設定僅是一個提示性的 Pro 狀態提示；Windows 完全不讀取該設定，會回報方案為
+未知。方案偵測既不會授權也不會阻擋寫入。匯出中繼資料沒有具權威性的工具支援旗標，所以
+`tools: true` 不能證明每個路由模型都支援工具。Vision 與 effort 旗標依循目錄中繼資料；為
+effort 階梯關閉 temperature 是保守的匯出行為。其他 provider 的值會保留，但不保證 YAML
+格式與註解不變。格式說明見
 [manual.raycast.com/ai/custom-providers](https://manual.raycast.com/ai/custom-providers)。
 
 Raycast CLI 匯出與儀表板下載會使用執行中伺服器的目標位址和准入規則，包含已設定的
 無驗證 loopback listener。`ocx ensure` 不會以可能與執行中伺服器不同的已儲存設定快照
 重新整理 Raycast；伺服器啟動與明確執行的同步仍會更新目錄。
 
+Cursor 有一個分頁，但不是這些開關之一。一般的 Cursor 從自己的後端呼叫自訂端點，所以
+loopback proxy 在沒有公開通道的情況下連不到；Cursor 另外的 Private Inference 版本則是在
+Cursor 內部設定。**Cursor** 分頁是唯讀的：它會偵測安裝了哪個版本、顯示要貼進 Cursor 的
+Base URL 與 API Key，並回報 Cursor 最近一次對 proxy 發出的請求。見
+[Cursor Private Inference](/guides/cursor-private-inference/)。
 
 路徑遵循客戶端自己的環境覆寫（environment override）。對 OMP 而言，`OMP_PROFILE` 以存在與否優先於 `PI_PROFILE`，即使明確為空也一樣。具名 profile 會把 `PI_CONFIG_DIR` 當作相對於使用者家目錄的目錄名稱，並忽略 `PI_CODING_AGENT_DIR`；沒有具名 profile 時，`PI_CODING_AGENT_DIR` 勝出。OMP 支援 provider 層級的 headers，但這個最初的整合刻意只支援 loopback；遠端 `x-opencodex-api-key` 的連線設定被延後。搬移過的 `HERMES_HOME`、`KIMI_CODE_HOME` 與 `XDG_CONFIG_HOME` 路徑同樣會被遵循，而非猜測。表格列出每個客戶端的預設值。
 
@@ -84,21 +122,23 @@ opencodex 從自己的環境讀取這些變數。如果你的 gateway 以 profil
 
 停用只移除 opencodex 記錄為自己寫入的條目。如果你的檔案在我們寫入之後有變更，後續行為取決於我們自己的條目是否完好，以及檔案的格式。對於嚴格 JSON 設定檔（OpenCode、Pi），在我們的區塊**旁邊**進行的編輯——例如新增 MCP 伺服器或你自己的 provider——會顯示為**需要更新**：重新整理會在保留你的條目的前提下合併寫入，但格式可能會被正規化。例外情況是 JSON 無法精確重寫的內容——例如 `1e999` 這類非有限數字、重寫會被四捨五入的數字（極大的整數，或小到會塌縮成零的數字）、`-0`、同一個物件裡重複出現的鍵，或巢狀層數超過 1000 層——此時開關會鎖定，確保沒有任何值被悄悄改動或刪除。**OMP、DSH 與 Hermes** 同樣不受旁邊編輯影響，但原因不同：它們的 writer 只逐位元組修補自己的 `providers.opencodex` 範圍，檔案其餘部分從不會被重寫。至於其餘可以包含註解的格式（OpenClaw、Kimi Code、gjc、MiniMax Code、Raycast——以整份文件寫出的 YAML、JSON5 與 TOML），或當我們自己的條目被編輯過時，開關會鎖定，停用會拒絕執行，而不是猜測哪些編輯是你的。
 
+那個鎖定不再是死路。發生衝突的客戶端會在開關旁顯示 **Replace**，總覽卡片與客戶端自己的頁面上都會出現。它會用 opencodex 原本要寫入的區塊，取代目前持有我們設定的任何內容，而且會先詢問：對話框會指名檔案、說明會失去什麼，並指向讓這次操作可以復原的快照。開關本身仍維持鎖定，因為開關無法知道你想保留哪些編輯——只有你才知道。其餘的限制不會放寬：我們無法解析的檔案，或結構無法判讀的檔案，仍然會拒絕。
+
 ## 誠實的預期
 
-**格式通常不會被保留。** 套用會解析設定並重新寫出，所以 JSON、JSON5 與 TOML 可能被重新格式化，JSON5 或 TOML 中的註解會遺失。OMP 與 DSH 是例外：它們的 YAML writer 分別只修補 `providers.opencodex` 與 `llm-pi-ai.providers.opencodex`，逐位元組保留無關的 provider 註解與格式。如果無法安全地識別那個確切的來源範圍，操作會拒絕執行。對其他客戶端，當你需要先前的檔案位元組時請使用 Restore：快照是逐字的副本。
+**格式通常不會被保留。** 套用會解析設定並重新寫出，所以 JSON、JSON5 與 TOML 可能被重新格式化，JSON5 或 TOML 中的註解會遺失。OMP、DSH 與 Hermes 是例外：它們的 YAML writer 分別只修補 `providers.opencodex` 與 `llm-pi-ai.providers.opencodex`，逐位元組保留無關的 provider 註解與格式。如果無法安全地識別那個確切的來源範圍，操作會拒絕執行。對其他客戶端，當你需要先前的檔案位元組時請使用 Restore：快照是逐字的副本。
 
 **如果某個值無法忠實重寫，開關會拒絕執行。** 往返覆蓋這些格式在實務上會用到的值種類；當它做不到時——例如使用 `inf` 或 `nan` 的 TOML 檔案，我們可用的 parser 無法準確讀回——套用會停止並說明，而不是寫入被改動的值然後宣稱成功。你會看到檔案被指名，磁碟上沒有任何東西被移動。手動編輯那個檔案仍然有效；只有我們的自動重寫會拒絕。
 
-TOML 日期與時間值也會阻止自動重寫：合併步驟會將這些帶有型別的值轉成加引號的字串，陣列和行內表格中的值也一樣。原本就加引號的日期字串仍受支援；若要保留不加引號的日期型別，請手動編輯設定。
+TOML 日期與時間值也會阻止受管理的重寫：合併步驟會將這些帶有型別的值轉成加引號的字串，這也包括陣列與行內表格中的值。原本就加引號的日期字串仍受支援；若要保留不加引號的日期型別，請手動編輯設定。
 
-**Pi、Kimi Code、gjc、MiniMax Code 與受管理 DSH 整合只能對 loopback bind 運作。** 前四者的設定沒有非 loopback bind 所需的 `x-opencodex-api-key` header 欄位。DSH 雖然提供通用 headers map，但 rc.6 並未把這個專用准入 header 記錄為受支援的整合契約，因此受管理 writer 會選擇安全拒絕，而不自行猜測。請改用 SSH tunnel，或由本機 forwarder 加上該 header 後再以 loopback 存取。
+**Pi、Kimi Code、gjc、MiniMax Code、Prime Agent、Aside、Raycast、omo 與受管理 DSH 整合只能對 loopback bind 運作。** 前四者的設定沒有非 loopback bind 所需的 `x-opencodex-api-key` header 欄位。DSH 雖然提供通用 headers map，但 rc.6 並未把這個專用准入 header 記錄為受支援的整合契約，因此受管理 writer 會選擇安全拒絕，而不自行猜測。Prime Agent 的 provider 區塊確實接受 headers，但遠端憑證連線設定在最初的整合中被延後。請改用 SSH tunnel，或由本機 forwarder 加上該 header 後再以 loopback 存取。
 
 **產生的 OMP 整合也刻意只支援 loopback。** OMP 確實支援 provider 層級的 headers，但這個最初的整合不會發出遠端 `x-opencodex-api-key` 憑證連線。手動的遠端 OMP 設定目前不在受管理的整合範圍內。
 
 **Kimi Code 無法持有環境變數參考，** 所以它的設定攜帶的是 `opencodex-loopback` 佔位符而非金鑰。絕不會有任何真實憑證被寫入任何客戶端設定。
 
-**對 `ocx opencode` 而言，launcher 的 provider 區塊勝出。** 那個 launcher 透過 `OPENCODE_CONFIG_CONTENT` 注入 `provider.opencodex`，比磁碟上相同的條目優先——你其餘的 opencode 設定仍照常套用。當你直接啟動 `opencode` 時，這裡的開關才是關鍵。
+**對 `ocx opencode` 而言，launcher 的 provider 區塊勝出。** 那個 launcher 透過 `OPENCODE_CONFIG_CONTENT` 注入 `provider.opencodex` 與 `providers.opencodex`，比磁碟上相同的條目優先——你其餘的 opencode 設定仍照常套用。當你直接啟動 `opencode` 時，這裡的開關才是關鍵。
 
 ## 從終端機
 
@@ -128,11 +168,23 @@ ocx integration client enable --client mcode
 ocx mcode
 ```
 
-完成一次連接後，`ocx sync` 與 `POST /api/sync` 會更新 OpenCodex 已擁有的
-MCode、Pi、Aside、Raycast 與 omo 目錄。proxy 啟動也會更新已擁有的 Raycast 目錄。
-模型可見性、provider 或 preset 變更會更新 Pi、Aside、Raycast 與 omo。若區塊已刪除、
-遭外部修改、不安全或由你手動移除，sync 會保持原檔不動；只有在你確定要重新
-連接時才再次執行 enable。
+完成一次連接後，`ocx sync` 與 `POST /api/sync` 會依目前的模型選擇、context window 與
+reasoning-effort 階梯，更新 OpenCodex 已擁有的 MCode、Pi、Aside、Raycast 與 omo 目錄。
+proxy 啟動時也會更新已擁有的 Raycast 目錄。模型可見性、provider 選擇或 preset 的變更同樣
+會更新已連接的 Pi、Aside、Raycast 與 omo 目錄。已刪除、遭外部編輯或不安全的區塊會維持
+原狀不動，你手動移除的先前受管理區塊也一樣。已啟用的 Aside profile 是「僅更新已擁有區塊」
+這條一般規則的例外：如果它的帳號目錄存在，且從未有過受管理區塊，那麼在該欄位空著時，
+sync 可能會建立它的第一個區塊。先前的 Aside 連線預設會為所有已註冊的 profile 啟用這個行為。
+Sync 不會建立遺失的帳號目錄，也不會取代手動建立的區塊。被拒絕或重疊的重新整理會為每個
+客戶端分別回報。請啟動新的 Pi session，或完全結束並重新開啟 Aside，以載入更新後的檔案。
+Aside 的重新整理需要[相容的執行中 proxy](#aside-profile-controls)。
+
+如果「模型」頁回報 **Model selection saved** 並同時附上客戶端重新整理的警告，代表選擇
+本身已經儲存成功；只是一個或多個客戶端檔案未能更新。警告會指名受影響的客戶端與（如適用）
+Aside profile，並說明拒絕的原因。請開啟**整合**頁檢查該客戶端或 profile，再開始新的
+session。解決回報的問題後重試 `ocx sync`；重疊中的操作必須先結束。如果警告內含備份路徑，
+或說明復原尚未完成，請在重試之前先檢查那個復原狀態。選擇儲存成功本身並不能證明客戶端檔案
+已經復原。
 
 另一個 MiniMax 平台 CLI（`mmx`）不是檔案開關整合。其文字命令使用 MiniMax 的
 Anthropic 相容端點，因此 OpenCodex 提供憑證隔離、僅限 loopback 的 launcher：
@@ -142,22 +194,94 @@ ocx mmx text chat --model anthropic/claude-opus-5 --message "Hello"
 ocx mmx text repl --model openai/gpt-5.6-sol
 ```
 
-只有 `mmx text chat` 與 `mmx text repl` 會經過 proxy。MiniMax 原生的其他指令請直接
-執行 `mmx`。wrapper 使用只含非機密 loopback 佔位符的暫存設定，不會讀取 `~/.mmx`
-OAuth 或 API key，並拒絕 `--api-key`、`--base-url` 與 `--region` 覆寫。
+只有 `mmx text chat` 與 `mmx text repl` 會經過 proxy。要使用 MiniMax 原生的圖像、影片、
+語音、音樂、視覺、搜尋、配額、驗證、設定、檔案與更新指令，請直接執行 `mmx`。wrapper 使用
+只含非機密 loopback 佔位符的暫存設定；它絕不會讀取你的 `~/.mmx` OAuth 或 API key 憑證，
+並拒絕 `--api-key`、`--base-url` 與 `--region` 覆寫。完整工作流程與限制見
+[MiniMax clients](/guides/minimax/)。
 
 `--confirm-drift` 永遠不會被擅自假設。如果檔案在你正要回復的操作之後有變更，指令會拒絕並告訴你，因為覆蓋你較新的編輯是你的決定。
 
 客戶端細節是針對各專案自己的設定格式驗證過的；檢查了什麼、何時檢查，請見 `devlog/_fin/260802_client_toggle_api/002_client_toggle_matrix.md` 中的研究筆記。
 
-## Cline CLI
+## Aside profile controls
 
-Cline CLI 使用 providers.json 與 models.json。修改或同步前請結束 Cline，完成後重新啟動。復原會還原兩個原始檔案，預設供應商保持不變。此整合不會遷移舊版 VS Code 擴充功能的儲存資料。
+Aside profile controls，以及 `ocx sync` 執行的 Aside 重新整理，都需要一個支援 Aside
+profile API、且正在執行的 ocx proxy。只更新 CLI 本身，並不會更新一個已經在執行的 proxy。
+如果 proxy 無法使用或版本太舊，Aside 的操作就無法完成；CLI 絕不會退回到在本機直接寫入
+Aside profile 檔案。
+
+請升級 proxy 所使用的 ocx 安裝，然後重新啟動 proxy（若已停止則啟動它）。接著重試
+`ocx sync` 或 profile 指令。profile 檔案成功更新後，請完全結束並重新開啟 Aside，讓它
+載入新的目錄。
 
 ```bash
+ocx integration client status --client aside --json
+ocx integration client enable --client aside
+ocx integration client disable --client aside --profile 1
+ocx integration client history --client aside --profile 1
+ocx integration client restore --client aside --profile 1 --op <opId>
+```
+
+profile 編號就是 status 指令顯示的帳號 ID。在 Aside 開關上省略 `--profile` 會把目標狀態
+套用到每個已註冊的 profile。單一 profile 的變更不會影響其他 profile。期望的同步設定會在
+檔案變更之前先儲存；每個 profile 的實際狀態與任何拒絕都會分別回報。部分成功的批次結果
+不算全部套用成功，CLI 會以非零狀態結束。Undo 會同時還原所選 profile 的同步意圖與其檔案，
+所以之後的一次 sync 不會悄悄推翻這次 Undo。
+
+[profile API](/reference/management-api/#aside-profile-controls) 在批次操作全部成功時回傳
+HTTP 200；只要有任一 profile 被拒絕，就回傳 HTTP 207 並附上 `ok: false`。請檢查 `results`
+中的每一筆項目：另一個 profile 失敗時，已成功的 profile 不會被回滾。期望的設定仍會保留，
+所以請在處理好受影響的 profile 後重試，而不要假設整個變更都失敗了。如果連儲存這些設定都
+失敗，就不會有任何 profile 檔案被變更。
+
+每個 profile 都有各自獨立的擁有權與歷史紀錄。既有的使用者編輯、不安全的路徑與連結的目錄
+都會被拒絕；既有的明確覆寫與 drift 確認控制項仍然可用。請完全結束並重新開啟 Aside 以載入
+變更後的模型檔案。
+
+## Cline CLI
+
+這項整合的目標是 Cline 目前的 CLI／共用 SDK provider 儲存區，其原生結構版本為 `version: 1`。
+舊版 VS Code 擴充功能的 `globalState`／secret 儲存不會被這項整合遷移或偵測到。請先執行一次
+Cline，以初始化它的設定目錄。
+
+**在啟用、同步、停用或復原這項整合之前，請先結束 Cline。** OpenCodex 會把 `providers.opencodex`
+寫進 `providers.json` 與同層的 `models.json` 這兩個檔案。第一個檔案存放帶有非機密 loopback
+佔位符的 OpenAI Responses 連線；第二個檔案存放經過篩選的路由模型目錄，包括可用的 context
+與圖像中繼資料。既有的 provider 項目與預設 provider 選擇都不會被變更。
+
+```bash
+ocx integration client list --json
 ocx integration client enable --client cline
 ocx integration client history --client cline
 ocx integration client restore --op <operation-id>
 ```
 
-[CLI / rollback / CLINE_PROVIDER_SETTINGS_PATH](/guides/integrations/#cline-cli).
+啟用後，請重新啟動 Cline 並選擇 OpenCodex，或以
+`cline --provider opencodex --model <provider/model>` 啟動。外部目錄變更只有在 Cline
+重新啟動時才會被讀取。Cline 不在無人值守目錄重新整理的範圍內；變更路由模型選擇後，請先
+結束 Cline，再執行 `ocx sync` 或重新啟用這項整合以更新它。已選擇的模型只要仍在路由範圍內
+就會保留，若從匯出的目錄中被移除則會被清除。
+
+`CLINE_PROVIDER_SETTINGS_PATH` 會覆寫主檔案。否則依序由 `CLINE_DATA_DIR` 選擇資料目錄，
+再由 `CLINE_DIR` 選擇根目錄，最後才使用 `~/.cline`。模型檔案永遠是與所選 provider 檔案
+同層的 `models.json`。覆寫值必須是絕對路徑或以 `~` 開頭。啟動 OpenCodex 時，請讓
+`CLINE_PROVIDER_SETTINGS_PATH` 對應 Cline 指令列本身的 `--config` 路徑。若主檔案路徑被
+指名為 `models.json` 會被拒絕，因為兩個檔案必須是不同的檔案。
+
+每個檔案的替換都是原子性的，但沒有任何檔案系統操作能同時替換兩個檔案。一次日誌操作會為
+兩個原始檔案拍快照；寫入或簿記失敗都會讓兩者一起補償復原。被中斷的操作會保留一份私有的
+復原紀錄。狀態回報會把未完成的復原視為不安全，只有在檔案本身與其擁有權都沒有無關編輯時，
+下一次明確的變更操作才會執行復原。如果復原被拒絕，請保留檔案與操作回報的復原路徑；解決
+衝突後再重試。
+
+Undo 會還原**兩個檔案原本的位元組字串**，包括原本就不存在的檔案。操作之後的編輯需要既有的
+明確 `--confirm-drift`；被編輯過的這一對檔案會先被備份。已被佔用的 OpenCodex 項目需要既有的
+`--overwrite-conflict` 選擇性加入。Disable 只移除這兩個受管理的項目；它不會還原先前的外部
+項目——那要用 Undo。快照的保留與過期規則與其他整合相同。
+
+下載檔 `cline-config-bundle.json` 內含兩個原生文件成員：`settings` 對應 `providers.json`，
+`catalog` 對應 `models.json`。它本身不是一個 Cline 設定檔。建議優先使用整合指令，以取得
+有日誌記錄的合併與回復能力。這個產生出來的整合不支援遠端准入連線；它需要無驗證的
+loopback 存取。
+</content>

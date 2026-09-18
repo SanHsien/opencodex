@@ -688,3 +688,17 @@ that repair, it becomes a normal user message. If a current v2 task remains genu
 but the selected routed target cannot read native ChatGPT ciphertext, opencodex fails with
 `unreadable_encrypted_agent_task` instead of sending unreadable bytes to that provider. See
 [Sub-agent Surface](/guides/sub-agent-surface/) for the client behavior around worker tasks.
+
+History is handled too, and differently, because losing a replayed message should not end a
+conversation. A replayed `agent_message` that mixes readable text with backend ciphertext cannot
+be lowered to a public message, so a routed Responses destination would otherwise receive the
+ciphertext along with an item type only the ChatGPT backend declares. Before dispatch, opencodex
+replaces that ciphertext with `[encrypted content omitted]` — the same marker it already
+substitutes after an upstream decrypt failure — which leaves the item lowerable and the readable
+text intact. The provider never sees the ciphertext or the private item, and the conversation
+continues. Combo targets are repaired individually, since each receives its own copy of the
+request. The canonical ChatGPT Codex backend is exempt because it is the destination that minted
+and can read those bytes; a `forward` provider pointed at any other origin is not exempt.
+Explicitly trusted `allowEncryptedV2AgentTasks` routes and translated Chat or Anthropic wires are
+unaffected, as are other item types such as reasoning and tool-output blobs, which keep their
+existing decrypt-failure recovery.

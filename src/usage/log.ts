@@ -2,6 +2,7 @@ import { createHash, type Hash } from "node:crypto";
 import { chmodSync, closeSync, existsSync, fstatSync, mkdirSync, openSync, readFileSync, readSync, appendFileSync } from "node:fs";
 import { join } from "node:path";
 import { getConfigDir } from "../config";
+import type { CodexAffinityMove, CodexAffinityReason } from "../codex/routing";
 import { enforceAppOwnedMemoryBudget } from "../lib/app-owned-memory";
 import { recordOwnedConfigPath } from "../lib/config-ownership";
 import { sanitizeLogMetadataString } from "../lib/redact";
@@ -188,6 +189,13 @@ export interface PersistedUsageEntry {
   /** Whether the terminal came from upstream or a proxy-generated tail. */
   terminalSource?: "upstream" | "synthetic";
   /**
+   * What happened to this request's Codex pool binding, and why (#4546). A move discards the
+   * prompt-cache prefix warmed on the previous account, so it is recorded as an event rather
+   * than left to be inferred from account labels across rows. Additive; older rows omit it.
+   */
+  affinity?: CodexAffinityMove;
+  affinityReason?: CodexAffinityReason;
+  /**
    * Bounded route-decision trace (RI-01): why this provider/model/account was
    * selected. Additive field; old rows without it parse unchanged. Never
    * contains prompts, credentials, or hidden reasoning.
@@ -246,6 +254,28 @@ const KNOWN_TERMINAL_SOURCES = new Set<NonNullable<PersistedUsageEntry["terminal
 
 export function isKnownTerminalSource(value: unknown): value is NonNullable<PersistedUsageEntry["terminalSource"]> {
   return typeof value === "string" && KNOWN_TERMINAL_SOURCES.has(value as NonNullable<PersistedUsageEntry["terminalSource"]>);
+}
+
+/**
+ * The persisted entry is built by an explicit whitelist, so a field the writer sets but this
+ * normalizer does not name is dropped without a word. #4592 added the affinity record at the
+ * call site and it never reached disk for exactly that reason.
+ */
+const KNOWN_AFFINITY_MOVES = new Set<NonNullable<PersistedUsageEntry["affinity"]>>([
+  "reused", "held", "detour", "rebound", "new_bind", "cleared",
+]);
+const KNOWN_AFFINITY_REASONS = new Set<NonNullable<PersistedUsageEntry["affinityReason"]>>([
+  "healthy", "quota_headroom", "quota_refusal", "transient", "transient_hold_expired",
+  "unusable", "paused", "plan_excluded", "cooldown", "quota_avoided", "generation",
+  "expired", "model_lane",
+]);
+
+export function isKnownAffinityMove(value: unknown): value is NonNullable<PersistedUsageEntry["affinity"]> {
+  return typeof value === "string" && KNOWN_AFFINITY_MOVES.has(value as NonNullable<PersistedUsageEntry["affinity"]>);
+}
+
+export function isKnownAffinityReason(value: unknown): value is NonNullable<PersistedUsageEntry["affinityReason"]> {
+  return typeof value === "string" && KNOWN_AFFINITY_REASONS.has(value as NonNullable<PersistedUsageEntry["affinityReason"]>);
 }
 
 export function usageLogPath(configDir?: string): string {
@@ -590,6 +620,11 @@ function normalizeUsageEntry(entry: PersistedUsageEntry): PersistedUsageEntry {
   const claudeCompatibility = normalizeClaudeCompatibilityUsageLog(entry.claudeCompatibility);
   const transportPhase = isKnownTransportPhase(entry.transportPhase) ? entry.transportPhase : undefined;
   const terminalSource = isKnownTerminalSource(entry.terminalSource) ? entry.terminalSource : undefined;
+  const affinity = isKnownAffinityMove(entry.affinity) ? entry.affinity : undefined;
+  // A reason without a move describes nothing, so it is only kept alongside one.
+  const affinityReason = affinity !== undefined && isKnownAffinityReason(entry.affinityReason)
+    ? entry.affinityReason
+    : undefined;
   const routeDecision = entry.routeDecision
     ? normalizeRouteDecisionTrace(entry.routeDecision)
     : undefined;
@@ -660,6 +695,8 @@ function normalizeUsageEntry(entry: PersistedUsageEntry): PersistedUsageEntry {
     ...(Array.isArray(entry.attempts) ? { attempts } : {}),
     ...(transportPhase ? { transportPhase } : {}),
     ...(terminalSource ? { terminalSource } : {}),
+    ...(affinity ? { affinity } : {}),
+    ...(affinityReason ? { affinityReason } : {}),
     ...(entry.errorCode ? { errorCode: entry.errorCode } : {}),
     ...(entry.terminalStatus ? { terminalStatus: entry.terminalStatus } : {}),
     ...(entry.closeReason ? { closeReason: entry.closeReason } : {}),

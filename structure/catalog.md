@@ -45,13 +45,16 @@ custom catalog remains the native metadata/template authority even when a bundle
 warm. Both paths may use an admitted matching bundled memo only as installed-runtime capability
 evidence to remove unsupported reasoning efforts; convergence never probes Codex itself.
 
-Custom Astra and Daybreak rows acquire native reasoning capability only through the existing
-canonical `openai` forward destination and explicit capability-source predicate. The shared
-custom-row producer bounds their merged effort lists against pinned per-model Codex metadata,
-preserves an explicit empty list without a default, and recovers an incompatible nonempty list
-to the native default singleton. A default must belong to the projected list. Other custom rows
-keep their declaration precedence; a GPT model name, display alias, or arbitrary gateway is not
-native provenance. Stored configuration and native capability maps are unchanged.
+Custom Astra and Daybreak rows acquire native identity -- Responses Lite, multi-agent, context
+windows, display names -- only through the canonical `openai` forward destination and explicit
+capability-source predicate. Catalog-advertised reasoning lists are a narrower bound: when a
+custom row's model id has pinned native capability metadata, the shared producer intersects an
+explicit declared ladder with that pinned list even on an arbitrary gateway such as
+`YYLJ/gpt-6-astra`. Desktop validates the model id, so `none` and `minimal` must not survive on
+those catalog rows. An explicit empty list remains empty; a nonempty incompatible list falls back
+to the native default singleton. A default must belong to the projected list. Full native identity
+is still not inferred from a GPT name. Stored configuration and native capability maps are
+unchanged. Request-time native effort clamps remain canonical-forward only.
 
 The observed-state merge tracks the current invocation's freshly generated custom row objects
 after detaching its inputs. Those rows already own their complete reasoning projection, so the
@@ -60,9 +63,7 @@ ordinary retained provider rows still receive the existing mock-tier policy. A p
 marker alone never grants this exemption. Both gather entry points, retained sync, management
 convergence and direct Codex model discovery use the same producer. The legacy runtime effort
 union clamp remains separate; it is not a per-model or per-client-version grammar oracle.
-Existing thread settings and the reported Desktop 0.153.4 gateway rejection require separate
-runtime evidence. Codex's native `ultra` mode is preserved and is not a literal API wire promise.
-
+Codex's native `ultra` mode is preserved and is not a literal API wire promise.
 When account selectors are enabled, the sync path may also observe exact, visible, API-supported
 OpenAI-family ids from Codex's user-owned catalog/cache. Only rows with native catalog provenance
 are trusted; unknown ids are carried through startup cache invalidation as hidden observations and
@@ -80,6 +81,14 @@ mapped account reports it. A failed or malformed discovery is not positive evide
 hides the gated row until a later refresh. The same snapshot gates Pool selection, so the catalog
 and runtime cannot disagree by advertising through one account and dispatching through another.
 
+`client_version` arrives on the inbound request and is part of that cache identity, so
+`src/codex/model-entitlements.ts` bounds the work as well as the state: stored versions per account, concurrent
+roster flights per account, and distinct caller-selected versions admitted per account in one roster
+window. Repeating a version already charged still retries on the failure TTL, and the locally
+selected runtime version is never charged, so a legitimate refresh survives. Over the bound the
+answer is unconfirmed, which hides the gated row rather than confirming a denial. Flight capacity
+is checked before charging a distinct version, so a capacity refusal consumes no miss allowance.
+
 The app-server's model list comes from this shared catalog, not from patching the App. Codex Desktop
 may still apply its remote native-only allowlist after `model/list`; an explicitly configured combo
 `nativeAlias` is the bounded compatibility path. It replaces one supported bare native row with a
@@ -94,6 +103,11 @@ Provider live-model lists are cached with a configured TTL (`src/codex/model-cac
 deleting, or editing a provider's shape clears that per-provider cache; a disabled-only change
 deliberately does not, because a disabled provider is already excluded from the catalog gather
 instead. Codex's own `models_cache.json` is a different cache, invalidated by catalog refresh.
+
+A Devin live row spreads its measured `inputModalities` before
+`catalogHintsFromProviderConfig`, so exact `modelCapabilities` declarations, the legacy
+`modelInputModalities` record and the vision-sidecar rewrite keep precedence and the live
+value survives only when none of them applies.
 
 For `liveModels: false`, a static provider publishes the ordered union of `models` and
 `retainModels`. When `models` is absent or empty, its configured `defaultModel` seeds that

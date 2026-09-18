@@ -131,6 +131,10 @@ featured or picker rank. Canonical `opencode-go` rows retain their configured re
 and provider-scoped context metadata both when generated and when merged from retained catalog
 state; `deepseek-v4.1-flash` therefore keeps its 1,048,576-token window, while synthetic max/ultra
 choices are not added to that provider's declared ladder.
+The first-party DeepSeek `deepseek-flash` row declares native `text` and `image` input and therefore
+does not require the vision sidecar by default; explicit `noVisionModels` or text-only declarations
+remain authoritative. First-party `deepseek-chat`, `deepseek-reasoner`, and `deepseek-v4-flash`
+remain sidecar-backed by default. Zen routes are unchanged and unprobed in this update.
 
 Full derivation with per-line citations: `devlog/_plan/260816_codexrs_multiagent_v2_and_history_perf/013_five_cap_v1_vs_v2.md`.
 
@@ -147,6 +151,66 @@ is model-transcribed plaintext, not cryptographic fidelity proof, and no interna
 unreadable split-token shapes. The sanitizer preserves just those fragment objects and continues
 normalizing independent plaintext slots. Detection never authorizes reconstruction or recovery;
 other fragment layouts and mixed readable content retain their documented residual boundaries.
+
+## Routed agent-message ciphertext egress
+
+Two questions about an `agent_message` were asked in two places, and the gap between them was
+open. `hasUnreadableEncryptedAgentTask` asks whether the CURRENT worker task can be read and
+inspects only the tail item; `normalizeRoutedAgentMessages` asks whether EVERY part can be lowered
+onto a public message and forwards the private item verbatim when one cannot. An item mixing
+`input_text` with `encrypted_content` is readable by the first measure and unlowerable by the
+second, so it passed the guard, kept its private type through the raw Responses passthrough, and
+left the process as backend ciphertext plus an item type only the Codex backend declares. The
+destination answered `422 unknown item type "agent_message"` after the bytes were already sent.
+Position was incidental: a replayed child result sits mid-history, where a tail-only scan cannot
+see it, and the tail is exposed the same way once it is mixed.
+
+The repair already existed reactively. `prepareOpaqueBlobRecovery` replaces an undecryptable part
+with `[encrypted content omitted]`, which leaves the item lowerable, and it ran after an upstream
+rejection. A destination that cannot accept the private item under any circumstances was never
+going to answer that request, so the round trip only served to send the ciphertext.
+`stripAgentMessageCiphertextInPlace` in `src/server/responses/encrypted-payload.ts` applies the
+same repair before dispatch, and `src/server/responses/core.ts` runs it against the final route,
+after `expandPreviousResponseInput`, after the sanitizer has rewritten plaintext parked in
+encrypted slots, and after encrypted-task recovery has had its chance to produce real plaintext
+instead of a marker.
+
+The two kinds of slot are judged differently, because they carry different guarantees. An
+`encrypted_content` slot holds ciphertext by definition, so it is stripped whatever it holds:
+demanding a well-formed token there would reopen the same defect one payload later, since a
+truncated token, a standard-base64 blob carrying `+` or `/`, an unexpected version byte, or a run
+past the recovery size limits would each keep the item and forward the bytes. A text part carries
+no such guarantee, so it is matched strictly -- embedded runs that validate as Fernet, or a whole
+slot with the Fernet wire shape, which is the version prefix, the base64url alphabet and a
+canonical length of at least 100 divisible by four. Adjacent text fragments are joined before that
+test, so a token split across slots is still caught. `looksLikeBackendCiphertext` is deliberately
+NOT used on text: it is length >= 64 over a character class that a SHA-256 digest matches exactly
+at 64 characters, and replacing a digest a child deliberately printed would delete readable content
+to protect bytes that were never secret. Other item types are untouched: reasoning and
+function-output blobs keep the reactive opaque-blob recovery, which still rescues a destination
+that merely failed to decrypt something it was entitled to read, and which stays reachable for the
+canonical backend and for explicitly trusted routes.
+
+The repair resolves the same wire override the adapter is built from rather than restating routing
+policy, and runs for `openai-responses` whenever the destination is not the canonical Codex
+backend. `authMode: "forward"` is deliberately not that test: it describes how this proxy treats
+credentials, not who answers, and a forward-configured gateway at another origin receives the
+ciphertext like any third party. Only `isCanonicalOpenAiForwardProvider` is exempt, because it
+alone minted these bytes and can read them. The wire override matters for the reported destination,
+where the provider row names the Chat wire and a registry model default moves the model onto
+Responses. Translated wires are untouched because `inputContentParts` drops an encrypted part
+instead of forwarding it, and `canPassThroughEncryptedV2AgentTask` keeps an explicitly trusted
+route exempt. Combo children run the repair themselves: `concreteComboRequestBody` gives each
+target its own `structuredClone` and its own concrete route, so a sibling's repair is invisible to
+them and a target resolving to a routed Responses wire would otherwise send what the parent's own
+dispatch no longer does.
+
+Nothing here decrypts, and the tail NEW_TASK envelope keeps `unreadable_encrypted_agent_task` and
+its opt-in recovery unchanged: an unreadable current task still fails closed rather than reaching a
+child with a marker where its assignment should be. An `agent_message` carrying unknown parts but
+no ciphertext still reaches the wire unchanged and still draws the destination's own 422, which is
+a compatibility gap rather than an egress one. Covered by
+`tests/server/v2-agent-message-failfast.test.ts`.
 
 ## Subagents
 

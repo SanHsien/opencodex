@@ -288,12 +288,12 @@ call when `isXaiResponsesDestination` recognizes HTTPS `api.x.ai` or `cli-chat-p
 on the standard port. A nonblank string becomes one `input_text` part with the original text;
 the same author/recipient attribution is retained and the private transport item id is removed.
 
-This addresses readable child-result delivery (#3907), not scheduling or decryption. Blank,
-malformed, ciphertext-only and mixed unknown/encrypted content retains the existing fail-closed
-path. Forward destinations never enable the option. The parser and encrypted-task recovery
-owners are unchanged, and no broad content-schema validation or adapter-wide string conversion
-is introduced. Mocked server fixtures cover parent, child, and parent-result continuation over
-SSE and JSON while preserving actual tool-call/result pairs.
+This addresses readable child-result delivery (#3907), not scheduling or decryption. Blank, malformed,
+ciphertext-only and mixed unknown/encrypted content stays unlowered here; backend ciphertext is replaced by the
+[omission marker](../subagents.md#routed-agent-message-ciphertext-egress) before it can reach a routed destination.
+Forward destinations never enable the option. The parser and encrypted-task recovery owners are unchanged, and no
+broad content-schema validation or adapter-wide string conversion is introduced. Mocked server fixtures cover
+parent, child, and parent-result continuation over SSE and JSON while preserving actual tool-call/result pairs.
 
 OpenCode Go documents `gpt-5.6-luna` on `/zen/go/v1/responses` while sibling models use its Chat or
 Anthropic endpoints. The built-in preset therefore selects `openai-responses` only for Luna and
@@ -536,7 +536,7 @@ combo whose remaining eligible targets use other providers.
 capability ladders remove effort and thinking controls in every combo mode; adaptive mode also
 removes those controls for unknown ladders and preserves `reasoning.summary`. Known non-empty
 ladders retain the existing per-target effort resolution. This request normalization does not
-change target order, attempt accounting, or the existing provider-400 failover classification.
+change target order or attempt accounting; provider-400 decisions follow the [request-local target compatibility](../runtime.md#request-local-target-compatibility) contract.
 
 The shared Responses path follows the [bounded multipart recovery contract](../subagents.md#multipart-encrypted-task-recovery); credential admission and retry policy remain unchanged.
 
@@ -597,4 +597,4 @@ Translated Chat request construction uses the [inline-image budget](streaming-he
 
 The [explicit model-capability contract](../config.md#explicit-per-model-capability-declarations) preserves operator declarations through provider storage and catalog capture; it does not infer upstream capability or change this surface's routing behavior.
 
-Provider-scoped approval reviewer settings are projected by the [catalog owner](../catalog.md#provider-scoped-approval-reviewer); this surface retains its existing routing, transport and account-selection behavior.
+Provider-scoped approval reviewer settings are projected by the [catalog owner](../catalog.md#provider-scoped-approval-reviewer); this surface retains its existing routing, transport and account-selection behavior. Translated audio/file admission follows the [final-adapter input contract](../adapters/registry.md#untranslated-input-media); native raw passthrough remains separate.

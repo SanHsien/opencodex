@@ -20,18 +20,24 @@
  * maintainer's hub ended up with a management admin token in the data-plane variable, and the
  * service now provisions its own token, so re-adding the line would re-teach the incident.
  *
- * The maintained English and Traditional Chinese copies must carry the same runnable commands.
- * The locale block below pins those literal commands and error codes without reviving locales this
- * fork intentionally does not ship.
+ * Round one fixed the English source only, and the seven translated copies kept telling their
+ * readers to run the line that fails (#4200). That drift was unenforced because this oracle read
+ * one file. The locale-wide block below is the part that keeps the next English edit from
+ * silently leaving the translations behind; the markers it pins are commands and literal error
+ * codes, which survive translation, rather than prose a translator is supposed to rewrite.
  */
 import { describe, expect, test } from "bun:test";
 import { repoPath } from "../helpers/repo-root";
 
 const GUIDE = repoPath("docs-site/src/content/docs/guides/remote-hub.md");
 const ZH_TW_GUIDE = repoPath("docs-site/src/content/docs/zh-tw/guides/remote-hub.md");
+// Fork divergence: this fork ships English and Traditional Chinese only (FORK.md), so upstream's
+// list of seven translations asserts against files that are deliberately absent here. Narrowed
+// rather than deleted, because the drift this oracle exists to catch is still real for zh-tw.
+const TRANSLATED = ["zh-tw"] as const;
 const LOCALE_GUIDES: ReadonlyArray<readonly [string, string]> = [
   ["en", GUIDE],
-  ["zh-tw", ZH_TW_GUIDE],
+  ...TRANSLATED.map(locale => [locale, repoPath(`docs-site/src/content/docs/${locale}/guides/remote-hub.md`)] as const),
 ];
 
 describe("remote hub guide", () => {
@@ -102,7 +108,10 @@ describe("remote hub guide", () => {
 });
 
 /**
- * The one-port recipe (#4236) is enforced for each maintained locale.
+ * The one-port recipe (#4236). Upstream scopes this block to English and Korean, because Korean
+ * was the only translation that unit rewrote. This fork ships no Korean page (FORK.md), so the
+ * Traditional Chinese page takes that slot: it was brought up to the English source rather than
+ * left behind, which is what makes asserting against it meaningful instead of permanently red.
  */
 describe("the one-port hub recipe", () => {
   const LOCALES = [["en", GUIDE], ["zh-tw", ZH_TW_GUIDE]] as const;
@@ -168,8 +177,9 @@ describe("the one-port hub recipe", () => {
 });
 
 describe("remote hub guide translations", () => {
-  // Every maintained locale is checked against the same expectations as the source, including
-  // English itself. This prevents an English edit from quietly redefining the zh-TW contract.
+  // Every locale is checked against the SAME expectations as the source, including "en" itself.
+  // Putting English in the list is deliberate: it means a future English edit that drops one of
+  // these markers fails here too, instead of quietly redefining what the locales owe.
   for (const [locale, path] of LOCALE_GUIDES) {
     describe(locale, () => {
       test("no nested config set runs before its parent object exists", async () => {

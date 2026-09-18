@@ -96,6 +96,10 @@ Devin CLI credential path composition in `src/oauth/devin/cli-import.ts` follows
 Provider-scoped catalog hints remain isolated by provider in `src/providers/registry.ts`. The
 OpenCode Go `deepseek-v4.1-flash` 1,048,576-token context hint does not change xAI model metadata or
 transport behavior.
+The first-party DeepSeek `deepseek-flash` native `text`/`image` declaration is likewise scoped to
+the DeepSeek provider and does not alter xAI metadata or transport behavior; explicit capability
+overrides remain authoritative. First-party `deepseek-chat`, `deepseek-reasoner`, and
+`deepseek-v4-flash` remain sidecar-backed by default. Zen routes are unchanged and unprobed here.
 
 Native Chat applies qualifying effort ceilings independently of model pins; pin selection precedes the cap and only pins or cap rewrites enter wire mapping. The [catalog effort contract](../catalog.md#ultra-reasoning-level) records the V1/compaction exemptions and caller-preservation boundary.
 
@@ -132,3 +136,5 @@ Pool quota producers and account commands follow the [bounded raw-observation co
 Account quota surfaces use [safe probe diagnostics](../transports/inventory.md#account-quota-failure-diagnostics) separately from quota validity, credential health and routing authority.
 
 Live sideband admission and its bounded upstream handshake follow the [runtime contract](../runtime.md#live-sideband-handshake); the ordinary Responses WebSocket exchange remains separate.
+
+Translated audio/file admission follows the [final-adapter input contract](../adapters/registry.md#untranslated-input-media); native raw passthrough remains separate.

@@ -7,7 +7,10 @@ import { repoPath } from "../helpers/repo-root";
  * and the pool login surface is never touched for __main__.
  */
 
-const LOCALES = ["en", "de", "fr", "ja", "ko", "ru", "tr", "zh", "zh-TW"] as const;
+// "every shipped locale" is fork-relative: this fork ships English and Traditional Chinese only
+// (FORK.md), and the other seven i18n catalogs are deleted, not merely untranslated. Same
+// narrowing the fork already applies in gui/tests/locale-parity.test.ts.
+const LOCALES = ["en", "zh-TW"] as const;
 const NEW_KEYS = [
   "codexAuth.mainReauthDevice",
   "codexAuth.mainReauthPending",

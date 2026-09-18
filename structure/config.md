@@ -3,6 +3,10 @@
 The configuration-only [plaintext V2 contract](subagents.md#plaintext-v2-agent-messages)
 is scoped to canonical ChatGPT Responses forwarding; other source-area behavior described here is unchanged.
 
+Connected-client catalog diagnostics use the [terminal rendering contract](runtime.md#cli-readiness-diagnostics) on the first connection and on every `ocx sync` refresh; stored catalog values are unchanged.
+
+Hub management ingress also selects the [local dashboard address](runtime.md#hub-management-dashboard-address) using its configured port.
+
 ## Config surface
 
 ### OpenCodex home and live process state
@@ -158,13 +162,37 @@ journal creation, and the background history restoration guardian.
 `ocx sync` and `ocx restore back` run the injector's non-writing preflight before provider
 discovery or catalog/cache replacement. Deterministic config and ownership refusals therefore
 leave the existing catalog and cache untouched, and their concrete messages are emitted on stderr.
-One refusal is deliberately not terminal for an explicit `ocx sync`. When the preflight reports
-`history_paginated_requires_native_writer`, the refusal itself stands — config and conversation
-files are not touched — but the catalog and models cache still refresh through their existing
-owner, and the sync reports `catalog-only`. An explicit sync is also the refresh path for side
-profiles that read the OpenCodex catalog without injection, and a home whose history simply
-requires its native writer is not a reason to let their model list go stale. Unattended sync,
-`POST /api/sync`, and every other config or ownership refusal keep the hard failure above.
+Exactly one conversation-history refusal scopes the relabel unit instead of vetoing the apply
+transition, and only because it is permanent. Codex allocates paginated rollout ordinals inside
+its own writer, so `history_paginated_requires_native_writer` is not retryable: the transition
+writes config, profile, and `model_catalog_json`, the relabel job is skipped without spawning
+its Worker, and the reason travels in the human message and in the structured
+`historyPreflightFailureReason` field *alongside* `success: true`. Every other reason — an
+unreadable state database, a rollout whose identity changed, a preflight that could not run —
+describes a store that may be relabelable on the next attempt, so those keep the hard refusal
+and the compensating rollback. Recording them as a stand-down would mark the transition
+converged and suppress the relabel permanently.
+
+Standing the relabel down changes what the routing form may retire. Rows this home tagged
+`opencodex` resolve only through a `[model_providers.opencodex]` table; the loopback form
+normally retires that table precisely because the relabel migrates those rows back to `openai`
+in the same pass. With the relabel stood down, a table the home already published survives the
+write, so those conversations keep a provider id that exists. Paginated rollout bytes and thread
+rows are never modified in this state.
+
+Treating the refusal as a veto is what made every current Codex home unusable: paginated
+rollouts refuse unconditionally, so `model_catalog_json` never reached config.toml and both the
+app and the CLI fell back to their built-in model list. `ocx sync` reported success anyway,
+because that reason was special-cased into a `catalog-only` result — the downgrade is gone, so a
+refusal that survives is a real config or integrity failure again.
+
+Restore and removal keep the refusal. There the argument reverses: stripping the provider
+definition while its threads still point at it would orphan them, and those paths have no seam
+for keeping a compatibility table. A home that was already paginated therefore cannot yet be
+uninstalled through the product; that is tracked as open work, not as settled contract.
+
+Unattended sync, `POST /api/sync`, and every other config or ownership refusal keep the hard
+failure above.
 The real injection still revalidates under its normal write boundary after catalog convergence;
 the preflight is an early no-write guard, not an authorization token for a later write.
 
@@ -223,6 +251,9 @@ the residual directory for manual review; there is no recursive-delete fallback.
 The connection's `tokenFingerprint` participates in
 [`ocx status` credential binding](runtime.md#remote-hub-status-credential-binding).
 
+Client catalog readiness observes the selected Codex runtime without creating or rewriting
+`codex-runtime.json`; general status reuses its already-resolved command under the [runtime contract](runtime.md#remote-hub-hardening-ownership).
+
 Client connection metadata stores a stable `apiKeyId` and a non-secret rotation `pendingOperation`. The current data secret remains only in `service-api-token`; a bounded rotation temporarily keeps the old secret in owner-only `service-api-token.prev`. Commit or recovery clears the marker before orphan cleanup. `ocx disconnect` is local-only and leaves remote revocation to the hub's **Integrations → API Keys** page. Hub and local usage stores are not mirrored.
 
 Codex display-cache expiry, retained main-policy evidence, and reset history follow the
@@ -273,3 +304,7 @@ Display-name validation retains prototype-shaped model IDs as data; reviewer-tar
 `modelCapabilities` on `src/types/provider.ts` stores exact model-ID entries with optional inputModalities, contextTier and video.processing axes. `src/config/provider-validation.ts` strictly validates writes and merges PATCH axes without sharing live objects; null map/model/axis/processing tombstones delete, while empty PATCH objects do nothing. Complete POST/PUT replacements reject tombstones. File reads retain valid axes; malformed explicit modalities restrict to text with a diagnostic. The two catalog writers receive explicit config and gather fingerprints include the map. This storage contract alone does not activate a context tier, advertise a larger window or enable video processing.
 
 The text-only consumer reads exact inputModalities declarations before legacy hints. CLI add/edit `--text-only` targets one model and preserves sibling declarations; `src/vision/eligibility.ts` routes declared text-only models into existing image-description or explicit-omission handling. Positive routed image declarations override stale candidate metadata, while native catalog authority retains its existing legacy policy.
+
+## Catalog auto-refresh
+
+`catalogAutoRefresh` on `src/types/config.ts` stores an optional `enabled` / `intervalMinutes` section that defaults off: an absent key, an explicit false, and a malformed value all leave the scheduler dormant. `src/config.ts` resolves the cadence; an explicit `intervalMinutes: 0` keeps the unref'd timer idle, and any other value is clamped up to 15 minutes because upstream `/models` caches have not moved below that and a shorter tick only multiplies rate-limit exposure. `src/codex/catalog-auto-refresh.ts` is the module-singleton interval `src/server/background-lifecycle.ts` starts beside the quota reset poller; a tick that is enabled and non-dormant drives the same catalog-only converge funnel management mutations drive. The last-outcome record lives in `src/codex/catalog-refresh-status.ts` (when the tick finished, the normalized `CatalogDisposition`, whether the served model set changed, consecutive failures) and carries no provider or account detail.

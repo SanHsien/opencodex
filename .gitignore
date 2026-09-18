@@ -67,8 +67,8 @@ tests/.tmp-*
 # tests/repo-hygiene.test.ts, which fails if any path here becomes tracked again.
 go/
 
-# SanHsien fork generated reports
-upstream-review-report.md
-
 # Rust native helpers keep their reproducible sources and lockfile in git, never local artifacts.
 native/**/target/
+
+# SanHsien fork generated reports
+upstream-review-report.md

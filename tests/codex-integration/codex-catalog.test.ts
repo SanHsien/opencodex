@@ -4062,14 +4062,14 @@ describe("Codex catalog routed normalization", () => {
   });
 
   test.each([
-    { name: "YYLJ", adapter: "openai-responses", baseUrl: "https://gateway.example.test/v1", authMode: "key", modelId: "gpt-6-astra" },
-    { name: "openai", adapter: "openai-responses", baseUrl: "https://gateway.example.test/v1", authMode: "forward", modelId: "gpt-6-astra" },
-    { name: "openai", adapter: "openai-responses", baseUrl: "https://chatgpt.com/backend-api/codex", authMode: "key", modelId: "gpt-6-astra" },
-    { name: "openai", adapter: "openai-chat", baseUrl: "https://chatgpt.com/backend-api/codex", authMode: "key", modelId: "gpt-6-astra" },
-    { name: "openai-apikey", adapter: "openai-responses", baseUrl: "https://api.openai.com/v1", authMode: "key", modelId: "gpt-6-astra" },
-    { name: "openai", adapter: "openai-responses", baseUrl: "https://chatgpt.com/backend-api/codex", authMode: "forward", modelId: "gpt-unproven" },
-  ] satisfies Array<{ name: string; adapter: OcxProviderConfig["adapter"]; baseUrl: string; authMode: OcxProviderConfig["authMode"]; modelId: string }>)(
-    "custom $name/$modelId does not infer native effort capability from $baseUrl / $authMode / $adapter",
+    { name: "YYLJ", adapter: "openai-responses", baseUrl: "https://gateway.example.test/v1", authMode: "key", modelId: "gpt-6-astra", efforts: ["low"], defaultEffort: "low", catalogEfforts: ["low"] },
+    { name: "openai", adapter: "openai-responses", baseUrl: "https://gateway.example.test/v1", authMode: "forward", modelId: "gpt-6-astra", efforts: ["low"], defaultEffort: "low", catalogEfforts: ["low"] },
+    { name: "openai", adapter: "openai-responses", baseUrl: "https://chatgpt.com/backend-api/codex", authMode: "key", modelId: "gpt-6-astra", efforts: ["low"], defaultEffort: "low", catalogEfforts: ["low"] },
+    { name: "openai", adapter: "openai-chat", baseUrl: "https://chatgpt.com/backend-api/codex", authMode: "key", modelId: "gpt-6-astra", efforts: ["low"], defaultEffort: "low", catalogEfforts: ["low"] },
+    { name: "openai-apikey", adapter: "openai-responses", baseUrl: "https://api.openai.com/v1", authMode: "key", modelId: "gpt-6-astra", efforts: ["low"], defaultEffort: "low", catalogEfforts: ["low"] },
+    { name: "openai", adapter: "openai-responses", baseUrl: "https://chatgpt.com/backend-api/codex", authMode: "forward", modelId: "gpt-unproven", efforts: ["none", "minimal", "low"], defaultEffort: "minimal", catalogEfforts: ["none", "minimal", "low", "max", "ultra"] },
+  ] satisfies Array<{ name: string; adapter: OcxProviderConfig["adapter"]; baseUrl: string; authMode: OcxProviderConfig["authMode"]; modelId: string; efforts: string[]; defaultEffort: string; catalogEfforts: string[] }>)(
+    "custom $name/$modelId does not inherit native identity from $baseUrl / $authMode / $adapter",
     async fixture => {
       const models = await gatherRoutedModels({
         port: 10100,
@@ -4079,14 +4079,41 @@ describe("Codex catalog routed normalization", () => {
       });
       const custom = models.find(row => row.provider === fixture.name && row.id === fixture.modelId);
       expect(custom?.codexForwardNativeCapabilityAlias).toBeUndefined();
-      expect(custom?.reasoningEfforts).toEqual(["none", "minimal", "low"]);
-      expect(custom?.defaultReasoningEffort).toBe("minimal");
+      expect(custom?.reasoningEfforts).toEqual(fixture.efforts);
+      expect(custom?.defaultReasoningEffort).toBe(fixture.defaultEffort);
       const entries = buildCatalogEntries(nativeTemplate(), [], models);
       const row = entries.find(entry => entry.slug === `${fixture.name}/${fixture.modelId}`);
-      expect(row ? catalogEntryEfforts(row) : undefined)
-        .toEqual(["none", "minimal", "low", "max", "ultra"]);
+      expect(row ? catalogEntryEfforts(row) : undefined).toEqual(fixture.catalogEfforts);
+      expect(row?.use_responses_lite).toBeUndefined();
+      expect(row?.multi_agent_version).toBeUndefined();
     },
   );
+
+  test("gateway custom Astra bounds catalog efforts without native identity (#3775)", async () => {
+    const config = {
+      port: 10100,
+      defaultProvider: "YYLJ",
+      providers: { YYLJ: { adapter: "openai-responses" as const, baseUrl: "https://gateway.example.test/v1", authMode: "key" as const, liveModels: false, models: ["gpt-6-astra"] } },
+      customModels: [{
+        id: "yylj-astra",
+        provider: "YYLJ",
+        modelId: "gpt-6-astra",
+        reasoningEfforts: ["none", "minimal", "low", "medium", "high", "xhigh", "max"],
+        defaultReasoningEffort: "minimal",
+      }],
+    };
+    const beforeConfig = JSON.stringify(config);
+    const models = await gatherRoutedModels(config);
+    const custom = models.find(row => row.provider === "YYLJ" && row.id === "gpt-6-astra");
+    expect(custom?.codexForwardNativeCapabilityAlias).toBeUndefined();
+    expect(custom?.reasoningEfforts).toEqual(["low", "medium", "high", "xhigh", "max"]);
+    expect(custom?.defaultReasoningEffort).toBe("low");
+    const row = buildCatalogEntries(nativeTemplate(), [], models).find(entry => entry.slug === "YYLJ/gpt-6-astra");
+    expect(row ? catalogEntryEfforts(row) : undefined).toEqual(["low", "medium", "high", "xhigh", "max"]);
+    expect(row?.default_reasoning_level).toBe("low");
+    expect(row?.use_responses_lite).toBeUndefined();
+    expect(JSON.stringify(config)).toBe(beforeConfig);
+  });
 
   test("fresh none-only custom rows keep their ladder while retained provider rows still gain max", async () => {
     const models = await gatherRoutedModels({

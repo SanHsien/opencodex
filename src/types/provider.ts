@@ -87,11 +87,11 @@ export interface RateLimitRetryPolicy {
 }
 
 /**
- * Backend ids admitted by `providers.<name>.webSearchBridge.backend`. Only `"ollama"` has a
- * shipped executor; every other id is explicit-only and inert, the same contract the top-level
- * `webSearchSidecar` uses for backends whose executor has not landed. Naming one of them keeps
- * the bridge disarmed rather than silently falling back to a different search provider — in
- * particular it never auto-selects a paid Luna or Exa search.
+ * Backend ids admitted by `providers.<name>.webSearchBridge.backend`. Each id is explicit-only:
+ * an omitted backend keeps the bridge disarmed rather than silently falling back to a paid
+ * Luna or Exa search. `ollama` spends this provider's API key on the search endpoint.
+ * `openai` / `anthropic` / `xai` / `gemini` / `exa` reuse the matching sidecar executor and
+ * that executor's own credential; a missing credential leaves the bridge disarmed.
  */
 export const PROVIDER_WEB_SEARCH_BRIDGE_BACKENDS = [
   "ollama",
@@ -118,6 +118,7 @@ export type ProviderWebSearchBridgeBackend = typeof PROVIDER_WEB_SEARCH_BRIDGE_B
  *
  * Never armed for `authMode: "forward"` (ChatGPT) or for a provider that executes hosted search
  * upstream; see `planPassthroughWebSearchBridge` in `src/web-search/passthrough-bridge.ts`.
+ * A mixed `web_search` + client tool call still fails closed. Assistant text is not a search call.
  */
 export interface ProviderWebSearchBridgeConfig {
   /** Master switch. Absent or false keeps today's relay-and-fail behavior exactly. */

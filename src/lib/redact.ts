@@ -287,7 +287,12 @@ export function sanitizeLogMetadataString(value: unknown, maxLength = 64): strin
   if (typeof value !== "string" || !Number.isInteger(maxLength) || maxLength < 1) return undefined;
   // Remove every control/line-separator code point that common terminals and log viewers
   // can render as a record boundary before the value reaches a single-line log field.
-  const filtered = value.trim().replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, "");
+  //
+  // `\n` and `\r` fall inside `\u0000-\u001f` already; they are also spelled out
+  // because that is the form a static analyzer recognizes as a line-break barrier. Without them
+  // every caller that DOES sanitize still reports as log injection, and a real one is lost in
+  // that noise.
+  const filtered = value.trim().replace(/[\n\r\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, "");
   if (!filtered) return undefined;
   const redacted = redactSecretString(filtered).trim();
   return redacted ? redacted.slice(0, maxLength) : undefined;

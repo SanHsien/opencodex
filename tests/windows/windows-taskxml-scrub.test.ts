@@ -6,10 +6,12 @@
  * check" -- so a comment that survives the scrub is a check passing on XML the
  * operator never wrote.
  *
- * A single pass does not hold that line. Removing a span splices its neighbours
- * together, so a nested comment reconstitutes one that was not there before the
- * pass ran. CodeQL flagged this as js/incomplete-multi-character-sanitization; these
- * are the inputs that make the difference observable rather than theoretical.
+ * Regex replacement does not hold that line. Removing a span splices its neighbours
+ * together, so a decoy reconstitutes a comment that was not there before the pass ran,
+ * and repeating the pass only moves the problem one layer along. CodeQL flagged this as
+ * js/incomplete-multi-character-sanitization. The scrub is a left-to-right scan instead,
+ * and refuses outright on any input whose surviving spans still form an opener; these
+ * are the cases that make the difference observable rather than theoretical.
  */
 import { describe, expect, test } from "bun:test";
 import { taskXmlWithoutCommentsAndCdata } from "../../src/service/windows-taskxml";
@@ -26,22 +28,26 @@ describe("task XML comment and CDATA scrub", () => {
   });
 
   test("a nested comment yields no element, even though a bare delimiter remains", () => {
-    // The non-greedy match runs from the first `<!--` to the first `-->`, so this input
-    // settles at `<Task> --></Task>` and stays there. That is the correct outcome and not
-    // what the loop is for: a stray `-->` is text, and taskXmlSection reads elements. The
-    // property that matters is that nothing which was inside a comment comes back as one.
+    // A parser ends the comment at the first `-->`, so this input settles at
+    // `<Task> --></Task>`. That is the correct outcome: a stray `-->` is text, and
+    // taskXmlSection reads elements. The property that matters is that nothing which
+    // was inside a comment comes back out of it.
     const scrubbed = taskXmlWithoutCommentsAndCdata("<Task><!--<!--<Triggers><LogonTrigger/></Triggers>--> --></Task>");
     expect(scrubbed).not.toContain("<Triggers>");
     expect(scrubbed).not.toContain("<LogonTrigger/>");
   });
 
-  test("a decoy that only forms after the first pass is still removed", () => {
-    // `<!-` + `-<Triggers/>-` + `->` is not a comment until the inner span between them
-    // is deleted. A single-pass scrub hands the caller a Triggers element that was
-    // commented out in the source.
-    const scrubbed = taskXmlWithoutCommentsAndCdata("<Task><!-<![CDATA[x]]>-<Triggers/>-<![CDATA[y]]>-></Task>");
-    expect(scrubbed).not.toContain("<!-");
-    expect(scrubbed).not.toContain("->");
+  test("a decoy that only forms once the CDATA between its halves is dropped is refused", () => {
+    // `<!-` + `-<Triggers/>-` + `->` is not a comment until the CDATA between the halves
+    // is deleted. Removing it would hand the caller a Triggers element that the source
+    // had commented out, so the scrub returns nothing instead of a repaired string.
+    expect(taskXmlWithoutCommentsAndCdata("<Task><!-<![CDATA[x]]>-<Triggers/>-<![CDATA[y]]>-></Task>")).toBe("");
+  });
+
+  test("an unterminated opener swallows the rest of the document", () => {
+    // Everything after `<!--` is inside the comment as far as a parser is concerned, so
+    // no element behind it may be read as if the operator had registered it.
+    expect(taskXmlWithoutCommentsAndCdata("<Task><!-- <Triggers><LogonTrigger/></Triggers></Task>")).toBe("<Task>");
   });
 
   test("CDATA hidden inside a comment does not resurface", () => {
@@ -54,9 +60,9 @@ describe("task XML comment and CDATA scrub", () => {
     expect(taskXmlWithoutCommentsAndCdata(xml)).toBe(xml);
   });
 
-  test("the pass cap bounds a pathological input instead of hanging", () => {
-    // Deeply nested openers shrink by one layer per pass. The function must return
-    // rather than loop, even when the cap stops it before the string is fully clean.
+  test("a deeply nested input is linear, not a slow path", () => {
+    // 500 openers against 500 closers is the shape that made the replacement loop
+    // quadratic. One left-to-right scan visits each character a bounded number of times.
     const start = Date.now();
     const result = taskXmlWithoutCommentsAndCdata(`${"<!--".repeat(500)}x${"-->".repeat(500)}`);
     expect(typeof result).toBe("string");

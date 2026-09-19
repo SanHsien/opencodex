@@ -1,3 +1,4 @@
+import { sanitizeLogMetadataString } from "../../lib/redact";
 import { MAX_CLIENT_SSE_FRAME_BYTES } from "../sse-frame-buffer";
 import { isSafeResponseHeader } from "../safe-response-headers";
 import { CodexWsMetadata, type CodexWsQuotaObserver } from "./codex-ws-metadata";
@@ -218,7 +219,15 @@ export function codexWsExchange(options: ExchangeOptions): Promise<Response> {
         cleanup();
         try { controller?.close(); } catch { /* unused stream already closed */ }
         session.dispose();
-        const message = error instanceof Error ? error.message : String(error);
+        // The failure message is a stage record this module authors, and the client parses it
+        // to reach the same verdict the direct path would. Most of what lands here is exactly
+        // that -- but not all of it: metadata.consume and correlation.accept parse UPSTREAM
+        // payloads, so a throw from inside them can carry upstream text, and an upstream that
+        // echoes a credential back in an error would put it in a body this proxy hands to its
+        // own client. Redact, flatten to one line, and bound the length; the authored sentences
+        // are short and survive untouched.
+        const raw = error instanceof Error ? error.message : String(error);
+        const message = sanitizeLogMetadataString(raw, 400) ?? "codex websocket relay failed";
         const failureResponse = codexWsPreResponseFailure(status, message, prelude);
         markCodexWsStage(failureResponse, stageRecord(Buffer.byteLength(frameText, "utf8")));
         resolve(failureResponse);

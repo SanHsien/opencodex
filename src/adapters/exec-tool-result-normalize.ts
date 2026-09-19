@@ -12,7 +12,7 @@
  */
 
 /**
- * Matches exec wrappers whose only payload is an empty-output marker.
+ * Header lines of an exec wrapper whose only payload is an empty-output marker.
  *
  * `Script failed` is deliberately NOT in this set. A failed cell with no captured output is still
  * a FAILURE, and the success guidance below ("not a blocked tool", "do not re-run") would erase the
@@ -21,7 +21,40 @@
  * `isFailedEmptyExecWrapper` below for Computer Use, where a failed wrapper is separately marked
  * `isError`.
  */
-export const EMPTY_EXEC_OUTPUT_REGEX = /^(?:(?:Script completed|Command finished|Execution finished)[^\n]*\n+)?(?:Wall time[^\n]*\n+)?(?:Output:\s*)?(?:<empty>)?\s*$/;
+const EXEC_WRAPPER_HEADERS = ["Script completed", "Command finished", "Execution finished"] as const;
+
+/** Drop one `<prefix>...\n` line plus any blank lines after it, or report that it is not there. */
+function afterWrapperLine(text: string, prefix: string): string | undefined {
+  if (!text.startsWith(prefix)) return undefined;
+  const newline = text.indexOf("\n");
+  if (newline < 0) return undefined;
+  let index = newline + 1;
+  while (text[index] === "\n") index += 1;
+  return text.slice(index);
+}
+
+/**
+ * True when `text` is an exec wrapper carrying no output.
+ *
+ * Read left to right rather than matched with one regex. The pattern this replaced ended
+ * `(?:Output:\s*)?(?:<empty>)?\s*$` — three ways to consume the same trailing whitespace — so a
+ * wrapper padded with tabs cost time quadratic in its length, and this text is provider output,
+ * not something this process produced.
+ */
+export function isEmptyExecOutputWrapper(text: string): boolean {
+  let rest = text;
+  for (const prefix of EXEC_WRAPPER_HEADERS) {
+    const next = afterWrapperLine(rest, prefix);
+    if (next !== undefined) {
+      rest = next;
+      break;
+    }
+  }
+  rest = afterWrapperLine(rest, "Wall time") ?? rest;
+  if (rest.startsWith("Output:")) rest = rest.slice("Output:".length).trimStart();
+  if (rest.startsWith("<empty>")) rest = rest.slice("<empty>".length);
+  return rest.trim() === "";
+}
 
 function skipFailedWrapperBlankSeparators(text: string, start: number): number {
   let index = start;
@@ -231,7 +264,7 @@ export function isEmptyExecToolResult(
   options: { toolName?: string; toolNamespace?: string } = {},
 ): boolean {
   return isCodexExecBridgeTool(options.toolName, options.toolNamespace)
-    && EMPTY_EXEC_OUTPUT_REGEX.test(text.trim());
+    && isEmptyExecOutputWrapper(text.trim());
 }
 
 /**
@@ -247,5 +280,5 @@ export function normalizeEmptyExecToolResultText(
   const trimmed = text.trim();
   // Failure first: a failed wrapper must never be described as an empty success.
   if (isFailedEmptyExecWrapper(trimmed)) return FAILED_EXEC_OUTPUT_MESSAGE;
-  return EMPTY_EXEC_OUTPUT_REGEX.test(trimmed) ? EMPTY_EXEC_OUTPUT_MESSAGE : undefined;
+  return isEmptyExecOutputWrapper(trimmed) ? EMPTY_EXEC_OUTPUT_MESSAGE : undefined;
 }

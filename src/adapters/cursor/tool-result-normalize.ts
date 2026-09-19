@@ -12,7 +12,7 @@
 import {
   CODE_MODE_HOST_RECOVERY_PREFIX,
   EMPTY_EXEC_OUTPUT_MESSAGE,
-  EMPTY_EXEC_OUTPUT_REGEX,
+  isEmptyExecOutputWrapper,
   FAILED_EXEC_OUTPUT_MESSAGE,
   annotateCodeModeHostFailure,
   isCodexCodeModeExecResult,
@@ -22,11 +22,11 @@ import {
 
 /**
  * Cursor treats a failed-but-empty wrapper as an empty result too (its Computer Use branch marks
- * such results `isError` separately). The shared success regex deliberately excludes
+ * such results `isError` separately). The shared success check deliberately excludes
  * `Script failed`, so restore that arm here rather than widening the shared one.
  */
 function isEmptyOrFailedExecWrapper(text: string): boolean {
-  return EMPTY_EXEC_OUTPUT_REGEX.test(text) || isFailedEmptyExecWrapper(text);
+  return isEmptyExecOutputWrapper(text) || isFailedEmptyExecWrapper(text);
 }
 
 const COMPUTER_USE_TOOL_NAMES = new Set([

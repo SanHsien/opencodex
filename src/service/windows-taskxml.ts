@@ -299,25 +299,42 @@ export function taskXmlSection(xml: string, tag: string): string {
 /**
  * Drop comments and CDATA so a commented-out decoy cannot satisfy any check.
  *
- * Repeat until the string stops changing. One pass is not enough, because
- * removing a span can splice its neighbours into a new one: `<!--<!--x-->-->`
- * loses the inner comment and leaves a bare `-->`, and `<!--a-->b<!--c-->`
- * arrangements can reconstitute a delimiter the first pass had split. Six
- * callers use this as the scrub before reading Triggers, Settings, Priority and
- * registration ownership, so a survivor here is a check that passes on XML the
- * operator never wrote.
+ * This scans left to right and copies only the spans outside a comment or CDATA
+ * section, the way a parser reads them. Repeated regex replacement cannot do the
+ * job: deleting a span splices its neighbours together, so `<!-` + `<![CDATA[x]]>`
+ * + `-<Triggers/>-` + `<![CDATA[y]]>` + `->` becomes a comment that was not in the
+ * input, and each extra pass can create the next one. Six callers use this as the
+ * scrub before reading Triggers, Settings, Priority and registration ownership, so
+ * a survivor here is a check that passes on XML the operator never wrote.
  *
- * Each pass strictly shortens the string or terminates, so the loop ends; the
- * cap is only there so a pathological input cannot make this the slow path.
+ * An unterminated opener swallows the rest: everything after it is inside the
+ * section as far as a parser is concerned.
+ *
+ * Concatenating the surviving spans can still put `<!-` next to `-`, which is why
+ * the result is checked before it is returned. Nothing schtasks emits does that;
+ * an input that does is one this module cannot reason about, so it yields a value
+ * no check can satisfy rather than a string with a comment still open in it.
  */
 export function taskXmlWithoutCommentsAndCdata(xml: string): string {
-  let current = xml;
-  for (let pass = 0; pass < 32; pass += 1) {
-    const next = current.replace(/<!--[\s\S]*?-->/g, "").replace(/<!\[CDATA\[[\s\S]*?\]\]>/g, "");
-    if (next === current) return current;
-    current = next;
+  let out = "";
+  let cursor = 0;
+  while (cursor < xml.length) {
+    const comment = xml.indexOf("<!--", cursor);
+    const cdata = xml.indexOf("<![CDATA[", cursor);
+    if (comment < 0 && cdata < 0) {
+      out += xml.slice(cursor);
+      break;
+    }
+    const isComment = comment >= 0 && (cdata < 0 || comment < cdata);
+    const start = isComment ? comment : cdata;
+    const opener = isComment ? "<!--" : "<![CDATA[";
+    const closer = isComment ? "-->" : "]]>";
+    out += xml.slice(cursor, start);
+    const end = xml.indexOf(closer, start + opener.length);
+    if (end < 0) break;
+    cursor = end + closer.length;
   }
-  return current;
+  return out.includes("<!--") || out.includes("<![CDATA[") ? "" : out;
 }
 
 /**

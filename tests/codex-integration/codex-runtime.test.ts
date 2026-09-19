@@ -1574,6 +1574,43 @@ describe("Codex App handover without PATH-wide discovery (issue 4204)", () => {
     expect(result.supersededDiscovered).toBeUndefined();
   });
 
+  test("a pin whose binary is gone is replaced by the newest runtime, not by PATH", () => {
+    // 4204 protects a pin that still resolves. This one does not exist any more,
+    // which Codex Desktop makes routine: it installs each build under its own
+    // content-hashed directory, so every auto-update deletes the recorded path.
+    // Falling back through priority order lands on whatever PATH exposes, and on
+    // a machine where that is an older build the result is a silent downgrade
+    // plus a warning -- the shape observed on 2026-09-19, where a pin at
+    // ...\cdef5aaf3e41ab53\codex.exe was replaced by ...\247581e40ee272fb\ and
+    // resolution dropped from 0.155.0-alpha.9.2 to a 0.150.0 binary on PATH.
+    const configDir = tempConfigDir();
+    const GONE = join(APP_ROOT, "0.140.0", "codex.exe");
+    const ON_PATH_DIR = "C:\\Users\\test\\AppData\\Local\\Programs\\OpenAI\\Codex\\bin";
+    writeFileSync(
+      join(configDir, "codex-runtime.json"),
+      JSON.stringify({
+        version: 1,
+        command: GONE,
+        source: "configured",
+        selectedVersion: "0.140.0",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        origin: "pinned",
+      }),
+    );
+
+    const result = resolveCodexRuntime({
+      ...appDeps(configDir),
+      // PATH offers the older binary; the App root offers the newer one. The
+      // pinned path is absent from existsSync entirely.
+      env: { LOCALAPPDATA: LOCAL_APP_DATA, PATH: ON_PATH_DIR },
+      discoverAlternatives: true,
+    });
+
+    expect(result.runtime.command).toBe(APP_EXE);
+    expect(result.runtime.version).toBe("0.153.4");
+    expect(result.replacedConfigured?.from.command).toBe(GONE);
+  });
+
   test("with no persisted record the early stop still skips the installed roots", () => {
     // Nothing to supersede means nothing to compare against, so the hot path
     // keeps its original cost: first valid candidate wins and the scan ends.

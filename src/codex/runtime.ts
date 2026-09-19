@@ -884,7 +884,33 @@ function resolveCodexRuntimeUncached(deps: ResolveCodexRuntimeDeps = {}): Resolv
         reason: failures.find(item => sameRuntimeCommand(item.command, persisted.command))?.reason
           ?? "configured runtime is no longer valid",
       };
-      // Keep priority-selected replacement (already in `selected`).
+      // The recorded runtime is gone, so replace it with the NEWEST valid
+      // candidate rather than the first in priority order.
+      //
+      // Issue 4204 says an explicit pin is the user's decision and must never be
+      // silently replaced. That rule is about a pin that still resolves. A pin
+      // whose binary no longer exists cannot be honoured at all, and priority
+      // order then prefers PATH over the versioned install roots -- which is a
+      // silent DOWNGRADE, not deference.
+      //
+      // Codex Desktop makes this the normal case, not an edge one: it installs
+      // each build under its own content-hashed directory, so every auto-update
+      // deletes the recorded path. Observed on 2026-09-19: the pin pointed at
+      // ...\Codex\bin\cdef5aaf3e41ab53\codex.exe, the update replaced it with
+      // ...\247581e40ee272fb\codex.exe (0.155.0-alpha.9.2), and resolution fell
+      // back to a 0.150.0 binary on PATH. `ocx doctor --fix-codex-runtime` then
+      // writes a fresh pin at the new hash, which the next update deletes again.
+      //
+      // Unknown versions are not evidence of an upgrade, so both sides must
+      // report a version before one can win; otherwise the priority-order pick
+      // stands.
+      const newestReplacement = valid
+        .filter(item =>
+          typeof item.version === "string"
+          && typeof selected.version === "string"
+          && compareCodexVersions(item.version, selected.version) > 0)
+        .sort((a, b) => compareCodexVersions(b.version, a.version))[0];
+      if (newestReplacement) selected = newestReplacement;
     } else if (!envValid && configuredStillValid) {
       // Stick to configured even when a later PATH entry is also valid.
       selected = valid.find(item => sameRuntimeCommand(item.command, persisted.command)) ?? selected;

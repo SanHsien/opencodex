@@ -143,8 +143,8 @@ Loopback 範例：
 
 真實值只會經由子程序環境傳遞。優先順序為 `OPENCODEX_API_AUTH_TOKEN`，再來是 hardened service token 檔，然後才是已設定的 API 金鑰——非 loopback 綁定需要後者。
 
-Loopback 綁定（預設的 `127.0.0.1`）不會驗證任何東西，所以 `{env:…}` 這個參考是無作用的，你可以讓這個變數保持未設定。它只有在 `hostname` 設定到 loopback 之外時才重要；見[遠端存取](/reference/configuration/#remote-access)。這把 admission key 是 opencodex 自己的，與
-[Providers](/guides/providers/) 底下設定的上游 provider key 無關。
+Loopback 綁定（預設的 `127.0.0.1`）不會驗證任何東西，所以 `{env:…}` 這個參考是無作用的，你可以讓這個變數保持未設定。它只有在 `hostname` 設定到 loopback 之外時才重要；見[遠端存取](/zh-tw/reference/configuration/#remote-access)。這把 admission key 是 opencodex 自己的，與
+[Providers](/zh-tw/guides/providers/) 底下設定的上游 provider key 無關。
 
 ## 還原
 

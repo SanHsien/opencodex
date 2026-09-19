@@ -216,7 +216,7 @@ canonical registry。Directory row 帶有明確的 `verification` 等級（`offi
 ## 新增 adapter
 
 在 `src/adapters/` 中實作 `ProviderAdapter`（參見
-[Adapters](/reference/adapters/)），在 `src/adapters/registry.ts` 中註冊它的 factory，並把
+[Adapters](/zh-tw/reference/adapters/)），在 `src/adapters/registry.ts` 中註冊它的 factory，並把
 輸出橋接成內部 `AdapterEvent`。`src/server/adapter-resolve.ts` 會在委派給 registry 之前選擇
 有效的協定。圖像處理請複用 `image.ts`；普通 streaming/tool call 以 `openai-chat.ts` 為參考。
 只有 adapter 自己負責 transport retry 時才使用 `fetchResponse`；Cursor 這類真正的雙向 transport

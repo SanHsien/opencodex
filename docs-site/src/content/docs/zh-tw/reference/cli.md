@@ -19,13 +19,13 @@ opencodex 的命令列工具是 `ocx`。它依第一個命令名稱分派，有�
 
 ### `ocx remote-workspace`
 
-`ocx remote-workspace pair <hub-url> --pairing-code-stdin --root <absolute-path>` 把本機電腦註冊為僅限 OCX 的 Executor。重複 `--root` 可核准更多資料夾，使用 `--name` 可覆寫主機名稱。重複 `--toolchain-root <absolute-directory>` 可在命令沙箱內以唯讀方式公開使用者自行安裝的 Node、Rust、Go 或其他工具鏈目錄。在 macOS 與 Windows 的私有 dogfood 建置上，`bun run build:remote-workspace-helper` 會建立 pair 命令自動探索到的 Rust 輔助程式；`--executor-helper <absolute-file>` 可選擇另一個經明確審查的建置，並把其 digest 釘選進本機 Executor 狀態。`ocx remote-workspace agent` 維持出站的加密連線；`ocx remote-workspace status [--json]` 回報 Hub、裝置、roots 與宣告的能力，不會印出其 bearer 或私鑰。詳見 [Remote Workspace](/guides/remote-workspace/)。
+`ocx remote-workspace pair <hub-url> --pairing-code-stdin --root <absolute-path>` 把本機電腦註冊為僅限 OCX 的 Executor。重複 `--root` 可核准更多資料夾，使用 `--name` 可覆寫主機名稱。重複 `--toolchain-root <absolute-directory>` 可在命令沙箱內以唯讀方式公開使用者自行安裝的 Node、Rust、Go 或其他工具鏈目錄。在 macOS 與 Windows 的私有 dogfood 建置上，`bun run build:remote-workspace-helper` 會建立 pair 命令自動探索到的 Rust 輔助程式；`--executor-helper <absolute-file>` 可選擇另一個經明確審查的建置，並把其 digest 釘選進本機 Executor 狀態。`ocx remote-workspace agent` 維持出站的加密連線；`ocx remote-workspace status [--json]` 回報 Hub、裝置、roots 與宣告的能力，不會印出其 bearer 或私鑰。詳見 [Remote Workspace](/zh-tw/guides/remote-workspace/)。
 
-- [生命週期](/reference/cli/lifecycle/) — 設定、代理與服務生命週期、健康狀態、
+- [生命週期](/zh-tw/reference/cli/lifecycle/) — 設定、代理與服務生命週期、健康狀態、
   診斷、目錄同步、儀表板與更新。
-- [Providers、帳號與模型](/reference/cli/providers-accounts/) — provider 設定、
+- [Providers、帳號與模型](/zh-tw/reference/cli/providers-accounts/) — provider 設定、
   認證、憑證池、配額、自訂模型、可見性、選定模型與 context 上限。
-- [Agents、路由與整合](/reference/cli/agents/) — multi-agent 控制、combos、
+- [Agents、路由與整合](/zh-tw/reference/cli/agents/) — multi-agent 控制、combos、
   可觀測性、admission key、用戶端整合、執行環境設定、已驗證的設定，以及唯讀的
   Codex CLI 更新檢查。
 

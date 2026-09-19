@@ -30,7 +30,7 @@ description: opencodex 進行身分驗證並與 LLM 供應商通訊的所有方�
 Luna Reserve 相容性是 canonical OpenAI forward 路徑上的 ChatGPT 帳號能力，不是 OpenAI API-key 的權益。
 它的手動 stored-main selector 需要有效的本機 authless Desktop 模式，以及目前 credential 綁定的上游
 權限；單靠 catalog entry 本身不能授權請求。設定、重新啟動順序、授權需求與不受支援的輔助工具，請見
-[Luna Reserve alongside routed models](/reference/cli/providers-accounts/#luna-reserve-alongside-routed-models)。
+[Luna Reserve alongside routed models](/zh-tw/reference/cli/providers-accounts/#luna-reserve-alongside-routed-models)。
 
 新增一個 quota 已用盡的帳號，並完成其延後驗證，請見
 [Codex account warmup](/zh-tw/guides/codex-integration/#codex-account-warmup)。

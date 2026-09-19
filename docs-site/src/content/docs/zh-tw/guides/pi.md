@@ -81,7 +81,7 @@ ocx export --client pi --json > ~/opencodex-pi-models.json   # 或重導向逐�
 | Key | 是什麼 | 位於何處 |
 | --- | --- | --- |
 | Proxy 准入 key | opencodex 自己的憑證，在儀表板的 **API** 分頁產生 | 由 `apiKey` 以 `$OPENCODEX_API_KEY` 參照；值留在你的環境中 |
-| Provider key | 你的 Anthropic / OpenAI / OpenRouter key | opencodex 自己的設定，見[Providers](/guides/providers/) |
+| Provider key | 你的 Anthropic / OpenAI / OpenRouter key | opencodex 自己的設定，見[Providers](/zh-tw/guides/providers/) |
 
 匯出的設定只帶參考，絕不帶密鑰。Pi 會內插一個裸的 `$NAME`，所以這個變數是：
 
@@ -90,12 +90,12 @@ export OPENCODEX_API_KEY=<your key>
 ```
 
 那個名稱只屬於 Pi。opencode 使用不同的變數
-（`OPENCODEX_OPENCODE_API_KEY`，以 `{env:…}` 形式）——見 [opencode 指南](/guides/opencode/)。
+（`OPENCODEX_OPENCODE_API_KEY`，以 `{env:…}` 形式）——見 [opencode 指南](/zh-tw/guides/opencode/)。
 
 **回路 proxy 完全不需要 key。** opencodex 預設繫結 `127.0.0.1`，在那裡不驗證任何東西，
 所以 `$OPENCODEX_API_KEY` 這個參照是無作用的，你可以讓這個變數保持未設定。它只有在
 `hostname` 設定到回路之外時才重要——這也正是 proxy 在沒有 token 時會拒絕啟動的情況——見
-[遠端存取](/reference/configuration/#remote-access)。
+[遠端存取](/zh-tw/reference/configuration/#remote-access)。
 
 ## 模型中繼資料
 

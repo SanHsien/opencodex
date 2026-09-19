@@ -9,7 +9,7 @@ description: 多代理、組合、可觀測性、存取、整合、系統與設�
 
 ### `ocx agent <status|injection|effort|subagents|fallback|sidecar> ...`
 
-管理無頭多代理名冊、effort 上限、prompt 注入、fallback 與 sidecar 設定。使用 `status` 查看目前政策。關於介面模式、委派、effort 與 fallback 行為如何搭配運作，請見[子代理介面](/guides/sub-agent-surface/)。
+管理無頭多代理名冊、effort 上限、prompt 注入、fallback 與 sidecar 設定。使用 `status` 查看目前政策。關於介面模式、委派、effort 與 fallback 行為如何搭配運作，請見[子代理介面](/zh-tw/guides/sub-agent-surface/)。
 
 ```bash
 ocx agent subagents set ark/model-a,openai/gpt-5.5
@@ -45,7 +45,7 @@ ocx effort set --subagent -
 Status 會保留既有已儲存／執行階段的上限值，並在 `warnings` 中回報不受支援的值（沒有不支援值時
 為空陣列）。人類可讀輸出中會出現相同的警告，並指名被忽略的欄位以及對應的修正指令。Status 絕不會
 修復或改寫這些值。被忽略的子代理欄位不會移除有效的主要上限。`ocx effort clear` 會清除兩個上限，
-同時保留獨立的注入 effort 設定。關於上限適用的請求介面，請見[子代理介面](/guides/sub-agent-surface/)。
+同時保留獨立的注入 effort 設定。關於上限適用的請求介面，請見[子代理介面](/zh-tw/guides/sub-agent-surface/)。
 
 ### `ocx v2 <status|on|off|mode <v1|default|v2>|keep-native-v1 <on|off>|threads <n>|mode-hint <text|--clear>>`
 
@@ -107,7 +107,7 @@ OpenAI 模型 id。裸的 `gpt-5.6-*` 原生別名使用 Codex Pool/Direct 憑�
 維持獨立，而供應商限定的路由（如 `openai-apikey/gpt-5.6-*`）使用它們已設定的 API 金鑰，永不落回
 原生別名。啟用這組相容性設定前，請先閱讀指南中的安全性與可見性規範。
 
-關於路由行為與設定指引，請見[組合](/guides/combos/)。
+關於路由行為與設定指引，請見[組合](/zh-tw/guides/combos/)。
 
 ## 可觀測性與除錯
 
@@ -275,7 +275,7 @@ ZCode 造成的。
 `ocx export` 永不寫入你的真實客戶端設定。目的地僅印出供你手動合併，而 `--out` 在沒有 `--force` 時拒絕覆寫既有檔案，因為取代設定檔會毀掉其中已有的其他供應商、代理與 MCP 項目。
 :::
 
-金鑰永不被序列化。設定只帶有文件化的環境變數參考，或非秘密的 loopback 佔位符。loopback 代理（`127.0.0.1`，預設值）完全不需要准入金鑰。只有客戶端 schema 支援、且代理綁定超出 loopback 時，才設定被引用的變數；關於准入金鑰的簽發方式，請見[遠端存取](/reference/configuration/#remote-access)。上游 provider 本身的金鑰是完全不同的事，依[供應商](/guides/providers/)個別設定。
+金鑰永不被序列化。設定只帶有文件化的環境變數參考，或非秘密的 loopback 佔位符。loopback 代理（`127.0.0.1`，預設值）完全不需要准入金鑰。只有客戶端 schema 支援、且代理綁定超出 loopback 時，才設定被引用的變數；關於准入金鑰的簽發方式，請見[遠端存取](/zh-tw/reference/configuration/#remote-access)。上游 provider 本身的金鑰是完全不同的事，依[供應商](/zh-tw/guides/providers/)個別設定。
 
 gjc 是例外：`OPENCODEX_GAJAE_API_KEY` 只會從環境提供 provider 憑證，但其 schema 無法傳送遠端准入 header，因此產生的 gjc 整合仍僅支援 loopback。
 

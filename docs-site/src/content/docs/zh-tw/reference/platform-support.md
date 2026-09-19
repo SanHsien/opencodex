@@ -20,7 +20,7 @@ OpenCodex 可在 macOS、Windows 與 Linux 上執行。大部分功能在三個�
 三個平台都支援，**前提是有已解鎖的作業系統憑證服務**：macOS 上是
 Keychain，Windows 上是 Credential Manager，Linux 上是 libsecret。已鎖定的鑰匙圈
 或無頭工作階段沒有已解鎖的服務，此時儲存區就不可用，OpenCodex 會明講這一點，
-而不是悄悄退回其他方式。儲存規則見[供應商](/reference/configuration/providers/)。
+而不是悄悄退回其他方式。儲存規則見[供應商](/zh-tw/reference/configuration/providers/)。
 
 ## 僅限 macOS
 

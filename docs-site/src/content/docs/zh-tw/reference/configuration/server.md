@@ -26,8 +26,8 @@ description: 監聽器、遠端存取、許可金鑰、逾時、儲存、sidecar
 | `appOwnedMemoryBudgetMb?` | `number` | `256` | 以 MiB 為單位、可被驅逐的 app 擁有日誌、快取、blob 與 continuation payload 上限。範圍 64–4096；非 RSS 上限。 |
 | `codexAutoStart?` | `boolean` | `true` | 讓 Codex shim 在啟動 Codex 前執行 `ocx ensure`。False 使 ensure 為 no-op。 |
 | `codexShimAutoRestore?` | `boolean` | `true` | 在完成的外部 Codex 更新取代已安裝的 shim 後還原它。環境退出：`OPENCODEX_CODEX_SHIM_AUTO_RESTORE=0`。 |
-| `codexDesktopAuthless?` | `boolean` | `false` | 在回送綁定上選擇加入無驗證的 Codex Desktop 路由：注入專屬的 `opencodex` 供應商並設定 `requires_openai_auth = false`，讓 Desktop 不需要 ChatGPT 登入即可開啟。在非回送綁定上會被忽略。`ocx system settings --desktop-authless on`。詳見 [Codex 整合](/guides/codex-integration/#authless-codex-desktop-opt-in)。 |
-| `codexClientCompaction?` | `boolean` | `false` | 在已驗證的回送綁定上選擇加入 Codex 用戶端壓縮。使用專屬的 `opencodex` 供應商身分並設定 `requires_openai_auth = true`，防止新的路由壓縮儲存 OpenCodeX 擁有的 `ocx1:` 狀態。兩者都啟用時，`codexDesktopAuthless` 優先，並維持 `requires_openai_auth = false`。V2 子代理路由不受影響。`ocx system settings --client-compaction on`。詳見 [Codex 整合](/guides/codex-integration/#client-side-compaction-opt-in)。 |
+| `codexDesktopAuthless?` | `boolean` | `false` | 在回送綁定上選擇加入無驗證的 Codex Desktop 路由：注入專屬的 `opencodex` 供應商並設定 `requires_openai_auth = false`，讓 Desktop 不需要 ChatGPT 登入即可開啟。在非回送綁定上會被忽略。`ocx system settings --desktop-authless on`。詳見 [Codex 整合](/zh-tw/guides/codex-integration/#authless-codex-desktop-opt-in)。 |
+| `codexClientCompaction?` | `boolean` | `false` | 在已驗證的回送綁定上選擇加入 Codex 用戶端壓縮。使用專屬的 `opencodex` 供應商身分並設定 `requires_openai_auth = true`，防止新的路由壓縮儲存 OpenCodeX 擁有的 `ocx1:` 狀態。兩者都啟用時，`codexDesktopAuthless` 優先，並維持 `requires_openai_auth = false`。V2 子代理路由不受影響。`ocx system settings --client-compaction on`。詳見 [Codex 整合](/zh-tw/guides/codex-integration/#client-side-compaction-opt-in)。 |
 | `resetCreditAutoRedeem?` | `{ enabled?: boolean; leadTimeMinutes?: number }` | 關閉 | 選擇加入：在主要 Codex 帳號最快到期的 reset credit 過期前 `leadTimeMinutes` 分鐘（1–60，預設 10）兌換它。每次嘗試都會先重新讀取上游的 credit 清單，若該 credit 已消失（例如已被手動兌換）則跳過；呼叫前會先把 `redeem_request_id` 記錄到 `$OPENCODEX_HOME/reset-credit-auto-redeem.json`，因此當機後重播的是同一個冪等請求，而不會消耗第二個 credit。共享這個設定目錄的多個伺服器會協調保留與結算，避免一個行程覆寫另一個行程的請求紀錄。日誌只帶有經雜湊的帳號金鑰。 |
 | `syncResumeHistory?` | `boolean` | `true` | 可逆的 Codex App 歷史相容性。原始中繼資料由 `ocx stop` / `ocx restore` 備份並還原。 |
 | `shadowCallIntercept?` | `{ enabled?: boolean; model?: string; sourceModels?: string[] }` | off | 將識別的 Codex helper/shadow call 重定向到所選模型，並保留為請求設定的 reasoning effort。預設來源前綴為 `gpt-5.6-luna`；0.144.x 及更舊的客戶端使用 `gpt-5.4-mini`，可透過 `sourceModels` 恢復。 |
@@ -388,7 +388,7 @@ context 管理、容器、推論放置位置，以及不受支援的協定欄位
 GUI 設定項。Count-tokens 與直接的 Responses/Chat API 不受此政策影響；成功計數 token 不代表
 Messages 會被放行。這個設定不會新增全域的授權邊界。
 
-自動認證在找到已儲存的 Claude 認證時選擇訂閱，無認證時選擇 proxy，偵測不明確時選擇訂閱並附帶警告。請見[Claude Code 認證模式](/guides/claude-code/#auth-mode)。
+自動認證在找到已儲存的 Claude 認證時選擇訂閱，無認證時選擇 proxy，偵測不明確時選擇訂閱並附帶警告。請見[Claude Code 認證模式](/zh-tw/guides/claude-code/#auth-mode)。
 
 ## Shadow call
 

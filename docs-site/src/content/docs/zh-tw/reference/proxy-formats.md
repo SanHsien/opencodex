@@ -12,7 +12,7 @@ client dialect → internal Responses model → provider adapter → provider wi
 provider events → internal adapter events → client dialect
 ```
 
-Responses 表示是橋接的中心。原生相容的路由可跳過部分轉譯並 passthrough 請求，但認證、路由、許可控制與回應安全仍在代理邊界發生。在[設定](/reference/configuration/)中設定監聽器與許可金鑰；當一個公開模型 id 應在多個目標間選擇時使用[組合](/guides/combos/)。
+Responses 表示是橋接的中心。原生相容的路由可跳過部分轉譯並 passthrough 請求，但認證、路由、許可控制與回應安全仍在代理邊界發生。在[設定](/zh-tw/reference/configuration/)中設定監聽器與許可金鑰；當一個公開模型 id 應在多個目標間選擇時使用[組合](/zh-tw/guides/combos/)。
 
 ## 上游重新導向
 
@@ -388,7 +388,7 @@ user-agent。回應為 `{ "version": 1, "models": [...] }`，帶有 `Cache-Contr
 客戶端連線流程處理。輪換保留模型項目和選擇；CLI 的 `rotation` 區分 `committed` 與
 `rolled_back`。中斷會還原管理設定，或對已確認的舊設定檔回報標準回退，同時保留使用者欄位和
 後來有效的選擇。衝突或未完成的復原不會標為完成。需要重新啟動 Desktop 才會讀取磁碟變更；
-中斷不會自動撤銷 hub 金鑰。參見 [Claude Desktop 生命週期](/guides/claude-code/)。
+中斷不會自動撤銷 hub 金鑰。參見 [Claude Desktop 生命週期](/zh-tw/guides/claude-code/)。
 thinking 重播與提示快取仍由獨立的 [#3719](https://github.com/lidge-jun/opencodex/issues/3719) 跟進。
 
 ## `POST /v1/live` 與 Realtime sideband
@@ -451,7 +451,7 @@ call 建立與旁帶加入必須在同一個 OpenAI 帳號底下執行，否則�
 由 proxy 擁有（Pool 會用已儲存的帳號取代它們，Direct 會轉送已驗證的呼叫端 bearer），而一個
 API-key 供應商則使用它自己的 bearer。只有當 `experimental_realtime_ws_base_url` 指向 proxy 時，
 Codex 才會把加入請求送給它；`ocx start` 會把那個 key 注入在 `openai_base_url` 旁邊（見
-[Codex 整合](/guides/codex-integration/)）。
+[Codex 整合](/zh-tw/guides/codex-integration/)）。
 
 ## `POST /v1/responses/compact`
 
@@ -529,7 +529,7 @@ Responses 系列和 Chat 請求接受專用標頭或 Bearer 欄位中的代理�
 Claude replay 只會以目前 turn 已取得所有權的記憶體 snapshot 保留 main 憑證，並且僅在最終目標為正規 ChatGPT 路由時還原它。
 
 :::caution
-Data-plane 金鑰不是管理憑證。管理 API 使用獨立的管理秘密；請見[管理 API](/reference/management-api/)。絕不為兩個平面重用同一個秘密。
+Data-plane 金鑰不是管理憑證。管理 API 使用獨立的管理秘密；請見[管理 API](/zh-tw/reference/management-api/)。絕不為兩個平面重用同一個秘密。
 :::
 
 ## 常見錯誤詞彙
@@ -550,7 +550,7 @@ Anthropic 來源的失敗以 Anthropic 的錯誤封裝渲染，因此該方言�
 
 代理將真實的後端密文視為不透明。結構有效的密文被逐位元組保留：opencodex 不解密它、轉譯其內容，或為另一個供應商重新加密它。
 
-某些 agent hook 在歷史上曾將明文控制文字放入 `encrypted_content` 插槽。為相容性，代理將該明文分離為 text 部分，同時保留任何結構有效的 Fernet run 不變。若 `agent_message` 在該修復期間失去所有加密部分，它成為普通使用者訊息。若目前的 v2 task 保持真正加密但所選路由目標無法讀取原生 ChatGPT 密文，opencodex 以 `unreadable_encrypted_agent_task` 失敗，而非發送不可讀的位元組給該供應商。關於 worker task 周圍的客戶端行為，請見[子代理介面](/guides/sub-agent-surface/)。
+某些 agent hook 在歷史上曾將明文控制文字放入 `encrypted_content` 插槽。為相容性，代理將該明文分離為 text 部分，同時保留任何結構有效的 Fernet run 不變。若 `agent_message` 在該修復期間失去所有加密部分，它成為普通使用者訊息。若目前的 v2 task 保持真正加密但所選路由目標無法讀取原生 ChatGPT 密文，opencodex 以 `unreadable_encrypted_agent_task` 失敗，而非發送不可讀的位元組給該供應商。關於 worker task 周圍的客戶端行為，請見[子代理介面](/zh-tw/guides/sub-agent-surface/)。
 
 歷史紀錄也會被處理，而且處理方式不同，因為遺失一則被重播的訊息不應該終結一段對話。一則混合了
 可讀文字與後端密文的重播 `agent_message`，無法被降級成一則公開訊息，所以一個路由過的 Responses

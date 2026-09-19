@@ -67,7 +67,7 @@ URL，也不代表不同 adapter 之間的配額消耗不同。既有的 BigMode
 內部的 `__main__`），或代表 Codex Desktop 帳號的 `"@main"`。供應商與保留字 `openai` / `combo` /
 `policy` 的衝突以不區分大小寫方式檢查；命名空間化的 combo 或路由設定檔別名不能把一個選擇器重複
 用作自己的命名空間前綴，已設定的池 id 或選擇器目標也不能重複使用某個選擇器。請保持原始帳號 id
-與電子郵件私密；選擇器才是公開名稱。精確選取行為與優先順序請見[路由設定](/reference/configuration/routing/)。
+與電子郵件私密；選擇器才是公開名稱。精確選取行為與優先順序請見[路由設定](/zh-tw/reference/configuration/routing/)。
 
 Codex Auth 儀表板控制項擁有帶明確 `codexAccountPickerEnabled` 欄位的 map。啟用一個空的受管
 map 會建立隱私安全的選擇器；之後新增帳號時，即使 picker 列仍隱藏，也會延伸該 map，且不會重新
@@ -205,7 +205,7 @@ API 列有 1,050,000 context、922,000 最大輸入、128,000 最大輸出、文
 列，其模型 id 帶有釘選的原生 Codex 能力（包括在任意閘道上的 Astra 或 Daybreak）時，它廣告的清單
 會與該模型釘選的原生能力取交集。完整的原生身分仍需要規範的 `openai` Codex-forward 目的地。明確
 設為空清單時仍維持空清單，不套用預設值；非空但不相容的清單會退回原生預設值作為唯一選項。預設值
-必須屬於最終清單。這改變的是目錄投影，不是儲存的設定。見[自訂原生目錄範例](/guides/codex-app-models/)。
+必須屬於最終清單。這改變的是目錄投影，不是儲存的設定。見[自訂原生目錄範例](/zh-tw/guides/codex-app-models/)。
 
 ### 手動釘選的 reasoning effort
 
@@ -236,7 +236,7 @@ API 列有 1,050,000 context、922,000 最大輸入、128,000 最大輸出、文
 
 Codex 會從目前回合模型的目錄列讀取 `auto_review_model_override`，以選擇審查核准請求的模型。
 `$CODEX_HOME/config.toml` 根層級的 `auto_review_model` 設定會為每一個目錄列套用同一個審查者；
-下面這些供應商範圍的欄位會針對個別供應商覆寫它。[供應商指南](/guides/providers/#approval-reviewer-per-provider)
+下面這些供應商範圍的欄位會針對個別供應商覆寫它。[供應商指南](/zh-tw/guides/providers/#approval-reviewer-per-provider)
 有維運方的操作流程與一個實作範例。
 
 `autoReviewModel` 是供應商範圍的審查目標。值可以是同一供應商的裸模型 id（目錄列會被正規化為
@@ -418,7 +418,7 @@ priority 倍率因上游而異，這裡不會內建。當 priority 已確認，�
 儀表板會保留標準價格估算作為一個有文件記載的下限，並加上 `≥` 前綴；降級的嘗試沒有下限標記。
 
 API-key 供應商可以持有字面值金鑰或環境參考。OAuth 供應商使用由 `ocx login` 填入的憑證存放；
-訂閱支援的 Claude Code 啟動行為在 [`claudeCode.authMode`](/reference/configuration/server/#claude-code)
+訂閱支援的 Claude Code 啟動行為在 [`claudeCode.authMode`](/zh-tw/reference/configuration/server/#claude-code)
 下設定。
 
 OrcaRouter 明確地公開兩種形式：`orcarouter` 是手動 API-key 供應商，`orcarouter-oauth` 執行帶
@@ -429,7 +429,7 @@ S256 PKCE 的瀏覽器同意流程，再把回傳的持久 API 金鑰儲存為�
 登入之前**，請建立或更新 `providers["orcarouter-oauth"]`，帶上 `adapter: "openai-chat"`、你要的
 `baseUrl`、`authMode: "oauth"`，以及明確的 `allowPrivateNetwork: true`。登入會保留這個維運方設定，
 絕不會透過 URL 覆寫來授予它。沒有它時，目的地驗證會拒絕本機端點用於推論與模型探索。OAuth 瀏覽器
-回呼監聽器本身不需要這個供應商選擇加入。見 [OrcaRouter 設定範例](/guides/providers/)。
+回呼監聽器本身不需要這個供應商選擇加入。見 [OrcaRouter 設定範例](/zh-tw/guides/providers/)。
 
 ## 供應商診斷對外安全
 
@@ -557,7 +557,7 @@ Codex 池與 Anthropic 池被排除在外，維持各自的輪換；啟用這個
 - 提升的固定 API-key 預設，保留較舊的同名自訂目的地；以及
 - 不在 registry 中的供應商。
 
-Adapter 可在之後調整解析的 URL。例如 Kiro 遵循匯入憑證的 API 區域，用於規範 `runtime.{region}.kiro.dev`。請見 [Adapters](/reference/adapters/)。
+Adapter 可在之後調整解析的 URL。例如 Kiro 遵循匯入憑證的 API 區域，用於規範 `runtime.{region}.kiro.dev`。請見 [Adapters](/zh-tw/reference/adapters/)。
 
 當路由丟棄 `baseUrl` 時，opencodex 記錄 registry 端點與僅設定的來源；設定的路徑本身可能包含憑證。移除未使用的 URL 或選擇符合預期區域的供應商項目。`alibaba-token-plan` 被 pin 到北京，而
 `alibaba-token-plan-intl` 涵蓋國際端點。
@@ -719,7 +719,7 @@ ocx provider keychain deepseek restore   # 把明文金鑰搬回來，並刪除 
 
 何時不該選擇加入：以無頭服務（systemd、launchd、Task Scheduler）或容器方式執行的代理，通常沒有已解鎖的 keychain session，所以請求會 fail closed。在這種情況下，請改用服務環境中的 `${ENV_VAR}` 參考。環境變數參考不會被 `store` 動到。
 
-`zhipu-bigmodel-responses` 預設為 `https://open.bigmodel.cn/api/v1` 播種 `glm-5.3`、`glm-5.3-flash` 與 `glm-5-turbo`，並設定 `liveModels: false`。它的靜態名單與 per-model 的 context、effort 與摘要中繼資料，來自 [BigModel Responses 指南](/guides/providers/#bigmodel-coding-plan-over-responses)。官方的本機 `models.json` 範例不會建立一個即時的 `/models` API。
+`zhipu-bigmodel-responses` 預設為 `https://open.bigmodel.cn/api/v1` 播種 `glm-5.3`、`glm-5.3-flash` 與 `glm-5-turbo`，並設定 `liveModels: false`。它的靜態名單與 per-model 的 context、effort 與摘要中繼資料，來自 [BigModel Responses 指南](/zh-tw/guides/providers/#bigmodel-coding-plan-over-responses)。官方的本機 `models.json` 範例不會建立一個即時的 `/models` API。
 
 `liveModels: false` 時，若 `models` 為空或省略，會先播種已設定的 `defaultModel`，再接 `retainModels`；重複的 id 會被移除，同時保留首次出現的順序。明確設定的非空 `models` 清單則改為播種 `models` 後接 `retainModels`，不會隱含加入另一個 `defaultModel`。那個預設值仍可以明確寫進 `models` 或 `retainModels`。若這些欄位都沒有提供任何 id，靜態播種就是空的。這是播種順序，不是最終 picker 順序的保證。`selectedModels`、`disabledModels` 與供應商停用政策仍然適用。`authMode: "forward"` 保留它自己獨立的分支，不使用這個路由過的靜態播種。這些規則不會改變即時探索失敗時的後備行為。
 
@@ -806,11 +806,11 @@ opencodex 路由到 OpenCode Go 目的地的每一個請求都帶有 `x-opencode
 
 Go 目錄列會精確保留它們設定的 reasoning effort，包括在目錄同步期間。OpenCodex 不會為這些列附加合成的 `max` 或 `ultra` 選項。請對每個模型使用 `modelReasoningEfforts` 與 `modelDefaultReasoningEfforts` 來設定其接受的上游值。這些 per-provider map 的 key 是上游模型 ID，而不是路由過的 `opencode-go/<model-id>` 目錄 slug。舉例來說，一個設定為 `["high", "max"]` 的清單，就會精確保留那兩個選項；一個設定為 `["high", "xhigh"]` 的清單不會取得 `max`。目前的名單請見 [OpenCode Go 模型清單](https://opencode.ai/docs/go/#models)。一個設定的子集可以排除較低的分層。其他供應商保留既有行為。
 
-要做出以原生優先的 picker，請把原生 id 加進 `modelPickerOrder`，後面接路由 id。這會為整個 picker 排序，同時保留 OpenCodex 各自獨立的自然優先順序指引計算。原生 Codex 廣告的那五個模型會跟隨 picker 優先順序，且可能改變；精確名稱覆寫的資格不限於那份廣告清單。純路由順序保留它們先前的行為。見[排序遷移說明](/guides/model-ordering/#migration-note-native-ids-in-existing-orders)。供應商上的 `modelDisplayNames` 控制可讀標籤，不會改變 wire id。
+要做出以原生優先的 picker，請把原生 id 加進 `modelPickerOrder`，後面接路由 id。這會為整個 picker 排序，同時保留 OpenCodex 各自獨立的自然優先順序指引計算。原生 Codex 廣告的那五個模型會跟隨 picker 優先順序，且可能改變；精確名稱覆寫的資格不限於那份廣告清單。純路由順序保留它們先前的行為。見[排序遷移說明](/zh-tw/guides/model-ordering/#migration-note-native-ids-in-existing-orders)。供應商上的 `modelDisplayNames` 控制可讀標籤，不會改變 wire id。
 
 ## 路由過的 agent 訊息
 
-透過 [`openai-responses` adapter](/reference/adapters/#openai-responses)，當 `authMode` 不是 `"forward"`（例如 `"key"`）時，包含非空、受支援純文字部分陣列的 Codex `agent_message` 項目，會變成使用者訊息。使用 `authMode: "forward"` 的供應商會原封不動保留這些項目。`agent_message` 是 ChatGPT Codex backend 私有的，目前回報過的路由目的地會用 `422 unknown item type "agent_message"` 拒絕整個請求；Codex 會在之後每一個回合重播子代理的歷史，所以在該項目被轉換之前，這條執行緒會持續失敗。作者與收件者仍是明確的文字中繼資料，內容部分會被保留。對於標準連接埠上的 HTTPS `api.x.ai` 與 `cli-chat-proxy.grok.com`，非 forward 的 Responses 派送也接受一個非空白字串的子結果，並把它轉成一個 `input_text` 部分。原始字串——包括開頭／結尾的空白與換行——會被保留。其他目的地讓字串值的 agent 訊息維持不變。空字串或只有空白的字串維持不變，不完整以及混合加密／未知形狀的內容也是如此。加密與未知內容不會被正規化；原生加密任務仍需要獨立選擇加入的[任務復原](/reference/configuration/agents/#encrypted-v2-task-recovery)。
+透過 [`openai-responses` adapter](/zh-tw/reference/adapters/#openai-responses)，當 `authMode` 不是 `"forward"`（例如 `"key"`）時，包含非空、受支援純文字部分陣列的 Codex `agent_message` 項目，會變成使用者訊息。使用 `authMode: "forward"` 的供應商會原封不動保留這些項目。`agent_message` 是 ChatGPT Codex backend 私有的，目前回報過的路由目的地會用 `422 unknown item type "agent_message"` 拒絕整個請求；Codex 會在之後每一個回合重播子代理的歷史，所以在該項目被轉換之前，這條執行緒會持續失敗。作者與收件者仍是明確的文字中繼資料，內容部分會被保留。對於標準連接埠上的 HTTPS `api.x.ai` 與 `cli-chat-proxy.grok.com`，非 forward 的 Responses 派送也接受一個非空白字串的子結果，並把它轉成一個 `input_text` 部分。原始字串——包括開頭／結尾的空白與換行——會被保留。其他目的地讓字串值的 agent 訊息維持不變。空字串或只有空白的字串維持不變，不完整以及混合加密／未知形狀的內容也是如此。加密與未知內容不會被正規化；原生加密任務仍需要獨立選擇加入的[任務復原](/zh-tw/reference/configuration/agents/#encrypted-v2-task-recovery)。
 
 啟用任務復原時，被重播的 `NEW_TASK` 與 `MESSAGE` 項目，只有在驗證呼叫端並比對父執行緒 scope 之後，才會重用一個快取的指派。重播還原不會發出新的復原請求，也不會延長快取的到期時間。過期或未見過的密文不會被取代。全新的加密 `NEW_TASK` 與 `MESSAGE` 項目使用同一個選擇加入的復原路徑，包括原生父層的 `send_message` 傳遞。訊息類型、寄件者、收件者、父層 scope 與呼叫端憑證，仍是驗證或快取身分的一部分。
 

@@ -41,7 +41,7 @@ ocx gui
 狀態，不會建立工作區金鑰，也不會探測編碼代理的執行環境。
 
 從手機或另一台電腦開啟儀表板時，請使用已驗證的 HTTPS 部署。支援的管理入口與
-Tailscale 模式見 [Remote Hub 部署](/guides/remote-hub/)。請不要發布一個未經驗
+Tailscale 模式見 [Remote Hub 部署](/zh-tw/guides/remote-hub/)。請不要發布一個未經驗
 證的本機儀表板連接埠。
 
 Codex 版 Remote Workspace 使用目前的 App Server 權限設定檔。如果 Hub 選定的

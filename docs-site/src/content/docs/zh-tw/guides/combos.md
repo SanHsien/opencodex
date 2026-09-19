@@ -10,7 +10,7 @@ description: 將一個虛擬模型路由到多個供應商，以進行 failover 
 - **Failover：** 偏好一個模型，但隨時備有後備。
 - **負載平衡：** 以加權批次將成功請求分散到多個模型或供應商。
 
-Combo 位於一般供應商路由之前。若 `provider/model` 選擇器對你而言是新的，請先閱讀[模型路由](/guides/model-routing/)。
+Combo 位於一般供應商路由之前。若 `provider/model` 選擇器對你而言是新的，請先閱讀[模型路由](/zh-tw/guides/model-routing/)。
 
 ## 60 秒快速入門
 
@@ -290,7 +290,7 @@ Codex v2 子代理有一個重要限制（[issue #92](https://github.com/lidge-j
 3. 對跨不同供應商的委派使用 v1 介面。
 4. 若你控制呼叫者，將任務以明文 v2 `agent_message` 內容重送。
 
-關於 v1/base/v2 模式與完整的加密任務工作流程，請見[子代理介面](/guides/sub-agent-surface/)。
+關於 v1/base/v2 模式與完整的加密任務工作流程，請見[子代理介面](/zh-tw/guides/sub-agent-surface/)。
 
 ## 管理 combo
 
@@ -320,13 +320,13 @@ ocx combo remove <id> --yes
 ### 管理 API
 
 無頭客戶端在 `/api/combos` 上使用 `GET`、`PUT` 與 `DELETE`。`GET` 列出規範化的 combo 定義，`PUT` 建立或取代一個（且可重新命名一個），`DELETE` 接受 id 查詢參數。認證與請求/回應細節請見
-[管理 API 參考](/reference/management-api/)。當 `PUT` 主體省略 `cooldownMs` 或
+[管理 API 參考](/zh-tw/reference/management-api/)。當 `PUT` 主體省略 `cooldownMs` 或
 `waitForCooldownMs` 時，API 會保留該 combo 已儲存的值；要變更時請明確傳送新值。明確設定的
 `cooldownMs`（即使是 `60000`）會原樣持久化，因為它會覆寫請求速率退回值。已儲存的 `cooldownMs`
 只能透過編輯設定檔來移除；由於精簡序列化器會省略預設值，當 `PUT` 明確傳送 `0` 時，
 `waitForCooldownMs` 會重設為其預設值。省略這兩個欄位會保留原值，且儀表板目前尚未公開它們。
 
-完整的持久化設定請見[設定](/reference/configuration/)。
+完整的持久化設定請見[設定](/zh-tw/reference/configuration/)。
 
 ## 設定參考
 

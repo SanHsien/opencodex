@@ -181,7 +181,7 @@ Codex 的內建 `image_gen` 工具不會經過 `/v1/responses`。codex-rs 擴充
 `{base_url}/images/generations`；附帶參考圖時則使用 `/images/edits`，並沿用聊天使用的 ChatGPT bearer
 認證。由於注入的 `base_url` 指向 opencodex，proxy 會把這些呼叫中繼到 OpenAI 上游。
 
-這與 [Image Bridge](/guides/image-bridge/) 是不同路徑。Image Bridge 只有在 **Responses** turn
+這與 [Image Bridge](/zh-tw/guides/image-bridge/) 是不同路徑。Image Bridge 只有在 **Responses** turn
 列出 hosted `image_generation` 工具、且目前選的是非 OpenAI 模型時才會啟動。獨立的
 `/images/generations` 呼叫不會進入該 bridge。
 
@@ -250,7 +250,7 @@ Images response 形狀。上游請求會使用該 provider 設定的 key 取代�
 > **注意：** 這裡只指 Codex 的 `image_generation` 工具（`/images/generations` relay）。支援圖像的
 > Gemini 模型會透過 `google` adapter 原生產生 inline image（使用
 > `responseModalities: ["TEXT", "IMAGE"]`），與此 relay 無關。參見
-> [轉接器](/reference/adapters/#google)。
+> [轉接器](/zh-tw/reference/adapters/#google)。
 
 若 `hostname` 不是 loopback 地址，Codex 必須傳送產生的 API 認證標頭，因此注入器會改用專用
 provider：
@@ -426,7 +426,7 @@ requires_openai_auth = false
 - 新執行緒會被標記為 `opencodex` 供應商，與非 loopback 繫結一樣，歷史處理方式也相同。
 - 會依原生限定允許清單過濾模型選擇器的 Desktop 版本，在這個模式下也可能顯示空的或 `Custom` 選擇器；
   請求仍會使用已設定的模型。請依照
-  [Desktop 遠端伺服器](/guides/codex-app-models/#desktop-remote-servers)
+  [Desktop 遠端伺服器](/zh-tw/guides/codex-app-models/#desktop-remote-servers)
   所述，在 `config.toml` 中設定 `model = "<provider>/<id>"`。
 
 這只改變 Desktop 的登入關卡。非 loopback 繫結無論開關為何都會維持 `requires_openai_auth = true`
@@ -610,7 +610,7 @@ OpenCodex 直接注入路由，請先將 Codex 切回內建 `openai` provider，
    `tool_search_output` 項目型別與呼叫 id。OpenCodex 會把兩者都保留在歷史中，所以模型應該會看到
    已完成的搜尋，而不是永遠重複發出它。
 
-明確的 wire 映射請見[解析器與橋接](/reference/architecture/#the-parser)。沒有任何供應商層級的設定
+明確的 wire 映射請見[解析器與橋接](/zh-tw/reference/architecture/#the-parser)。沒有任何供應商層級的設定
 可以補上一個缺失的 `tool_search` 宣告；一般的 code-mode 探索仍是一條獨立的路徑。
 
 ### 目錄疑難排解
@@ -688,8 +688,8 @@ ocx service install    # persistent: auto-starts on login and respawns on crash
 ## Subagent 選擇器
 
 目錄同步會讓選定的 sub-agent 模型可供 Codex 使用；picker 排序請參見
-[Codex App 模型選擇器](/guides/codex-app-models/#subagent-selection)，v1/base/v2 委派與 fallback
-行為則參見 [Sub-agent Surface](/guides/sub-agent-surface/)。
+[Codex App 模型選擇器](/zh-tw/guides/codex-app-models/#subagent-selection)，v1/base/v2 委派與 fallback
+行為則參見 [Sub-agent Surface](/zh-tw/guides/sub-agent-surface/)。
 
 ## Codex 帳號預熱
 
@@ -732,7 +732,7 @@ ocx restore    # restore without stopping  (alias: ocx eject)
 ocx restore back # point plain Codex at the running proxy again
 ```
 
-當 opencodex 作為受管的 [背景服務](/reference/cli/#ocx-service) 執行時，會設定 `OCX_SERVICE=1`，
+當 opencodex 作為受管的 [背景服務](/zh-tw/reference/cli/#ocx-service) 執行時，會設定 `OCX_SERVICE=1`，
 因此 service 驅動的重新啟動**不會**反覆改寫 Codex 設定；只有明確執行 `ocx stop` 或
 `ocx service stop` 才會恢復原生 Codex。
 
@@ -761,7 +761,7 @@ ocx restore back # point plain Codex at the running proxy again
 來自路由父層的可讀任務不受影響。這份指引使用 `/api/v2` 模式與原生 V1 釘選狀態；目前的 API 不會
 公開復原啟用狀態或個別請求的資格，所以面板會把它們回報為未知。V1／明文相容的委派仍是一個替代方案。
 實驗性的 V2 復原——在合格且明確啟用時——會增加配額用量、延遲、對 backend 的依賴，以及可能的保真度
-損失；它不會修復上游協定本身。見[子代理介面](/guides/sub-agent-surface/)與
+損失；它不會修復上游協定本身。見[子代理介面](/zh-tw/guides/sub-agent-surface/)與
 [上游的限制](https://github.com/lidge-jun/opencodex/issues/92)。
 
 ## 分頁歷史記錄安全拒絕

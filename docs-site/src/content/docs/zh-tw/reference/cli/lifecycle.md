@@ -62,7 +62,7 @@ ocx start --port 8080
 無論是否有目錄備份，此規則皆適用；原始備份與使用者儲存的歷史模型選擇設定保持不變。
 
 當已儲存的 journal 缺少對應的注入雜湊時，還原會回報失敗，而不是取代已變更的設定檔。目前的檔案
-與 journal 仍可供檢視；詳見[沒有注入雜湊時的復原](/guides/codex-integration/#recovery-without-injection-hashes)。
+與 journal 仍可供檢視；詳見[沒有注入雜湊時的復原](/zh-tw/guides/codex-integration/#recovery-without-injection-hashes)。
 
 對任一拼法傳入 `back` 可在不變更代理生命週期的情況下，將普通 `codex` 重新指向已在執行的代理：
 
@@ -472,12 +472,12 @@ systemd 的 `EnvironmentFile=` 使用。
 
 ### `ocx gui`
 
-在 `http://localhost:<port>` 開啟[網頁儀表板](/guides/web-dashboard/)——或在啟用管理 ingress 的
+在 `http://localhost:<port>` 開啟[網頁儀表板](/zh-tw/guides/web-dashboard/)——或在啟用管理 ingress 的
 hub 上開啟 `http://127.0.0.1:<管理埠>`——若代理未執行則自動啟動它。
 
 ## 更新
 
-`ocx update` 更新的是 OpenCodex 本身，而不是 Codex CLI。請使用[系統檢查指令](/reference/cli/agents/)，對已設定的 Codex CLI 候選項進行有界、唯讀的 provenance 檢查。`ocx system codex-cli-update check` 不會查詢 package registry，也不會安裝更新。
+`ocx update` 更新的是 OpenCodex 本身，而不是 Codex CLI。請使用[系統檢查指令](/zh-tw/reference/cli/agents/)，對已設定的 Codex CLI 候選項進行有界、唯讀的 provenance 檢查。`ocx system codex-cli-update check` 不會查詢 package registry，也不會安裝更新。
 
 ### `ocx update [--tag latest|preview]`
 

@@ -20,7 +20,7 @@ interface ProviderAdapter {
 `buildRequest` 把 `OcxParsedRequest` 轉成上游 HTTP 請求；`parseStream` / `parseResponse` 把 provider
 回覆轉回內部 `AdapterEvent`。`fetchResponse` 允許 adapter 自己負責重試和 timeout；`runTurn` 支援
 無法表示成一次 HTTP fetch 加一條回應流的 transport。隨後
-[`bridge.ts`](/reference/architecture/#the-bridge) 把 event 轉成 Responses SSE。
+[`bridge.ts`](/zh-tw/reference/architecture/#the-bridge) 把 event 轉成 Responses SSE。
 
 ## 翻譯後 Responses 路由上的外部任務輸入
 
@@ -42,7 +42,7 @@ Groq、OpenRouter、Ollama（本機）等。
 
 對 xAI 而言，解析後的上游 adapter 可能是 `openai-chat` 或 `openai-responses`，取決於模型預設
 值與明確的 `modelAdapters` override。兩者都支援公開的 xAI API key 認證與 Grok CLI OAuth。
-usage log 的 [`attempts[].credentialSource`](/reference/management-api/) 會跟隨那個
+usage log 的 [`attempts[].credentialSource`](/zh-tw/reference/management-api/) 會跟隨那個
 解析後的 transport，而不是從傳入協定推斷訂閱歸屬。
 
 - 把內部訊息轉換成 OpenAI role；工具對映為 `{type:"function", function:{…}}` 和
@@ -111,7 +111,7 @@ index 的引數片段時，仍會保留身分：這些片段會被組裝成一�
 key。
 
 Adapter 的選擇不會決定上游 transport。符合資格的請求可以使用
-[上游 WebSocket proxy 路由](/reference/proxy-formats/#json-and-sse-output)；無效或不受支援的
+[上游 WebSocket proxy 路由](/zh-tw/reference/proxy-formats/#json-and-sse-output)；無效或不受支援的
 WebSocket proxy 設定會退回 HTTP/SSE。以 HTTP fetch 為基礎的 Responses 處理使用 Bun 的 HTTP
 proxy 規則，不會繼承 WSS 專用的 `ALL_PROXY` 退路。
 
@@ -128,7 +128,7 @@ proxy 規則，不會繼承 WSS 專用的 `ALL_PROXY` 退路。
 HTTPS `api.x.ai` 或 `cli-chat-proxy.grok.com` 上的 xAI Responses，非空的字串型子結果也會
 轉換成保留精確空白與換行的 `input_text` part。其他目的地保留字串值條目；空白字串與混合
 加密/未知 part 不會被部分轉換。獨立選用（opt-in）的加密任務復原行為另見
-[agent 訊息](/reference/configuration/providers/#routed-agent-messages)。
+[agent 訊息](/zh-tw/reference/configuration/providers/#routed-agent-messages)。
 
 正典 ChatGPT Codex forward 目的地還會規範化兩種其較嚴格的 backend 會拒絕的公開 Responses
 形狀：`input` 中完全為文字的 `system` 訊息會依請求順序附加到頂層的 `instructions` 字串，而
@@ -140,14 +140,14 @@ provider 與非正典 forward gateway 都會保留這兩個欄位不變；多模
 遍歷限制內被遞迴移除。當 `store: false` 時，`item_reference` 列也會被省略，因為目的地無法
 解析它未持久化的條目。Function/工具的 `call_id` 配對與 `reasoning.effort` 會被保留。
 
-[Luna Reserve 相容性](/reference/cli/providers-accounts/#luna-reserve-alongside-routed-models)
+[Luna Reserve 相容性](/zh-tw/reference/cli/providers-accounts/#luna-reserve-alongside-routed-models)
 使用的是這條正典 ChatGPT-forward 路徑，而不是 key 認證或任意的 Responses gateway。它保留
 這裡描述的安全呼叫端 header allowlist 與目的地限定的請求規範化。OpenCodex 會在自有主帳號的
 usage 查詢上傳送其 Reserve 能力標頭；該標頭本身不是權限。符合資格的相容性請求會在派送時
 重新檢查憑證綁定的授權。對話與 compaction 受支援；vision helper、web-search helper 與獨立
 搜尋中繼則不支援。
 
-對於 `key` 認證，[`retryOn429`](/reference/configuration/) 在這裡同樣適用：pre-stream
+對於 `key` 認證，[`retryOn429`](/zh-tw/reference/configuration/) 在這裡同樣適用：pre-stream
 的 429 會等待，並在任何其他處理之前，用同一把 key 重播完全相同的請求，與轉換型
 `openai-chat` / Anthropic 請求路徑完全一樣。自訂的 `runTurn` transport 不在 HTTP 重試迴圈
 範圍內。
@@ -164,7 +164,7 @@ usage 查詢上傳送其 Reserve 能力標頭；該標頭本身不是權限。�
   `baseUrl: "https://ark.cn-beijing.volces.com/api/plan/v3"` 和 `responsesPath: "/responses"`。
 - `forward` 模式只會轉發安全的 header allowlist（`FORWARD_HEADERS`）：authorization、ChatGPT
   account id 和 OpenAI beta/originator/session header。這條 ChatGPT 登入路徑也為
-  [sidecar](/guides/sidecars/) 提供支援。
+  [sidecar](/zh-tw/guides/sidecars/) 提供支援。
 
 ## Command Code session affinity
 
@@ -357,8 +357,8 @@ Cursor 的 HTTP/1.1 相容配對：伺服器輸出用 `agent.v1.AgentService/Run
   回退只會儲存 process-local、由 HMAC 導出的擁有者標記；原始的 session/thread header 與
   OAuth/authorization 資料絕不會寫入 checkpoint 狀態。Cursor 以 OAuth 為基礎的即時
   transport 與帳號過濾後的模型發現仍屬實驗性；登入與 transport 設定見
-  [provider 指南](/guides/providers/) 與
-  [Cursor provider 設定](/reference/configuration/providers/#cursor-provider-adapter-cursor)。
+  [provider 指南](/zh-tw/guides/providers/) 與
+  [Cursor provider 設定](/zh-tw/reference/configuration/providers/#cursor-provider-adapter-cursor)。
   checkpoint 重用本身是自動的，沒有使用者可設定的選項。
 - 對即時模型探索與推論都遵循 `upstreamHttpVersion`。`auto`、`http2` 與 `h2` 保留既有的
   HTTP/2 transport；只有 `http1.1` 與 `h1` 會選用相容模式。
@@ -402,7 +402,7 @@ bridge。若自訂的 freeform 工具使用其中任一名稱，請為它加上�
   `devin auth login`，再新增這個 provider。
 - 較早的版本曾在 id `devin-cli` 下提供第二個 adapter，把回合當成對本機 `devin acp` 子行程的 Agent Client Protocol session 來執行。該 adapter 已移除。仍引用該 adapter 的已儲存設定會在啟動時被重寫為 `devin`，包括像 `"devin-acp"` 這種自訂命名的列。
 - 這個聊天請求是校準過的，不是猜出來的。三件事共同把關：憑證是 session token 雙份、以連字號串接放進 `Authorization: Basic` header，而 protobuf body 本身仍保留一份；請求 envelope 以未壓縮方式送出；`Metadata` 第 31 個欄位帶有一個 732 字元的裝置指紋，服務只檢查其長度而非內容。在 `CompletionConfiguration` 內部，第 2 個欄位是輸出上限，第 3 個欄位是 context window；把這兩者對調會讓每個回合都以一個難以理解的 `invalid_argument` 失敗。剛好等於 0 的 temperature 會被拒絕，因此會被夾限到可接受的最小值。
-- 屬於實驗性、非官方的橋接；預設不會出現在儀表板預設清單中。登入說明見 [provider 指南](/guides/providers/)。
+- 屬於實驗性、非官方的橋接；預設不會出現在儀表板預設清單中。登入說明見 [provider 指南](/zh-tw/guides/providers/)。
 
 對於 SWE-2，明確指定的 reasoning effort 會覆寫模型 id 中的 effort 後綴。例如
 `swe-2-high` 搭配 `medium` 會選擇原生的 `swe-2-medium` UID；`xhigh`、`ultra` 與 `max` 會選擇

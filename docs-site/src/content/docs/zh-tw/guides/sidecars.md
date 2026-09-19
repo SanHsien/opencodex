@@ -201,5 +201,5 @@ combo 才會宣告支援圖像輸入；如此 Codex 應用程式等用戶端會�
 圖像描述沿用現有 Claude Code OAuth fingerprint 先例，但仍應使用目標帳號和實際負載充分
 soak test。
 
-所有欄位見[設定參考](/reference/configuration/#sidecars)。
+所有欄位見[設定參考](/zh-tw/reference/configuration/#sidecars)。
 </content>

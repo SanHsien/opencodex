@@ -7,7 +7,7 @@ opencodex hub 把供應商憑證與用量狀態集中保存在一台主機上，
 
 資料平面是**一個連接埠**。遠端機器以自己的 per-client 金鑰連往 `hostname:port`；hub 自己的程序則透過迴路 companion 監聽器，不帶任何憑證連往 `127.0.0.1:<同一個連接埠>`。請從下方的「Linux systemd 或 macOS launchd」一節開始，再用 `ocx hub invite` 把現成指令交給第二台機器。
 
-管理入口從不提供 `/v1/*`、`/healthz` 或 `/readyz`。明確啟用時，Remote Workspace 只准入它配對過、以 bearer 驗證的 agent WebSocket 與一次性配對交換，詳見 [Remote Workspace](/guides/remote-workspace/)。請不要直接發布它的連接埠、不要為它開雲端防火牆規則，也不要使用 Tailscale Funnel。Funnel 是公開網際網路的曝露面，不在本部署模型的範圍內。
+管理入口從不提供 `/v1/*`、`/healthz` 或 `/readyz`。明確啟用時，Remote Workspace 只准入它配對過、以 bearer 驗證的 agent WebSocket 與一次性配對交換，詳見 [Remote Workspace](/zh-tw/guides/remote-workspace/)。請不要直接發布它的連接埠、不要為它開雲端防火牆規則，也不要使用 Tailscale Funnel。Funnel 是公開網際網路的曝露面，不在本部署模型的範圍內。
 
 啟用管理入口後，本機儀表板指令會開啟 `http://127.0.0.1:<管理連接埠>`，讓位址直接對應僅限 IPv4 的監聽器，不必解析 `localhost`。
 

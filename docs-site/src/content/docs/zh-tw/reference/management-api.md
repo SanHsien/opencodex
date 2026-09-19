@@ -5,7 +5,7 @@ description: opencodex 控制平面的認證、錯誤與端點參考。
 
 管理 API 是 opencodex 的控制平面。`http://localhost:10100` 的儀表板是它的一個客戶端；無頭的 `ocx` 供應商、模型、組合、帳號、設定、診斷與生命週期指令也是客戶端。API 僅在代理執行時可用。
 
-使用[網頁儀表板](/guides/web-dashboard/)作為互動式客戶端，或在建構自動化時使用此參考。持久值最終遵循[設定](/reference/configuration/)。
+使用[網頁儀表板](/zh-tw/guides/web-dashboard/)作為互動式客戶端，或在建構自動化時使用此參考。持久值最終遵循[設定](/zh-tw/reference/configuration/)。
 
 ## 認證模型
 
@@ -73,7 +73,7 @@ Session 簽發在需要 data-plane 認證時停用，這包含遠端綁定。遠
 
 儀表板從 **Providers > xAI Grok > Accounts** 驅動這兩條 coupon 路徑：每個已登入帳號列都帶有票券徽章，顯示剩餘的 reset coupon 數量，徽章會開啟對話框，列出有效期間並兌換最接近到期的 reset coupon。該對話框會送出由客戶端鑄造的 `operationId`，並在逾時後停止送出而不重試，因為日誌記錄仍為開啟的兌換會再次執行。`ocx account grok-reset-coupons` 仍是終端機等價指令。
 
-關於模型名冊與加密 worker-task 行為背後的概念，請見[子代理介面](/guides/sub-agent-surface/)。
+關於模型名冊與加密 worker-task 行為背後的概念，請見[子代理介面](/zh-tw/guides/sub-agent-surface/)。
 
 ### 用戶端整合復原日誌
 
@@ -119,7 +119,7 @@ Session 簽發在需要 data-plane 認證時停用，這包含遠端綁定。遠
 
 舊版的 `GET, PUT /api/client-integrations/aside` 別名仍然可用。新用戶端應使用上方的專屬
 路徑，這樣較舊的 proxy 就不會忽略設定檔選擇器。CLI 指令與 proxy 升級、重新啟動、重試序列
-請見 [Aside profile controls](/guides/integrations/#aside-profile-controls)。
+請見 [Aside profile controls](/zh-tw/guides/integrations/#aside-profile-controls)。
 
 ### Remote Workspace
 
@@ -141,7 +141,7 @@ WebSocket 開啟 `/remote-workspace/agent`。這兩個機器端點不具備一�
 範圍限定於裝置，每個工作 session 都會加上一次已簽章的 E2EE handshake。同一個核心層級觀察
 到的對端十次配對碼失敗，會在固定十分鐘視窗剩餘時間內回傳帶 `Retry-After` 的 `429`。
 Tailscale Serve 用戶端共用管理監聽器的迴路對端桶；身分標頭不會用於節流，因為本機直接
-process 可以偽造它。終端使用者流程與信任邊界見 [Remote Workspace](/guides/remote-workspace/)。
+process 可以偽造它。終端使用者流程與信任邊界見 [Remote Workspace](/zh-tw/guides/remote-workspace/)。
 
 Session 快照包含 `resumable`。只有在所選 coding-agent runtime 具備持久化歷史後，它才會
 變成 true；值得注意的是，一個全新的 Claude Code session 在其第一個 prompt 完成之前都會
@@ -155,7 +155,7 @@ Session 快照包含 `resumable`。只有在所選 coding-agent runtime 具備�
 | `PUT /api/combos` | 建立、取代或重新命名一個組合 | 400 無效 id、目標、設定、重新命名或普通碰撞；409 Codex 帳號命名空間碰撞 |
 | `DELETE /api/combos?id=...` | 刪除一個組合並清除其選擇／冷卻狀態 | 400 缺失 id；404 未知組合 |
 
-關於目標策略、冷卻、別名與路由失敗，請見[組合](/guides/combos/)。
+關於目標策略、冷卻、別名與路由失敗，請見[組合](/zh-tw/guides/combos/)。
 
 ### 設定、啟動、同步與更新
 
@@ -373,7 +373,7 @@ OpenAI 也遵循此規則：開關不會選擇特殊的 922k 模式。生效中�
 
 | 方法與路徑 | 用途 | Notable errors |
 | --- | --- | --- |
-| `GET /api/system/memory` | 回傳純量的 process、heap、串流、回應狀態、看門狗與活躍回合指標。回應狀態診斷包含溢寫狀態、連續失敗次數、固定且不洩漏隱私的失敗分類，以及最後一次失敗／成功的時間戳記。`spillLastWriteFailureOrigin` 是 `retry_returned_timeout`、`timeout_memo_refusal` 或 null；累計的 `spillAclRetryReturnedTimeouts` 與 `spillAclTimeoutMemoRefusals` 計算終止失敗的發布次數。process-local 語義見 [Windows 溢寫診斷](/troubleshooting/windows-memory/)。絕不回傳原始錯誤與路徑。 | — |
+| `GET /api/system/memory` | 回傳純量的 process、heap、串流、回應狀態、看門狗與活躍回合指標。回應狀態診斷包含溢寫狀態、連續失敗次數、固定且不洩漏隱私的失敗分類，以及最後一次失敗／成功的時間戳記。`spillLastWriteFailureOrigin` 是 `retry_returned_timeout`、`timeout_memo_refusal` 或 null；累計的 `spillAclRetryReturnedTimeouts` 與 `spillAclTimeoutMemoRefusals` 計算終止失敗的發布次數。process-local 語義見 [Windows 溢寫診斷](/zh-tw/troubleshooting/windows-memory/)。絕不回傳原始錯誤與路徑。 | — |
 | `POST /api/system/restart` | 在不移除客戶端注入的情況下開始感知排空的行程重啟 | 回傳 202；重複呼叫回報既有的排空 |
 | `POST /api/stop` | 停止服務、還原原生 Codex、移除受管 Grok 注入並排空代理 | 409 服務擁有權衝突；當 Windows 工作排程器包裝程序可能重新啟動 proxy 且呼叫端不是 `ocx stop` 時回傳 409 `respawnable_service`（不會做任何變更）；當這個 proxy 本身就是已安裝的 launchd/systemd 服務時回傳 409 `self_unload_service`，因為從服務內部停止管理器，會在原生 Codex 被還原之前就結束該 process——請改執行 `ocx stop`（不會做任何變更）；已安裝的管理器拒絕停止時回傳 409；無法讀取工作排程器狀態時回傳 409 `service_state_unknown`（不會做任何變更；修復查詢後重試） |
 | `GET /api/system/codex-app-server` | 回報執行中的 Codex app-server 是否早於目前的模型目錄 | — |
@@ -444,7 +444,7 @@ lineage；外部替換的憑證，不會僅因屬於同一個帳號就符合資�
 
 ## 選擇客戶端
 
-對於普通管理，[網頁儀表板](/guides/web-dashboard/)提供最安全的引導工作流程。對於無頭主機與自動化，請使用對應的 `ocx` 指令：它們呼叫此相同的即時 API，並在代理不可達或操作失敗時回傳非零結果。直接 HTTP 對需要上述精確端點契約的整合最為有用。
+對於普通管理，[網頁儀表板](/zh-tw/guides/web-dashboard/)提供最安全的引導工作流程。對於無頭主機與自動化，請使用對應的 `ocx` 指令：它們呼叫此相同的即時 API，並在代理不可達或操作失敗時回傳非零結果。直接 HTTP 對需要上述精確端點契約的整合最為有用。
 
 ## 遠端工作階段與資料金鑰輪替
 

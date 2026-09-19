@@ -69,17 +69,17 @@ opencodex 把持久化設定存放在 `$OPENCODEX_HOME/config.json`，通常是
 `apiKey: "${PROVIDER_API_KEY}"`）會在請求時解析該變數。對出站代理，已設定的 `HTTP_PROXY`
 或 `HTTPS_PROXY` 優先於頂層 `proxy` 欄位。
 
-路由有自己有序的解析規則；見[路由](/reference/configuration/routing/)。
+路由有自己有序的解析規則；見[路由](/zh-tw/reference/configuration/routing/)。
 
 ## 設定領域
 
-- [Providers](/reference/configuration/providers/) — provider 條目、認證、端點、
+- [Providers](/zh-tw/reference/configuration/providers/) — provider 條目、認證、端點、
   目錄、allowlist、context 限制、配額與 provider 專屬選項。
-- [路由](/reference/configuration/routing/) — `defaultProvider`、模型解析順序、
+- [路由](/zh-tw/reference/configuration/routing/) — `defaultProvider`、模型解析順序、
   combos、別名與 combo effort 預設值。
-- [Agents](/reference/configuration/agents/) — multi-agent 模式、委派指南、
+- [Agents](/zh-tw/reference/configuration/agents/) — multi-agent 模式、委派指南、
   fallback 模型、原生預設同步與 effort 上限。
-- [伺服器與執行環境](/reference/configuration/server/) — listener 與遠端存取、
+- [伺服器與執行環境](/zh-tw/reference/configuration/server/) — listener 與遠端存取、
   admission key、逾時、儲存、sidecars、啟動行為與 shadow calls。
 
 ## 不要把 secret 放進檔案

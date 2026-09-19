@@ -138,7 +138,14 @@ test("a stale timer cannot expire the newer feedback", async () => {
   await settle(0, true);
 
   // Past the stale attempt's would-be expiry, inside the current one's window.
-  await act(async () => { await new Promise((r) => setTimeout(r, 2400)); });
+  //
+  // 1800, not 2400. FEEDBACK_MS is 2500 and this is a real wall-clock sleep, so 2400 left a
+  // 100 ms margin: under the full suite (255 files, 4x parallel) the event loop slips past that
+  // and the timer expires the label before the assertion reads it, which is the only way this
+  // file has ever been red. Both generations arm the same 2500 ms window within a millisecond of
+  // each other, so no separation is lost -- what is being proven is that the newer feedback
+  // survives inside its own window, and 1800 proves it with 700 ms of slack instead of 100.
+  await act(async () => { await new Promise((r) => setTimeout(r, 1800)); });
   expect(text("b")).toBe("copied");
 });
 

@@ -157,7 +157,7 @@ Dashboard 的 **Sub-agent delegation** 選擇器會儲存 `injectionModel`，以
 :::caution
 這兩個控制項都不是 proxy 端的跨模型生成路由器。OpenCodex 指引要求 Codex 把覆寫值傳給
 `spawn_agent`；原生的 `[agents]` 預設值只有在同步之後、Codex 建立新任務時才會套用。v1/base/v2 的
-規範行為請見 [子代理介面](/guides/sub-agent-surface/)。
+規範行為請見 [子代理介面](/zh-tw/guides/sub-agent-surface/)。
 :::
 
 ## Remote Hub 工作階段、金鑰與用量
@@ -223,7 +223,7 @@ Pool 模式會在主要與已新增的 Codex 帳號之間選擇；Direct 只使�
 
 Providers overview 會另外把 Pool 模式的用量彙總成一個僅供顯示的加權容量估計值，並列出目前生效
 帳號的原始配額與下一次容量恢復時間。可見欄位、覆蓋不完整的意義，以及路由邊界，請見
-[Providers overview 的 pool 容量](/guides/providers/#providers-overview-pool-capacity)。
+[Providers overview 的 pool 容量](/zh-tw/guides/providers/#providers-overview-pool-capacity)。
 
 ## 星標是你的決定，不是 agent 的
 
@@ -276,7 +276,7 @@ GUI 是代理 JSON 管理 API 之上的輕量用戶端。常用 endpoint 包括�
 
 :::tip
 從儀表板新增 **Ollama Cloud** 或其他目錄型 provider 時，其文字/視覺模型分類會寫入儲存的
-provider 設定。因此無需手動分類，[vision sidecar](/guides/sidecars/) 也能在正確
+provider 設定。因此無需手動分類，[vision sidecar](/zh-tw/guides/sidecars/) 也能在正確
 條件下啟用。
 :::
 

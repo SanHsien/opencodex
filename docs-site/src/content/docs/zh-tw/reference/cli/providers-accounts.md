@@ -105,11 +105,11 @@ OAuth 重新認證會保留維運方的設定，例如模型選擇、價格覆�
 
 ### Luna Reserve 與路由模型並存
 
-選用的 [authless Desktop mode](/guides/codex-integration/#authless-codex-desktop-opt-in) 會讓 Desktop 原生的 Reserve-only 選擇器閘門保持停用。它也會停用 Desktop 自動的 Reserve 處理：Reserve 是明確的模型選擇，不是自動退回。
+選用的 [authless Desktop mode](/zh-tw/guides/codex-integration/#authless-codex-desktop-opt-in) 會讓 Desktop 原生的 Reserve-only 選擇器閘門保持停用。它也會停用 Desktop 自動的 Reserve 處理：Reserve 是明確的模型選擇，不是自動退回。
 
 在 ChatGPT-forward 模式下保持內建 OpenAI 供應商啟用、啟用帳號模型選擇器，並為已儲存的主帳號設定公開選擇器。在有效的迴路 authless 模式啟用時，`ocx sync` 會在路由供應商模型旁納入 `<main-selector>/gpt-reserve`。裸 `gpt-reserve`、已新增帳號的選擇器，以及 API-key 模型探索都不會被加入目錄。對於遠端用戶端路由，或需要准入標頭的監聽器，authless 設定會被忽略。當公開與本機監聽器同時執行時，Reserve 相容性只適用於由本機監聽器准入的請求。已認證的公開請求即使源自同一台機器，仍走一般路徑；請求標頭無法選擇本機政策。
 
-用 `ocx system settings --desktop-authless on` 啟用 authless Desktop 模式，執行 `ocx sync`，然後完全結束並重新開啟 Codex Desktop，讓它重新載入改寫後的設定與目錄。請遵循[標準 authless Desktop 工作流程](/guides/codex-integration/#authless-codex-desktop-opt-in)。
+用 `ocx system settings --desktop-authless on` 啟用 authless Desktop 模式，執行 `ocx sync`，然後完全結束並重新開啟 Codex Desktop，讓它重新載入改寫後的設定與目錄。請遵循[標準 authless Desktop 工作流程](/zh-tw/guides/codex-integration/#authless-codex-desktop-opt-in)。
 
 每個相容性請求都會檢查一次綁定憑證的伺服器授權，最多快取 60 秒。OpenCodex 在一次自有主帳號用量讀取上發送 Reserve 能力標頭，並要求一般用量被拒絕、出現 Luna Reserve 橫幅，且恰好有一個獲准的 Reserve bucket。缺失、被拒絕、過期或不相符的證據會拒絕該請求；它不會切換帳號，也不會悄悄改用一般的 Luna。被動用量可以撤銷授權，但無法建立授權。全域冷卻、暫停、重新認證與 99% 硬鎖定仍然適用。若想在已耗盡的主帳號上使用 Reserve，請停用硬鎖定；這麼做不會授予伺服器端的權益。這條相容性路徑支援對話請求與壓縮，Reserve 不能作為視覺或網頁搜尋輔助工具，也不能作為獨立的搜尋轉送模型。這些輔助用途請改選其他模型。
 
@@ -288,7 +288,7 @@ security find-generic-password -w openrouter | ocx account add-key openrouter --
 
 檢查帳號的 Codex reset credits。消耗 credit 是破壞性的，需要同時提供 `--consume` 與 `--yes`。
 
-確認 `reset` 之後，一次全新的用量讀取可以復原同一個帳號合格的既有共享 reset 衍生冷卻。已暫停的帳號、需要重新認證的帳號，以及被進行中探測擁有的冷卻，都排除在這項復原之外。確認消耗後若用量重新整理失敗或忙碌，不需要再消耗另一個 credit：請重新檢查用量，而不是重複 `--consume`。消耗成功不保證可路由；reset／重播、新鮮度與範圍限制請見[管理 API 復原合約](/reference/management-api/#codex-authentication-delegation)。
+確認 `reset` 之後，一次全新的用量讀取可以復原同一個帳號合格的既有共享 reset 衍生冷卻。已暫停的帳號、需要重新認證的帳號，以及被進行中探測擁有的冷卻，都排除在這項復原之外。確認消耗後若用量重新整理失敗或忙碌，不需要再消耗另一個 credit：請重新檢查用量，而不是重複 `--consume`。消耗成功不保證可路由；reset／重播、新鮮度與範圍限制請見[管理 API 復原合約](/zh-tw/reference/management-api/#codex-authentication-delegation)。
 
 ### `ocx account grok-reset-coupons [<account-id>] [--consume --yes [--token-id <id>] [--operation-id <uuid>]] [--json]`
 

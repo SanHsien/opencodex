@@ -47,7 +47,7 @@ Storage 檢視畫面會回報：
 護罩，而不是一個能關閉 Codex 內部診斷產生的開關。
 
 Log Guard 只過濾已持久化的本機 SQLite 日誌資料列。它不會改變 Codex 的診斷處
-理、[轉接器傳輸](/reference/adapters/)、供應商酬載、串流語意、驗證、路由、
+理、[轉接器傳輸](/zh-tw/reference/adapters/)、供應商酬載、串流語意、驗證、路由、
 配額或帳號狀態。
 
 ### 安全檢查
@@ -116,7 +116,7 @@ ocx storage codex-logs repair
 ```
 
 替 Log Guard 指令加上 `--json` 以取得機器可讀輸出。權威的指令語法與 JSON 行
-為見[CLI 參考](/reference/cli/)。
+為見[CLI 參考](/zh-tw/reference/cli/)。
 
 既有的指令維持不變：
 

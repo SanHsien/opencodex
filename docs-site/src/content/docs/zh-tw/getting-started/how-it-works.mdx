@@ -30,11 +30,27 @@ Codex 使用 OpenAI **Responses API**。opencodex 接收透過 HTTP 與 Server-S
 
 - **既有 thread id 維持親和性。** thread 會綁定啟動它的帳號世代，因此長時間的 SSH、tmux 或
   行動裝置掛載的 Codex session 會繼續使用同一個帳號，而不是在對話中途被重新平衡。
-- **新 session 可以重新平衡。** 對新 thread，opencodex 會比較 5 小時、每週與 30 天視窗的已知配額
-  使用量，略過需要重新認證或處於 cooldown 的帳號；當作用中帳號跨過設定門檻時，可切換到使用量較低
-  的合格帳號。
+- **新 session 可以重新平衡。** 對新 thread，opencodex 會依 `accountPoolStrategy`（預設 `quota`，
+  另有 `round-robin` 與 `fill-first`）在合格帳號之間挑選。`quota` 策略會比較 5 小時、每週與 30 天
+  視窗的已知使用量，並在作用中帳號跨過 `autoSwitchThreshold` 時切換到使用量較低的帳號。無論採用
+  哪種策略，處於 cooldown 或需要重新認證的帳號都會被略過。
 - **配額與失敗訊號會回饋路由。** 儀表板可用 `GET /api/codex-auth/accounts?refresh=1` 強制重新整理
   配額；成功的上游回應會擷取配額標頭，429 會讓帳號進入 cooldown，401/403 則標記為需重新認證。
+- **閒置的滾動視窗可以準時啟用。** 在 **Advanced settings** 底下，有一個預設關閉的自動啟用控制項，
+  它會把目前所有主帳號與已新增帳號中受支援的 5 小時與每週視窗一起切換。設定不一致時會明確顯示；
+  啟用只會套用到有回報的視窗，停用則會一併清掉過期的已啟用視窗。變更採用逐項設定寫入：部分失敗
+  會在讀回已儲存狀態後顯示，而 **Retry** 會完成原本的啟用或停用動作。新加入的帳號不會自動納入。
+  在 Pool 模式下，重置時 opencodex 會透過視窗到期的那個帳號，重用它最小化、不儲存的帳號暖機請求，
+  把同時到期的視窗合併成一個請求，並持久化兩個重置時間戳，避免重新啟動後重複工作。暫停中的帳號與
+  需要重新認證的帳號會被略過。啟用時會擷取成功回應的配額標頭；已納入的閒置帳號也會在不需要開著
+  儀表板的情況下，最多每五分鐘重新整理一次過期的配額中繼資料。已觀測到的重置邊界會跨重新啟動保留
+  直到完成，所以一個會移動的閒置視窗時間戳不會抹掉待處理的啟用。中繼資料重新整理使用既有的有界
+  認證復原機制；推論時的 401 會把被拒的憑證標記為需重新認證，而不是反覆把重試次數花在它身上。
+  失敗只會記錄不透明的帳號標籤與僅含狀態的原因。這與重置視窗路由是兩回事：路由是為進來的工作挑
+  帳號，而啟用是在某個已納入帳號自己的重置到期之後，才對它送出一個請求。
+
+**降級注意事項：** 執行較舊版本之前，請只從自動啟用設定中移除 `nextFiveHourResetAt` 與
+`nextWeeklyResetAt`。較舊的嚴格讀取器會拒絕這些新欄位，並可能因此停用整個啟用設定區塊。
 
 ## Sub-agent 模型選擇
 
@@ -64,19 +80,17 @@ Sol/Terra/Luna 三個模型和 `gpt-5.5`。儀表板可以從原生或已路由�
    `codex/auth-context.ts` 會先解析帳號；若必要的池憑證不可用，直通 adapter 會拒絕繼續。
 
 4. **Vision sidecar（可選）** —— 如果已路由的模型被列在 `provider.noVisionModels` 中，且
-   請求攜帶了圖像，opencodex 會透過已設定的 vision sidecar 描述每張圖像並替換為文字，讓純文字
-   模型仍可對圖像進行推理。後端可選 `openai`（ChatGPT 登入）或 `anthropic`（OAuth）；未設定時
-   會自動選擇，顯式 `anthropic` 但無可用憑證時會關閉失敗。
-   參見 [Sidecar](/zh-tw/guides/sidecars/)。
+   請求攜帶了圖像，opencodex 會透過已設定的 ChatGPT vision sidecar 描述每張圖像並替換為文字，
+   讓純文字模型仍可對圖像進行推理。參見 [Sidecar](/zh-tw/guides/sidecars/)。
 
 5. **直通快速路徑** —— 對於 Responses 直通 adapter（`openai-responses` 或 `azure-openai`），
    opencodex 會保留 Responses body，只執行必要的路由與相容性改寫，然後直接轉發 provider 回應，
    不再轉換為 `AdapterEvent`。
 
 6. **網路搜尋 sidecar（可選）** —— 如果 Codex 啟用了託管的 `web_search`，但已路由的模型
-   並非 OpenAI，opencodex 會暴露一個合成的 `web_search` 函式工具，並在一個小型
-   agentic 迴圈中執行該模型；真實搜尋由所選 sidecar 後端執行（`openai` 預設以 ChatGPT 登入
-   呼叫 `gpt-5.6-luna`，或 `anthropic` OAuth），再將結果作為工具結果注入回去。
+   並非 OpenAI，opencodex 會暴露一個合成的 `web_search` 函式工具，並在一個小型 agentic 迴圈中
+   執行該模型；真實搜尋預設透過你的 ChatGPT 登入以 `gpt-5.6-luna` 執行，再將結果作為工具結果
+   注入回去。
 
 7. **壓縮（按需）** —— Codex v1 會呼叫 `POST /v1/responses/compact`，v2 則在 Responses turn 中
    加入 `compaction_trigger`。原生直通路由會把壓縮請求傳送到上游；已路由模型則在停用工具的

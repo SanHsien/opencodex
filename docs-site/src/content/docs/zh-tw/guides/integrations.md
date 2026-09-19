@@ -96,7 +96,7 @@ Cursor 有一個分頁，但不是這些開關之一。一般的 Cursor 從自�
 loopback proxy 在沒有公開通道的情況下連不到；Cursor 另外的 Private Inference 版本則是在
 Cursor 內部設定。**Cursor** 分頁是唯讀的：它會偵測安裝了哪個版本、顯示要貼進 Cursor 的
 Base URL 與 API Key，並回報 Cursor 最近一次對 proxy 發出的請求。見
-[Cursor Private Inference](/guides/cursor-private-inference/)。
+[Cursor Private Inference](/zh-tw/guides/cursor-private-inference/)。
 
 路徑遵循客戶端自己的環境覆寫（environment override）。對 OMP 而言，`OMP_PROFILE` 以存在與否優先於 `PI_PROFILE`，即使明確為空也一樣。具名 profile 會把 `PI_CONFIG_DIR` 當作相對於使用者家目錄的目錄名稱，並忽略 `PI_CODING_AGENT_DIR`；沒有具名 profile 時，`PI_CODING_AGENT_DIR` 勝出。OMP 支援 provider 層級的 headers，但這個最初的整合刻意只支援 loopback；遠端 `x-opencodex-api-key` 的連線設定被延後。搬移過的 `HERMES_HOME`、`KIMI_CODE_HOME` 與 `XDG_CONFIG_HOME` 路徑同樣會被遵循，而非猜測。表格列出每個客戶端的預設值。
 
@@ -198,7 +198,7 @@ ocx mmx text repl --model openai/gpt-5.6-sol
 語音、音樂、視覺、搜尋、配額、驗證、設定、檔案與更新指令，請直接執行 `mmx`。wrapper 使用
 只含非機密 loopback 佔位符的暫存設定；它絕不會讀取你的 `~/.mmx` OAuth 或 API key 憑證，
 並拒絕 `--api-key`、`--base-url` 與 `--region` 覆寫。完整工作流程與限制見
-[MiniMax clients](/guides/minimax/)。
+[MiniMax clients](/zh-tw/guides/minimax/)。
 
 `--confirm-drift` 永遠不會被擅自假設。如果檔案在你正要回復的操作之後有變更，指令會拒絕並告訴你，因為覆蓋你較新的編輯是你的決定。
 
@@ -229,7 +229,7 @@ profile 編號就是 status 指令顯示的帳號 ID。在 Aside 開關上省略
 不算全部套用成功，CLI 會以非零狀態結束。Undo 會同時還原所選 profile 的同步意圖與其檔案，
 所以之後的一次 sync 不會悄悄推翻這次 Undo。
 
-[profile API](/reference/management-api/#aside-profile-controls) 在批次操作全部成功時回傳
+[profile API](/zh-tw/reference/management-api/#aside-profile-controls) 在批次操作全部成功時回傳
 HTTP 200；只要有任一 profile 被拒絕，就回傳 HTTP 207 並附上 `ok: false`。請檢查 `results`
 中的每一筆項目：另一個 profile 失敗時，已成功的 profile 不會被回滾。期望的設定仍會保留，
 所以請在處理好受影響的 profile 後重試，而不要假設整個變更都失敗了。如果連儲存這些設定都

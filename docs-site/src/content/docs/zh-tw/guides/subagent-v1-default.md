@@ -110,8 +110,8 @@ base 之所以排在第二而不是第一，是因為它的釘選把 Sol 與 Ter
    端恢復大多數全新的產生動作，代價是配額、延遲，以及依賴未記載的行為，而且
    它仍然會遺失訊息類型的後續內容與多部分信封。
 
-各項機制的完整細節見[子代理介面](/guides/sub-agent-surface/)，設定本身見
-[Agent 設定](/reference/configuration/agents/)。
+各項機制的完整細節見[子代理介面](/zh-tw/guides/sub-agent-surface/)，設定本身見
+[Agent 設定](/zh-tw/reference/configuration/agents/)。
 
 ## 本頁何時會消失
 

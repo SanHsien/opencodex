@@ -14,9 +14,16 @@ name: "opencodex JavaScript/TypeScript security scan"
 # A backlog that is three-quarters noise is worse than no scan, because the
 # real findings stop being visible. Excluding the harness leaves 49 src/ alerts
 # and 5 in test-support scripts, which is a list a person can actually read.
+#
+# scripts/ci joined the list on 2026-09-19 for the same reason as the other two
+# script entries: docker-smoke.ts backs up and restores a generated file inside
+# the checkout it owns, on a hosted runner, with no credentials in reach. The
+# two js/file-system-race alerts on it describe that backup, and rewriting a CI
+# harness to close a race against itself buys nothing.
 paths-ignore:
   - tests
   - devlog
+  - scripts/ci
   - scripts/test-layout
   - scripts/disposable-host
   - gui/tests

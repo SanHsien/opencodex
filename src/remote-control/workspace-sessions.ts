@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { atomicWriteFile } from "../config/atomic-write";
+import { readBoundedRegularFile } from "../lib/bounded-file-read";
 import { getConfigDir } from "../config/paths";
 import { workspaceSecretFileExists, workspaceSecretPermissions, type WorkspaceSecretPermissions } from "./workspace-secret-store";
 import { RemoteWorkspaceCoordinator, type RemoteWorkspaceTransport } from "./workspace-coordinator";
@@ -259,11 +260,13 @@ export class RemoteWorkspaceSessionFileStore implements RemoteWorkspaceSessionSt
     if (!workspaceSecretFileExists(this.path)) return null;
     this.permissions.prepareDirectory(dirname(this.path));
     this.permissions.hardenFile(this.path);
-    const metadata = statSync(this.path);
-    if (!metadata.isFile() || metadata.size > MAX_SESSION_STATE_BYTES) {
-      throw new Error("remote workspace session state is too large");
-    }
-    return parseRemoteWorkspaceSessionState(JSON.parse(readFileSync(this.path, "utf8")));
+    // The size bound is decided on the descriptor these bytes came from. Statting the path and
+    // then reading the path again are two resolutions of one name, so the bound would describe a
+    // file the read need not have opened.
+    const read = readBoundedRegularFile(this.path, MAX_SESSION_STATE_BYTES);
+    if (read.kind === "absent") return null;
+    if (read.kind === "refused") throw new Error("remote workspace session state is too large");
+    return parseRemoteWorkspaceSessionState(JSON.parse(read.content));
   }
 
   save(state: RemoteWorkspaceSessionState): void {

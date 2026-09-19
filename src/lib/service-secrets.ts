@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
-import { closeSync, existsSync, fsyncSync, lstatSync, openSync, readFileSync, unlinkSync } from "node:fs";
+import { closeSync, fsyncSync, openSync, readFileSync, unlinkSync } from "node:fs";
+import { readBoundedRegularFile } from "./bounded-file-read";
 import { join } from "node:path";
 import { getConfigDir } from "../config";
 import { atomicWriteFile } from "../config/atomic-write";
@@ -30,23 +31,22 @@ export function serviceApiTokenFingerprint(token: string): string {
 
 export function readServiceApiTokenState(): ServiceApiTokenState {
   const path = serviceApiTokenFilePath();
-  if (!existsSync(path)) return { kind: "absent" };
-  let stat;
-  try {
-    stat = lstatSync(path);
-  } catch {
-    return { kind: "unsafe", reason: "service token path could not be inspected" };
+  // The type and size bound hold for the descriptor these bytes came from. Checking them on
+  // the path and then reading the path again would let the name be swapped in between, which
+  // for this file means a bounded read of a token turning into an unbounded read of anything.
+  const read = readBoundedRegularFile(path, MAX_SERVICE_API_TOKEN_BYTES);
+  if (read.kind === "absent") return { kind: "absent" };
+  if (read.kind === "refused") {
+    return {
+      kind: "unsafe",
+      reason: read.reason === "unreadable"
+        ? "service token file could not be read"
+        : "service token path is not a bounded regular file",
+    };
   }
-  if (stat.isSymbolicLink() || !stat.isFile() || stat.size > MAX_SERVICE_API_TOKEN_BYTES) {
-    return { kind: "unsafe", reason: "service token path is not a bounded regular file" };
-  }
-  try {
-    const token = readFileSync(path, "utf8").trim();
-    if (!token) return { kind: "unsafe", reason: "service token file is empty" };
-    return { kind: "present", token, fingerprint: serviceApiTokenFingerprint(token) };
-  } catch {
-    return { kind: "unsafe", reason: "service token file could not be read" };
-  }
+  const token = read.content.trim();
+  if (!token) return { kind: "unsafe", reason: "service token file is empty" };
+  return { kind: "present", token, fingerprint: serviceApiTokenFingerprint(token) };
 }
 
 export function writeServiceApiTokenFile(token: string): PersistedServiceApiToken {
@@ -94,21 +94,24 @@ export function replaceServiceApiTokenFile(token: string): PersistedServiceApiTo
 
 export function readTokenBackupState(): ServiceApiTokenState {
   const path = serviceApiTokenBackupPath();
-  if (!existsSync(path)) return { kind: "absent" };
-  let stat;
-  try { stat = lstatSync(path); }
-  catch { return { kind: "unsafe", reason: "service token backup could not be inspected" }; }
-  if (stat.isSymbolicLink() || !stat.isFile() || stat.size > MAX_SERVICE_API_TOKEN_BYTES
-    || (process.platform !== "win32" && (stat.mode & 0o077) !== 0)) {
+  const read = readBoundedRegularFile(path, MAX_SERVICE_API_TOKEN_BYTES);
+  if (read.kind === "absent") return { kind: "absent" };
+  if (read.kind === "refused") {
+    return {
+      kind: "unsafe",
+      reason: read.reason === "unreadable"
+        ? "service token backup could not be inspected"
+        : "service token backup is not an owner-only bounded regular file",
+    };
+  }
+  // The permission check reads the DESCRIPTOR's mode, so it describes the file these bytes
+  // were read from rather than whatever the name resolved to a moment earlier.
+  if (process.platform !== "win32" && (read.stat.mode & 0o077) !== 0) {
     return { kind: "unsafe", reason: "service token backup is not an owner-only bounded regular file" };
   }
-  try {
-    const token = readFileSync(path, "utf8").trim();
-    if (!token || /[\r\n\0]/.test(token)) return { kind: "unsafe", reason: "service token backup is invalid" };
-    return { kind: "present", token, fingerprint: serviceApiTokenFingerprint(token) };
-  } catch {
-    return { kind: "unsafe", reason: "service token backup could not be read" };
-  }
+  const token = read.content.trim();
+  if (!token || /[\r\n\0]/.test(token)) return { kind: "unsafe", reason: "service token backup is invalid" };
+  return { kind: "present", token, fingerprint: serviceApiTokenFingerprint(token) };
 }
 
 export function writeTokenBackup(expectedFingerprint: string): PersistedServiceApiToken {

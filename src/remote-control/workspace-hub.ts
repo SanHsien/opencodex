@@ -3,14 +3,16 @@ import {
   createPrivateKey,
   createPublicKey,
   randomBytes,
+  randomInt,
   randomUUID,
   sign,
   timingSafeEqual,
   verify,
 } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { atomicWriteFile } from "../config/atomic-write";
+import { readBoundedRegularFile } from "../lib/bounded-file-read";
 import { getConfigDir } from "../config/paths";
 import { workspaceSecretFileExists, workspaceSecretPermissions, type WorkspaceSecretPermissions } from "./workspace-secret-store";
 import {
@@ -133,11 +135,20 @@ function normalizeCode(value: string): string {
   return value.replace(/[\s-]/g, "").toUpperCase();
 }
 
+/**
+ * 12 characters drawn uniformly from the pairing alphabet.
+ *
+ * `randomBytes(n) % alphabet.length` is only uniform while the length divides
+ * 256, which the current 32-character alphabet happens to do. That is a property
+ * of a constant on another line, not of this code: dropping one ambiguous glyph
+ * would silently make the low characters of the alphabet likelier and shrink the
+ * search space a pairing code is supposed to have. randomInt rejection-samples,
+ * so the guarantee holds whatever the alphabet becomes.
+ */
 function newPairingCode(): string {
-  const bytes = randomBytes(12);
   let code = "";
-  for (let index = 0; index < bytes.length; index += 1) {
-    code += PAIRING_ALPHABET[bytes[index]! % PAIRING_ALPHABET.length];
+  for (let index = 0; index < 12; index += 1) {
+    code += PAIRING_ALPHABET[randomInt(PAIRING_ALPHABET.length)];
   }
   return `${code.slice(0, 4)}-${code.slice(4, 8)}-${code.slice(8)}`;
 }
@@ -275,11 +286,13 @@ export class RemoteWorkspaceHubFileStore implements RemoteWorkspaceHubStateStore
     if (!workspaceSecretFileExists(this.path)) return null;
     this.permissions.prepareDirectory(dirname(this.path));
     this.permissions.hardenFile(this.path);
-    const metadata = statSync(this.path);
-    if (!metadata.isFile() || metadata.size > MAX_HUB_STATE_BYTES) {
-      throw new Error("remote workspace hub state is too large");
-    }
-    return parseRemoteWorkspaceHubState(JSON.parse(readFileSync(this.path, "utf8")));
+    // The size bound is decided on the descriptor these bytes came from. Statting the path and
+    // then reading the path again are two resolutions of one name, so the bound would describe a
+    // file the read need not have opened.
+    const read = readBoundedRegularFile(this.path, MAX_HUB_STATE_BYTES);
+    if (read.kind === "absent") return null;
+    if (read.kind === "refused") throw new Error("remote workspace hub state is too large");
+    return parseRemoteWorkspaceHubState(JSON.parse(read.content));
   }
 
   save(state: RemoteWorkspaceHubState): void {

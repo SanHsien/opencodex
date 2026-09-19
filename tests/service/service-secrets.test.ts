@@ -133,20 +133,34 @@ describe("service API token ownership", () => {
     const original = writeServiceApiTokenFile("ocx_data_original");
     // Every fsync in this module must run on a writable handle: Windows returns EPERM for
     // fsync on an "r" fd, which is how all three ownership cases failed on windows-latest.
-    const openModes: string[] = [];
+    //
+    // Checked on the fsync itself rather than by banning every "r" open in the flow. That
+    // shorthand held only while the one openSync reachable from here was the fsync one; the
+    // bounded reader the ownership checks now go through opens "r" and never fsyncs, so the
+    // shorthand began reporting a failure that was not one. This asserts what the comment says.
+    const modeByFd = new Map<number, string>();
+    const fsyncedModes: string[] = [];
     const realOpen = nodeFs.openSync;
+    const realFsync = nodeFs.fsyncSync;
     const openSpy = spyOn(nodeFs, "openSync").mockImplementation(((path: never, flags?: never, mode?: never) => {
-      if (typeof flags === "string") openModes.push(flags);
-      return realOpen(path, flags, mode);
+      const fd = realOpen(path, flags, mode);
+      modeByFd.set(fd, typeof flags === "string" ? flags : String(flags ?? "r"));
+      return fd;
     }) as typeof realOpen);
+    const fsyncSpy = spyOn(nodeFs, "fsyncSync").mockImplementation(((fd: number) => {
+      fsyncedModes.push(modeByFd.get(fd) ?? "<opened outside this window>");
+      return realFsync(fd);
+    }) as typeof realFsync);
     let backup: ReturnType<typeof writeTokenBackup>;
     try {
       backup = writeTokenBackup(original.fingerprint);
     } finally {
       openSpy.mockRestore();
+      fsyncSpy.mockRestore();
     }
-    expect(openModes.length).toBeGreaterThan(0);
-    expect(openModes.filter(mode => mode === "r")).toEqual([]);
+    expect(modeByFd.size).toBeGreaterThan(0);
+    expect(fsyncedModes.length).toBeGreaterThan(0);
+    expect(fsyncedModes.filter(mode => !/[+wa]/.test(mode))).toEqual([]);
     expect(backup.path).toBe(serviceApiTokenBackupPath());
     expect(readTokenBackupState()).toMatchObject({ kind: "present", token: "ocx_data_original" });
     if (process.platform !== "win32") expect(lstatSync(backup.path).mode & 0o777).toBe(0o600);

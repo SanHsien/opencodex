@@ -1,8 +1,9 @@
 import { createPrivateKey, createPublicKey, randomUUID, sign, verify } from "node:crypto";
 import { arch, hostname, platform } from "node:os";
-import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { lstatSync, mkdirSync, realpathSync } from "node:fs";
 import { basename, dirname, isAbsolute, join } from "node:path";
 import { atomicWriteFile } from "../config/atomic-write";
+import { readBoundedRegularFile } from "../lib/bounded-file-read";
 import { getConfigDir } from "../config/paths";
 import { workspaceSecretFileExists, workspaceSecretPermissions, type WorkspaceSecretPermissions } from "./workspace-secret-store";
 import {
@@ -233,11 +234,13 @@ export class RemoteWorkspaceDeviceFileStore implements RemoteWorkspaceDeviceStat
     if (!workspaceSecretFileExists(this.path)) return null;
     this.permissions.prepareDirectory(dirname(this.path));
     this.permissions.hardenFile(this.path);
-    const metadata = statSync(this.path);
-    if (!metadata.isFile() || metadata.size > MAX_DEVICE_STATE_BYTES) {
-      throw new Error("remote workspace device state is too large");
-    }
-    return parseRemoteWorkspaceDeviceState(JSON.parse(readFileSync(this.path, "utf8")));
+    // The size bound is decided on the descriptor these bytes came from. Statting the path and
+    // then reading the path again are two resolutions of one name, so the bound would describe a
+    // file the read need not have opened.
+    const read = readBoundedRegularFile(this.path, MAX_DEVICE_STATE_BYTES);
+    if (read.kind === "absent") return null;
+    if (read.kind === "refused") throw new Error("remote workspace device state is too large");
+    return parseRemoteWorkspaceDeviceState(JSON.parse(read.content));
   }
 
   save(state: RemoteWorkspaceDeviceState): void {

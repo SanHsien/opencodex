@@ -1,6 +1,9 @@
-import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { resolveCodexHomeDir } from "./home";
+import { readBoundedRegularFile } from "../lib/bounded-file-read";
+
+/** Same bound as the other config.toml readers: it exists to keep the read bounded. */
+const MAX_LEGACY_CONFIG_BYTES = 4 * 1024 * 1024;
 import { parseTomlDocument } from "./project-config-warnings";
 import { redactUserPath } from "../lib/redact";
 
@@ -31,14 +34,18 @@ export function collectLegacyCodexConfigKeyDiagnostics(
   options: { codexConfigPath?: string } = {},
 ): LegacyCodexConfigKeyDiagnosticsResult {
   const path = resolveCodexConfigPath(options.codexConfigPath);
-  if (!existsSync(path)) return { status: "available", path, diagnostics: [] };
-  let content: string;
-  try {
-    if (!statSync(path).isFile()) return { status: "unavailable", path, reason: "not_a_file" };
-    content = readFileSync(path, "utf-8");
-  } catch { // no-excuse-ok: catch -- optional doctor diagnostics must not fail on an unreadable file.
-    return { status: "unavailable", path, reason: "read_failed" };
+  // One open decides all three answers. existsSync, then statSync, then readFileSync resolved
+  // the same name three times, and only the last one produced the bytes this function returns.
+  const read = readBoundedRegularFile(path, MAX_LEGACY_CONFIG_BYTES);
+  if (read.kind === "absent") return { status: "available", path, diagnostics: [] };
+  if (read.kind === "refused") {
+    return {
+      status: "unavailable",
+      path,
+      reason: read.reason === "not-a-regular-file" ? "not_a_file" : "read_failed",
+    };
   }
+  const content = read.content;
   const { root } = parseTomlDocument(content);
   const found: LegacyCodexConfigKeyDiagnostic[] = [];
   for (const key of LEGACY_KEYS) {

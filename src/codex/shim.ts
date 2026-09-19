@@ -26,6 +26,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { getConfigDir } from "../config";
+import { readBoundedRegularFile } from "../lib/bounded-file-read";
 import { BUN_RUNTIME_PATH_ENV, BUN_RUNTIME_SOURCE_ENV, durableBunRuntime } from "../lib/bun-runtime";
 import type { BunRuntimeSource } from "../lib/bun-runtime";
 import { isProcessAlive } from "../lib/process-control";
@@ -1172,62 +1173,35 @@ function fileErrorCode(error: unknown): string | undefined {
     : undefined;
 }
 
-function readBoundedRegularFile(path: string, maxBytes: number): { bytes: Buffer; content: string } | { warning: string } | null {
-  let lexicalBefore: Stats;
-  try {
-    lexicalBefore = lstatSync(path);
-    if (lexicalBefore.isSymbolicLink() || !lexicalBefore.isFile()) {
-      return { warning: `Codex shim state is not a direct regular file at ${path}; auto-restore skipped.` };
-    }
-  } catch (error) {
-    if (fileErrorCode(error) === "ENOENT") return null;
-    return { warning: `Codex shim state could not be inspected at ${path}.` };
-  }
-  let fd: number;
-  try {
-    fd = openSync(path, "r");
-  } catch (error) {
-    if (fileErrorCode(error) === "ENOENT") return null;
-    return { warning: `Codex shim state could not be opened as a regular file at ${path}.` };
-  }
-  try {
-    const before = fstatSync(fd);
-    if (!before.isFile()) return { warning: `Codex shim state is not a regular file at ${path}; auto-restore skipped.` };
-    if (before.size > maxBytes) {
-      return { warning: `Codex shim state exceeds the 1 MiB startup limit at ${path}; auto-restore skipped.` };
-    }
-    const buffer = Buffer.allocUnsafe(before.size);
-    let offset = 0;
-    while (offset < buffer.length) {
-      const bytesRead = readSync(fd, buffer, offset, buffer.length - offset, offset);
-      if (bytesRead === 0) return { warning: `Codex shim state changed while being read at ${path}; auto-restore skipped.` };
-      offset += bytesRead;
-    }
-    const extra = Buffer.allocUnsafe(1);
-    if (readSync(fd, extra, 0, 1, offset) !== 0) {
-      return { warning: `Codex shim state exceeds the 1 MiB startup limit at ${path}; auto-restore skipped.` };
-    }
-    const after = fstatSync(fd);
-    let lexicalAfter: Stats;
-    try {
-      lexicalAfter = lstatSync(path);
-    } catch {
-      return { warning: `Codex shim state changed while being read at ${path}; auto-restore skipped.` };
-    }
-    if (before.dev !== after.dev || before.ino !== after.ino || before.size !== after.size
-      || before.mtimeMs !== after.mtimeMs || before.ctimeMs !== after.ctimeMs
-      || lexicalBefore.dev !== before.dev || lexicalBefore.ino !== before.ino
-      || lexicalAfter.isSymbolicLink() || lexicalAfter.dev !== after.dev || lexicalAfter.ino !== after.ino) {
-      return { warning: `Codex shim state changed while being read at ${path}; auto-restore skipped.` };
-    }
-    return { bytes: buffer, content: buffer.toString("utf8") };
-  } finally {
-    closeSync(fd);
+/**
+ * The shim's own wording over the shared bounded read.
+ *
+ * The open-then-fstat-then-verify body this used to hold now lives in
+ * `lib/bounded-file-read`; only the operator-facing sentences are shim business.
+ */
+function readShimStateFile(path: string, maxBytes: number): { bytes: Buffer; content: string } | { warning: string } | null {
+  const result = readBoundedRegularFile(path, maxBytes);
+  switch (result.kind) {
+    case "absent":
+      return null;
+    case "present":
+      return { bytes: result.bytes, content: result.content };
+    case "refused":
+      switch (result.reason) {
+        case "not-a-regular-file":
+          return { warning: `Codex shim state is not a direct regular file at ${path}; auto-restore skipped.` };
+        case "too-large":
+          return { warning: `Codex shim state exceeds the 1 MiB startup limit at ${path}; auto-restore skipped.` };
+        case "changed-while-reading":
+          return { warning: `Codex shim state changed while being read at ${path}; auto-restore skipped.` };
+        case "unreadable":
+          return { warning: `Codex shim state could not be inspected at ${path}.` };
+      }
   }
 }
 
 function readStateResult(path = statePath()): ShimStateReadResult {
-  const bounded = readBoundedRegularFile(path, CODEX_SHIM_STATE_MAX_BYTES);
+  const bounded = readShimStateFile(path, CODEX_SHIM_STATE_MAX_BYTES);
   if (!bounded) return { state: null, present: false };
   if ("warning" in bounded) return { state: null, present: true, warning: bounded.warning };
   try {

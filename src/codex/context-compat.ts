@@ -1,7 +1,11 @@
 /** Backend path and opt-in config compatibility for native Codex history/notes. */
-import { readFileSync, statSync } from "node:fs";
+import { statSync } from "node:fs";
 import { join } from "node:path";
 import { getCodexHome } from "./paths";
+import { readBoundedRegularFile } from "../lib/bounded-file-read";
+
+/** config.toml is a hand-edited settings file; this bound only stops an unbounded read. */
+const MAX_CODEX_CONFIG_BYTES = 4 * 1024 * 1024;
 
 export const CONTEXT_BACKEND_PREFIX = "/backend-api/codex";
 
@@ -48,7 +52,12 @@ export function contextRelayActivated(configPath?: string): boolean {
   if (activation?.key === key) return activation.active;
   let active = false;
   try {
-    active = contextExperimentalEnabled(readFileSync(path, "utf8"));
+    // The stat above is the cache key, not a permission to read the same name again: a plain
+    // readFileSync would resolve `path` a second time and follow whatever it points at by then.
+    // Read the descriptor, bounded -- this is a config file on the model path.
+    const read = readBoundedRegularFile(path, MAX_CODEX_CONFIG_BYTES);
+    if (read.kind !== "present") throw new Error("codex config could not be read");
+    active = contextExperimentalEnabled(read.content);
   } catch {
     // A readable stat with an unreadable body caches false under that identity, so the feature
     // stays off until the content itself changes. Fail-closed is the right direction here.

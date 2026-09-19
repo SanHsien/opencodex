@@ -14,8 +14,8 @@
  * otherwise be presented as this hub's state. `sameClientConnectionOwner` is the same triple
  * (`serverUrl`, `apiKeyId`, `connectedAt`) the rest of the client lifecycle compares on.
  */
-import { existsSync, lstatSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { readBoundedRegularFile } from "../lib/bounded-file-read";
 import { getConfigDir } from "../config";
 import { atomicWriteFile } from "../config/atomic-write";
 import { parseHubStateBody, type HubStateDTO } from "../remote/hub-state";
@@ -56,13 +56,13 @@ interface CacheDocument {
 
 function readCacheDocument(): CacheDocument | null {
   const path = hubStateCachePath();
-  if (!existsSync(path)) return null;
   try {
-    const stat = lstatSync(path);
     // A symlink or an oversized file is refused rather than followed: this file is written
-    // 0600 by us, and anything else about it is someone else's doing.
-    if (stat.isSymbolicLink() || !stat.isFile() || stat.size > MAX_CACHE_BYTES) return null;
-    const raw = JSON.parse(readFileSync(path, "utf8")) as unknown;
+    // 0600 by us, and anything else about it is someone else's doing. The refusal is decided
+    // on the open descriptor, so swapping the name after the check buys nothing.
+    const read = readBoundedRegularFile(path, MAX_CACHE_BYTES);
+    if (read.kind !== "present") return null;
+    const raw = JSON.parse(read.content) as unknown;
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
     const doc = raw as Record<string, unknown>;
     if (doc.version !== 1) return null;

@@ -5,6 +5,7 @@ import { zstdDecompressSync } from "node:zlib";
 import { Database } from "bun:sqlite";
 import { resolveCodexStateDbPath } from "./paths";
 import { atomicWriteFile, getConfigDir } from "../config";
+import { readBoundedRegularFile } from "../lib/bounded-file-read";
 import {
   CODEX_HISTORY_RESUMABLE_SOURCES,
   codexHistoryBackupId,
@@ -21,6 +22,14 @@ import {
  * JSONL to disk.
  */
 export const MAX_ROLLOUT_ZST_DECOMPRESSED_BYTES = 64 * 1024 * 1024;
+/**
+ * Bound for the strict-restore manifest read.
+ *
+ * Deliberately far above anything this module writes: the point of the bound is that the read
+ * cannot become unbounded when the name is swapped for something else between the stat and the
+ * open, not to police manifest size.
+ */
+const MAX_HISTORY_MANIFEST_BYTES = 64 * 1024 * 1024;
 
 /**
  * The manifest that shadows one state database.
@@ -229,8 +238,14 @@ function planFirstLineProvider(firstLine: string, expectedId: string, provider: 
 }
 
 function inspectFirstLineProvider(path: string, expectedId: string, provider: string): "current" | "patchable" | "unsafe" {
-  if (!existsSync(path)) return "unsafe";
-  const fd = openSync(path, "r");
+  // The open reports absence itself. Asking existsSync first and then opening resolves the
+  // name twice, and the answer the caller acts on is the one from the second resolution.
+  let fd: number;
+  try {
+    fd = openSync(path, "r");
+  } catch {
+    return "unsafe";
+  }
   try {
     const firstLine = readFirstRolloutLine(fd);
     return firstLine === null ? "unsafe" : planFirstLineProvider(firstLine, expectedId, provider).state;
@@ -240,8 +255,12 @@ function inspectFirstLineProvider(path: string, expectedId: string, provider: st
 }
 
 function readFirstLineProviderValue(path: string, expectedId: string): string | null {
-  if (!existsSync(path)) return null;
-  const fd = openSync(path, "r");
+  let fd: number;
+  try {
+    fd = openSync(path, "r");
+  } catch {
+    return null;
+  }
   try {
     const firstLine = readFirstRolloutLine(fd);
     if (firstLine === null) return null;
@@ -343,8 +362,28 @@ let historyAppendHooks: {
 export function setHistoryAppendHooksForTests(hooks: typeof historyAppendHooks): void { historyAppendHooks = hooks; }
 
 function assertLegacyHistoryWritable(path: string, heldFd?: number): void {
-  if (!path || !existsSync(path)) return;
-  const fd = heldFd ?? openSync(path, "r");
+  if (!path) return;
+  let fd: number;
+  if (heldFd !== undefined) {
+    // The caller already holds the descriptor, so nothing is opened here and there is no
+    // check-then-open to race. The guard stays as it was: a path that is gone is nothing to
+    // assert about, and dropping it would turn that case into an identity-changed throw from
+    // assertHistoryDescriptorIdentity below.
+    if (!existsSync(path)) return;
+    fd = heldFd;
+  } else {
+    try {
+      fd = openSync(path, "r");
+    } catch (error) {
+      // The open reports absence itself, which is what the existsSync guard used to say here.
+      // Asking first and then opening resolves the name twice, and only the second resolution
+      // produces the descriptor every check below is made against. Any other failure is real
+      // and must not be read as "no history".
+      const code = typeof error === "object" && error && "code" in error ? String((error as { code?: unknown }).code) : "";
+      if (code === "ENOENT") return;
+      throw error;
+    }
+  }
   try {
     assertHistoryDescriptorIdentity(path, fd);
     const first = readFirstRolloutLine(fd);
@@ -594,17 +633,16 @@ function readBackupStrict(path: string, stateDbPath: string): StrictBackupRead {
   if (!pathStat.isFile() || pathStat.isSymbolicLink()) {
     return { kind: "unknown", present: true, reason: "manifest-read" };
   }
+  // The lstat above describes whatever the name pointed at then; a plain readFileSync would
+  // resolve the name again. Read the descriptor instead, bounded well above any manifest this
+  // writes so no real one is refused by the bound.
   let raw: string;
-  try {
-    raw = readFileSync(path, "utf8");
-  } catch (error) {
-    const failureReason = classifyRecoverableHistoryError(error);
-    return {
-      kind: "unknown",
-      present: true,
-      reason: "manifest-read",
-      ...(failureReason === "busy" || failureReason === "permission" ? { failureReason } : {}),
-    };
+  {
+    const read = readBoundedRegularFile(path, MAX_HISTORY_MANIFEST_BYTES);
+    if (read.kind !== "present") {
+      return { kind: "unknown", present: true, reason: "manifest-read" };
+    }
+    raw = read.content;
   }
   let parsed: unknown;
   try {

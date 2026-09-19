@@ -1,10 +1,9 @@
 import { createHash } from "node:crypto";
 import {
   existsSync,
-  lstatSync,
-  readFileSync,
   unlinkSync,
 } from "node:fs";
+import { readBoundedRegularFile } from "../lib/bounded-file-read";
 import { hostname } from "node:os";
 import { atomicWriteFile, loadConfig, withConfigMutationLockSync } from "../config";
 import { claudeDesktopIntegrationEnabledNow } from "../codex/desired-state";
@@ -107,22 +106,21 @@ function sha256(value: string): string {
 }
 
 function catalogSnapshot(): CatalogSnapshot {
-  if (!existsSync(DEFAULT_CATALOG_PATH)) return { kind: "absent" };
-  const stat = lstatSync(DEFAULT_CATALOG_PATH);
-  if (stat.isSymbolicLink() || !stat.isFile() || stat.size > MAX_REMOTE_CATALOG_BYTES) {
-    throw new Error("existing OpenCodex catalog is not a bounded regular file");
-  }
-  const body = readFileSync(DEFAULT_CATALOG_PATH, "utf8");
-  return { kind: "file", body, fingerprint: sha256(body) };
+  // One open, and the checks are made against that descriptor. Statting the path and then
+  // reading the path are two resolutions of the same name, so the size and type bound would
+  // describe a file the read need not be opening.
+  const read = readBoundedRegularFile(DEFAULT_CATALOG_PATH, MAX_REMOTE_CATALOG_BYTES);
+  if (read.kind === "absent") return { kind: "absent" };
+  if (read.kind === "refused") throw new Error("existing OpenCodex catalog is not a bounded regular file");
+  return { kind: "file", body: read.content, fingerprint: sha256(read.content) };
 }
 
 function restoreCatalogSnapshot(snapshot: CatalogSnapshot, writtenFingerprint: string): boolean {
   try {
-    if (!existsSync(DEFAULT_CATALOG_PATH)) return snapshot.kind === "absent";
-    const stat = lstatSync(DEFAULT_CATALOG_PATH);
-    if (stat.isSymbolicLink() || !stat.isFile() || stat.size > MAX_REMOTE_CATALOG_BYTES) return false;
-    const current = readFileSync(DEFAULT_CATALOG_PATH, "utf8");
-    if (sha256(current) !== writtenFingerprint) return false;
+    const read = readBoundedRegularFile(DEFAULT_CATALOG_PATH, MAX_REMOTE_CATALOG_BYTES);
+    if (read.kind === "absent") return snapshot.kind === "absent";
+    if (read.kind === "refused") return false;
+    if (sha256(read.content) !== writtenFingerprint) return false;
     if (snapshot.kind === "absent") unlinkSync(DEFAULT_CATALOG_PATH);
     else atomicWriteFile(DEFAULT_CATALOG_PATH, snapshot.body);
     return true;

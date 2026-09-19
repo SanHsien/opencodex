@@ -38,7 +38,12 @@ jobs:
         uses: github/codeql-action/init@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd # v4.37.7
         with:
           languages: javascript-typescript
-          queries: security-extended
+          # The query pack and the path exclusions live in the config file, so
+          # the reason for each exclusion sits next to it. `queries:` here would
+          # be merged WITH the config's list rather than replacing it, which is
+          # how a pack ends up enabled twice and the config's comment stops
+          # describing what actually ran.
+          config-file: ./.github/codeql/codeql-config.yml
 
       - name: Analyze
         uses: github/codeql-action/analyze@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd # v4.37.7

@@ -1,0 +1,26 @@
+name: "opencodex JavaScript/TypeScript security scan"
+
+# Scan the product, not the harness that tests it.
+#
+# security-extended stays on for src/ because this proxy holds provider tokens,
+# ChatGPT account-pool credentials and request bodies -- that is the whole reason
+# the scan exists. But pointed at the test tree the same pack reports the tests
+# doing their job: of 205 open alerts on 2026-09-19, 151 were under tests/, and
+# 108 of those were two rules -- 61 js/insecure-temporary-file (a suite that
+# builds sandboxes with mkdtempSync in the OS temp dir) and 47
+# js/incomplete-url-substring-sanitization (assertions that check a URL contains
+# an expected fragment). Neither describes a defect; both describe a test.
+#
+# A backlog that is three-quarters noise is worse than no scan, because the
+# real findings stop being visible. Excluding the harness leaves 49 src/ alerts
+# and 5 in test-support scripts, which is a list a person can actually read.
+paths-ignore:
+  - tests
+  - devlog
+  - scripts/test-layout
+  - scripts/disposable-host
+  - gui/tests
+  - docs-site
+
+queries:
+  - uses: security-extended

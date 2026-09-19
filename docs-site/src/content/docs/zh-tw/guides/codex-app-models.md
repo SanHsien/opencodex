@@ -27,6 +27,48 @@ API GPT-5.6 條目使用 1,050,000 context / 922,000 max input；`*-pro` 選擇�
 通用的 `gpt-5.6-pro` 別名。Compact 請求保留所選 tier，但會在不帶 reasoning 物件的情況下傳送
 base 模型。
 
+`gpt-daybreak-blue-latest` 受帳號權限限制。opencodex 會先檢查每個已驗證 ChatGPT 帳號自己的
+Codex 模型名冊，才決定要不要宣告或路由它。在 Pool 模式下，只有當至少一個合格的 Pool 帳號回報
+該 slug 時，裸的那一列才會存在。在 Direct 模式下，裸列跟隨本機目錄所使用的主帳號，而且每個請求
+還會檢查轉送過來的呼叫端憑證（或在 OpenCodex 准入 bearer 被替換時，檢查已儲存的主憑證）。
+`<selector>/gpt-daybreak-blue-latest` 這一列只有在該選擇器對應的帳號回報它時才存在。Pool 路由
+會排除沒有權限的帳號。若無法確認任何名冊，受限的那一列會關閉失敗，而不是把一次 prompt 花在
+上游的 400 上。
+
+`gpt-5.6-sol`、`gpt-5.6-terra`、`gpt-5.6-luna` 與 `gpt-6-astra` 刻意**不**這樣限制：不論權限名冊
+怎麼說，每次安裝都會列出它們。opencodex 會用夠新、足以回傳它們的用戶端版本去問上游，但它無法
+憑空生出答案——未確認的帳號、逾時的查詢，或是還沒同步到的分片，都會讓模型毫無說明地從選擇器裡
+消失。列出它們代表請求會真的送出，你看到的是上游的真實狀態。沒有這些模型的帳號會在送出請求時
+收到上游拒絕，而不是看到一列空白；在多帳號的 Pool 中，請求也不再會被優先導向擁有該模型的帳號。
+要隱藏其中任何一個，`disabledModels` 才是那個開關。
+
+另外用一個明確的 `customModels` 條目，可以透過標準的 Codex 登入轉送供應商，把與
+`openai/gpt-daybreak-blue-latest` 相同的 wire id 暴露出來：
+
+```json
+{
+  "customModels": [
+    {
+      "id": "daybreak-codex-forward",
+      "provider": "openai",
+      "modelId": "gpt-daybreak-blue-latest"
+    }
+  ]
+}
+```
+
+只有那個確切的供應商、端點與模型 id 會取得釘住的 Sol 能力快照：922,000 context、829,800 自動
+壓縮、原生 reasoning 階梯，以及原生 Codex 工具中繼資料。請求送出的仍然是
+`gpt-daybreak-blue-latest`；opencodex 不會把它改寫成 Sol，也不會授予帳號權限。另外計費的
+`openai-apikey/daybreak-blue-latest` API 列是另一條路線，它的 1,050,000 / 922,000 上限絕不會被
+複製到 Codex 登入的那一列。
+
+對於位在標準 `openai` Codex 轉送目的地上的自訂 Astra 與 Daybreak 列，明確指定的 `reasoningEfforts`
+會受該模型釘住的 Codex 能力所限。自訂的 `["none", "minimal", "low"]` 在目錄中會變成 `["low"]`；
+非空但沒有任何支援值的清單，同樣會退回原生預設值作為單一選項。明確寫成 `[]` 則維持空的，且不會
+宣告預設值。宣告的預設值只有在它屬於最終清單時才保留；否則優先使用存在的原生預設值，再不然就用
+第一個存活的選項。已儲存的自訂設定不會被更動，重複同步也不會把 `max` 加回一個收窄過的自訂清單。
+
 選擇選擇器 id 所代表的憑證路線。在 Providers 頁面切換 Pool/Direct；下面的 `<selector>` 是
 使用者自訂的公開標籤，透過 `codexAccountNamespaces` 對應：
 

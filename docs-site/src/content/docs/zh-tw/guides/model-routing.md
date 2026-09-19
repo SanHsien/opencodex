@@ -11,7 +11,20 @@ OpenAI 的 bare `gpt-*` 使用單一 `openai` provider。`codexAccountMode` 在 
 
 ## 優先順序
 
-1. **顯式 `provider/model`** —— 如果 id 包含 `/`，且斜槓前的部分是某個已設定供應商的名稱，則使用該供應商，並將 id 擷取為斜槓之後的部分。
+1. **精確的 Codex 帳號選擇器** —— 如果 id 是 `<選擇器>/<原生 openai 模型>`，且該選擇器已設定在
+   `codexAccountNamespaces` 中，該請求只會使用對應到的那個已儲存帳號，並把裸的原生模型送往上游。
+   無法使用的精確目標會關閉失敗，而不是繼續走 Pool、Direct 或供應商路由。
+
+   ```text
+   side/gpt-5.6-sol → provider "openai", model "gpt-5.6-sol", account selector "side"
+   ```
+
+2. **Combo id 或別名** —— 只要至少設定了一個 combo，標準寫法 `combo/<id>` 或已設定的 combo 別名
+   就會在檢查供應商名稱空間之前，先選出它的具體目標。沒有設定任何 combo 時，一個實際命名為
+   `combo` 的舊式實體供應商仍然是普通的供應商名稱空間。目標選擇與故障轉移行為見
+   [組合](/zh-tw/guides/combos/)。
+
+3. **顯式 `provider/model`** —— 如果 id 包含 `/`，且斜槓前的部分是某個已設定供應商的名稱，則使用該供應商，並將 id 擷取為斜槓之後的部分。
 
    ```text
    anthropic/claude-opus-5     →  provider "anthropic",   model "claude-opus-5"
@@ -22,24 +35,26 @@ OpenAI 的 bare `gpt-*` 使用單一 `openai` provider。`codexAccountMode` 在 
    這是無歧義的寫法，也是 Codex 的模型選擇器對路由模型所使用的寫法。如果指定的供應商已停用，
    這種顯式寫法會直接丟擲錯誤。
 
-2. **某個供應商的 `defaultModel`** —— 如果任一供應商的 `defaultModel` 等於該 id，則使用該供應商（id 原樣傳遞）。
+4. **裸的原生 OpenAI 系列 id** —— 像 `gpt-*`、`o1-*`、`o3-*` 或 `o4-*` 這類 id 會使用標準的、
+   已啟用的 `openai` 供應商，以及它設定的 Pool 或 Direct 帳號模式。
 
-3. **內建字首模式** —— 將 id 與已知的模型系列字首進行匹配，然後路由到名稱（或名稱字首）與之相符的已設定供應商：
+5. **某個供應商的 `defaultModel`** —— 如果任一供應商的 `defaultModel` 等於該 id，則使用該供應商（id 原樣傳遞）。
+
+6. **內建字首模式** —— 將 id 與已知的模型系列字首進行匹配，然後路由到名稱（或名稱字首）與之相符的已設定供應商：
 
    | 字首 | 供應商 |
    | --- | --- |
    | `claude-`、`claude-sonnet-`、`claude-opus-`、`claude-haiku-` | `anthropic` |
-   | `gpt-`、`o1-`、`o3-`、`o4-` | bare id 使用已設定的 `openai` 帳號模式；API key 顯式使用 `openai-apikey/` |
    | `llama-`、`mixtral-`、`gemma-` | `groq` |
 
    該匹配器只檢查名稱。與 `defaultModel` / `models[]` 掃描不同，目前即使匹配供應商的 `disabled`
    為 true，它也不會跳過該供應商。
 
-4. **某個供應商的 `models[]`** —— 如果字首規則沒有命中，而某個啟用的供應商在 `models[]` 中列出
-   該 id，則使用該供應商。這個順序很重要：只要設定了 OpenAI 名稱的供應商，裸 `gpt-*` id 就會在
-   其他供應商的 `models[]` 宣告之前路由到 OpenAI。
+7. **某個供應商的 `models[]`** —— 如果字首規則沒有命中，而某個啟用的供應商在 `models[]` 中列出
+   該 id，則使用該供應商。第 4 條已經讓裸 `gpt-*` id 在其他供應商的 `models[]` 宣告能夠命中之前，
+   就先送往標準的、已啟用的 `openai` 供應商。
 
-5. **預設供應商** —— 如果沒有任何匹配，id 將原樣傳送給 `config.defaultProvider`。（如果未設定預設供應商，或預設供應商已停用，路由會丟擲例外。）
+8. **預設供應商** —— 如果沒有任何匹配，id 將原樣傳送給 `config.defaultProvider`。（如果未設定預設供應商，或預設供應商已停用，路由會丟擲例外。）
 
 ## API 金鑰與環境變數
 

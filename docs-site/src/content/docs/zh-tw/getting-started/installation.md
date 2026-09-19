@@ -21,6 +21,12 @@ vision 和網路搜尋 sidecar 也可以使用你的 ChatGPT 登入憑證。
 npm install -g @bitkyc08/opencodex
 ```
 
+若使用 pnpm 10.4 或更新版本：
+
+```bash
+pnpm add -g --allow-build=bun @bitkyc08/opencodex
+```
+
 :::note[npm 攔截了 bun postinstall？]
 較新的 npm 可能會攔截 bun 的 postinstall 指令碼（`npm warn install-scripts ...
 blocked because they are not covered by allowScripts`），導致捆綁的 Bun

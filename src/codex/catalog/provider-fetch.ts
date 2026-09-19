@@ -71,7 +71,7 @@ import {
   providerOutboundPost,
   providerRedirectError,
 } from "../../lib/provider-outbound";
-import { redactSecretString } from "../../lib/redact";
+import { redactSecretString, sanitizeLogMetadataString } from "../../lib/redact";
 import {
   extractProviderModelItems,
   isRegistryModelDiscoveryUrl,
@@ -1911,7 +1911,14 @@ async function fetchProviderModelsWithAuth(
   if (ollamaShowEnrichable(name, prov)) {
     headers = applyConfiguredHeadersLast(headers, prov.headers);
   }
-  const urlClass = new URL(url).hostname.endsWith("aiplatform.googleapis.com")
+  // Exact host or a real subdomain. A bare endsWith also matches
+  // `evilaiplatform.googleapis.com`, which would label a third-party host as
+  // Vertex in every diagnostic below -- this value only reaches log lines, so
+  // the cost is a misleading log rather than a routing decision, but a
+  // misleading log is the thing someone reads during an incident.
+  const discoveryHost = new URL(url).hostname;
+  const urlClass = discoveryHost === "aiplatform.googleapis.com"
+    || discoveryHost.endsWith(".aiplatform.googleapis.com")
     ? "vertex-aiplatform"
     : "provider-models";
   const failedDiscoveryFallback = (
@@ -2118,7 +2125,11 @@ async function fetchProviderModelsWithAuth(
       const { models, fallback, shouldLog } = failedDiscoveryFallback({ reason: "blocked" });
       if (shouldLog) {
         console.warn(
-          `[opencodex] Provider model discovery for "${name}" was blocked by destination policy: ${error.message} [urlClass=${urlClass}, fallback=${fallback}].`,
+          // The message comes from a provider-shaped destination policy failure, so it can carry
+          // newlines and control characters that a log viewer renders as a record boundary -- a
+          // forged line in the middle of a real one. sanitizeLogMetadataString is the same scrub
+          // the other caller-controlled log fields already use.
+          `[opencodex] Provider model discovery for "${name}" was blocked by destination policy: ${sanitizeLogMetadataString(error.message, 200) ?? "unavailable"} [urlClass=${urlClass}, fallback=${fallback}].`,
         );
       }
       return observed(models, "degraded");

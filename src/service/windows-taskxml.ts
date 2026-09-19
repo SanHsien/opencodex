@@ -296,9 +296,28 @@ export function taskXmlSection(xml: string, tag: string): string {
   return new RegExp(`<${tag}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/${tag}>`, "i").exec(xml)?.[1] ?? "";
 }
 
-/** Drop comments and CDATA so a commented-out decoy cannot satisfy any check. */
+/**
+ * Drop comments and CDATA so a commented-out decoy cannot satisfy any check.
+ *
+ * Repeat until the string stops changing. One pass is not enough, because
+ * removing a span can splice its neighbours into a new one: `<!--<!--x-->-->`
+ * loses the inner comment and leaves a bare `-->`, and `<!--a-->b<!--c-->`
+ * arrangements can reconstitute a delimiter the first pass had split. Six
+ * callers use this as the scrub before reading Triggers, Settings, Priority and
+ * registration ownership, so a survivor here is a check that passes on XML the
+ * operator never wrote.
+ *
+ * Each pass strictly shortens the string or terminates, so the loop ends; the
+ * cap is only there so a pathological input cannot make this the slow path.
+ */
 export function taskXmlWithoutCommentsAndCdata(xml: string): string {
-  return xml.replace(/<!--[\s\S]*?-->/g, "").replace(/<!\[CDATA\[[\s\S]*?\]\]>/g, "");
+  let current = xml;
+  for (let pass = 0; pass < 32; pass += 1) {
+    const next = current.replace(/<!--[\s\S]*?-->/g, "").replace(/<!\[CDATA\[[\s\S]*?\]\]>/g, "");
+    if (next === current) return current;
+    current = next;
+  }
+  return current;
 }
 
 /**

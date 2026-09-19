@@ -289,6 +289,10 @@ describe("membership oracle", () => {
       // Placed under routing/ by its author (#3523, restored by #3530): it exercises the oauth
       // routing quorum, not the Anthropic adapter, so the anthropic- seed is wrong for it.
       "anthropic-quorum-cache.test.ts",
+      // lib/bounded-file-read is the shared open-then-fstat reader for local state files. The
+      // server domain claims the `bounded-` prefix for its bounded-body/bounded-response tests,
+      // so the seed reads the name and says server while the module sits in src/lib.
+      "bounded-file-read.test.ts",
     ]);
     const mismatches: string[] = [];
     let resolved = 0;

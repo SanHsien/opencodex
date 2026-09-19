@@ -375,3 +375,19 @@ commit，均 defer 至 stable promotion。open platform `#4200`（remote-hub doc
 - 水位更新：commit `4d37c35155fe283722566d32892b8753c1230be7`、PR `#4414`、issue `#4414`。
 
 
+
+## 2026-09-19：CodeQL 警示清零政策；runtime pin 失效時改取最新 build
+
+**決定（一）**：CodeQL 只掃產品碼，不掃測試工具。`.github/codeql/codeql-config.yml` 的 `paths-ignore` 納入 `tests`、`devlog`、`gui/tests`、`docs-site`、`scripts/test-layout`、`scripts/disposable-host`、`scripts/ci`。
+
+**理由**：2026-09-19 時 205 則開啟警示中有 151 則在 `tests/` 底下，其中 108 則只是兩條規則在描述測試本身在做它該做的事——61 則 `js/insecure-temporary-file`（用 `mkdtempSync` 在系統 temp 建沙箱的套件）與 47 則 `js/incomplete-url-substring-sanitization`（斷言 URL 含有某片段）。四分之三是雜訊的待辦清單比沒有掃描更糟，因為真實發現就此看不見了。`scripts/ci` 同理：`docker-smoke.ts` 是在自己擁有的 checkout 裡備份一個產生檔，跑在 hosted runner 上，改寫 CI harness 去關一個它跟自己賽跑的窗口沒有意義。
+
+**決定（二）**：剩餘 38 則逐則處置，結果為開啟數 0——21 則改程式、15 則標記（14 則 false positive、1 則 won't fix）、2 則進 paths-ignore。每一則標記前都讀過該處程式碼，理由寫在 dismissal comment 裡。
+
+**理由**：標記的四大類都不是缺陷。`js/insufficient-password-hash` 的 17 處全是 HMAC-SHA256 的 capability MAC 或日誌／快取用的識別碼，沒有任何一處儲存密碼或拿雜湊去驗證；`js/file-access-to-http` 的 4 處讀的是本行程自己記下的 port 與 hostname，打的是它自己管理的本機 proxy；`js/http-to-file-access` 的 2 處把抓回來的東西寫進檔案正是該指令的功能本身；`js/indirect-command-line-injection` 的 2 處來源是本 CLI 自己的 `process.env` / `process.argv`，匯點是 `commandInvocation` 的 cross-spawn 跳脫。唯一的 won't fix 是 `codex-ws-wire.ts:146`：那個訊息是 relay 刻意產生、供 client 解析以達成與直連路徑相同判斷的階段記錄，`ws-upstream` 有斷言在守它，因此保留契約並改為先 redact、壓成單行、截到 400 字元。
+
+**決定（三）**：pin 指向的 Codex 執行檔不存在時，改選**版本最新**的有效候選，而不是沿用優先序。
+
+**理由**：上游 issue 4204 說明確的 pin 是使用者的決定、不可被靜默取代——那條規則講的是**仍然解析得到**的 pin。指向的檔案已經不存在的 pin 根本無法被遵守，此時退回優先序會優先採用 PATH 而非帶版本的安裝目錄，那是靜默降級，不是尊重。Codex Desktop 讓這件事變成常態而非邊角案例：它把每個 build 裝在各自的 content-hash 目錄下，所以每次自動更新都會刪掉被 pin 的路徑。2026-09-19 實測：pin 指向 `...\Codex\bin\cdef5aaf3e41ab53\codex.exe`，更新寫入 `...\247581e40ee272fb\codex.exe`（0.155.0-alpha.9.2），解析卻退回 PATH 上的 0.150.0；`ocx doctor --fix-codex-runtime` 再寫一個新 hash 的 pin，下次更新又刪掉，形成迴圈。兩邊都要報得出版本才比得出高低，未知版本不視為升級。
+
+**連帶**：`src/lib/bounded-file-read.ts` 成為本 fork 讀取本機狀態檔的共用入口（open 一次、驗描述子、讀描述子、再比對身分）。它不是新設計，是把 `src/codex/shim.ts` 裡原本就寫對的那段抽出來共用。新增測試檔因 `server` domain 的 `bounded-` seed 與實際模組位置 `src/lib/` 不一致，已加入 `layout.json` 的 `explicit` 表與 tooling oracle 的 pinned-overrides。

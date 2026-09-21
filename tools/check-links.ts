@@ -17,7 +17,6 @@ const SKIP_PREFIXES = ["http://", "https://", "mailto:", "tel:", "#"];
 const ROOT_DOCS = [
   "AGENTS.md",
   "AGENTS_INSTALL.md",
-  "CLAUDE.md",
   "FORK.md",
   "NOTICE.md",
   "REVIEW.md",

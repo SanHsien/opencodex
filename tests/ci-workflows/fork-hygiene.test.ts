@@ -32,7 +32,6 @@ describe("fork maintainer files", () => {
     const required = [
       "FORK.md",
       "NOTICE.md",
-      "CLAUDE.md",
       "SKILL.md",
       "REVIEW.md",
       "SECURITY.md",

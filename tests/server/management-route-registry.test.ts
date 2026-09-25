@@ -42,7 +42,7 @@ function routeCarryingFiles(): string[] {
     "src/server/management-api.ts",
     // Mounted outside the `??` chain (management-api.ts:284, :289), which is why a scan
     // scoped to `src/server/management/` misses 29 route literals entirely.
-    "src/codex/auth-api.ts",
+    "src/codex/auth-api/routes.ts",
     "src/codex/native-profile-api.ts",
   ];
   for (const f of readdirSync(join(repoRoot, "src/server/management")).sort()) {
@@ -238,6 +238,15 @@ describe("route exemptions stay honest", () => {
   test("the user-consent star boundary is exempt and never gains a verb", () => {
     const star = MANAGEMENT_ROUTES.find(r => r.path === "/api/github/star" && r.method === "POST");
     expect(star?.exempt?.reason).toBe("session-only");
+  });
+
+  test("desktop snapshot is declared as a bounded internal shell mutation", () => {
+    const row = MANAGEMENT_ROUTES.find(r =>
+      r.method === "POST" && r.path === "/api/update/desktop-snapshot");
+    expect(row).toMatchObject({
+      module: "server/management/sidebar-routes", mutates: true,
+      exempt: { reason: "desktop-internal" },
+    });
   });
 
   test("every mutating lab route is either verbed or bounded by a deferred-verb owner", () => {

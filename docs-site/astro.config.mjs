@@ -1,6 +1,7 @@
 // @ts-check
 import { defineConfig } from "astro/config";
 import starlight from "@astrojs/starlight";
+import internalLinks from "./src/integrations/internal-links.mjs";
 
 // Canonical GitHub Pages custom domain. The site is served at the domain root,
 // so Starlight must not emit the former /opencodex project-site prefix.
@@ -80,14 +81,18 @@ export default defineConfig({
           translations: { "zh-TW": "指南" },
           items: [
             { label: "Remote Hub Deployment", translations: { "zh-TW": "Remote Hub 部署" }, slug: "guides/remote-hub" },
+            { label: "Response Inspection", translations: { "zh-TW": "回應檢查與大型回應" }, slug: "guides/response-inspection" },
             { label: "Remote Workspace", translations: { "zh-TW": "遠端工作區" }, slug: "guides/remote-workspace" },
             { label: "Providers", translations: { "zh-TW": "供應商" }, slug: "guides/providers" },
-            { label: "Factory Droid Bridge", slug: "guides/factory-droid" },
-            { label: "Cursor Private Inference", slug: "guides/cursor-private-inference" },
+            { label: "Factory Droid Bridge", translations: { "zh-TW": "Factory Droid 橋接" }, slug: "guides/factory-droid" },
+            { label: "Cursor Private Inference", translations: { "zh-TW": "Cursor Private Inference" }, slug: "guides/cursor-private-inference" },
             { label: "Model Routing", translations: { "zh-TW": "模型路由" }, slug: "guides/model-routing" },
             { label: "Codex Integration", translations: { "zh-TW": "Codex 整合" }, slug: "guides/codex-integration" },
             { label: "Codex App Model Picker", translations: { "zh-TW": "Codex App 模型選擇器" }, slug: "guides/codex-app-models" },
             { label: "Codex Prompt Layers", translations: { "zh-TW": "Codex 提示詞層" }, slug: "guides/codex-prompt" },
+            { label: "Native Context Compatibility", translations: { "zh-TW": "原生脈絡相容性" }, slug: "guides/codex-native-context" },
+            { label: "macOS Menu Bar App", translations: { "zh-TW": "macOS 選單列 App" }, slug: "guides/macos-menu-bar" },
+            { label: "Desktop App", translations: { "zh-TW": "桌面 App" }, slug: "guides/desktop-app" },
             { label: "Model Ordering", translations: { "zh-TW": "模型排序" }, slug: "guides/model-ordering" },
             { label: "Combos", translations: { "zh-TW": "組合" }, slug: "guides/combos" },
             { label: "Claude Code", translations: { "zh-TW": "Claude Code" }, slug: "guides/claude-code" },
@@ -155,10 +160,14 @@ export default defineConfig({
           items: [
             { label: "Windows Memory Growth", translations: { "zh-TW": "Windows 記憶體增長" }, slug: "troubleshooting/windows-memory" },
             { label: "Disk Usage from Temp Files", translations: { "zh-TW": "暫存檔磁碟用量" }, slug: "troubleshooting/disk-usage-temp-files" },
+            { label: "Codex Cannot Sign In or Load", translations: { "zh-TW": "Codex 無法登入" }, slug: "troubleshooting/codex-cannot-sign-in" },
+            { label: "Update Failed on Windows", translations: { "zh-TW": "Windows 上更新失敗" }, slug: "troubleshooting/update-failed" },
           ],
         },
         { label: "Contributing", translations: { "zh-TW": "貢獻" }, slug: "contributing" },
       ],
     }),
+    // Runs after Starlight has written the site: refuses a build with a broken internal link.
+    internalLinks(),
   ],
 });

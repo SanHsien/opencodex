@@ -39,6 +39,21 @@ attempt with tools removed and existing results retained. This can incur another
 request. A second empty answer fails; malformed calls and provider refusal or truncation
 outcomes are preserved without this retry.
 
+## xAI policy refusals
+
+Some xAI Chat Completions refusals arrive as HTTP 403 with an exact model-refusal
+sentence such as `I can't help with that request.` instead of HTTP 200 plus
+`finish_reason: content_filter`. Codex treats a 403 as a transport failure, so the
+user turn is never recorded and the same request is retried.
+
+On a non-combo Responses request, OpenCodex rewrites that allowlisted 403 to an
+HTTP 200 Responses payload with `status: "incomplete"` and
+`incomplete_details.reason: "content_filter"`. The rewrite runs on the openai-chat
+adapter path and on openai-responses passthrough (grok-4.6 / grok-4.5 OAuth).
+Streaming uses the same incomplete boundary. Empty or whitespace 403 bodies stay
+errors. Subscription, credit, entitlement, and `not allowed to use this
+model` 403s stay errors. Combo failover still sees the original HTTP 403.
+
 ## Cursor context overflow
 
 Cursor's first bare context overflow is surfaced to the client. Later eligible requests
@@ -177,6 +192,9 @@ top-level `instructions`, and `truncation` is removed because that destination r
 Responses shapes. Other Responses destinations preserve them.
 The same canonical boundary removes nested client-only `prompt_cache_breakpoint` markers and drops
 `item_reference` entries only on `store: false` continuations; tool call/result pairing is unchanged.
+`metadata` is removed on every forward route for compatibility with the canonical ChatGPT backend, which rejects it. `max_output_tokens`
+is removed only on that canonical route, which rejects the field outright; every other forward destination
+receives the caller's output cap unchanged, but the cap bounds the turn only when the destination enforces it.
 
 Image file IDs are provider-scoped references, not portable image bytes. Responses passthrough
 retains them; translating adapters receive an `[image: file_id]` text marker for file-only image
@@ -255,11 +273,16 @@ uses an unsupported protocol, opencodex skips the WebSocket attempt and uses HTT
 dialing the upstream directly.
 
 These rules belong to the upstream WebSocket transport, independently of the selected provider
-adapter. HTTP fetch-based Responses requests, including SSE fallback, use Bun's HTTP proxy rules
-and do not use `ALL_PROXY`. `config.proxy` fills missing `HTTP_PROXY`/`HTTPS_PROXY` values; the
-resulting scheme-specific value also takes precedence over an existing `ALL_PROXY` for WebSocket.
-For an HTTPS upstream that requires a proxy, set `HTTPS_PROXY` or `config.proxy`; `HTTP_PROXY`
-alone leaves both WSS and its HTTPS fallback without a scheme-matched proxy.
+adapter. HTTP fetch-based Responses requests, including SSE fallback, use the
+[configured outbound fetch](/reference/configuration/server/#server-fields). A server SOCKS5 proxy — set
+with `config.proxy` or inherited from a SOCKS5 `ALL_PROXY` — uses OpenCodex's built-in tunnel when
+`NO_PROXY`/`no_proxy` does not exempt the target. Scheme-specific
+`HTTP_PROXY`/`HTTPS_PROXY` values retain Bun's native HTTP(S) handling, while a non-SOCKS
+`ALL_PROXY` is not a native HTTP fetch route. `config.proxy` fills missing
+`HTTP_PROXY`/`HTTPS_PROXY` values; the resulting scheme-specific value also takes precedence over
+an existing `ALL_PROXY` for WebSocket. For an HTTPS upstream that requires a proxy, set
+`HTTPS_PROXY` or `config.proxy`; `HTTP_PROXY` alone leaves both WSS and its HTTPS fallback without
+a scheme-matched proxy.
 
 Every terminal Responses usage object includes both detail objects, even when the provider did not
 report those details:
@@ -563,7 +586,9 @@ upstream (`404`). Both legs carry Codex's `session-id` and `thread-id` headers; 
 account choice is bound to that pair (process-local), so a join that reaches the proxy reuses the
 account that created the call, while Direct mode forwards the caller's current bearer on both legs.
 The relayed client headers are exactly `openai-alpha`, `x-session-id`, `session-id`, `thread-id`,
-`originator`, and `x-oai-attestation` (`LIVE_CLIENT_PROTOCOL_HEADERS` in `src/server/live.ts`);
+`originator`, `x-oai-attestation`, and `x-codex-turn-metadata`
+(`LIVE_CLIENT_PROTOCOL_HEADERS` in `src/server/live.ts`); each is relayed only when the caller
+sent it, and none is invented.
 `Authorization` and the ChatGPT account id are proxy-owned on ChatGPT-backed routes (Pool replaces
 them with the stored account, Direct forwards the validated caller bearer) and an API-key provider
 gets its own bearer. Codex only sends the join to the proxy when `experimental_realtime_ws_base_url`
@@ -702,3 +727,25 @@ and can read those bytes; a `forward` provider pointed at any other origin is no
 Explicitly trusted `allowEncryptedV2AgentTasks` routes and translated Chat or Anthropic wires are
 unaffected, as are other item types such as reasoning and tool-output blobs, which keep their
 existing decrypt-failure recovery.
+
+### Switching providers in an existing conversation
+
+A replayed reasoning item carries `encrypted_content` that only the provider and credential that
+produced it can read. When opencodex knows the conversation was last served by a different
+provider, it removes that blob before sending and keeps the item's summary. If that provider also
+used a different endpoint or credential, the item's `rs_…` id is removed too, because it names an
+item the new destination cannot look up. When it cannot know,
+for example after a proxy restart, the new destination rejects the blob instead: OpenAI and Azure
+OpenAI answer `400 invalid_encrypted_content`. opencodex then resends the request once without the
+previous provider's reasoning state. The blob goes, and so does the reasoning item's `rs_…` id,
+because that id names an item the previous provider stored and the new destination would answer
+`Item with id 'rs_…' not found`.
+
+This recovery applies to every adapter that speaks the Responses wire, so `openai-responses` and
+`azure-openai` behave the same way. After a successful recovery, later turns of that conversation
+on the same destination drop the foreign state before the first send for the next five minutes,
+without another rejected round trip. The resend counts against the request's normal send budget.
+An ordinary 400 and a 429 are never retried this way, and neither is a 5xx, with one narrow
+exception: a 502 whose body is the exact encrypted tool-output decrypt rejection, sent for a request
+that carries encrypted tool output, gets the same single resend. A second rejection reaches the
+client unchanged. If that happens, start a new conversation on the destination provider.

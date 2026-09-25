@@ -20,7 +20,47 @@ import { repoPath } from "../helpers/repo-root";
 type Recorded = { path: string; method: string; body: unknown };
 const servers: Array<ReturnType<typeof Bun.serve>> = [];
 
-describe("ocx system settings client compaction", () => {
+describe("ocx system codex-restart confirmation", () => {
+  test("names the desktop interruption before any unconfirmed request", async () => {
+    const { requests, deps } = fakeRuntime();
+    const errors = spyOn(console, "error").mockImplementation(() => {});
+    try {
+      expect(await handleSystemCommand(["codex-restart"], deps)).toBe(2);
+      expect(requests).toHaveLength(0);
+      const warning = errors.mock.calls.flat().join(" ");
+      expect(warning).toContain("requires --yes");
+      expect(warning).toContain("fully quits and relaunches the Codex desktop app");
+      expect(warning).toContain("unsaved composer drafts");
+      expect(warning).toContain("model-picker selections");
+      expect(warning).toContain("pending approval prompts");
+    } finally { errors.mockRestore(); }
+  });
+
+  test.each([false, true])("preserves requested versus completed outcomes (json=%s)", async wantsJson => {
+    // A skipped Desktop outcome must survive JSON output; this fixture cannot restart processes.
+    const result = { success: true, code: "nothing_running", requested: [], stopped: [],
+      desktopApp: { attempted: false, relaunch: "skipped", reason: "self_ancestry" } };
+    const { requests, deps } = fakeRuntime(() => result);
+    const output = spyOn(console, "log").mockImplementation(() => {});
+    try {
+      const argv = ["codex-restart", "--yes", ...(wantsJson ? ["--json"] : [])];
+      expect(await handleSystemCommand(argv, deps)).toBe(0);
+      expect(requests).toEqual([{ path: "/api/system/codex-restart", method: "POST", body: null }]);
+      const text = output.mock.calls.flat().join("\n");
+      if (wantsJson) expect(JSON.parse(text)).toEqual(result);
+      else {
+        expect(text).toContain("Codex desktop app");
+        expect(text).toContain("restart requested.");
+        expect(text).toContain("Unsaved composer drafts");
+        expect(text).toContain("model-picker selections");
+        expect(text).toContain("pending approval prompts");
+        expect(text).not.toContain("restarted");
+      }
+    } finally { output.mockRestore(); }
+  });
+});
+
+describe("ocx system settings desktop switches", () => {
   test("persists the explicit boolean through the shared settings endpoint", async () => {
     const { requests, deps } = fakeRuntime((_req, body) => ({ ok: true, ...body }));
     const logSpy = spyOn(console, "log").mockImplementation(() => {});
@@ -31,6 +71,82 @@ describe("ocx system settings client compaction", () => {
         method: "PUT",
         body: { codexClientCompaction: true },
       }]);
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
+  test("prints stored and effective state, a deferred apply, and the auth-source consequence", async () => {
+    const { deps } = fakeRuntime(() => ({
+      ok: true,
+      codexDesktopAuthless: true,
+      codexDesktopSwitches: {
+        codexDesktopAuthless: {
+          stored: true,
+          effective: false,
+          inertReason: "non_loopback_bind_requires_admission_token",
+        },
+        codexClientCompaction: { stored: false, effective: false },
+        apply: {
+          applied: false,
+          reason: "write_lock_busy",
+          retryable: true,
+          detail: "another Codex config writer owns the lock",
+        },
+        authSource: {
+          presentsCodexAccount: true,
+          summary: "The Codex app will require its own account sign-in.",
+        },
+      },
+    }));
+    const logSpy = spyOn(console, "log").mockImplementation(() => {});
+    try {
+      expect(await handleSystemCommand(["settings", "--desktop-authless", "on"], deps)).toBe(0);
+      const output = logSpy.mock.calls.flat().join("\n");
+      expect(output).toContain("Codex desktop authless: stored on.");
+      expect(output).toContain("Codex desktop authless: effective off because a non-loopback bind requires an admission token");
+      expect(output).toContain("Codex config: ~/.codex/config.toml was not rewritten because the Codex config write lock is busy.");
+      expect(output).toContain("Details: another Codex config writer owns the lock");
+      expect(output).toContain("Run 'ocx sync' to apply the stored settings.");
+      expect(output).toContain("Auth source: The Codex app will require its own account sign-in.");
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
+  test("prints a completed inline apply and the authless identity consequence", async () => {
+    const { deps } = fakeRuntime(() => ({
+      ok: true,
+      codexDesktopAuthless: true,
+      codexDesktopSwitches: {
+        codexDesktopAuthless: { stored: true, effective: true },
+        codexClientCompaction: { stored: false, effective: false },
+        apply: { applied: true },
+        authSource: {
+          presentsCodexAccount: false,
+          summary: "The Codex app will not require its own account sign-in.",
+        },
+      },
+    }));
+    const logSpy = spyOn(console, "log").mockImplementation(() => {});
+    try {
+      expect(await handleSystemCommand(["settings", "--desktop-authless", "on"], deps)).toBe(0);
+      const output = logSpy.mock.calls.flat().join("\n");
+      expect(output).toContain("Codex desktop authless: stored on.");
+      expect(output).toContain("Codex desktop authless: effective on.");
+      expect(output).toContain("Codex config: ~/.codex/config.toml was rewritten.");
+      expect(output).toContain("Auth source: The Codex app will not require its own account sign-in.");
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
+  test("keeps the legacy success line when an older server omits the switch report", async () => {
+    const { deps } = fakeRuntime((_req, body) => ({ ok: true, ...body }));
+    const logSpy = spyOn(console, "log").mockImplementation(() => {});
+    try {
+      expect(await handleSystemCommand(["settings", "--desktop-authless", "on"], deps)).toBe(0);
+      expect(logSpy.mock.calls.flat().join("\n")).toBe("System settings updated.");
     } finally {
       logSpy.mockRestore();
     }
@@ -196,6 +312,61 @@ describe("ocx agent sidecar --list (#2188)", () => {
       logSpy.mockRestore();
     }
   });
+
+  test("web --enabled off stores the switch and reports the Codex-side write in the Desktop switches' words", async () => {
+    const { requests, deps } = fakeRuntime((req, body) => {
+      const url = new URL(req.url);
+      if (url.pathname === "/api/sidecar-settings" && req.method === "PUT") {
+        expect(body).toEqual({ webSearch: { enabled: false } });
+        return {
+          ok: true,
+          webSearch: { enabled: false },
+          // The route reports the injection it ran; a refusal has to read like every other one.
+          codexWebSearch: {
+            applied: false,
+            reason: "write_lock_busy",
+            retryable: true,
+            detail: "another Codex config writer owns the lock",
+          },
+        };
+      }
+      return undefined;
+    });
+    const logSpy = spyOn(console, "log").mockImplementation(() => {});
+    try {
+      expect(await handleAgentCommand(["sidecar", "web", "--enabled", "off"], deps)).toBe(0);
+      expect(requests).toEqual([
+        { path: "/api/sidecar-settings", method: "PUT", body: { webSearch: { enabled: false } } },
+      ]);
+      const out = logSpy.mock.calls.map(call => String(call[0])).join("\n");
+      expect(out).toContain("web sidecar settings updated.");
+      expect(out).toContain("Codex config: ~/.codex/config.toml was not rewritten because the Codex config write lock is busy.");
+      expect(out).toContain("Details: another Codex config writer owns the lock");
+      expect(out).toContain("Run 'ocx sync' to apply the stored settings.");
+      // The internal reason code stays out of the human line.
+      expect(out).not.toContain("write_lock_busy");
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
+  test("a report the server did not treat as a switch move adds no Codex line", async () => {
+    const { deps } = fakeRuntime((req) => {
+      const url = new URL(req.url);
+      if (url.pathname === "/api/sidecar-settings" && req.method === "PUT") {
+        return { ok: true, webSearch: { enabled: false }, codexWebSearch: { applied: false, reason: "not_requested", retryable: false } };
+      }
+      return undefined;
+    });
+    const logSpy = spyOn(console, "log").mockImplementation(() => {});
+    try {
+      expect(await handleAgentCommand(["sidecar", "web", "--enabled", "off"], deps)).toBe(0);
+      const out = logSpy.mock.calls.map(call => String(call[0])).join("\n");
+      expect(out).toBe("web sidecar settings updated.");
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
 });
 
 afterEach(() => {
@@ -277,6 +448,10 @@ describe("headless GUI parity CLI", () => {
       // `ocx integration native` verb would duplicate existing commands rather
       // than add a capability. Listed so the sweep stays exhaustive.
       ["/api/native-integrations", "(none — GUI-only)"],
+      // #3417: the dashboard's native main login disclosure reads and writes the same
+      // routes as `ocx account main` — list/doctor, register, switch and recover — so the
+      // GUI surface adds no endpoint the headless CLI cannot already reach.
+      ["/api/native-main-profiles", "ocx account main"],
       ["/api/debug", "ocx debug/observe"],
       ["/api/diagnostics", "ocx system"],
       ["/api/effort", "ocx agent"],
@@ -290,6 +465,7 @@ describe("headless GUI parity CLI", () => {
       ["/api/logs", "ocx observe"],
       ["/api/lab", "ocx lab"],
       ["/api/config", "ocx config"],
+      ["/api/companion", "ocx companion"],
       // The client machine plane. These are served by the connected client's own loopback
       // listener rather than the hub, and each one mirrors a connect-family command:
       // status/clients -> `ocx connect status`, sync -> `ocx sync`, shim -> the client
@@ -301,6 +477,9 @@ describe("headless GUI parity CLI", () => {
       // inventory and writes one config key. There is no headless equivalent
       // today, and claiming one would be worse than saying so here.
       ["/api/codex-prompt", "(none — GUI prompt-layer surface; keys live in config.toml)"],
+      // Claude reset grants: reading is an owed CLI verb (deferred-verb in the route
+      // registry) and spending is dashboard-session-only by design.
+      ["/api/anthropic/reset-grants", "(none — GUI reset-grant dialog; spend requires a dashboard session)"],
       ["/api/settings", "ocx system"],
       // Routing Intelligence (RI-04..RI-10): profiles + dry-run are mirrored by
       // `ocx route policy`. Analytics is GUI-first for now; the same request
@@ -524,6 +703,48 @@ describe("headless GUI parity CLI", () => {
         ],
       },
     });
+  });
+
+  test("combo set exposes the opt-in force-default policy", async () => {
+    const runtime = fakeRuntime();
+    expect(await handleComboCommand([
+      "set", "deep", "--targets", "ark/model-a", "--effort", "max", "--effort-mode", "force", "--json",
+    ], runtime.deps)).toBe(0);
+    expect(runtime.requests.find(request => request.method === "PUT")?.body).toMatchObject({
+      id: "deep",
+      combo: { defaultEffort: "max", defaultEffortMode: "force" },
+    });
+  });
+
+  test("combo set sends fallback when clearing an existing forced default effort", async () => {
+    const runtime = fakeRuntime(req => req.method === "GET" ? {
+      combos: [{
+        id: "deep",
+        defaultEffort: "max",
+        defaultEffortMode: "force",
+        targets: [{ provider: "ark", model: "old-model" }],
+      }],
+    } : undefined);
+    expect(await handleComboCommand([
+      "set", "deep", "--targets", "ark/model-a", "--effort", "-", "--json",
+    ], runtime.deps)).toBe(0);
+    expect(runtime.requests).toEqual([
+      { path: "/api/combos", method: "GET", body: null },
+      {
+        path: "/api/combos",
+        method: "PUT",
+        body: {
+          id: "deep",
+          combo: {
+            strategy: "failover",
+            stickyLimit: 1,
+            targets: [{ provider: "ark", model: "model-a" }],
+            defaultEffort: null,
+            defaultEffortMode: "fallback",
+          },
+        },
+      },
+    ]);
   });
 
   test("combo set rejects --sticky outside round-robin instead of dropping it", async () => {

@@ -1,14 +1,11 @@
 ---
-title: Factory Droid 橋接器
-description: 透過一個本機的 Responses 相容橋接器，把 Factory Droid 的模型連上 opencodex。
+title: Factory Droid 橋接
+description: 透過本機 Responses 相容橋接，將 Factory Droid 模型連接至 opencodex。
 ---
 
-Factory Droid 是一個代理執行環境，不是一份有文件記載的、與 OpenAI 相容的推論
-端點。如果一個指向 Factory 內部 LLM URL 的自訂供應商回傳 `403 Forbidden`，光
-改動 opencodex 的轉接器，或加上供應商標頭，都不會讓那條私有路由變成一個受支
-援的公開 API。
+Factory Droid 是代理執行環境，不是有公開文件的 OpenAI 相容推論端點。如果指向 Factory 內部 LLM URL 的自訂 provider 回傳 `403 Forbidden`，只變更 opencodex adapter 或增加 provider 標頭，不會讓這條私有路由變成受支援的公開 API。
 
-可行的整合方式是：
+可運作的整合方式如下：
 
 ```text
 Text-only Responses client
@@ -18,63 +15,46 @@ Text-only Responses client
   -> Factory account and selected model
 ```
 
-這樣可以讓 Factory 的憑證留在官方 Droid 用戶端內部。OpenCodex 收到的是一把
-分開的、僅限本機的橋接器 token。
+這會讓 Factory 憑證留在官方 Droid 用戶端。OpenCodex 使用另一把只供本機橋接使用的 token。
 
-## 失敗的地方與原因
+## 失敗原因與修正方式
 
-| 症狀 | 原因 | 修法 |
+| 症狀 | 原因 | 修正方式 |
 | --- | --- | --- |
-| Factory LLM URL 回傳 `403 Forbidden` | 這個 URL 不是給第三方用戶端使用、有文件記載的通用 OpenAI 端點 | 透過官方 Droid CLI 或 SDK 呼叫 Factory |
-| `/models/models` 回傳 `404` | 供應商的 base URL 已經以 `/models` 結尾 | 把 `baseUrl` 設成 API 根路徑；絕不要包含探索路徑 |
-| 模型搜尋失敗 | 橋接器沒有公開一份完整的即時目錄 | 設定 `liveModels: false`，並提供一份靜態的 `models` 清單 |
-| 迴路供應商被拒絕 | 預設會拒絕私有網路存取 | 只對這個迴路橋接器設定 `allowPrivateNetwork: true` |
-| `${DROID_BRIDGE_TOKEN}` 未解析 | opencodex 服務環境中缺少這個變數 | 把它注入服務行程本身，而不只是互動式 shell |
-| `OutputTextDelta without active item` | 橋接器在開啟輸出項目與內容片段之前就送出了文字差量 | 依序送出完整的 Responses SSE 生命週期 |
+| Factory LLM URL 回傳 `403 Forbidden` | 該 URL 不是有文件的第三方用戶端通用 OpenAI 端點 | 透過官方 Droid CLI 或 SDK 呼叫 Factory |
+| `/models/models` 回傳 `404` | provider base URL 已以 `/models` 結尾 | 將 API 根路徑用作 `baseUrl`，不要包含探索路徑 |
+| 模型搜尋失敗 | 橋接未公開完整的即時目錄 | 設定 `liveModels: false` 並提供靜態 `models` 清單 |
+| loopback provider 遭拒 | 預設拒絕私有網路存取 | 只對 loopback 橋接設定 `allowPrivateNetwork: true` |
+| `${DROID_BRIDGE_TOKEN}` 無法解析 | opencodex 服務環境中缺少此變數 | 將它注入服務程序，而非只設定於互動式 shell |
+| `OutputTextDelta without active item` | 橋接在開啟輸出項目與內容部分之前就送出文字增量 | 依序送出完整的 Responses SSE 生命週期 |
 
-因此，同一把 Factory 憑證可以在 `droid exec` 裡正常運作，而直接對一個沒有文
-件記載的 LLM URL 發出請求仍會回傳 `403`。這兩個結果測試的是不同的產品，不應
-被視為互相矛盾。
+因此，同一 Factory 憑證可能可用於 `droid exec`，但直接請求無文件的 LLM URL 仍回傳 `403`。兩項結果測試的是不同產品，並不矛盾。
 
-## 先決條件
+## 前置條件
 
-1. 安裝並登入 [Droid CLI](https://docs.factory.ai/droid-cli/quickstart)。
-2. 確認一次有邊界的無頭請求能運作：
+1. 安裝 [Droid CLI](https://docs.factory.ai/droid-cli/quickstart) 並登入。
+2. 確認有界的無介面請求可運作：
 
    ```bash
    droid exec --model glm-5.2 --output-format json "Reply with DROID_OK only."
    ```
 
-3. 執行一個會呼叫 `droid exec`（或官方 Droid SDK）的本機橋接器，並公開：
+3. 執行呼叫 `droid exec`（或官方 Droid SDK）的本機橋接，並公開：
 
    - `GET /healthz`
    - `GET /v1/models`
    - `POST /v1/responses`
 
-Factory 把 `droid exec` 記載為它的非互動式自動化介面，並建議在腳本中使用
-JSON 輸出。對於較長期的整合，Factory 也在
-[Droid Exec 指南](https://docs.factory.ai/droid-exec/overview)中記載了串流
-JSON-RPC，以及官方的 TypeScript 與 Python SDK。
+Factory 將 `droid exec` 列為非互動式自動化介面，並建議指令碼使用 JSON 輸出。對於長期運作的整合，Factory 也在 [Droid Exec 指南](https://docs.factory.ai/droid-exec/overview)中介紹串流 JSON-RPC，以及官方 TypeScript 與 Python SDK。
 
-## 橋接器契約
+## 橋接契約
 
-把橋接器繫結到 `127.0.0.1`，要求一個隨機產生的 bearer token，限制請求大小上
-限，並對模型 ID 使用允許清單。這個最小化的橋接器只接受下列 Responses
-`input` 形狀：
+將橋接綁定到 `127.0.0.1`，要求隨機產生的 bearer token、限制請求大小，並將模型 ID 納入 allowlist。最小橋接只接受以下 Responses `input` 形式：
 
-- 一個非空字串；或
-- 一個只含 `message` 項目的陣列。每個訊息都必須有 `user`、`developer`、
-  `system` 或 `assistant` 角色，內容則是字串，或只含文字的內容片段（輸入角
-  色用 `input_text`，assistant 歷史用 `output_text`）。
+- 非空字串；或
+- 只包含 `message` 項目的陣列。每則訊息的角色必須是 `user`、`developer`、`system` 或 `assistant`，內容必須是字串，或只含文字內容部分（輸入角色使用 `input_text`，assistant 歷史使用 `output_text`）。
 
-在呼叫 Droid 之前，請驗證完整的請求。若某個輸入片段是圖片或檔案、`tools`
-包含任何工具定義，或 `input` 包含工具呼叫或結果（`function_call`、
-`function_call_output`、`custom_tool_call` 或
-`custom_tool_call_output`），請回傳 HTTP `400`，並附上 Responses 風格的
-`invalid_request_error`。請使用一個穩定的橋接器專屬代碼，例如
-`unsupported_bridge_input`，並在訊息中指出被拒絕的欄位。請在開始 SSE 之前就
-這麼做，即使 `stream: true` 也一樣；絕不要把不支援的內容丟棄、字串化，或攤平
-塞進提示詞裡。
+呼叫 Droid 前應驗證完整請求。如果輸入部分是圖片或檔案，`tools` 包含任何工具定義，或 `input` 包含工具呼叫或結果（`function_call`、`function_call_output`、`custom_tool_call` 或 `custom_tool_call_output`），應回傳 HTTP `400`，並附上 Responses 風格的 `invalid_request_error`。使用穩定且橋接專用的代碼，例如 `unsupported_bridge_input`，並在訊息中指出遭拒欄位。即使 `stream: true`，也必須在啟動 SSE 前完成；絕不可把不支援的內容丟棄、轉成字串或攤平成提示詞。
 
 ```json
 {
@@ -87,16 +67,15 @@ JSON-RPC，以及官方的 TypeScript 與 Python SDK。
 }
 ```
 
-對於一個被接受的請求，橋接器應該：
+對於接受的請求，橋接應：
 
-1. 把被接受的 Responses `input` 轉換成一個提示詞；
+1. 將接受的 Responses `input` 轉成提示詞。
 2. 呼叫 `droid exec --model <id> --output-format json <prompt>`；
 3. 解析最終的 `result` 與 `session_id`；
-4. 回傳一個 OpenAI Responses 信封；並且
-5. 在需要延續對話時，把 `previous_response_id` 對應到 Droid 的
-   session ID。
+4. 回傳 OpenAI Responses envelope；以及
+5. 需要接續時，將 `previous_response_id` 對應到 Droid session ID。
 
-對於串流回應，請依序送出下列生命週期：
+對串流回應，應依序送出以下生命週期：
 
 ```text
 response.created
@@ -109,12 +88,11 @@ response.output_item.done
 response.completed
 ```
 
-不要把橋接器公開在 `0.0.0.0` 上，也不要把 Factory 的憑證重複用來當橋接器的
-bearer token。
+不要將橋接暴露在 `0.0.0.0`，也不要重用 Factory 憑證作為橋接 bearer token。
 
-## OpenCodex 供應商設定
+## OpenCodex provider 設定
 
-用明確的供應商 ID `droid` 建立這個自訂供應商：
+使用明確的 provider ID `droid` 建立自訂 provider：
 
 ```bash
 ocx provider add droid \
@@ -124,8 +102,7 @@ ocx provider add droid \
   --allow-private-network
 ```
 
-這會建立 `providers.droid` 設定項目。在儀表板中，打開
-**Providers → droid → Edit JSON**，把該供應商的值換成：
+這會建立 `providers.droid` 設定項目。在儀表板開啟 **Providers → droid → Edit JSON**，並將該 provider 的值替換為：
 
 ```json
 {
@@ -141,26 +118,20 @@ ocx provider add droid \
 }
 ```
 
-這些模型 ID 只是範例。請只保留已登入的 Factory 帳號、`droid exec` 能實際使
-用的那些模型。不要替這個供應商加上 Factory 專屬的推論標頭：它的上游是這個本
-機橋接器，不是一個 Factory HTTP 端點。
+模型 ID 僅供示例。只保留已登入 Factory 帳號可透過 `droid exec` 使用的模型。不要為此 provider 增加 Factory 專用推論標頭：其上游是本機橋接，不是 Factory HTTP 端點。
 
-儲存供應商，或變更它的靜態目錄之後，請同步並重新啟動 Codex，讓新的工作階段
-讀到更新後的目錄：
+儲存 provider 或變更靜態目錄後，請同步並重新啟動 Codex，讓新工作階段讀取更新後的目錄：
 
 ```bash
 ocx sync --restart-codex
 ocx doctor
 ```
 
-`--restart-codex` 會重新啟動相符的 app-server，並完整結束、重新啟動 Codex 桌
-面 app，這會結束進行中的對話。若想讓桌面 app 保持執行，請用
-`--restart-app-server-only`。請等那些工作階段結束或儲存之後，再執行這個重新
-啟動。
+`--restart-codex` 會重新啟動符合條件的 app-server，並完全退出及重新開啟 Codex 桌面應用程式，結束即時對話。使用 `--restart-app-server-only` 可讓桌面應用程式保持執行。請在完成或儲存那些工作階段後才重新啟動。
 
-## 驗證整條路由
+## 驗證完整路由
 
-分別檢查每一個邊界：
+分別檢查每個邊界：
 
 ```bash
 curl -fsS http://127.0.0.1:11435/healthz
@@ -168,17 +139,8 @@ ocx doctor
 ocx access test droid/glm-5.2 --protocol responses
 ```
 
-一列供應商，或選單裡的一個模型項目，只能證明目錄可見，不能證明整合可行。只
-有當 Responses 探測透過 `droid/<model>` 這條路由回傳時，整合才算真的在運
-作。
+provider 資料列或模型選擇器項目只證明目錄中看得到模型。只有 Responses 探測成功經由 `droid/<model>` 路由返回，整合才算運作。
 
-## 目前的限制
+## 目前限制
 
-上面這個最小化橋接器，翻譯的是文字內容與 Responses SSE 生命週期。它**沒有**
-實作完整的雙向 Codex function／工具呼叫協定。Codex App 與 `codex exec` 通常
-會送出工具定義，即使提示詞說不要呼叫工具，而目前的 Codex CLI 也沒有一個通用
-旗標能移除那些定義。這個最小化橋接器必須用上面的 `400` 契約拒絕那些請求。工
-具定義、工具呼叫、工具結果、權限、取消，以及豐富的 Droid 事件，都需要一個建
-立在 Factory 的串流 JSON-RPC 模式，或官方 Droid SDK 之上的有狀態橋接器。請
-把 `ocx access test` 的成功，視為文字路徑的驗證，而不是 Codex agent 或工具
-路徑的驗證。
+上述最小橋接只轉譯文字與 Responses SSE 生命週期，**沒有**實作完整的雙向 Codex function／tool call 協定。即使提示詞要求不要呼叫工具，Codex App 與 `codex exec` 通常仍會送出工具定義；目前 Codex CLI 也沒有能移除這些定義的通用旗標。最小橋接必須依上述 `400` 契約拒絕這些請求。工具定義、工具呼叫、工具結果、權限、取消及豐富的 Droid 事件，需要以 Factory 串流 JSON-RPC 模式或官方 Droid SDK 建立具狀態的橋接。請將 `ocx access test` 成功視為文字路徑驗證，而非 Codex 代理或工具路徑的驗證。

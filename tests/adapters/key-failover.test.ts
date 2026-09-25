@@ -36,6 +36,7 @@ import type { OcxConfig, OcxParsedRequest, OcxProviderConfig } from "../../src/t
 import { removeTreeWithRetry } from "../helpers/remove-tree";
 
 let home: string;
+const previousHome = process.env.OPENCODEX_HOME;
 
 function makeConfig(provider: Partial<OcxProviderConfig>): OcxConfig {
   const config = {
@@ -68,7 +69,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  delete process.env.OPENCODEX_HOME;
+  if (previousHome === undefined) delete process.env.OPENCODEX_HOME;
+  else process.env.OPENCODEX_HOME = previousHome;
   removeTreeWithRetry(home);
   clearKeyCooldowns();
 });
@@ -292,6 +294,7 @@ describe("rotateProviderTransportOn429", () => {
     const initial = resolveOpenCodeGoTransport(
       config.providers["opencode-go"],
       "hashed-parent\0hashed-child",
+      config.providers["opencode-go"],
     );
     const initialSession = initial.headers?.["x-opencode-session"];
     expect(initialSession).toMatch(/^ocx_[0-9a-f]{32}$/);

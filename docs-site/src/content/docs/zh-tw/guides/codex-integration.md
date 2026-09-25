@@ -30,7 +30,7 @@ bearer。這些路徑不會彼此 fallback。shipped v1 設定會遷移到 marke
 ```toml
 # root keys, before the first table
 model_catalog_json = "/absolute/path/to/opencodex-catalog.json"
-# Auto-injected by opencodex
+# Auto-injected by opencodex (undo: ocx restore)
 openai_base_url = "http://127.0.0.1:10100/v1"
 # Auto-injected by opencodex
 experimental_realtime_ws_base_url = "http://127.0.0.1:10100/v1"
@@ -260,8 +260,8 @@ provider：
 model_provider = "opencodex"
 model_catalog_json = "/absolute/path/to/opencodex-catalog.json"
 
-# appended at the end of the file
-# Auto-injected by opencodex
+# 追加到檔案末尾
+# Auto-injected by opencodex (undo: ocx restore)
 [model_providers.opencodex]
 name = "OpenCodex Proxy"
 base_url = "http://your-host:10100/v1"
@@ -293,7 +293,7 @@ $CODEX_HOME/opencodex-catalog.json
 $CODEX_HOME/models_cache.json
 ```
 
-在 WSL 中，如果未設定 `CODEX_HOME`，且 Linux 的 `~/.codex/config.toml` 不存在，opencodex 也會檢查
+在 WSL 中，如果未設定 `CODEX_HOME`，且 Linux 的 `~/.codex` 目錄不存在或不含任何 Codex 狀態（`config.toml`, `auth.json`, `sessions`, `history.jsonl`），opencodex 也會檢查
 `/mnt/c/Users/*/.codex/config.toml` 下是否只有一個 Windows Codex Desktop home。候選項恰好只有一個時，
 會使用該目錄，讓 WSL app-server mode 與 Windows Codex Desktop 共用相同的 config 與 auth 檔案。
 若要覆蓋此偵測，請明確設定 `CODEX_HOME`。
@@ -613,6 +613,19 @@ OpenCodex 直接注入路由，請先將 Codex 切回內建 `openai` provider，
 明確的 wire 映射請見[解析器與橋接](/zh-tw/reference/architecture/#the-parser)。沒有任何供應商層級的設定
 可以補上一個缺失的 `tool_search` 宣告；一般的 code-mode 探索仍是一條獨立的路徑。
 
+### 快取讀取診斷
+
+在啟動代理之前設定 `OPENCODEX_CACHE_DEBUG=1`，會為每個已完成的請求寫入一筆診斷紀錄到
+`<config-dir>/cache-debug.jsonl`。此開關預設關閉；設為 `0` 或移除即可停用擷取。此檔案
+在強化過的設定目錄中僅供擁有者存取（`0600`），超過 200 行後會輪替，只保留最新的 100 行。
+
+每筆 JSONL 紀錄包含協定、路由過的供應商／模型、快取計數器的存在與來源，帳號、prompt-cache
+key 與允許清單中的 session 標頭的行程內相等性標籤，以及 instructions、tools 與
+message/input block 的有序指紋。前綴區段最多保留 128 個標籤，只標示第一個分歧的區段／
+索引。此診斷絕不儲存 prompt 或訊息文字、工具名稱、原始標頭、原始快取／session／帳號識別碼，
+或由它們衍生的持久標籤。它的隨機 HMAC 金鑰在行程啟動時建立，與其他除錯金鑰分開，且永不
+持久化；因此標籤只在同一個代理行程內比對值。
+
 ### 目錄疑難排解
 
 若模型在 Codex 中缺失，或目錄順序／可見性看起來不正確，請依序檢查：
@@ -688,7 +701,7 @@ ocx service install    # persistent: auto-starts on login and respawns on crash
 ## Subagent 選擇器
 
 目錄同步會讓選定的 sub-agent 模型可供 Codex 使用；picker 排序請參見
-[Codex App 模型選擇器](/zh-tw/guides/codex-app-models/#subagent-selection)，v1/base/v2 委派與 fallback
+[Codex App 模型選擇器](/zh-tw/guides/codex-app-models/#子代理選擇)，v1/base/v2 委派與 fallback
 行為則參見 [Sub-agent Surface](/zh-tw/guides/sub-agent-surface/)。
 
 ## Codex 帳號預熱
@@ -700,6 +713,10 @@ ocx service install    # persistent: auto-starts on login and respawns on crash
 `ocx account refresh openai` 和 `ocx account list openai --quota --refresh` 僅查詢用量。模型驗證會消耗配額，因此需要使用者的儀表板工作階段：配額恢復後，開啟 `ocx gui` 並點選 **Refresh quotas**。無介面主機也需要透過瀏覽器存取其儀表板；僅憑管理員權杖無法授權驗證。暫停的帳號可以完成驗證，但不會因此恢復或被選取。模型授權錯誤會持續顯示，直到驗證或重新登入成功。
 
 背景重新驗證是獨立功能，預設關閉。它需要 Token Guardian、`openai` 的 `proactive` 更新政策及 `tokenGuardian.codexWarmupEnabled`，並略過等待註冊驗證的帳號。
+
+### 取消主帳號裝置重新驗證
+
+取消主帳號的裝置代碼重新驗證時，如果 DELETE 請求暫時失敗、發生網路錯誤，或回應狀態未知或尚未結束，系統會保留目前的流程和取消失敗提示，以便重試取消。通常狀態輪詢會繼續，因此仍能偵測到登入完成。如果流程處於 `pending` 或 `committing` 狀態時，可重試的取消失敗與 GET 狀態查詢的非 2xx HTTP 回應同時發生，無論回應抵達順序如何，系統都會保留或還原伺服器最後提供的裝置代碼、驗證 URL 和階段，讓同一流程仍可重試取消。GET 的 HTTP 失敗仍會停止輪詢，但無須傳送第二次登入 POST 即可重試取消。終止狀態為 `failed` 的回應會釋放流程並顯示正規化的失敗原因，只有 `succeeded` 才表示登入成功。確認狀態為 `cancelled` 的回應會釋放流程，以便開始新的裝置代碼登入。明確回傳 HTTP 404 且代碼為 `unknown_flow` 的回應也會釋放已過期的流程 ID，以便開始新的裝置代碼登入，但不會顯示登入成功或已確認取消。先前流程中延遲抵達的 POST、GET 或 DELETE 回應不能改變新流程，也不能將新流程回報為登入成功。
 
 ### 帳號停止處理請求的原因
 
@@ -732,8 +749,8 @@ ocx restore    # restore without stopping  (alias: ocx eject)
 ocx restore back # point plain Codex at the running proxy again
 ```
 
-當 opencodex 作為受管的 [背景服務](/zh-tw/reference/cli/#ocx-service) 執行時，會設定 `OCX_SERVICE=1`，
-因此 service 驅動的重新啟動**不會**反覆改寫 Codex 設定；只有明確執行 `ocx stop` 或
+當 opencodex 作為受管的 [背景服務](/zh-tw/reference/cli/lifecycle/#ocx-service-installrepairrestartstartstopstatusuninstallremove) 執行時，會設定 `OCX_SERVICE=1`，
+因此 service 驅動的 restart **不會**反覆改寫 Codex 設定；只有明確執行 `ocx stop` 或
 `ocx service stop` 才會恢復原生 Codex。
 
 ### 沒有注入雜湊時的復原
@@ -766,8 +783,224 @@ ocx restore back # point plain Codex at the running proxy again
 
 ## 分頁歷史記錄安全拒絕
 
-當受影響的歷史儲存區支援分頁紀錄時，供應商切換可能回傳 `history_paginated_requires_native_writer`。這個原因不再拒絕寫入 Codex 設定、參考設定檔或模型目錄。`ocx sync` 與 `ocx start` 仍會寫入這些檔案並設定 `model_catalog_json`，所以 Codex 模型選擇器會繼續顯示每一個 OpenCodex 路由過的模型。只有這一個原因會讓對話歷史的重新標記停手，因為分頁部署序號是由 Codex 自己的寫入器分配的，重試也不會改變這一點。其他任何歷史預檢原因——無法讀取的狀態資料庫、身分已變動的部署，或未能執行的預檢——仍會拒絕整個切換並回復，因為那些情況之後可能會成功。在這個狀態下，OpenCodex 絕不會修改分頁部署檔案或執行緒列。既有對話會保留它們已經標記的供應商，不會被遷移；新對話仍正常經 proxy 路由。當重新標記停手時，家目錄裡既有的 `[model_providers.opencodex]` 表會被保留而不是撤下，即便是根層級覆寫（loopback）形式也一樣，這樣標記為 `opencodex` 的對話列，仍能對應到一個依然存在的供應商 id。這也包括可遷移儲存區中的舊版列。CLI 會印出 `Codex resume history: left to Codex's native writer (history_paginated_requires_native_writer)`。
+如果受影響的歷史儲存區支援分頁，提供者切換可能傳回 `history_paginated_requires_native_writer`。此原因不再拒絕寫入 Codex 設定、參考設定檔與模型目錄。`ocx sync` 與 `ocx start` 仍會寫入這些檔案並設定 `model_catalog_json`，因此 Codex 模型選擇器會繼續顯示所有經 OpenCodex 路由的模型。只有這一條原因會讓對話歷史的重新標記停手，因為分頁歷史序號由 Codex 自己的寫入器分配，重試也不會改變。無法讀取的狀態資料庫、身分已變的歷史檔案、未能執行的預檢等其他歷史預檢原因仍會拒絕整個切換並回復，因為那些情況以後可能成功。在此狀態下，OpenCodex 不會修改分頁歷史檔案或執行緒列。既有對話保留已標記的提供者，不會被遷移；新對話仍正常經代理路由。重新標記停手時，家目錄裡既有的 `[model_providers.opencodex]` 表會保留而不是撤下，即便是 root-override（loopback）形式也一樣，這樣列上標記為 `opencodex` 的對話仍能對應到還存在的提供者 id。可遷移儲存區中的 legacy 記錄也適用。CLI 會印出 `Codex resume history: left to Codex's native writer (history_paginated_requires_native_writer)`。`ocx restore`、`ocx stop` 與 `ocx uninstall` 不再因 `history_paginated_requires_native_writer` 被拒絕。它們會移除 OpenCodex 寫入的所有根路由鍵，並把 `[model_providers.opencodex]` 定義留在磁碟上，因此列上仍指向該提供者的對話依舊可以解析，而純 `codex` 不再指向代理。結果會回報為部分復原並列出保留的列；`ocx restore --remove-codex-provider-table` 會連這些列一併刪除，之後那些對話將無法開啟。另外，在 Codex 已把 `openai` 標記對話遷移為分頁歷史的家目錄上啟用提供者表形式的整合，過去會以 `history_paginated_openai_requires_native_writer` 整體拒絕：什麼都不寫，整合維持關閉。現在 OpenCodex 會保留受管的根 `openai_base_url` 覆寫，與 `[model_providers.opencodex]` 表並存，藉此完成這次切換。Codex 會把該覆寫合併到內建 `openai` 提供者上，所以那些對話無需重新標記即可繼續抵達代理，歷史檔案與執行緒列都不會被更動。只有需要 `x-opencodex-api-key` 准入標頭的路由形式仍會拒絕，因為 Codex 內建提供者無法攜帶該標頭；此時訊息會點名兩個可行設定——讓 Codex 走回送監聽器以便保留該覆寫，或把 `syncResumeHistory` 設為 `false`，接受那些對話轉向 Codex 自己的 OpenAI 端點。
 
-`ocx restore` 與移除 Codex 設定，仍會因 `history_paginated_requires_native_writer` 而被拒絕。在執行緒列仍參照它時剝除 `[model_providers.opencodex]` 定義，會讓那些對話變得無法解析，而復原路徑沒有辦法保留一個相容性供應商表。一個已經分頁的家目錄，目前無法透過本產品解除安裝；這是已知的未完成工作，而不是預期行為。
+返回根 URL 覆寫模式時，即使歷史預檢通過，OpenCodex 也會在提交設定前保留既有的 `[model_providers.opencodex]` 定義。如此一來，即使 Codex 在提交後或背景歷史工作啟動時遷移歷史格式，舊的 `opencodex` 對話仍能找到其提供者。新對話繼續使用所選的根提供者；明確要求的還原仍執行原有的獨立刪除檢查。
 
-請勿為了自行遷移這些對話，而改寫一個現用的分頁部署或執行緒列。任何復原動作之前，請先關閉受影響的對話，並回報確切的錯誤與版本，不要上傳私人歷史。單靠備份或一個成功的指令碼，並不能證明對話已經重新可見。重新開啟後，請在 Codex 中確認該對話。
+請勿改寫使用中的分頁歷史檔案或執行緒列來自行遷移這些對話。復原前關閉相關對話，只回報確切錯誤與版本，不要公開私人歷史。備份或指令碼成功不能證明顯示已復原；重新開啟 Codex 後確認對話。
+
+## 實驗性原生對話中途 steering
+
+若使用規範 ChatGPT forward 路由上相容的模型，且客戶端會送出 `response.steer`，
+請在 `~/.opencodex/config.json` 中啟用這兩個選項並重啟 OpenCodex，再開始一輪新對話：
+
+```json
+{
+  "websockets": true,
+  "codexNativeSteering": true
+}
+```
+
+把這些鍵合併進既有設定；不要取代你的供應商／帳號設定。此選項預設關閉。它會把 steering
+轉發到同一個明確設定的原生 WebSocket 連線與已選帳號，保留自動的後續回應與待處理的已儲存
+工具結果續傳。接受代表已排入佇列，不代表已套用。
+
+必需的工具結果或核准決定，請在同一條線路上、**每個父層一次**提供。結果可以在
+`response.steer.pending` 之前送達：relay 也會比對已完成父層宣告的呼叫與核准。待處理的
+function-output stub 上的 `name`，在結果中是選填的，與原生 schema 相同。這些結果可以附帶
+額外的使用者訊息；system/developer 訊息、重複結果與不相關的 call ID 會被拒絕。請不要重跑
+工具或重送已接受的 steering 文字。模型、帳號、工具宣告與路由維持不變。已驗證的生成設定可能
+在下方描述的明確已儲存結果續傳中變更。其他變更需要一輪明確結束或完成的對話，並走一般的
+新派送。多個獨立對話使用獨立連線。
+
+HTTP 後備、非規範 gateway、公開 API-key 路由、轉換過的模型、sidecar、Combo 嘗試與明文 V2
+還原都不支援此選項。它不會為缺少該能力的模型或客戶端新增 steering 能力。不支援的路由會
+回傳協定錯誤，而不是悄悄忽略輸入。連線中斷或逾時的傳遞可能是未知狀態：永不自動重送工具或
+steering 文字。待處理控制項每次送出都有固定 90 秒的確認期限；已儲存工具結果的等待上限為
+30 分鐘。
+
+此實作有合成的協定與回歸測試覆蓋，但沒有實際的 Astra／客戶端認證。在你的客戶端／模型路徑
+經過驗證之前，正式環境請維持此選項關閉。將 `codexNativeSteering` 設為 `false` 並重啟，即可
+還原既有的單一回應 relay；不需要刪除任何帳號或對話檔案。
+
+### Steering 確認期限與保留的 context
+
+每個送出的 steer 有固定 90 秒的確認視窗。其他輸出與額外的 steer 不會延長它。一旦被接受，
+輸入會在目前回應到達安全邊界前保持排隊；一般的串流閒置檢查仍會套用。回應結束後，後續回應
+必須在 90 秒內開始。要求工具結果或核准會從第一次那樣的通知起算，給 30 分鐘。重複的通知不會
+更新這個等待。送出已儲存的結果會啟動一個新的 90 秒後續視窗，包括本機的節流／認證檢查。缺失
+的確認仍受其各自較早的期限限制。
+
+該連線本身沒有絕對的存活上限。最多 128 個回應可以共用它，且每一個都可能合法地消耗自己的
+確認、後續、串流閒置與必要輸入等待，因此上述各階段的期限組合起來，最糟情況可達數十小時的
+量級。在此期間，這一輪會持有一個實體 socket 與一個無法輪換的 pin 憑證，因為此通道刻意
+永不重新進入帳號選擇。請把已啟用的 steering 連線視為長生命週期的 session 資源，而不是一般
+的有界請求。
+
+Steering frame 也共用代理設定的主體與記憶體限制。已建立的控制連線上，超過
+[`maxInboundBodyBytes`](/zh-tw/reference/inbound-body-admission/) 的控制 frame 會在解析前
+就被拒絕（初始 frame 仍會先被解析，才套用依類型而定的限制），而重建後送往上游的主體，
+若超過 [`maxUpstreamBodyBytes`](/zh-tw/reference/configuration/providers/) 也會被拒絕。
+每條連線的重播日誌上限為 32 MiB，並計入
+[`appOwnedMemoryBudgetMb`](/zh-tw/reference/configuration/server/) 的 pin 狀態；接受一個
+日誌會先降級可驅逐的快取，而不是直接失敗，所有存活日誌的合計上限為 128 MiB，不論設定的
+預算為何。
+
+逾時代表**傳遞狀態未知**，不代表伺服器拒絕了輸入。請不要自動重送已接受的指示或自動重跑
+工具。請先檢視實際的任務狀態，再決定如何恢復。不會執行帳號切換或付費 API 後備。已經在
+線路上收到的完成輸出，即使終端摘要省略了它，仍會保留在本機續傳歷史中。衝突的項目內容或
+順序會導致明確的失敗，而不是靜默的 context 遺失。
+
+若要做實際比對，請在隔離的測試對話中，對同一個受支援的客戶端版本、模型與帳號分別跑一次
+不經代理、一次經代理啟用。使用一個唯讀任務，在輸出進行中時 steer，並比較接受情況與後續
+回應對指示的實際遵循程度。在合成工具結果或核准待處理時，以及明確中斷連線之後，重複這個
+測試。只記錄事件類型、相對時間與已遮罩的結果，不要記錄憑證或任務內容。通過模擬傳輸測試
+不代表建立了實際客戶端／後端支援；這些指示也不代表暗示了任何真實帳號的煙霧測試。
+
+## 實驗性原生 function-result 注入
+
+若使用會送出 OpenAI multi-agent `response.inject` 訊息的相容客戶端，請把這些鍵合併進既有
+的 OpenCodex 設定並在開始新一輪對話前重啟。不要取代你的供應商或帳號設定：
+
+```json
+{
+  "websockets": true,
+  "codexNativeInjection": true
+}
+```
+
+初始的 `response.create` 必須明確包含 `"multi_agent": { "enabled": true }`。OpenCodex
+不會依模型名稱自行啟用它。公開的 OpenAI API 供應商必須使用 `adapter: "openai-responses"`、
+`baseUrl: "https://api.openai.com/v1"`、其一般的 API-key 認證，以及 `upstreamWebsocket: true`。
+請透過該供應商設定的前綴路由初始模型。relay 只會在該公開 API 連線上加入必需的
+`responses_multi_agent=v1` beta token，並保留其他已設定的 beta token。它不會替換訂閱憑證、
+建立 API 帳號，或自動切換到另外計費的 API。
+
+規範的 ChatGPT forward 連線也可以實驗性選擇加入同一種傳輸，但公開 API 合約**並不**代表建立
+ChatGPT 訂閱或 Codex App/CLI 支援。仍需要相容的上游模型與執行模式。請見
+[OpenAI multi-agent 協定](https://developers.openai.com/api/docs/guides/responses-multi-agent)。
+
+在相符的 developer function call 完成之後，回傳一個已儲存的工具結果：
+
+```json
+{
+  "type": "response.inject",
+  "response_id": "resp_example",
+  "input": [
+    { "type": "function_call_output", "call_id": "call_example", "output": "saved result" }
+  ]
+}
+```
+
+請使用**同一條連線**的 response/call ID，而不是這裡的範例 ID。`response.inject` 只接受
+字串值的 `function_call_output`。使用者／系統訊息、豐富的輸出陣列、託管工具結果，以及同時
+存在的 `response.steer`，都不被這個操作接受。下方更廣義的已儲存結果續傳，是另一個獨立的
+`response.create` 操作，不是被拒絕注入的隱藏轉換。多個已儲存的 function 結果可以共用一次
+注入。每個呼叫只能送出一次，包括排隊期間也是。
+
+平行的工具結果會排隊、逐一 frame 送出，因為成功事件辨識的是回應本身，而不是個別的注入。
+relay 會保留 `response.inject.created` 與 `response.inject.failed`。在回應終止之後，只要
+已送出的結果仍在等待確認，或宣告的呼叫仍在等待結果，它就會維持連線存活，因此延遲抵達的
+非同步結果不會被丟棄。
+
+當伺服器以 `response_already_completed` 拒絕一次注入時，請用它回傳的已儲存輸出，在**單一
+由客戶端送出**的 `response.create` 中，搭配已完成的 `previous_response_id`、不變的
+模型／設定與同一條線路。每個未完成的結果只包含一次；不要包含已被接受的輸出。relay 會讓
+這次續傳留在原始帳號／socket 上，並保留一般的請求節流。它絕不會自己重跑工具或建立復原
+請求。其他失敗仍會照常顯示給客戶端處理。
+
+缺失的確認或連線中斷，代表傳遞狀態可能是**未知**。請不要自動重送結果、重啟工具，或換帳號
+重試。待處理佇列上限為 32 個 frame 與 8 MiB，宣告的 function call 上限為 1,024 個，重播
+日誌上限 32 MiB，每條已擁有的連線最多 128 個回應。注入日誌與 steering 日誌共用 pin 記憶體
+預算與 128 MiB 的合計上限；見[steering 記憶體限制](#steering-確認期限與保留的-context)。
+設定的上游主體限制，會在結果進入佇列前就檢查，即使另一個結果仍在等待確認也一樣。
+`outbound_body_too_large` 拒絕會讓連線保持可用，可送出修正後的結果而不必重跑其工具。每個
+送出的注入有 90 秒的確認期限，不相關的輸出無法延長它；已儲存結果的等待上限為 30 分鐘。
+既有的 frame 限制與停滯逾時仍然適用。
+
+轉換過的供應商、自訂 gateway、Combo/sidecar 路徑與 HTTP 後備都不會獲得注入支援。不支援的
+嘗試會回傳明確的錯誤，而不是憑空消失。此選項預設關閉；合成的傳輸測試不是實際相容性認證。
+將 `codexNativeInjection` 設為 `false` 並重啟即可回退。不需要移除任何帳號或對話檔案。
+
+### 回應完成後的豐富工具結果與明確核准
+
+啟用 `codexNativeInjection` 後，同一條已擁有連線上由客戶端送出的 `response.create`，現在
+可以在 `response.completed` 之後回傳含有文字、圖片或檔案部分的**未送出**
+function／custom 結果。請提供已完成回應的 `previous_response_id`、同一條線路，以及不變的
+模型／設定。每個未完成的結果或被要求的核准只包含一次；已被接受的注入結果請省略。代理會用
+原始帳號與 socket，搭配既有的派送檢查，轉發這次由呼叫端送出的續傳。
+
+支援的續傳項目為 `function_call_output`、`custom_tool_call_output` 與
+`mcp_approval_response`。工具輸出可以是字串，或 `input_text`、`input_image` 與
+`input_file` 部分組成的陣列。圖片部分需要 `detail`（`auto`、`low`、`high` 或
+`original`）；檔案的 detail 為選填（`auto`、`low`、`high`）。請只使用一種圖片／檔案來源。
+內嵌檔案資料需要檔名。選填的 `prompt_cache_breakpoint: { "mode": "explicit" }` 會被保留。
+不支援的欄位會被拒絕，而不是被移除。代理不會下載或重新上傳這些參照。每個結果最多 1,024
+個內容部分，仍受既有的 8 MiB 請求上限限制。提供的程式呼叫端必須與宣告的呼叫相符；它不能
+冒充另一個工具或代理。內容順序、檔案參照與原始拼寫都會保留。
+
+對於伺服器發出的 `mcp_approval_request`，請傳入其 ID 作為 `approval_request_id`，並明確
+給出 `approve: true` 或 `approve: false`。拒絕會被原樣轉發。代理不會自行決定、給預設值、
+自動核准或執行被請求的工具。缺失或不相關的決定會被拒絕。託管的 `multi_agent_call` 動作與
+其他伺服器端執行的工具，**不是** developer function：它們的事件、輸出與加密代理訊息會被
+保留，OpenCodex 絕不會執行或注入它們。
+
+這不會啟用豐富／自訂／核准的**回應中途注入**，也不會啟用對 multi-agent 回應同時 steering。
+那些操作有不同的上游合約。不支援的注入會在保留該呼叫之前就被拒絕，因此未送出的結果仍可用於
+之後的明確續傳。沒有自動轉換、重試、重跑工具或帳號／API 切換。單代理的 steering 對話可以
+在一輪已完成的 multi-agent 對話之後，以一般路由發出一個新的明確請求接續。客戶端支援與後端
+權益仍需要實際驗證。
+
+## Steering 續傳設定
+
+明確的已儲存結果 `response.create` 可以覆寫 `reasoning`（effort 與摘要）、`text`
+（verbosity 與支援的結構化輸出格式）與 `stream_options`。訂閱路由會拒絕
+`max_output_tokens` 覆寫，而不是靜默忽略它。一般的供應商 pin、子代理上限、effort 對映
+與摘要／verbosity 能力排除規則仍然適用。
+
+省略的設定會保留目前有效的值；明確的 null 會在上游接受 null 的情況下重設該設定。覆寫會
+取代整個設定物件，不是個別的巢狀欄位。變更後的值會延續到之後的明確續傳。被拒絕的覆寫不會
+保留那個已儲存的結果，因此可以送出修正後的請求而不必重跑其工具。伺服器仍會決定所選模型
+接受哪些設定。模型、帳號、供應商、工具、指示或 service tier 的變更，需要另一輪一般對話。
+
+原生 steering 僅限於規範的 ChatGPT 訂閱路由。公開的 API-key 與 gateway 路由不可 steer；
+它們的一般回應會被保留，steering 嘗試會收到說明性的錯誤。這可防止在保留的 socket 上的
+後續生成繞過一般的逐請求准入。另外受控管的公開 API multi-agent 注入路徑仍可使用。
+
+### 可執行的直連對比代理線路探測
+
+從原始碼 checkout 執行離線正向控制測試：
+
+```sh
+bun scripts/steering-smoke.ts --self-test
+```
+
+規劃一次比對，不讀取任何 token 也不開啟任何連線：
+
+```sh
+bun scripts/steering-smoke.ts --direct wss://api.openai.com/v1/responses \
+  --proxy ws://127.0.0.1:1455/v1/responses --model <supported-model> \
+  --proxy-model <provider-prefix/same-model>
+```
+
+若要比對訂閱路線，直連 URL 是 `wss://chatgpt.com/backend-api/codex/responses`。兩條路線
+請選同一個實際模型與帳號；此腳本無法證明代理設定選到了相同帳號。代理 URL 必須是 loopback
+的 Responses 端點，且不能包含憑證、查詢字串或 fragment。
+
+**只有在檢視過計畫之後**，才透過你的 shell 環境提供 `STEERING_DIRECT_TOKEN` 與
+`STEERING_PROXY_TOKEN`，並同時加上 `--live` 與 `--allow-model-requests`。直連 ChatGPT
+可能還需要 `STEERING_DIRECT_ACCOUNT_ID`；該標頭絕不會被複製到公開 API 或代理。請不要把
+憑證放進指令引數、日誌、截圖或 PR。此腳本不會讀取你已儲存的 Codex 登入、refresh token，
+也不會變更設定。
+
+實際執行會送出四個合成的初始請求（每條路線兩個情境），加上任何後續的回應或必要結果續傳，
+**可能消耗模型用量**。一個情境檢查自動後續回應；另一個只為腳本自己宣告的 function 回傳
+一個固定的合成結果，並在其明確續傳上變更 reasoning/verbosity。不會執行任何外部工具，也不會
+推斷任何核准。沒有重試或自動復原請求。每個情境限制在 120 秒、5,000 個事件與 2 MiB 接收
+資料以內。
+
+JSON 報告只包含結果、時間與布林檢查點。通過需要排隊接受、建立後續回應，以及在其已完成
+輸出中出現合成標記。缺失的確認為 `unknown`；若模型從未進入必要輸入路徑，結果為
+`not_exercised`。兩者都不算通過。行程只有在全部四個實際情境都通過時才 exit 0，否則
+exit 1，而無效引數或缺少憑證則 exit 2。這是一個**線路診斷**，不是端對端的 Codex App/CLI
+介面測試、實際認證，或指示在正式環境啟用此實驗性功能。

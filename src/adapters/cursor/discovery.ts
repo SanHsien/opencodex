@@ -24,8 +24,54 @@ const CONTEXT_272K = 272_000;
 const CONTEXT_262K = 262_144;
 const CONTEXT_256K = 256_000;
 const CONTEXT_200K = 200_000;
+export const CURSOR_OBSERVED_CONTEXT_WINDOW_MAX_ENTRIES = 2_048;
 
-export function inferCursorContextWindow(modelId: string): number {
+/**
+ * Process-local ceilings from `ConversationTokenDetails.maxTokens` on live
+ * checkpoints. Each observation belongs to the Cursor identity scope that
+ * produced it; plan-gated accounts sharing one proxy must not overwrite each
+ * other's overflow prior (senpi `cursor-context-limit`).
+ */
+const observedCursorContextWindows = new Map<string, number>();
+
+interface CursorContextWindowOptions {
+  identityScope?: string;
+  observed?: number;
+}
+
+function normalizeObservedWindowKey(modelId: string, identityScope?: string): string {
+  return `${identityScope?.trim() || "local"}\0${modelId.trim().toLowerCase()}`;
+}
+
+export function recordObservedCursorContextWindow(
+  modelId: string,
+  maxTokens: number | undefined,
+  options: Pick<CursorContextWindowOptions, "identityScope"> = {},
+): void {
+  if (!modelId.trim()) return;
+  if (typeof maxTokens !== "number" || !Number.isFinite(maxTokens) || maxTokens <= 0) return;
+  const key = normalizeObservedWindowKey(modelId, options.identityScope);
+  observedCursorContextWindows.delete(key);
+  observedCursorContextWindows.set(key, Math.floor(maxTokens));
+  while (observedCursorContextWindows.size > CURSOR_OBSERVED_CONTEXT_WINDOW_MAX_ENTRIES) {
+    const oldest = observedCursorContextWindows.keys().next().value;
+    if (oldest === undefined) break;
+    observedCursorContextWindows.delete(oldest);
+  }
+}
+
+export function observedCursorContextWindow(
+  modelId: string,
+  options: Pick<CursorContextWindowOptions, "identityScope"> = {},
+): number | undefined {
+  return observedCursorContextWindows.get(normalizeObservedWindowKey(modelId, options.identityScope));
+}
+
+export function resetObservedCursorContextWindowsForTests(): void {
+  observedCursorContextWindows.clear();
+}
+
+function inferCursorContextWindowHeuristic(modelId: string): number {
   const id = modelId.trim().toLowerCase();
   if (id.includes("1m")) return CONTEXT_1M;
   if (id.startsWith("gemini-")) return CONTEXT_1M;
@@ -34,10 +80,28 @@ export function inferCursorContextWindow(modelId: string): number {
   if (id.includes("fable")) return CONTEXT_1M;
   if (id.startsWith("gpt-5.6-")) return CONTEXT_1M;
   if (id.startsWith("gpt-5") || id === "gpt-5-codex") return CONTEXT_272K;
-  if (id.startsWith("grok-4.5") || id.startsWith("grok-4.6")) return 500_000;
+  if (id.startsWith("grok-4.5") || id.startsWith("grok-4.6") || id.startsWith("grok-4.7")) return 500_000;
   if (id.startsWith("grok-")) return CONTEXT_256K;
   if (id.includes("claude")) return CONTEXT_200K;
   return CURSOR_DEFAULT_CONTEXT_WINDOW;
+}
+
+/**
+ * Infer a conservative context window for a Cursor model id.
+ *
+ * A positive explicit observation wins, then an identity-scoped process-local
+ * checkpoint `maxTokens`, then the id heuristic. Cursor's `AvailableModelsResponse`
+ * does not currently include per-model context window metadata.
+ */
+export function inferCursorContextWindow(
+  modelId: string,
+  options: CursorContextWindowOptions = {},
+): number {
+  const { observed } = options;
+  if (typeof observed === "number" && Number.isFinite(observed) && observed > 0) {
+    return Math.floor(observed);
+  }
+  return observedCursorContextWindow(modelId, options) ?? inferCursorContextWindowHeuristic(modelId);
 }
 
 function normalizeInputModalities(input: string[] | undefined): string[] {
@@ -206,15 +270,20 @@ export function isCursorExternalWireModel(modelId: string): boolean {
  * Observed on live Cursor Connect traffic (2026-08-20): `composer-2.5` (the
  * standard, non-fast build) resumes a tool-result turn with server-side native
  * tool calls (read/grep/exec) instead of answering, or completes with zero text
- * (empty `content` + `stop`). `composer-2.5-fast` answers correctly on the same
- * resumeAction path, so only the affected id is listed here. Sending the same
- * continuation as an explicit user message (external path) makes the model
- * answer reliably.
+ * (empty `content` + `stop`). Sending the same continuation as an explicit user
+ * message (external path) makes the model answer reliably.
+ *
+ * `composer-2.5-fast` was left on resumeAction after that same capture because
+ * it answered on that path then. A later live proxy log (2026-09-21) shows
+ * `cursor/composer-2.5-fast completed with no output text and no tool call` on
+ * the Chat Completions → Responses bridge used by OpenAI-compatible clients
+ * (GJC executor). That is the same empty-stop shape, so the fast id uses the
+ * external continuation path too.
  */
 export function cursorNeedsExternalToolContinuation(modelId: string): boolean {
   if (isCursorExternalWireModel(modelId)) return true;
   const wire = cursorCodexToWireModelId(modelId).trim().toLowerCase();
-  return wire === "composer-2.5";
+  return wire === "composer-2.5" || wire === "composer-2.5-fast";
 }
 
 function stripCursorEffortSuffix(wireModelId: string): string {
@@ -241,15 +310,18 @@ export function isCursorRouterModelId(modelId: string): boolean {
 export function filterCursorConfiguredModelsByLiveDiscovery<T extends { id: string }>(
   configured: readonly T[],
   liveIds: readonly string[],
+  maxModeLiveIds: readonly string[] = [],
 ): T[] {
-  return configured.filter(model =>
-    !CURSOR_KNOWN_UNCALLABLE_MODEL_IDS.has(model.id)
-    && (
-      isCursorRouterModelId(model.id)
-      // Synthetic ultra rows ride their base model's account availability.
-      || isCursorModelAvailableForAccount(cursorUltraBaseModelId(model.id) ?? model.id, liveIds)
-    ),
-  );
+  return configured.filter(model => {
+    if (CURSOR_KNOWN_UNCALLABLE_MODEL_IDS.has(model.id)) return false;
+    if (isCursorRouterModelId(model.id)) return true;
+    const ultraBase = cursorUltraBaseModelId(model.id);
+    return isCursorModelAvailableForAccount(ultraBase ?? model.id, liveIds)
+      // Successful discovery is authoritative: synthetic ultra rows additionally require the
+      // account-specific Max Mode capability. Discovery failures bypass this filter and retain
+      // the static seed under the caller's existing degraded-catalog policy.
+      && (ultraBase === undefined || isCursorModelAvailableForAccount(ultraBase, maxModeLiveIds));
+  });
 }
 
 /**

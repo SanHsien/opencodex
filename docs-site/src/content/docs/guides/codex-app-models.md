@@ -133,6 +133,29 @@ rows from the effective catalog while compatibility aliases exist, so Desktop ca
 them by ignoring `visibility`. See [Codex Desktop native-allowlist compatibility](/guides/combos/#codex-desktop-native-allowlist-compatibility)
 for the command, disable-key semantics, and safety constraints.
 
+### What this means for a disabled native model
+
+Without a native alias configured, disabling a bare native GPT slug does not remove it from the
+catalog. The row stays with `visibility: "hide"`, which `/v1/models` and the dashboard both honour
+— they stop listing the model — while Desktop, under the policy above, can keep showing it. So the
+model can still be picked in Desktop after you disabled it, and the surfaces disagree about whether
+it exists.
+
+Picking it is not rejected for being disabled. `disabledModels` controls catalog visibility, not
+admission, so the request is routed by the ordinary rules as though the model were enabled: the turn
+runs on the model you disabled, or fails on whatever path that id resolves to. Either way the
+outcome is not the one the toggle implies.
+
+The row is retained deliberately. It holds the real upstream metadata, so re-enabling the model
+restores that metadata instead of a synthesized guess. When you need the row gone outright rather
+than hidden, configure a `nativeAlias` combo: while one exists, disabled bare native rows are
+omitted from the effective catalog entirely.
+
+If Codex's `config.toml` pins a root `model` that this proxy does not expose — a disabled model
+among them — every new session starts on a model opencodex does not serve. `ocx doctor` reports
+that under **Codex default model exposure**, as a warning rather than a failure, and says when it
+could not determine the exposed set at all.
+
 ## Integration path
 
 `ocx init`, `ocx start`, and `ocx sync` wire the shared Codex config and catalog into the proxy; see
@@ -203,8 +226,8 @@ metadata instead of an older-template approximation.
 | Codex login (explicit Daybreak forward row) | `openai/gpt-daybreak-blue-latest` only when the exact `customModels` row is configured on the canonical `openai` provider. It keeps the Daybreak wire id and uses the pinned Sol capability snapshot (922,000 context; 829,800 automatic compaction). |
 | OpenAI (API key) | Exactly ten namespaced rows: `gpt-5.5`, `gpt-5.6`, Sol/Terra/Luna, the three `*-pro` virtual ids, and the two Daybreak aliases (1,050,000 context; 922,000 max input for all ten) |
 | OpenRouter | `openrouter/openai/gpt-5.6-sol`, `openrouter/openai/gpt-5.6-terra`, `openrouter/openai/gpt-5.6-luna` (922,000) |
-| Cursor | Static fallback includes `cursor/gpt-5.6-sol`, `cursor/gpt-5.6-terra`, and `cursor/gpt-5.6-luna` (1,000,000), plus regular/Fast rows for Grok 4.5 and 4.6 (500,000); 4.6 adds `xhigh`, and live account discovery decides which rows remain visible. |
-| xAI | Live discovery is authoritative. The fallback catalog includes `xai/grok-4.6` and defaults to `xai/grok-4.5`; both have 500,000-token windows. Grok 4.6 exposes `low` / `medium` / `high` / `xhigh` (upstream default: `high`), while Grok 4.5 stops at `high`. |
+| Cursor | Static fallback includes `cursor/gpt-5.6-sol`, `cursor/gpt-5.6-terra`, and `cursor/gpt-5.6-luna` (1,000,000), plus regular/Fast rows for Grok 4.5, 4.6, and 4.7 (500,000); 4.6 and 4.7 add `xhigh`, and live account discovery decides which rows remain visible. |
+| xAI | Live discovery is authoritative. The fallback catalog includes `xai/grok-4.6` and `xai/grok-4.7` and defaults to `xai/grok-4.5`; all three have 500,000-token windows. Grok 4.6 and 4.7 expose `low` / `medium` / `high` / `xhigh` (upstream default: `high`), while Grok 4.5 stops at `high`. |
 
 The pinned GPT-5.6 entries preserve the exact upstream ladder. Sol and Terra expose `low` through
 `ultra`; Luna stops at `max`. Sol defaults to `low`, while Terra and Luna default to `medium`.

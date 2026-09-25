@@ -595,3 +595,71 @@ workstream 不提前拆取。closed-unmerged `#3917`／`#3934` 分別已有 `#39
 - PR：`#4414`
 - issue：`#4414`
 
+## 2026-09-25：同步 v2.65.0 stable（v2.55.0..87a78e5）
+
+**決定**：把上游穩定版本 `v2.65.0`（`87a78e5f26f81373bf57c39495037849bd7996f0`）以一般 merge
+完整採用，`tools/upstream_baseline.json` 的 `reviewed_through` 推進到同一 SHA、
+`reviewed_date` 為本次日期。fork package development version 由 `2.65.0` 前推至 `2.66.0`。
+
+**為什麼現在同步**：上游 `#5743`／`#5694` 把主帳號 98% 硬鎖設為預設開啟，是 Codex Desktop
+在 100% 用量時停用 Send 按鈕這個回歸（`#5797`）的正式修正；只有整棵 stable tree 帶著它，
+不拆取單一 commit。
+
+**衝突處理**：179 個 delete/delete 衝突（非保留 locale 的 docs-site、GUI i18n、
+`readme/i18n-manifest.json` 等）由主 agent 於本輪開始前先行 `git rm`。本輪處理剩餘 52 個
+UU/AA 衝突：
+
+- `docs-site/src/content/docs/zh-tw/**`（29 個 AA/UU）、`docs-site/astro.config.mjs`：
+  upstream 現在原生附帶 zh-tw 翻譯，一律採 `theirs`；`astro.config.mjs` 的側邊欄
+  `translations` 物件只留 `zh-TW` 鍵，其餘語言鍵全部剃除，維持只保留英文／繁中的政策。
+- `README.md`：五段全部採 `ours`（fork 的繁中版）。
+- `.gitignore`、`.github/workflows/release.yml`：union 兩側內容；`release.yml` 的舊
+  `publish:` 單體 job（帶 `if: github.repository == 'lidge-jun/opencodex'`）已被上游拆成
+  `preflight → package-standalone/package-desktop → verify-release → attach-release →
+  publish` 多階段流水線，官方-repo-only guard 留在最上游的 `validate-dispatch`，其餘所有
+  job 都 `needs` 到它，guard 透過依賴鏈間接保留，不需要在新結構裡另加。
+- `gui/`：`QuotaBars.tsx`、`ProviderCapacityQuota.tsx` 的 `bcp47()` 只留 `en`／`zh-TW`
+  分支；`i18n/catalogs.ts`、`i18n/shared.ts`、`i18n/vision-reasoning-labels.ts`、
+  `i18n/zh-TW.ts` 一併剃除 ru/ja/tr/vi 等非保留 locale，`zh-TW.ts` 補上 upstream 新增的
+  `models.fastProvider` 系列翻譯鍵。`gui/package.json` 的 `doctor`／`doctor:full` 保留 fork
+  自己的 `scripts/run-react-doctor.ts` 包裝（比對過就是同一個 npx 呼叫的 wrapper），採用
+  upstream 新增的 `test:sidebar-version`。新測試 `subagent-surface-warning.test.tsx`、
+  `logs-cost-plain-dollar.test.ts` 的 locale 計數維持 fork 既有的「2」而非 upstream 的
+  「10」。新增的 `gui/src/i18n/native-main-translations.ts`（closed nine-locale namespace）
+  同樣剃到只留 en/zh-TW，`satisfies Record<...>` 型別跟著收斂。
+- `scripts/test-layout/layout.json`、`tests/fixtures/test-layout-expected.json`：union
+  兩側新增的測試條目；upstream 側的 `docs-provider-discovery-limits.test.ts`、
+  `docs-provider-preset-counts.test.ts`、`docs-readme-memory-inventory.test.ts`、
+  `docs-readme-translation-parity.test.ts` 四個條目不採用（見下方「新增非保留 locale 內容」）。
+- `scripts/test.ts`、`tests/ci-workflows/test-runner.test.ts`：保留 fork 的 fresh-process
+  batch runner（`resolveBunTestPlan` 走 `BunTestPlanOptions` 形狀、非 serial 分支固定
+  `15 * 60 * 1000`），upstream 側改用單一 `OCX_TEST_MAIN_TIMEOUT_MS` 主 lane 的設計不採用；
+  對應的 `"a control budget is bounded and changes only the main lane"` 測試一併移除。兩檔
+  `node:fs` import 取 union（`readdirSync`／`rmSync`／`realpathSync`／`symlinkSync`／
+  `utimesSync` 等都有呼叫端）。
+
+**新增非保留 locale 內容（隨 merge 自動新增，非衝突）**：`gui/src/i18n/vi.ts`（新
+Vietnamese GUI catalog）直接刪除，沒有任何呼叫端引用。三個新 `tests/ci-workflows/` 文件
+測試（`docs-provider-discovery-limits.test.ts`、`docs-provider-preset-counts.test.ts`、
+`docs-readme-memory-inventory.test.ts`）分別斷言 `docs-site` 的 fr/ja/ko/ru/tr/zh-cn 頁面與
+`readme/README.{fr,ja,ko,ru,tr,zh-CN}.md`，這些檔案在本 fork 不存在（同 v2.50 sync 移除
+`readme-translation-parity.test.ts` 的政策），三個都刪除並同步移出兩份 test-layout 登錄檔。
+
+**src/ 逐檔決策**（`v2.55.0..HEAD` 只有以下 6 個檔案帶 fork-only 安全／穩健性修正）：
+
+| 檔案 | fork commit | 判定 | 理由 |
+| --- | --- | --- | --- |
+| `src/codex/catalog/provider-fetch.ts` | `34ba80918` | 移植 | upstream 把整個檔案拆成 barrel re-export（`filesystem-evidence`／`gather-capture`／`model-hints`／`combo-member`／`model-visibility`／`provider-models`／`routed-gather`），`fetchProviderModelsWithAuth` 移到新檔 `provider-models.ts`，且該檔仍是舊的 `hostname.endsWith("aiplatform.googleapis.com")` 與未清洗的 destination-policy log。採 `theirs` 的 barrel 結構，把 Vertex host 精確比對與 `sanitizeLogMetadataString` 兩處修正移植進 `provider-models.ts`。 |
+| `src/codex/history-provider.ts` | `919223f5d` | 部分移植 | 實際修正（`inspectFirstLineProvider`／`readFirstLineProviderValue`／`assertLegacyHistoryWritable`／`readBackupStrict` 全部改走描述符）已隨 merge 乾淨落地，唯一衝突是 `MAX_ROLLOUT_ZST_DECOMPRESSED_BYTES` 常數：upstream 把它移到新檔 `history-rollout-read.ts` 並以 `export { ... } from` re-export，fork 原地重複定義會撞名。採 `theirs` 的 re-export，保留 fork 新增的 `MAX_HISTORY_MANIFEST_BYTES`。 |
+| `src/codex/shim.ts` | `919223f5d` | 移植（改址） | upstream 把 `windowsBatchValue`／`windowsBatchSet`／`psString`／`readShimStateFile`／`readStateResult`／`readState`／`statePath`／`writeState`／`gitBashPath` 全部拆到 `shim-templates.ts` 與新檔 `shim-state-file.ts`，且 shim.ts 本身已經 import 這些符號。fork 原地保留的整段舊定義是純重複，刪除；`shim-state-file.ts` 裡新落地的 `readBoundedRegularFile` 仍是修正前的版本，改成呼叫共用 `lib/bounded-file-read`（同 shim.ts 原本 `readShimStateFile` 的包法）。 |
+| `src/lib/service-secrets.ts` | `919223f5d` | 已由自動合併涵蓋 | `readServiceApiTokenState`／`readTokenBackupState` 的函式體本身無衝突，merge 已保留 fork 修正過的版本；只有 import 列表衝突（fork 只需 `readBoundedRegularFile`，upstream 新增的 `hardenReusedServiceApiToken` 需要 `constants`／`fchmodSync`／`fstatSync`／`lstatSync`／`readSync`）。Union 兩側 import，捨棄 upstream 側不再使用的 `existsSync`。 |
+| `src/server/index.ts` | `f56fd719b` | 判定 upstream 已有等價修正 | upstream 把整個 `Bun.serve` fetch handler（原本 fork 內的 ~1700 行路由分派）拆進新檔 `src/server/index/serve-options.ts` 的 `createServeOptions()`；該檔的 `/v1/responses/compact` 分支已經用 `onRequestBodyRead: () => disableResponsesRequestTimeout(req, requestServer)` 達成與 fork 修正相同的效果（讀到 body 才解除 idle timeout，時機甚至更精確）。採 `theirs` 整棟新架構，不移植。 |
+| `src/server/responses/codex-ws-exchange.ts` | `02212a64d`／`52c76de43`／`3b9f4412f` | 全部保留 | 三支修正（wrapped-rejection 4xx 短路、`REBUILT_REJECTION_DROPPED_HEADERS` 剃除代表性標頭、`sanitizeLogMetadataString` 清洗轉發錯誤訊息）與 upstream 新增的 native-steering 功能落在不同函式，merge 只在 import 列表衝突。Union 兩側 import。 |
+
+**驗證**：見下方 VERIFIED 區塊；`bun run typecheck`、聚焦測試、`structure:check`、
+`privacy:scan`、`tools\dev_check.ps1` 全綠（詳細輸出見同輪 IMPLEMENTATION REPORT）。
+
+**本輪未做**：PR／issue 觸接維持 `#4414`／`#4414`，本輪未逐筆重新盤點——上游 stable
+tree 整棵採用已涵蓋 v2.52.0 之後所有已 merge 的 commit，未合併/關閉的 PR 與新
+`platform` issue 留給下一次批次審查。
+

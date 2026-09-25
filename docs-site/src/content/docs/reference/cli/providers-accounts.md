@@ -136,28 +136,46 @@ Remove the stored OAuth credential for a provider.
 
 ## Accounts and key pools
 
-### Main-account 99% protection
+### Main-account 98% protection
 
-In **Codex settings → Multi-auth → Advanced settings**, **Block main account at 99%**
-is an independent opt-in beside Ultra Fast. Enabling it first shows the consequences; cancelling
-does not change the setting. The main-account card shows monitoring, unknown usage, or a current
-policy block even when Advanced settings is closed.
+In **Codex settings → Multi-auth → Advanced settings**, **Block main account at 98%**
+is on by default beside Ultra Fast. Switching it off applies immediately; turning it back on first
+shows the consequences, and cancelling does not change the setting. The main-account card shows
+monitoring, unknown usage, or a current policy block even when Advanced settings is closed.
+
+The default follows from what a drained main account does to Codex Desktop: once the ChatGPT
+account window reports **0%** remaining, Desktop disables its send button and the account stops
+accepting turns until the window resets. Holding ocx's own traffic below that point keeps the
+account usable ([#5694](https://github.com/lidge-jun/opencodex/issues/5694)). The cost is Luna
+Reserve: while the block is in force, Reserve on that main account cannot activate. To let the main
+account run to exhaustion and hand over to Reserve, turn the switch off.
 
 The policy uses the **5h window when present**, otherwise the weekly window. Monthly-only
 accounts use their monthly window. It does not take the highest percentage across windows.
 A fresh **0%** observation automatically releases the block while the switch stays on; the next
-99% observation blocks again. Unknown usage does not fabricate a zero, and a missing reading does
+98% observation blocks again. Unknown usage does not fabricate a zero, and a missing reading does
 not erase an already measured blocking tuple. A predicted reset time alone does not unlock it.
 While blocked, the existing once-per-minute background cycle checks fresh owned usage; failed or
 invalid readings retain the block. Other pause, reauthentication, and upstream limits remain independent.
 
-The persisted option is `"codexMainAccountHardLock": true` in OpenCodex's `config.json`; it is off
-by default. This protects new requests using the identified main account, not the last 1% itself:
-already-running requests, unmatched caller-owned keyring credentials, and traffic outside the
-proxy can still spend quota. Added accounts and other providers remain available.
+Protection treats one fresh valid WHAM usage response as a replacement for the old 5h reading when
+its primary window explicitly lasts **at least 24 hours** and secondary/tertiary windows are explicitly `null`
+or also explicitly last at least 24 hours and report their usage. This follows the parser's short/long boundary, so a
+one-day window qualifies as well as weekly/monthly windows. The current window still uses the same
+98% threshold. This relies on the single reported snapshot; repeated observations are not required.
+Omitted secondary/tertiary fields, an unknown primary duration, or partial response headers cannot clear a previous block.
 
-With protection enabled, an owned startup restores the main credential's in-memory identity
-binding after native-profile recovery and cleanup, so a persisted 99% block survives a restart.
+The persisted option is `"codexMainAccountHardLock"` in OpenCodex's `config.json`. An absent key or
+`true` means on; only an explicit `false` turns it off, and that is what switching the setting off
+stores. The default changed here: the policy used to be opt-in and the old switch removed the key
+when it was turned off, so an install that had switched it off now reads as on. If you want the old
+behavior, switch it off once to record the opt-out. Protection covers new requests using the
+identified main account, not the last 2% itself: already-running requests, unmatched caller-owned
+keyring credentials, and traffic outside the proxy can still spend quota. Added accounts and other
+providers remain available.
+
+With protection on, an owned startup restores the main credential's in-memory identity
+binding after native-profile recovery and cleanup, so a persisted 98% block survives a restart.
 Caller-owned Direct, exact-main, main-fallback, and main-pin requests can briefly receive 503
 while that binding is pending; healthy stored Pool accounts stay eligible throughout. No
 credential is read from a foreign or unconfirmed service home for this initialization.
@@ -191,7 +209,7 @@ Each compatibility request checks a credential-bound server authorization, cache
 requires ordinary usage to be disallowed, the Luna Reserve banner, and exactly one allowed Reserve
 bucket. Missing, denied, stale or mismatched evidence refuses the request; it does not switch accounts
 or silently use ordinary Luna. Passive usage can revoke authorization but cannot create it.
-Global cooldown, pause, reauthentication and the 99% hard lock still apply. Disable the hard lock if
+Global cooldown, pause, reauthentication and the 98% hard lock still apply. Turn the hard lock off if
 you want to use Reserve on an exhausted main account; doing so does not grant server entitlement.
 This compatibility path supports conversation requests and compaction, not Reserve as a vision or
 web-search helper or a standalone search-relay model. Choose another model for those helpers.
@@ -207,7 +225,7 @@ List and switch provider accounts and API-key pools through the running proxy. T
 surface is:
 
 ```text
-Usage: ocx account <list|current|use|refresh|auto-switch|priority|login|reauth|code|cancel|remove|add-key|reset-credits|grok-reset-coupons> ...
+Usage: ocx account <list|current|use|refresh|auto-switch|priority|login|reauth|code|cancel|remove|add-key|reset-credits|grok-reset-coupons|import-orca> ...
 
 list [provider]     Codex account pool, OAuth accounts and API keys (identifiers shown masked as the API returns them).
 current <provider>  Show the active account or key.
@@ -220,11 +238,13 @@ add-key <provider> [--label <label>]  Add a key read only from piped stdin.
 login/reauth/code/cancel  Run browser or manual-code auth from a headless shell.
 reset-credits <id|main> [--consume --yes]  Inspect or consume Codex reset credits.
 grok-reset-coupons [<id>] [--consume --yes] [--token-id <token-id>] [--operation-id <uuid>]  Inspect or redeem Grok reset coupons.
+import-orca --source <dir> --registry <file> [--apply]  Preview or apply imports from Orca-managed Codex homes.
 Switching the active account takes effect immediately; running threads move on their next request, and in-flight requests keep the account they captured.
 A selection-order change applies from the next unbound request and never moves a bound thread.
 ```
 
-All subcommands require the proxy to be running; the CLI auto-resolves its recorded runtime port.
+Account subcommands require the proxy to be running and auto-resolve its recorded runtime port,
+except `import-orca`: preview is local-only, and `import-orca --apply` requires the proxy to be stopped.
 Successful operations exit 0. Invalid usage, an unknown provider or account/key id, an unreachable
 proxy, or an API failure exits 1. Credential fields are displayed exactly as the management API
 returns them (including its masking); raw API keys and OAuth tokens are never returned. Display
@@ -249,6 +269,55 @@ and the plan/label column falls back across plan, masked email, label, and maske
   "quota": null
 }
 ```
+
+### `ocx account import-orca --source <orca-data-directory> --registry <orca-data.json> [--apply] [--json]`
+
+Reuse local Orca-managed Codex logins without another browser login. The source
+directory must contain `codex-accounts/<account>/home/auth.json`. Supply the Orca
+data directory and the chosen profile's `orca-data.json` explicitly. Only accounts
+registered in that profile are considered; leftover or removed account homes are
+not imported. Each home must carry Orca's matching `.orca-managed-home` marker.
+The command does not scan unrelated homes or remote hosts.
+
+```powershell
+# Windows: preview only; no account is registered.
+ocx account import-orca --source "$env:APPDATA\orca" --registry "$env:APPDATA\orca\profiles\local-default\orca-data.json" --json
+
+# Finish active proxy requests and stop the proxy before applying.
+ocx stop
+ocx account import-orca --source "$env:APPDATA\orca" --registry "$env:APPDATA\orca\profiles\local-default\orca-data.json" --apply
+ocx start
+```
+
+Older Orca profiles may use `orca-data.json` directly under the data directory.
+On other platforms, pass the local Orca data directory and profile registry with the same layout.
+The importer skips identities already present in the native main login, account
+pool, or credential store, including duplicates within the source. This deliberately
+uses the ChatGPT account ID as a conservative bucket: separate members sharing a
+workspace account ID are skipped too, not merged or individually imported. Repeating an
+import preserves existing accounts. If an earlier import stopped between saving
+credentials and registering the pool row, retry can finish that registration with
+the same ID only when its untouched pending record still matches the source. Invalid
+entries are counted by fixed reason code. A mixed result with at least one eligible
+account exits successfully; a result where every discovered entry is invalid exits
+nonzero. Output contains counts and reason codes, not emails, account identifiers,
+paths, or tokens.
+
+**Orca retains refresh ownership.** OpenCodex stores a read-only source link and
+an access-token snapshot, never Orca's refresh token. When resolving credentials,
+it reads the source again and verifies that it still belongs to the imported
+identity. Orca must keep that login available and refreshed. Missing, malformed,
+expired, or identity-mismatched source credentials fail closed; OpenCodex does not
+fall back to the old snapshot or refresh the source login. This is a local link,
+not a portable export or a transfer of refresh ownership.
+Requests already sent upstream keep the credentials they captured.
+
+New accounts are registered as **validation pending**. After starting the proxy,
+open **Codex Auth** and click **Refresh quotas** to authorize the existing model
+validation step, which may consume a small amount of quota. Offline import and
+JWT parsing do not establish upstream authentication. CLI quota refresh alone
+does not perform that validation. The importer never starts or stops either app,
+changes Orca files, or changes the active pool account.
 
 ### `ocx account list [provider] [--json] [--all] [--quota [--refresh]]`
 
@@ -496,6 +565,8 @@ ocx account main reauth cancel --flow <id> [--json]
 ocx account main switch <profile-id-or-label> --yes [--json]
 ocx account main recover [--rollback --yes] [--json]
 ```
+
+`ocx account main reauth --device --no-wait --json` writes one JSON object to stdout on success, without the human-readable `follow up:` line. Use its `flowId` with `ocx account main reauth status --flow <id> --json` to check progress.
 
 Each mutating command reports the canonical effective `CODEX_HOME` returned by the running proxy.
 This path can differ from the caller's `CODEX_HOME`; commands that support JSON expose the same

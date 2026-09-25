@@ -16,19 +16,33 @@ optionally installs the Codex autostart shim.
 
 ## Proxy lifecycle
 
-### `ocx start [--port <port>]`
+### `ocx start [--port <port>] [--socks5 [host:port] | --socks5-off]`
 
-Start the proxy server (preferred port `10100`). If that port is occupied, opencodex selects and
-records another available port. It writes PID/runtime-port state and refuses to start a second live
-instance. On start it syncs each provider's models into Codex's catalog. On shutdown it restores
+Start the proxy server (preferred port `10100`). It writes PID/runtime-port state and refuses to
+start a second live instance. When the preferred port is occupied, `start` asks the holder who it
+is and stops either way: it refuses outright when an opencodex answers there, and reports an
+unidentified holder otherwise. It never moves the listener to another port on its own, because that
+would leave the first proxy running and re-point Codex at the second. An explicit different
+`--port` is still refused when the live proxy shares this `OPENCODEX_HOME`, because observe-only
+and enforced spend accounting both write the same journal. Use a separate `OPENCODEX_HOME` for an
+independent sibling; `port: 0` only asks the OS for that instance's port and does not separate its
+state. On start it syncs each provider's models into Codex's catalog. On shutdown it restores
 native Codex — unless it was launched as a managed service (`OCX_SERVICE=1`).
+
+`--socks5` (default `127.0.0.1:10808`) saves `config.proxy` as a SOCKS5 URL and routes outbound
+HTTP(S) through a real SOCKS5 tunnel. `--socks5-off` clears only that saved SOCKS5 proxy; it
+does not remove an HTTP proxy. The value survives `ocx update` because it lives in config, not in
+the installed package. A proxy username and password may be included in the URL, but startup
+logs redact them.
 
 ```bash
 ocx start
 ocx start --port 8080
+ocx start --port 10100 --socks5
+ocx start --socks5-off
 ```
 
-### `ocx stop`
+### `ocx stop [--json]`
 
 Stop the running proxy (by PID), remove the PID file, and restore native Codex. If a managed
 background service is installed, `ocx stop` also stops it first so it cannot respawn the proxy.
@@ -50,6 +64,14 @@ keeps restoration with the stopping parent after the existing ownership and resp
 It does not enter the forced-stop fallback for a process already observed to have exited. A
 receipt-backed deferral still leaves final restoration and receipt cleanup with the parent;
 failure to restore shared client configuration keeps the stop failed and its receipt outstanding.
+
+`ocx stop --json` runs exactly the same stop path and prints one versioned summary document
+(`schema: "ocx-stop/1"`) on stdout, while the human progress lines move to stderr. The summary
+carries the outcome class (`stopped`, `not-running`, `history-incomplete`, `history-deferred`,
+or `failed`), the service and proxy classifications, whether the runtime is down, and a stable
+one-line message. Exit codes are identical with and without `--json`: 0 on success, 1 on failure,
+79 when only Codex history cleanup did not complete, and 80 when the shared teardown was deferred
+and is still owed.
 
 ### `ocx restart`
 
@@ -125,7 +147,7 @@ are left in place.
 
 Status and `ocx doctor` compare this CLI's version with the running proxy. If the CLI is newer,
 restart the proxy using the intended current installation; for a background service, run
-`ocx service restart` — a version skew leaves the service definition byte-identical, so
+`ocx service restart`. On macOS, a version skew leaves the service definition byte-identical, so
 `ocx service repair` would reload nothing and keep the old process serving. If the proxy is newer, upgrade the CLI
 or resolve `PATH` to the intended installation. These diagnostics do not repair the service or
 change whether requests are allowed.
@@ -225,6 +247,23 @@ The CLI's own `--json` output is deliberately narrower than the HTTP body: it em
 `unreachable`. Exit codes are 0 for ready; 1 for not-ready, pending, failed, timeout, or
 unreachable; and 64 for invalid arguments.
 
+### `ocx resolve [--json]`
+
+Resolve the runtime facts a shell needs without re-implementing them: the config home, the
+effective port, and the identity-checked liveness verdict. `--json` emits one versioned
+document (`schema: "ocx-resolve/1"`) with `cliVersion`, `configHome`, `port`
+(`effective`, `configured`, and `source`), and `liveness` (`status`, `pid`, `port`,
+`source`, plus `version`, `role`, and `hostname` when the live proxy reports them).
+Liveness has three answers: `live`, `absent-proven` (every recorded and configured endpoint
+definitively refused or answered non-opencodex), and unknown — a timed-out probe or a listener
+that withholds `/healthz` exits 1 rather than reading as absent, so only `absent-proven` may
+authorise starting a new runtime. The port is the live listener's port when a proxy answers,
+otherwise the configured port (default 10100). Exit 0 carries a trustworthy verdict; exit 1 means
+the CLI could not resolve — including an invalid `config.json`, which is never repaired to
+defaults here — and the caller must refuse to guess; any unknown argument exits 64. Discovery uses
+the same ownership-safe probe budget as `ocx start`, because a false "nothing listening" answer
+is how duplicate proxies happen. The verb is read-only and skips the shim auto-restore preflight.
+
 ### `ocx doctor`
 
 The default report includes the native-write coordinator state and exact path using immutable
@@ -295,6 +334,8 @@ and this session ends with the app.
 Invalidate Codex's local model picker cache so it is rebuilt from the active opencodex catalog. The
 same stale-`app-server` warning and optional restart flags as `ocx sync` apply.
 
+If the derived cache already has identical bytes, the command succeeds without rewriting it or restarting Codex. With `--json`, this is reported as `ok: true`, `wrote: false`, `skipped: true`, and `skippedReason: "unchanged"`; an invalid catalog or failed cache write still exits nonzero.
+
 ### `ocx catalog pull <https-url> [--auth-env <NAME>] [--json] [--restart-codex] [--restart-app-server-only]`
 
 Install a complete catalog served by another OpenCodex instance's `/v1/catalog` endpoint, then
@@ -304,7 +345,11 @@ before rebuilding the cache. It works even when the local Codex integration desi
 
 The URL must be HTTPS; loopback HTTP is accepted for local testing. Embedded URL credentials,
 queries, fragments, redirects, oversized responses, malformed JSON, duplicate or unsafe slugs, and
-unknown `input_modalities` are refused before any local write. Authentication is optional and is
+unknown `input_modalities` are refused before any local write.
+
+Loopback HTTP requests are refused before authentication headers are attached or any request is sent when `HTTP_PROXY` or `http_proxy` applies without a matching `NO_PROXY` or `no_proxy` bypass. `ALL_PROXY`/`all_proxy` and settings limited to `HTTPS_PROXY`/`https_proxy` do not trigger this HTTP restriction; HTTPS catalog acquisition remains allowed. The refusal message includes neither the proxy address nor the authentication token. Nonempty `http_proxy` and `no_proxy` take precedence over `HTTP_PROXY` and `NO_PROXY`, respectively. For Bun-compatible bypass rules, use hostnames, matching `host:port` entries, bracketed IPv6 addresses such as `[::1]`, or `*`; do not use URLs, paths, or `*.` prefixes.
+
+Authentication is optional and is
 read only by environment-variable reference:
 
 ```bash
@@ -384,8 +429,8 @@ Definitions installed before this change still carry the old versioned paths and
 themselves — once the old executable is deleted, no opencodex code runs to fix it. Run
 `ocx service repair` once after upgrading; after that, each service start follows the launcher.
 An already-running proxy is not replaced by an external upgrade: when the installed CLI is newer
-than the running proxy, run `ocx service restart` so the new build serves. `repair` is not enough
-there: the definition did not change, and a repair that changes nothing reloads nothing.
+than the running proxy, run `ocx service restart` so the new build serves. On macOS, `repair` is not
+enough there: the definition did not change, and a repair that changes nothing reloads nothing.
 If the proxy is newer instead, check the CLI installation and `PATH` as described under
 [`ocx status`](#ocx-status---json).
 
@@ -393,8 +438,8 @@ If the proxy is newer instead, check the CLI installation and `PATH` as describe
 | --- | --- |
 | none | Install and start when absent; otherwise `repair` the existing service. A healthy Windows scheduler definition is reused; a stale definition may be re-registered and require elevation. |
 | `install` | Create and start the service. Registers it, which on Windows needs elevation. |
-| `repair` | Refresh an installed service in place, reloading the manager only when something changed — so on macOS a healthy, unchanged job keeps running and the repair is not an outage. A healthy Windows scheduler definition is reused; a stale definition may be re-registered and require elevation. |
-| `restart` | The same refresh, but it always restarts. On macOS an unchanged, already-loaded job is kickstarted in place. Not an alias of `repair`. |
+| `repair` | Refresh an installed service in place. On macOS, the manager is reloaded only when something changed, so a healthy, unchanged job keeps running and the repair is not an outage. On Linux and Windows, the service is restarted; a healthy Windows scheduler definition is reused, while a stale definition may be re-registered and require elevation. |
+| `restart` | The same refresh and a guaranteed restart on every platform. On macOS an unchanged, already-loaded job is kickstarted in place. Not an alias of `repair`. |
 | `start` | Start an installed service. |
 | `stop` | Stop the service and restore native Codex. |
 | `status` | Report service and proxy diagnostics plus log paths. |
@@ -404,6 +449,50 @@ If the proxy is newer instead, check the CLI installation and `PATH` as describe
 On Windows, a bare `ocx service` runs the install path only after both Task Scheduler and WinSW are
 proven absent. If either status query is inconclusive, it refuses to register anything and asks you
 to run `ocx service status`; use explicit `ocx service install` only after confirming absence.
+
+### Runtime ownership
+
+The OpenCodex desktop app can take the background proxy over from a CLI installation. When it does,
+it records the handover in the shared service install state, and that record is what makes the
+takeover survive a restart. Your service registration is **kept, never deleted** — the record
+supersedes it rather than replacing it.
+
+A state file with no ownership record means the CLI installation owns the runtime, which is what
+every installation made before this feature is in. Nothing changes for you until an app takes over.
+
+While something other than this CLI owns the runtime, the subcommands that would **activate** your
+registration refuse instead:
+
+| Subcommand | Behaviour under a foreign owner |
+| --- | --- |
+| `repair`, `restart` | Refuse before changing anything. The registration is not re-enabled, rewritten or restarted. |
+| `start` | Refuses for the same reason, so an automatic tray start cannot put a second proxy beside the app's. |
+| `stop`, `uninstall` | Unchanged. They deactivate, so they are never gated. |
+| `install` | Takes the runtime back. It clears the ownership record after the registration succeeds, and reports whose it was. |
+
+`ocx update` behaves the same way: it neither stops the running proxy nor refreshes the service
+while the app owns the runtime, because the running server is the app's own bundled binary and the
+refresh would re-enable the launcher the takeover superseded. The app updates its own runtime.
+
+The refusal names the owning installation and the consent generation, for example:
+
+```text
+Background service repair stopped: the desktop app owns the runtime (install <id>, consent generation 2).
+The service registration was left exactly as it is — not re-enabled, not rewritten and not restarted.
+Quit the desktop app and run 'ocx service install' to hand the runtime back to this CLI.
+```
+
+A record that cannot be read or does not parse produces the same refusal with a different first
+line, because an unreadable claim is not the same as no claim — treating it as "nobody owns this"
+is how a permissions error would silently reactivate your service.
+
+**Recovery in every case is `ocx service install`.** It is deliberately the one verb that is never
+gated, so removing the app without handing the runtime back, or a corrupted state file, still leaves
+you a way to take the service back:
+
+```bash
+ocx service install
+```
 
 ```bash
 ocx service
@@ -593,6 +682,9 @@ file is not part of the injected `env_key` contract; the launching process must 
 Install and control the Windows status tray icon. It starts at Windows login and provides one-click
 proxy controls. `start` and `stop` control the icon only; use its menu to control the proxy.
 `--no-start` applies to `install` and installs the tray without launching it immediately.
+Deprecated: the OpenCodex desktop app provides the tray on Windows, macOS, and Linux; `ocx tray`
+remains for installs without the desktop app.
+When a newer package version is known, the tray adds a blue dot to its online, warning, or offline icon and shows **Update available**. The tray checks its local cached badge about once a minute; stale or unavailable results remove the dot. The menu item opens the dashboard, where you can start the package update. It does not install automatically.
 
 ## Dashboard
 
@@ -611,6 +703,8 @@ package registry or install an update.
 
 ### `ocx update [--tag latest|preview]`
 
+When OpenCodex is installed through mise, this command exits unsuccessfully before stopping the proxy or changing package files and shows `mise upgrade <tool>`, using the verified local mise alias. Update checks remain available and report the installation as externally managed. An unreadable or inconsistent mise ownership record fails closed without guessing a tool name, and `--tag preview` never changes mise's configured selection.
+
 Self-update opencodex from npm. Stable installs use `@latest`; preview installs stay on `@preview`
 unless you pass `--tag latest|preview`. It detects a source checkout and tells you to
 `git pull && bun install` instead, and is a no-op if you are already on the newest version for that
@@ -620,6 +714,9 @@ Unix-only check. A failure aborts while the tray and proxy are still running. A 
 then stopped before files are replaced; an installed service is rebuilt and started automatically,
 while a foreground installation prints `ocx start` as the next step. Dashboard update records
 redact profile/cache paths and UID/GID values before they are persisted.
+If the install step fails, the previous version stays installed and its service is restarted; the
+terminal output names the next step, and [Update Failed on Windows](/troubleshooting/update-failed/)
+covers finishing the update and the folders a failed attempt can leave behind.
 
 ```bash
 ocx update

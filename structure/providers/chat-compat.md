@@ -1,28 +1,91 @@
 # Chat Provider Compatibility
 
+Native steering follows [the shared WebSocket contract](../transports/streaming-health.md#experimental-native-mid-turn-steering); this surface's defaults remain unchanged.
+
 The configuration-only [plaintext V2 contract](../subagents.md#plaintext-v2-agent-messages)
-is scoped to canonical ChatGPT Responses forwarding; other source-area behavior described here is unchanged.
+is scoped to canonical ChatGPT Responses forwarding; other source-area behavior described here is unchanged. Cursor's localized native-shell names follow the [routing-commentary guard contract](cursor.md#cursor-native-exec).
 
 Native Codex Spark-specific request exceptions are absent. General Lite and namespace repair
 remain shared [Responses compatibility](../transports/responses.md#responses-httpsse), including
 other providers whose models happen to share a name fragment.
 
-## OpenCode Go chronological instructions
+## Chronological in-conversation instructions
 
-For the registry-recognized OpenCode Go Chat destination and exact model
-`deepseek-v4.1-flash`, `src/adapters/openai-chat.ts` keeps text-only timeline
-developer messages in place as system messages. Appending a reminder therefore
-does not hoist new text into the leading system prompt and rewrite the existing
-serialized message prefix. Pending tool results still precede deferred reminders.
-The base system prompt, vision conversion and native OpenAI developer roles retain
-their existing behavior; other Chat destinations and models retain leading-system
-folding. This is independent of the Claude trailing-notice stabilization option
-and does not guarantee upstream cache hits. Regression coverage is in
-`tests/adapters/openai/openai-chat-system-order.test.ts`.
+`src/adapters/openai-chat/messages.ts` keeps a text-only timeline developer message in the
+slot it arrived in, on every Chat destination and model. Appending a reminder therefore does
+not hoist new text into the leading system prompt and rewrite the existing serialized message
+prefix, and a mid-conversation instruction no longer moves ahead of the turns it was written
+to follow. Pending tool results still precede deferred reminders. This was previously scoped
+to the registry-recognized OpenCode Go destination and the exact model
+`deepseek-v4.1-flash`, which made prompt-prefix stability read as a property of that one
+destination. The base system prompt, vision conversion and native OpenAI developer roles
+retain their existing behavior. This is independent of the Claude trailing-notice
+stabilization option and does not guarantee upstream cache hits. Regression coverage is in
+`tests/adapters/openai/openai-chat-system-order.test.ts` and
+`tests/adapters/openai/openai-chat-developer-position.test.ts`.
+
+The role that slot carries is a separate decision, and the setting that makes it is tri-state.
+`foldDeveloperRoleToSystem` unset sends `system`, `true` sends `system`, and `false` sends
+`developer`. Unset means nothing has been recorded about the destination; `true` records an
+upstream that rejects the role; `false` records one that accepts it. The message keeps the slot it
+arrived in in every case — only the role changes, never the position. The unrecorded state is the
+folded one because a destination that rejects the role answers
+`400 role 'developer' is not allowed` and the turn never starts, a failure that lands outside this
+repository where no test can reach it. The role was previously decided by testing the base URL host
+against `api.openai.com`, so every OpenAI-compatible gateway was assumed not to support a standard
+role until proven otherwise, and the instruction silently lost `developer` precedence.
+
+That mapping is not prose to be restated. `tests/ci-workflows/docs-developer-role-policy.test.ts`
+builds the sentence above from the role `src/adapters/openai-chat/messages.ts` serializes for each
+of the three states, and requires this document and
+`docs-site/src/content/docs/reference/configuration/providers.md` to carry it word for word, so a
+changed default fails a check rather than only a document review (INV-CHAT-01). The translated
+configuration pages and Claude Code guides are held against their English source in the same file.
 
 Shared parsing and streaming follow the [request-copy](../transports/byte-accounting.md#request-copy-accounting) and [stream-buffer accounting](../transports/byte-accounting.md#stream-buffer-accounting) contracts.
 
 ## Reasoning and tool-result compatibility
+
+### Inline think-tag recovery
+
+A gateway that serves a thinking model without a server-side reasoning parser returns the chain
+of thought inside `message.content` as `<think>` / `<thinking>` / `<reasoning>` blocks and sends
+neither `reasoning_content` nor `reasoning_details`. `src/adapters/openai-chat.ts` recovers those
+blocks into reasoning only for models listed in `inlineThinkTagModels`. An explicit operator list,
+including `[]`, replaces matching registry defaults. The option is off by default because registry
+providers share this adapter and a gateway that does parse reasoning
+must keep its visible content byte-exact. Once enabled the splitter still engages only for a
+response that opens with a thinking tag (optionally preceded by whitespace), so ordinary prose or
+code fences before a tag leave the entire response untouched. Whitespace before that initial tag
+and after every closing tag remains answer text;
+after it engages it keeps splitting later blocks, because M-series models interleave thinking with
+answer segments, including same-line interleaving. Once engaged, tags are protocol delimiters even
+inside subsequent code fences or quoted examples: this explicit opt-in does not parse Markdown.
+Gateways producing ambiguous literals should use structured reasoning instead. A moving cursor
+scans each upstream chunk without copying the remaining response after every block. Only undecided
+leading input or a trailing tag fragment is retained and charged to the translator budget.
+Undecided leading whitespace is charged one incoming segment at a time and joined only when
+the initial format is decided or the stream ends.
+A block left unterminated at end of stream flushes as reasoning rather than being
+dropped. In interleaved Chat mode, whitespace after the leading block and after later blocks
+remains answer text, including indentation and blank lines. Kiro uses single-block mode and
+retains its existing first-answer normalization.
+`src/adapters/inline-think-tags.ts` owns the parser and is shared with the Kiro adapter,
+which consumes it in single-block mode with its existing leading/first-answer normalization.
+Regression coverage is in `tests/adapters/openai/openai-chat-inline-think-tags.test.ts` and
+`tests/adapters/openai/inline-think-boundaries.test.ts`.
+
+Google tool-declaration narrowing is observed by the Google final compiler, not this shared Chat
+compatibility layer. Its endpoint profile and privacy boundary are specified in the
+[Google provider contract](google.md#google-tool-schema-loss-reporting).
+
+Chat models sometimes return a freeform call body under a common alternate field or wrap the whole
+body in a Markdown fence. Restoration in `src/responses/apply-patch-envelope.ts` is deliberately
+narrow: only bare or `default.`-prefixed `exec` and `apply_patch` accept one recognized alternate field or one complete
+outer fence, while ambiguous wrappers and provider-owned freeform grammars remain byte-exact.
+Structured shell arguments mistakenly sent to code-mode `exec` follow the shared
+[Responses restoration contract](../transports/responses.md#responses-httpsse), including preview
+holding and preservation of valid JavaScript fallback fields.
 
 Kiro groups only consecutive original-message tool results whose raw call ID exactly matches
 the originating call. Its wire-ID map retains the original ID privately so replacement or
@@ -46,7 +109,9 @@ boundary, so parsed messages and stored raw history retain the same task/guidanc
 
 Native OpenAI passthrough consults the existing configured capability ladder before forwarding
 `reasoning_effort`; an explicitly empty ladder removes that unsupported control while an unknown
-ladder remains unclassified. It also sanitizes routed reasoning history so `reasoning` input items do not send
+ladder remains unclassified. Both Chat builders then apply the same explicit provider declarations:
+gateway-object projection and tool-bearing model effort omission. An unset declaration preserves the
+native caller field exactly. Native passthrough also sanitizes routed reasoning history so `reasoning` input items do not send
 non-empty `content` arrays to upstream models that reject them. Chat Completions bridging repairs
 orphan `toolResult` messages by inserting a synthetic assistant `tool_call` before tool messages.
 It also repairs the opposite direction (260718): an assistant `tool_calls` round left dangling —
@@ -55,6 +120,15 @@ messages until the round completes, reattaching real results to their original c
 and synthesizing explicit "no tool result was recorded" answers only when no real result exists
 (Kimi/Moonshot 400 `ocx-mrqaiw05-269`; unit `devlog/_fin/260718_dangling_toolcall_hardening`).
 
+The native Ollama wire carries the same contract. `src/adapters/ollama-native.ts`
+`buildNativeMessages` defers `user`/`developer` messages that arrive while a batch is open and
+releases them after the tool messages, and answers a call with no result anywhere in the replayed
+history with the same `[ocx] no tool result was recorded for "<name>"` marker. The shape it
+absorbs is ordinary Codex history, not a malformed one: Codex records mid-turn items (a
+`PostToolUse` hook verdict, a context notice) between an assistant `tool_calls` message and that
+call's own result. The strict pair checks (orphan result, duplicate result, result naming another
+tool) still throw on both wires (#4842).
+
 Forward-mode OpenAI passthrough also repairs replayed `call_id` values longer than the Responses
 API's 64-character limit. Sidechat/fork replay can namespace routed-provider ids beyond that limit,
 so each oversized id and all matching call/output items receive the same deterministic,
@@ -62,10 +136,20 @@ request-local alias. Raw API-key continuations deliberately preserve ids because
 continuation may reference a call stored upstream under its original id; proxy-expanded API-key
 replays are explicit and receive the same repair.
 
-Separately, Meta Muse Responses (`src/responses/muse-tool-name-alias.ts`) aliases function *tool
-names* that exceed 64 characters or contain characters outside `[a-zA-Z0-9_-]` on `api.meta.ai`
-only. That map is not the call-id repair: it covers tools, `additional_tools`, history calls, and
-`tool_choice`, then restores original names inbound.
+Tool-name normalization stays adapter-scoped. The translated Chat Completions path uses a
+request-scoped registry in `src/adapters/openai-chat/`: only flattened namespaced names over 64
+characters receive a deterministic, charset-safe alias. Catalog declarations, replayed calls and
+`tool_choice` share that registry, and streamed or buffered echoes restore to the original flattened
+name before the Responses bridge restores `{namespace, name}`. Names at or below the bound and bare
+names pass through unchanged, except declarations matching the reserved alias shape; those are
+re-aliased so they cannot shadow an identity-derived alias.
+
+The 64-character bound is a Chat Completions and strict-gateway compatibility concern: Command Code
+rejects a 66-character function name (#4679). Upstream Codex raised its own MCP ceiling to 128 bytes
+in `openai/codex#39594` because native Responses accepts 128, so that Responses limit does not govern
+this translated wire. Kiro (`src/adapters/kiro-tools.ts`), Google (its wire compiler), and Meta Muse
+Responses (`src/responses/muse-tool-name-alias.ts`, gated to `api.meta.ai`) each retain their own
+equivalent normalization and restoration.
 
 These compatibility guards are covered by focused tests and should stay close to the adapters that
 need them.
@@ -101,6 +185,22 @@ switch therefore costs one extra upstream round trip and one turn of degraded re
 wedging the thread; unrelated 4xx responses and requests whose outbound body carries no blob never
 enter this recovery.
 
+Recovery is admitted for every adapter whose registry contract resolves to the Responses wire
+(`adapterSpeaksResponsesWire` in `src/server/responses/core-opaque-recovery.ts`, through
+`resolvedAdapterWire`), not for one adapter name. `openai-responses` qualifies directly and
+`azure`/`azure-openai` through `contractParent`; before #5583 a name check left Azure's wrapper of
+the same passthrough outside recovery. Once the destination itself has rejected foreign opaque
+state, replayed reasoning items also lose their `id`, with or without a blob: the id names an item
+in the refused identity's store,
+and without `store: false` a stateful destination resolves it against its own store and answers
+`Item with id 'rs_…' not found` on the recovered send. `_dropForeignReasoningItemIds` carries that
+signal from `prepareOpaqueBlobRecovery` and from the rejection memo below into
+`sanitizeReasoningInputContent`. A proven route switch sets it only when the durable destination or
+credential changed (`reasoningReplayItemStoreChanged`): that is when the id names another store. A
+model or adapter change on the same destination and credential strips the blob but keeps the id,
+which that store can still resolve.
+`tests/responses/responses-azure-opaque-blob-recovery.test.ts` runs the switch on both adapters.
+
 After a self-identified opaque-blob rejection, the proxy also keeps a five-minute rejection memo.
 The memo key is the resolved conversation identity plus the durable serving identity: provider,
 destination, adapter, model, and credential. It is recorded only when the blobless recovery resend
@@ -131,7 +231,77 @@ dropped. This preserves #1292's single-call adjacency repair without splitting a
 batch away from its preceding plaintext reasoning (#1477). Tolerant providers never enter this pass,
 and duplicate, missing, or backwards call/result pairs are left for the upstream to reject rather than guessed.
 
+That pass is gated by `requiresAdjacentResponsesToolResults`, not by provider name. Kimi's Code Plan
+Responses endpoint enforces the same strict shape and rejects a hook-split pair with HTTP 400 (#4726),
+so `kimi` and `kimi-code` carry the flag as well. The flag is inert while those presets use the Chat
+wire and takes effect when a row is configured onto `openai-responses`, which is the configuration the
+report exercised. xAI Grok 4.6/4.5 subscription Responses carries the same flag: after a mid-stream
+interrupt, Codex can replay a `function_call` with hook-injected developer context between it and
+its output, and later turns 400. The adjacency pass itself still does not invent duplicate or
+backwards pairs. No upstream specification documents the adjacency requirement; the evidence is the observed
+400 and DeepSeek's identical failure shape, which is why this stays a per-provider capability rather
+than a wire-wide default — upstream Codex leaves an intervening developer message where it is.
+
+A mid-stream interrupt produces a second, different shape: a call whose output never arrived at all.
+That is `requiresPairedResponsesToolResults`, a separate capability, and the separation is the whole
+point. Adjacency reorders items the upstream would accept in some order; pairing synthesizes an item
+the client never sent, which puts a tool turn into the conversation that did not happen. The evidence
+differs too — #4726 shows Kimi accepting a call with no result at all, so `kimi` and `kimi-code` keep
+adjacency and do not receive placeholders. `xai` carries both. `statelessResponses` implies pairing,
+which is how DeepSeek already had it: an upstream that stores nothing cannot resolve the missing half
+from its own history either.
+
+xAI's public Responses API is stateful (`store` defaults true; `previous_response_id` continues a
+stored conversation), so the provider is not marked `statelessResponses`. The pairing repair
+synthesizes an honest unknown-status placeholder without touching `store` or
+`previous_response_id`: repairing an interrupted history must not cost the thread its server-side
+state. An output-only continuation is preserved because its call may live in that server-side state;
+pairing only synthesizes results for calls present in the current input. Forward auth suppresses the
+synthesis regardless of the flag, because the backend that holds the conversation can resolve the
+pair itself. Replay-miss reasoning cleanup remains independent of whether orphan outputs are
+converted. A retained previous-response ID does not override an explicit custom-tool denial below.
+
 > Decision record: [ADR-0052](../decisions/ADR-0052-reasoning-and-tool-result-compatibility.md)
+
+## Declared hosted-tool denials
+
+A gateway that speaks the Responses API does not necessarily accept everything OpenAI accepts.
+`unsupportedHostedTools` is how such a destination says so: it names the hosted tool declarations
+this provider rejects, and `stripUnsupportedHostedTools` in
+`src/adapters/openai-responses/tool-schema.ts` removes them from `tools`, from client-loaded
+`additional_tools`, and from `tool_choice` before the body is serialized.
+
+The capability is provider-declared rather than destination-matched, and that is the point. The
+original mechanism in `src/responses/hosted-tool-policy.ts` was a table of `(model, baseUrl)`
+predicates, so a narrower gateway could only be supported by shipping a proxy release naming its
+endpoint. The reported destination (#5002) accepted plain Responses requests and `function` tools
+but rejected hosted `web_search` with HTTP 400 `unsupported_request`, which meant a text-only
+prompt failed before the model answered, because Codex's hosted declaration travelled with it. A
+provider nobody has classified can now describe itself in config.
+
+The declaration is additive to that table, not a replacement for it. The table still covers
+destinations that reject a tool regardless of configuration, so an operator who never heard of the
+field stays protected; a declaration can only deny more, never re-enable a known-broken pairing.
+
+Two properties are deliberate. Spelling variants of one capability are aliased, so declaring
+`web_search` also denies `web_search_preview` — the rest of the proxy already folds that pair into
+a single tool, and honouring only the spelling the operator happened to write would reproduce the
+original 400 while the config claimed to have prevented it. And the value is validated against a
+closed vocabulary in `src/config/schema/leaf-validators.ts` and `src/server/auth-cors.ts`, because
+the provider schema ends in `.passthrough()`: an unvalidated misspelling would be persisted and
+then match no tool, leaving the operator with the upstream rejection this field exists to prevent
+and nothing explaining why. That is the `codexToolMode` lesson from #2106.
+
+This capability is independent of `supportsResponsesCustomTools`, which denies native `custom`
+tools and `custom_tool_call` items. A gateway that rejects both sets both; neither implies the
+other.
+
+When that capability is explicitly false, `src/responses/custom-tool-compat.ts` also lowers valid
+historical custom-call/result pairs absent from the live catalog, without adding their names to
+current declaration or restoration sets. Malformed or duplicate call identities and collisions
+with live function names fail closed. Unmapped custom outputs request full replay; residual native
+items fail the final outbound guard and map to HTTP 400. True or unspecified support preserves the
+existing native path. Nested tool-output JSON remains data, not a protocol item to rewrite.
 
 ## OpenRouter provider routing
 
@@ -146,6 +316,42 @@ equivalent) and the `openai-chat` adapter. Alternate ports, credentials, query s
 lookalike hosts, and custom proxy paths fail validation. A model override replaces rather than
 merges the provider-wide default, keeping precedence deterministic. With no preference configured,
 the request body is byte-for-byte unchanged in this area and OpenRouter retains its default routing.
+
+## Serialized tool-call content
+
+Some Chat gateways expose one model-produced call twice: as a complete
+`<tool_call><function=…>…</function></tool_call>` content block and as a structured `tool_calls`
+entry. `src/adapters/openai-chat/serialized-tool-call-content.ts` recognizes bare blocks at the
+start of a line outside Markdown fences; inline, quoted and indented examples remain unchanged.
+It holds a possible serialized block, resumes ordinary text delivery when the header cannot match,
+and removes the block only when its function name and
+freeform body match a structured call's parsed `input` in the same response.
+A block may close a freeform body with a stray `</parameter>` and may omit `</function>`, and one
+newline after the function header is template layout, so MiMo's echoes of those shapes match too
+(#5724). Blocks are read by delimiter scan in linear time: the first `</tool_call>` preceded by
+`</function>` closes the block, and only when none appears before the next block header at the start
+of a line does the first `</tool_call>` close it, so a body can still carry literal tool-call tags.
+If the gateway also prefixes the structured call's JSON
+arguments with the same freeform body, the adapter keeps the JSON suffix only when the block body,
+prefix, and wrapper's `input` value all agree. Mismatched markup and arguments remain byte-exact.
+Two immediately adjacent identical bare blocks, with optional trailing whitespace after the pair,
+are suppressed only when exactly one structured call matches their function name and carries their
+body as `input`, either as one copy or as two copies joined directly or by one newline. Reducing a
+doubled `input` requires an arguments object with no keys besides `input`; extra keys leave it
+unchanged. Unrelated structured calls do not prevent suppression, and other repeated shapes remain
+unchanged.
+Silent held-content frames emit adapter heartbeats. Terminal errors and transport read failures
+drain all held text, including matching serialized blocks, because pending tools are not dispatched.
+The held bytes use the shared translator budget. The streaming hold is bounded (`ingestStreaming`): once a closed block is followed by more than 8 KiB of prose with no block open after it, or held text plus queued events would pass 4 MiB, everything held is released in order with nothing suppressed, so an unmatched block no longer delays the rest of the answer to the end of the turn. A duplicate is the tail of the content, so its reconciliation is unaffected; past either bound the stream prefers delivery (the pre-#5548 raw markup) over suppression. Buffered responses keep the unbounded `ingest` because their structured calls are already known (`tests/adapters/openai/openai-chat-serialized-tool-call-hold-bound.test.ts`). For a model opted into inline `<think>` splitting,
+reconciliation sees only the answer text the splitter emits. A reasoning event that arrives while
+a block candidate is held waits behind it and is released in its original position, so event order
+never changes and a duplicate is not exposed early; line and fence context carry across the
+answer text on both sides of a think section. Streaming and buffered responses use the same
+matching and repair rules; regression coverage enters through `/v1/responses` in
+`tests/responses/responses-chat-tool-call-content.test.ts`.
+
+> Decision record: [ADR-5548](../decisions/ADR-5548-serialized-tool-call-content.md)
+> Decision record: [ADR-5724](../decisions/ADR-5724-serialized-tool-call-content.md)
 
 ## Kimi Coding Plan prompt-cache affinity
 
@@ -196,10 +402,21 @@ First-party Kimi and Moonshot Chat destinations normalize a `$ref` with sibling 
 their wire rejects that valid JSON Schema 2020-12 shape. Inlining preserves conjunction semantics:
 `required` members are unioned, lower numeric bounds take the maximum, upper numeric bounds take the
 minimum, and overlapping `properties` recurse with the same rules. The walk remains depth-, node-,
-and expansion-bounded. Unresolvable or cyclic references keep the existing bare-`$ref` fallback,
-and unrelated OpenAI-compatible providers retain the caller's schema unchanged.
+expansion-, and inline-byte-bounded: each inlined reference is charged its serialized size against
+one 1 MiB allowance shared by every tool in the request. Raw target bytes are reserved before
+normalization. A candidate expansion restores its byte, node, and expansion allowances when
+it falls back; nested retained copies spend the allowance once, and only additional outer growth
+is charged. Moonshot's validator requires an explicit object termination type for recursive
+unions, so a schema carrying `properties` or `additionalProperties`, or an `allOf` with such a
+member, is emitted with `type: "object"`. This narrows scalar instances that JSON Schema would
+permit; tool-argument schemas do not rely on those scalar instances. Non-object `allOf`
+compositions, such as string constraints, remain untyped. An over-budget reference keeps the
+bare-`$ref` fallback.
+Unresolvable or cyclic references do the same, and unrelated OpenAI-compatible providers
+retain the caller's schema unchanged.
 
 > Decision record: [ADR-0064](../decisions/ADR-0064-chat-structured-output-compatibility.md)
+> Decision record: [ADR-0355](../decisions/ADR-0355-chat-structured-output-compatibility.md)
 
 The `openai-chat` adapter translates Responses `text.format` and Chat Completions
 `response_format` through one internal format, then emits `response_format` on the upstream chat
@@ -239,7 +456,10 @@ measurement rather than allocating a serialized copy just to measure it.
 
 > Decision record: [ADR-0067](../decisions/ADR-0067-reasoning-display-parity-hidethinkingsummary.md)
 
-`hideThinkingSummary` (request reasoning summary absent/"none" — the routed catalog default) is
+`hideThinkingSummary` is set for explicit summary "none", or omitted summary without a validated
+active effort. Accepted minimal/low/medium/high/xhigh/max (including ultra normalized to max)
+allow raw visibility when summary is omitted; none and invalid efforts do not. Explicit "auto"
+still permits raw visibility independently of effort. This flag is
 honored by BOTH reasoning paths: anthropic `thinking_delta` AND raw `reasoning_raw_delta`
 (openai-chat `reasoning_content`, kiro tags). Hidden reasoning emits an envelope-only reasoning
 item (`summary: []`, txt-only `ocxr1:` `encrypted_content`, no text deltas) — invisible in the
@@ -252,6 +472,10 @@ the desktop thinking band shows the "Thinking…" placeholder, and raw text appe
 #45 display intent, intentionally reverted 260911) put unsummarized thinking in the desktop band,
 which only fits native OpenAI providers that author real summaries. Diagnosis and codex-rs
 grouping evidence: `devlog/_fin/260709_native_response_pattern/`.
+
+For models that require a reasoning placeholder, a preserved thinking-only assistant turn with no
+plaintext receives that placeholder even when it has no tool call. Otherwise the Chat serializer
+drops the turn and strict DeepSeek continuations can reject the following request (#5421).
 
 The process-local raw-reasoning fallback is fail-closed unless a request has an explicit client
 thread plus an exact provider destination, wire adapter, final model, and physical credential
@@ -292,7 +516,7 @@ byte-limit boundaries.
 
 Canonical Spark Lite metadata follows the final serialized model and surviving nonempty Lite tool catalog; see [Responses transport](../transports/responses.md).
 
-Translated Chat request construction uses the [inline-image budget](../transports/streaming-health.md#translated-chat-inline-image-budget); the shared normalizer counts retained bytes even when a wire-specific drop callback keeps the image attached.
+Translated Chat request construction uses the [inline-image budget](../transports/streaming-health.md#translated-chat-inline-image-budget); the shared normalizer counts retained bytes even when a wire-specific drop callback keeps the image attached, rejects inputs above the safe decoded-pixel ceiling, caps native decode work process-wide, and stops queued work when the request is cancelled.
 ## Anthropic parallel tool use
 
 `options.parallelToolCalls === false` maps onto Anthropic's nested
@@ -307,6 +531,13 @@ true `parallelToolCalls` is byte-identical to previous behavior.
 The flag constrains the model's output, not execution ordering. Sequential tool use
 is enforced by the caller's own loop returning each `tool_result` before issuing the
 next request; this mapping does not provide that.
+
+Claude Opus 5.5 is an upstream exception to the forced-choice mapping: Anthropic rejects
+`tool_choice: {type:"any"}` and `{type:"tool",name:...}` for that model, with or without
+adaptive thinking. The Anthropic adapter sends `{type:"auto"}` for those choices so the
+request succeeds, but the caller's forced-tool guarantee cannot be preserved; the prompt
+must provide any required tool-use instruction. Other Claude model families retain the
+normal forced-choice mapping unless their own upstream contract says otherwise.
 ## Unmapped modalities are recorded, not dropped
 
 The translated Chat route has no video mapping — this adapter does not implement one.
@@ -328,14 +559,23 @@ The final registered adapter also checks the original input under the
 [untranslated-media contract](../adapters/registry.md#untranslated-input-media). Audio/file
 attachments cannot succeed merely because the normalized representation retained a text
 marker: translated adapters refuse them, while native Responses retains the original body.
-Chat conversion rejects recognized audio/file parts before projection; the native Chat wire
-is unchanged. No audio/file transport or automatic URL fetch is added, and no client filename,
+Chat conversion rejects recognized audio/file parts before projection, except a user-content
+file part whose inline base64 bytes now have a lossless carrier; the native Chat wire is
+unchanged. No audio transport and no automatic URL fetch is added, and no client filename,
 payload, URL or metadata is included in the new error messages.
 
 The shared coding-agent projection (CodeBuddy, Qoder) carries tool-result images as
 real image blocks rather than flattening them to the text `[image]`, and orders image
 blocks chronologically — history before current — so attachment order matches the
 prose the model reads beside them. Vendor tool execution stays disabled on both
-adapters, and Qoder's explicit refusal of original images is unchanged.
+adapters. CodeBuddy refuses an unquoted, line-oriented full-width-bar DSML `calls`
+container followed by a named bare or namespaced invoke control line in either output channel; it
+preserves preceding answer text, never promotes vendor prose into execution authority,
+and leaves discussed or quoted literals and code examples untouched. Qoder's explicit
+refusal of original images is unchanged.
 
 Canonical Responses identity sanitation and narrowly scoped pre-output combo recovery follow [request-local target compatibility](../runtime.md#request-local-target-compatibility); other adapter contracts remain unchanged.
+
+Upstream API-key usage follows the [physical-attempt account attribution contract](../dashboard-and-usage.md#upstream-key-account-attribution), independently of subscription quota observations.
+
+Unicode pattern normalization uses [copy-on-write traversal](../transports/byte-accounting.md#unicode-pattern-normalization) while preserving the existing schema and wire semantics.

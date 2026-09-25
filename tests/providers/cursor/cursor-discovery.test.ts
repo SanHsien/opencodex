@@ -1,7 +1,8 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import {
   CURSOR_AUTO_WIRE_MODEL_ID,
   CURSOR_DEFAULT_CONTEXT_WINDOW,
+  CURSOR_OBSERVED_CONTEXT_WINDOW_MAX_ENTRIES,
   CURSOR_ROUTER_MODEL_IDS,
   CURSOR_ROUTING_LEVELS,
   CURSOR_NO_VISION_MODELS,
@@ -20,6 +21,8 @@ import {
   isCursorNativeWireModel,
   cursorNeedsExternalToolContinuation,
   normalizeCursorModels,
+  recordObservedCursorContextWindow,
+  resetObservedCursorContextWindowsForTests,
 } from "../../../src/adapters/cursor/discovery";
 
 describe("Cursor discovery metadata", () => {
@@ -73,12 +76,42 @@ describe("Cursor discovery metadata", () => {
     expect(ids).toContain("gpt-5.5-extra");
     expect(ids).toContain("grok-4.6");
     expect(ids).not.toContain("grok-4.6-fast");
+    expect(ids).toContain("grok-4.7");
+    expect(ids).not.toContain("grok-4.7-fast");
+    expect(cursorModelContextWindows(CURSOR_STATIC_MODELS)["grok-4.7"]).toBe(500_000);
     expect(ids).not.toContain("composer-2");
     // `auto` mirrors the jawcode SOT `default` entry (200k), not the generic fallback window.
     for (const id of CURSOR_ROUTER_MODEL_IDS) {
       expect(cursorModelContextWindows(CURSOR_STATIC_MODELS)[id]).toBe(200_000);
     }
     expect(cursorModelContextWindows(CURSOR_STATIC_MODELS)["composer-2.5-fast"]).toBe(200_000);
+  });
+
+  test("a live Muse Spark roster reaches the picker through its seed row (#4820)", () => {
+    // Live discovery filters the CONFIGURED roster; it never iterates a live-only id. A family
+    // absent from CURSOR_CAPABILITIES therefore stayed invisible no matter what GetUsableModels
+    // returned, which is why six advertised Muse variants produced no Cursor row.
+    const liveMuseIds = [
+      "muse-spark-1.3-minimal",
+      "muse-spark-1.3-low",
+      "muse-spark-1.3-medium",
+      "muse-spark-1.3-high",
+      "muse-spark-1.3-xhigh",
+      "muse-spark-1.3-max",
+    ];
+    const ids = cursorModelIds(CURSOR_STATIC_MODELS);
+
+    expect(ids).toContain("muse-spark-1.3");
+    expect(isCursorModelAvailableForAccount("muse-spark-1.3", liveMuseIds)).toBe(true);
+    expect(
+      filterCursorConfiguredModelsByLiveDiscovery(
+        CURSOR_STATIC_MODELS.filter(model => model.id === "muse-spark-1.3"),
+        liveMuseIds,
+      ).map(model => model.id),
+    ).toEqual(["muse-spark-1.3"]);
+    expect(cursorModelContextWindows(CURSOR_STATIC_MODELS)["muse-spark-1.3"]).toBe(1_048_576);
+    // The base row is one umbrella row, not six effort rows.
+    expect(ids.filter(id => id.startsWith("muse-spark"))).toEqual(["muse-spark-1.3"]);
   });
 
   test("auto is not activated by live GetUsableModels wire ids alone", () => {
@@ -109,6 +142,10 @@ describe("Cursor discovery metadata", () => {
     expect(isCursorModelAvailableForAccount("grok-4.6", ["cursor-grok-4.6-xhigh"])).toBe(true);
     expect(isCursorModelAvailableForAccount("grok-4.6-fast", ["cursor-grok-4.6-xhigh-fast"])).toBe(true);
     expect(isCursorModelAvailableForAccount("grok-4.6", ["cursor-grok-4.6-xhigh-fast"])).toBe(true);
+    expect(isCursorModelAvailableForAccount("grok-4.7", ["grok-4.7-xhigh"])).toBe(true);
+    expect(isCursorModelAvailableForAccount("grok-4.7-fast", ["grok-4.7-xhigh-fast"])).toBe(true);
+    expect(isCursorModelAvailableForAccount("grok-4.7", ["grok-4.7-xhigh-fast"])).toBe(true);
+    expect(isCursorModelAvailableForAccount("grok-4.7", ["cursor-grok-4.6-xhigh"])).toBe(false);
     expect(isCursorModelAvailableForAccount("gpt-5.4", ["cursor-gpt-5.4-high"])).toBe(true);
     // Prefixed sibling rejection: cursor- prefix must not bypass sibling-model checks.
     expect(isCursorModelAvailableForAccount("gpt-5.5", ["cursor-gpt-5.5-extra-high"])).toBe(false);
@@ -131,6 +168,12 @@ describe("Cursor discovery metadata", () => {
       ["cursor-grok-4.6-xhigh", "cursor-grok-4.6-xhigh-fast"],
     );
     expect(grok46.map(model => model.id)).toEqual(["grok-4.6", "grok-4.6-fast"]);
+
+    const grok47 = filterCursorConfiguredModelsByLiveDiscovery(
+      [{ id: "grok-4.7" }, { id: "grok-4.7-fast" }],
+      ["grok-4.7-xhigh", "grok-4.7-xhigh-fast"],
+    );
+    expect(grok47.map(model => model.id)).toEqual(["grok-4.7", "grok-4.7-fast"]);
   });
 
   test("live discovery filter always keeps all router levels when GetUsableModels omits them", () => {
@@ -176,6 +219,8 @@ describe("Cursor discovery metadata", () => {
     expect(inferCursorContextWindow("glm-5.2")).toBe(1_000_000);
     expect(inferCursorContextWindow("grok-4.3")).toBe(256_000);
     expect(inferCursorContextWindow("grok-4.6")).toBe(500_000);
+    expect(inferCursorContextWindow("grok-4.7")).toBe(500_000);
+    expect(inferCursorContextWindow("grok-4.7-xhigh-fast")).toBe(500_000);
     expect(inferCursorContextWindow("gpt-5.5")).toBe(272_000);
   });
 
@@ -196,6 +241,8 @@ describe("Cursor discovery metadata", () => {
       { id: "grok-4.3", supportsReasoningEffort: true },
       { id: "grok-4.6", supportsReasoningEffort: true },
       { id: "grok-4.6-fast", supportsReasoningEffort: true },
+      { id: "grok-4.7", supportsReasoningEffort: true },
+      { id: "grok-4.7-fast", supportsReasoningEffort: true },
       { id: "unknown-reasoning-model", supportsReasoningEffort: true },
       { id: "composer-2.5", supportsReasoningEffort: false },
     ]);
@@ -207,6 +254,8 @@ describe("Cursor discovery metadata", () => {
     expect(efforts["grok-4.3"]).toEqual([]);
     expect(efforts["grok-4.6"]).toEqual(["low", "medium", "high", "xhigh"]);
     expect(efforts["grok-4.6-fast"]).toEqual(["low", "medium", "high", "xhigh"]);
+    expect(efforts["grok-4.7"]).toEqual(["low", "medium", "high", "xhigh"]);
+    expect(efforts["grok-4.7-fast"]).toEqual(["low", "medium", "high", "xhigh"]);
     expect(efforts["unknown-reasoning-model"]).toEqual([]);
     expect(efforts["composer-2.5"]).toEqual([]);
   });
@@ -225,10 +274,70 @@ describe("Cursor discovery metadata", () => {
   test("routes composer-2.5 tool continuations through the external userMessageAction path", () => {
     expect(cursorNeedsExternalToolContinuation("composer-2.5")).toBe(true);
     expect(cursorNeedsExternalToolContinuation("cursor/composer-2.5")).toBe(true);
-    expect(cursorNeedsExternalToolContinuation("composer-2.5-fast")).toBe(false);
-    expect(cursorNeedsExternalToolContinuation("cursor/composer-2.5-fast")).toBe(false);
+    expect(cursorNeedsExternalToolContinuation("composer-2.5-fast")).toBe(true);
+    expect(cursorNeedsExternalToolContinuation("cursor/composer-2.5-fast")).toBe(true);
     expect(cursorNeedsExternalToolContinuation("auto")).toBe(false);
     expect(cursorNeedsExternalToolContinuation("gpt-5.6-sol")).toBe(true);
+  });
+
+  describe("observed checkpoint maxTokens ceiling", () => {
+    afterEach(() => {
+      resetObservedCursorContextWindowsForTests();
+    });
+
+    test("same-model observations are isolated by normalized identity scope", () => {
+      recordObservedCursorContextWindow("claude-4.6-sonnet", 32_000, { identityScope: " account-a " });
+      recordObservedCursorContextWindow("claude-4.6-sonnet", 64_000, { identityScope: "account-b" });
+
+      expect(inferCursorContextWindow("CLAUDE-4.6-SONNET", { identityScope: "account-a" })).toBe(32_000);
+      expect(inferCursorContextWindow("claude-4.6-sonnet", { identityScope: " account-b " })).toBe(64_000);
+    });
+
+    test("an unscoped lookup does not read a scoped observation", () => {
+      recordObservedCursorContextWindow("claude-4.6-sonnet", 32_000, { identityScope: "account-a" });
+
+      expect(inferCursorContextWindow("claude-4.6-sonnet")).toBe(200_000);
+    });
+
+    test("zero, negative, missing, and non-finite maxTokens keep the heuristic", () => {
+      const options = { identityScope: "account-a" };
+      recordObservedCursorContextWindow("claude-4.6-sonnet", 0, options);
+      recordObservedCursorContextWindow("claude-4.6-sonnet", undefined, options);
+      recordObservedCursorContextWindow("claude-4.6-sonnet", Number.NaN, options);
+      recordObservedCursorContextWindow("claude-4.6-sonnet", -8, options);
+      recordObservedCursorContextWindow("", 32_000, options);
+      expect(inferCursorContextWindow("claude-4.6-sonnet", options)).toBe(200_000);
+    });
+
+    test("an explicit observed argument outranks the process-local map", () => {
+      const identityScope = "account-a";
+      recordObservedCursorContextWindow("claude-4.6-sonnet", 32_000, { identityScope });
+      expect(inferCursorContextWindow("claude-4.6-sonnet", { identityScope, observed: 8_000 })).toBe(8_000);
+      expect(inferCursorContextWindow("claude-4.6-sonnet", { identityScope, observed: 0 })).toBe(32_000);
+    });
+
+    test("reset clears observations from every identity scope", () => {
+      recordObservedCursorContextWindow("claude-4.6-sonnet", 32_000, { identityScope: "account-a" });
+      recordObservedCursorContextWindow("claude-4.6-sonnet", 64_000, { identityScope: "account-b" });
+
+      resetObservedCursorContextWindowsForTests();
+
+      expect(inferCursorContextWindow("claude-4.6-sonnet", { identityScope: "account-a" })).toBe(200_000);
+      expect(inferCursorContextWindow("claude-4.6-sonnet", { identityScope: "account-b" })).toBe(200_000);
+    });
+
+    test("evicts the oldest observation after the bounded capacity", () => {
+      recordObservedCursorContextWindow("oldest-model", 32_000, { identityScope: "account-oldest" });
+      for (let index = 1; index <= CURSOR_OBSERVED_CONTEXT_WINDOW_MAX_ENTRIES; index++) {
+        recordObservedCursorContextWindow(`model-${index}`, 32_000 + index, { identityScope: `account-${index}` });
+      }
+
+      expect(inferCursorContextWindow("oldest-model", { identityScope: "account-oldest" }))
+        .toBe(CURSOR_DEFAULT_CONTEXT_WINDOW);
+      expect(inferCursorContextWindow(`model-${CURSOR_OBSERVED_CONTEXT_WINDOW_MAX_ENTRIES}`, {
+        identityScope: `account-${CURSOR_OBSERVED_CONTEXT_WINDOW_MAX_ENTRIES}`,
+      })).toBe(32_000 + CURSOR_OBSERVED_CONTEXT_WINDOW_MAX_ENTRIES);
+    });
   });
 
   test("normalizes Cursor checkpoint model affinity across prefix and effort", () => {

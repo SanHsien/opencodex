@@ -324,13 +324,12 @@ adapter 自有的非空指示重播。傳輸之前，產生的對話會被檢查
 
 ### Reasoning effort
 
-`gpt-5.6-sol` 與 `claude-opus-5` 有經過驗證的原生 effort 支援，且每個模型家族為請求欄位
-使用不同名稱。選定的 `low`、`medium`、`high`、`xhigh` 或 `max` 值，對 `gpt-5.6-sol` 會以
-`additionalModelRequestFields.reasoning.effort` 傳送，對 `claude-opus-5` 則以
-`additionalModelRequestFields.output_config.effort` 傳送。其他 Kiro 模型目前使用模擬
-reasoning：因為其原生 effort 欄位尚未被驗證，opencodex 會把選定的層級轉換成使用者內容中
-有界的 thinking 指示。請不要把這些模型上公佈的 effort 控制解讀為上游原生支援 reasoning
-的證明。
+GPT-5.6 系列使用 `additionalModelRequestFields.reasoning.effort`，`claude-opus-5` 使用
+`additionalModelRequestFields.output_config.effort`。`gpt-5.6-luna` 和 `gpt-5.6-terra`
+只透過原生欄位傳送已驗證的 `low`、`medium`、`high` 和 `max`。
+這兩個模型的原生 `xhigh` 尚未驗證，因此仍使用原有的有界 thinking 指令模擬。
+`gpt-5.6-sol` 和 `claude-opus-5` 保留現有原生檔位（`low`、`medium`、`high`、`xhigh`、`max`）。
+其他 Kiro 模型使用模擬推理；提供 effort 選項不代表原生支援。
 
 ## `cursor`
 
@@ -418,6 +417,8 @@ credential 是由哪條登入路徑鑄造的；其他模型家族維持既有的
 - 把請求建置交給 Responses passthrough，驗證 `baseUrl` 不含未解析的 template placeholder，
   再用 `api-key` 替換 `Authorization`。設定的 URL 直接指向 Azure v1 Responses API，因此 adapter
   不會追加 `api-version`。
+- 與 Responses 共用針對其他 provider 所產生推理狀態的復原：收到 `400 invalid_encrypted_content`
+  後，去掉該狀態（加密內容與推理項的 `rs_…` id）並只重送一次。
 
 ## 圖像工具（`image.ts`）
 

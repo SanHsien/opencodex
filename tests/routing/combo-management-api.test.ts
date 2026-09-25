@@ -47,6 +47,7 @@ import {
 import * as appServerProcesses from "../../src/codex/app-server-processes";
 import { injectClaudeAgentDefs } from "../../src/claude/agents-inject";
 import { catalogConvergenceFactory } from "../helpers/catalog-convergence";
+import { acquireOwnedSpendHome } from "../helpers/owned-spend-home";
 import { removeTreeWithRetry } from "../helpers/remove-tree";
 
 const VALID_COMBO = { targets: [{ provider: "a", model: "m1" }] };
@@ -520,6 +521,319 @@ describe("combo management API", () => {
     });
   });
 
+  test("PUT preserves omitted reasoningEffortMode and imageInput (#5687)", async () => {
+    await withTempHome(async () => {
+      const config = baseConfig({ combos: undefined });
+      saveConfig(config);
+
+      const created = await comboApi(config, "PUT", "/api/combos", {
+        id: "keep",
+        combo: {
+          targets: [{ provider: "a", model: "m1" }],
+          reasoningEffortMode: "adaptive",
+          imageInput: "disabled",
+        },
+      });
+      expect(created?.status).toBe(200);
+      expect(config.combos?.keep).toMatchObject({
+        reasoningEffortMode: "adaptive",
+        imageInput: "disabled",
+      });
+
+      // `ocx combo set` and other API clients have no flag for either field, so a whole-combo
+      // PUT that omits them carries the stored values forward instead of resetting to strict/auto.
+      const omitted = await comboApi(config, "PUT", "/api/combos", {
+        id: "keep",
+        combo: {
+          targets: [{ provider: "a", model: "m1" }],
+          strategy: "round-robin",
+        },
+      });
+      expect(omitted?.status).toBe(200);
+      expect(config.combos?.keep).toMatchObject({
+        strategy: "round-robin",
+        reasoningEffortMode: "adaptive",
+        imageInput: "disabled",
+      });
+      const persisted = JSON.parse(readFileSync(getConfigPath(), "utf8")) as OcxConfig;
+      expect(persisted.combos?.keep).toMatchObject({
+        reasoningEffortMode: "adaptive",
+        imageInput: "disabled",
+      });
+      const listed = await responseJson(await comboApi(config, "GET", "/api/combos"));
+      expect(listed.combos).toEqual([expect.objectContaining({
+        id: "keep", reasoningEffortMode: "adaptive", imageInput: "disabled",
+      })]);
+
+      // Explicit values still replace, and the default is never materialized on disk or on the wire.
+      const defaults = await comboApi(config, "PUT", "/api/combos", {
+        id: "keep",
+        combo: {
+          targets: [{ provider: "a", model: "m1" }],
+          reasoningEffortMode: "strict",
+          imageInput: "auto",
+        },
+      });
+      expect(defaults?.status).toBe(200);
+      const defaultsBody = await responseJson(defaults);
+      expect(defaultsBody.combo).not.toHaveProperty("reasoningEffortMode");
+      expect(defaultsBody.combo).not.toHaveProperty("imageInput");
+      expect(config.combos?.keep).not.toHaveProperty("reasoningEffortMode");
+      expect(config.combos?.keep).not.toHaveProperty("imageInput");
+      const sparseDisk = JSON.parse(readFileSync(getConfigPath(), "utf8")) as OcxConfig;
+      expect(sparseDisk.combos?.keep).not.toHaveProperty("reasoningEffortMode");
+      expect(sparseDisk.combos?.keep).not.toHaveProperty("imageInput");
+
+      // An explicit opt-in survives being re-sent alongside an invalid sibling field: the
+      // rejected request must not have replaced the stored combo either.
+      const reseeded = await comboApi(config, "PUT", "/api/combos", {
+        id: "keep",
+        combo: {
+          targets: [{ provider: "a", model: "m1" }],
+          reasoningEffortMode: "adaptive",
+          imageInput: "disabled",
+        },
+      });
+      expect(reseeded?.status).toBe(200);
+      for (const invalid of [{ reasoningEffortMode: "bogus" }, { imageInput: "bogus" }]) {
+        const rejected = await comboApi(config, "PUT", "/api/combos", {
+          id: "keep",
+          combo: { targets: [{ provider: "a", model: "m1" }], ...invalid },
+        });
+        expect(rejected?.status).toBe(400);
+        expect(config.combos?.keep).toMatchObject({
+          reasoningEffortMode: "adaptive",
+          imageInput: "disabled",
+        });
+      }
+
+      // A rename re-reads the previous combo under its source id, so the carry-over follows it.
+      const renamed = await comboApi(config, "PUT", "/api/combos", {
+        id: "kept",
+        renameFrom: "keep",
+        combo: { targets: [{ provider: "a", model: "m1" }] },
+      });
+      expect(renamed?.status).toBe(200);
+      expect(config.combos?.keep).toBeUndefined();
+      expect(config.combos?.kept).toMatchObject({
+        reasoningEffortMode: "adaptive",
+        imageInput: "disabled",
+      });
+    });
+  });
+
+  test("PUT carries lastResort and cooldownWaitPolicy through a dashboard-shaped save (#5691)", async () => {
+    await withTempHome(async () => {
+      const config = baseConfig({ combos: undefined });
+      saveConfig(config);
+
+      const created = await comboApi(config, "PUT", "/api/combos", {
+        id: "deferred",
+        combo: {
+          strategy: "failover",
+          cooldownWaitPolicy: "before-last-resort",
+          waitForCooldownMs: 10000,
+          targets: [
+            { provider: "a", model: "m1" },
+            { provider: "b", model: "m2", lastResort: true },
+          ],
+        },
+      });
+      expect(created?.status).toBe(200);
+      expect(await responseJson(created)).toMatchObject({
+        combo: { cooldownWaitPolicy: "before-last-resort" },
+      });
+      expect(config.combos?.deferred).toMatchObject({
+        cooldownWaitPolicy: "before-last-resort",
+        targets: [
+          { provider: "a", model: "m1" },
+          { provider: "b", model: "m2", lastResort: true },
+        ],
+      });
+
+      // The dashboard exposes neither the combo-level policy nor the per-target flag, so its
+      // whole-combo save re-sends the target list without them. Carrying both forward is what
+      // keeps a GUI edit from silently turning a deferred target back into a normal one.
+      const dashboard = await comboApi(config, "PUT", "/api/combos", {
+        id: "deferred",
+        combo: {
+          strategy: "failover",
+          targets: [
+            { provider: "a", model: "m1" },
+            { provider: "b", model: "m2" },
+          ],
+        },
+      });
+      expect(dashboard?.status).toBe(200);
+      expect(config.combos?.deferred).toMatchObject({
+        cooldownWaitPolicy: "before-last-resort",
+        targets: [
+          { provider: "a", model: "m1" },
+          { provider: "b", model: "m2", lastResort: true },
+        ],
+      });
+      // The normalizer gives every target an explicit `lastResort: false`; storage stays sparse
+      // and only the opt-in value is written, so the first target carries no key at all.
+      expect(config.combos?.deferred?.targets?.[0]).not.toHaveProperty("lastResort");
+      const persisted = JSON.parse(readFileSync(getConfigPath(), "utf8")) as OcxConfig;
+      expect(persisted.combos?.deferred).toMatchObject({ cooldownWaitPolicy: "before-last-resort" });
+      expect(persisted.combos?.deferred?.targets?.[0]).not.toHaveProperty("lastResort");
+      expect(persisted.combos?.deferred?.targets?.[1]).toMatchObject({ lastResort: true });
+
+      // The carry-over re-reads the previous combo under its source id, so a rename keeps it.
+      const renamed = await comboApi(config, "PUT", "/api/combos", {
+        id: "deferred-next",
+        renameFrom: "deferred",
+        combo: {
+          strategy: "failover",
+          targets: [
+            { provider: "a", model: "m1" },
+            { provider: "b", model: "m2" },
+          ],
+        },
+      });
+      expect(renamed?.status).toBe(200);
+      expect(config.combos?.deferred).toBeUndefined();
+      expect(config.combos?.["deferred-next"]).toMatchObject({
+        cooldownWaitPolicy: "before-last-resort",
+        targets: [
+          { provider: "a", model: "m1" },
+          { provider: "b", model: "m2", lastResort: true },
+        ],
+      });
+
+      // The flag belongs to the target identity (provider+model), so a swapped-in target does
+      // not inherit it from whatever used to occupy that position.
+      const swapped = await comboApi(config, "PUT", "/api/combos", {
+        id: "deferred-next",
+        combo: {
+          strategy: "failover",
+          targets: [
+            { provider: "a", model: "m1" },
+            { provider: "c", model: "m3" },
+          ],
+        },
+      });
+      expect(swapped?.status).toBe(200);
+      expect(config.combos?.["deferred-next"]).toMatchObject({
+        cooldownWaitPolicy: "before-last-resort",
+        targets: [
+          { provider: "a", model: "m1" },
+          { provider: "c", model: "m3" },
+        ],
+      });
+      expect(config.combos?.["deferred-next"]?.targets?.[1]).not.toHaveProperty("lastResort");
+
+      // Explicit values still replace: `lastResort: false` drops the flag and a null policy
+      // clears the combo-level opt-in rather than pinning the string.
+      const cleared = await comboApi(config, "PUT", "/api/combos", {
+        id: "deferred-next",
+        combo: {
+          strategy: "failover",
+          cooldownWaitPolicy: null,
+          targets: [
+            { provider: "a", model: "m1" },
+            { provider: "b", model: "m2", lastResort: false },
+          ],
+        },
+      });
+      expect(cleared?.status).toBe(200);
+      expect((await responseJson(cleared)).combo).not.toHaveProperty("cooldownWaitPolicy");
+      expect(config.combos?.["deferred-next"]).not.toHaveProperty("cooldownWaitPolicy");
+      expect(config.combos?.["deferred-next"]?.targets).toHaveLength(2);
+      for (const target of config.combos?.["deferred-next"]?.targets ?? []) {
+        expect(target).not.toHaveProperty("lastResort");
+      }
+      const clearedDisk = JSON.parse(readFileSync(getConfigPath(), "utf8")) as OcxConfig;
+      expect(clearedDisk.combos?.["deferred-next"]).not.toHaveProperty("cooldownWaitPolicy");
+      expect(clearedDisk.combos?.["deferred-next"]?.targets).toHaveLength(2);
+      for (const target of clearedDisk.combos?.["deferred-next"]?.targets ?? []) {
+        expect(target).not.toHaveProperty("lastResort");
+      }
+    });
+  });
+
+  // Review finding on #5736: the per-target carry-over inspected every entry before
+  // comboConfigError validated the list, so a malformed entry threw a TypeError out of the
+  // handler instead of producing the structured 400 the rest of the API returns.
+  test("PUT validates a non-record target instead of throwing in the lastResort carry-over", async () => {
+    await withTempHome(async () => {
+      const config = baseConfig({ combos: undefined });
+      saveConfig(config);
+      const created = await comboApi(config, "PUT", "/api/combos", {
+        id: "guarded",
+        combo: {
+          strategy: "failover",
+          cooldownWaitPolicy: "before-last-resort",
+          targets: [
+            { provider: "a", model: "m1" },
+            { provider: "b", model: "m2", lastResort: true },
+          ],
+        },
+      });
+      expect(created?.status).toBe(200);
+
+      const malformed = await comboApi(config, "PUT", "/api/combos", {
+        id: "guarded",
+        combo: { strategy: "failover", targets: [null] },
+      });
+      expect(malformed?.status).toBe(400);
+      expect(await responseJson(malformed)).toMatchObject({
+        error: expect.stringContaining("targets[0]"),
+      });
+      // Rejected means rejected: the stored combo keeps the target list it already had.
+      expect(config.combos?.guarded).toMatchObject({
+        cooldownWaitPolicy: "before-last-resort",
+        targets: [
+          { provider: "a", model: "m1" },
+          { provider: "b", model: "m2", lastResort: true },
+        ],
+      });
+    });
+  });
+
+  // Same carry-over, second half of the finding: identity is trimmed on both sides, because the
+  // normalizer trims. A client that pads provider/model re-sends the same target and must keep
+  // the flag rather than silently reintroducing a normal target.
+  test("PUT matches the lastResort carry-over against trimmed target identity", async () => {
+    await withTempHome(async () => {
+      const config = baseConfig({ combos: undefined });
+      saveConfig(config);
+      const created = await comboApi(config, "PUT", "/api/combos", {
+        id: "padded",
+        combo: {
+          strategy: "failover",
+          cooldownWaitPolicy: "before-last-resort",
+          targets: [
+            { provider: "a", model: "m1" },
+            { provider: "b", model: "m2", lastResort: true },
+          ],
+        },
+      });
+      expect(created?.status).toBe(200);
+
+      const padded = await comboApi(config, "PUT", "/api/combos", {
+        id: "padded",
+        combo: {
+          strategy: "failover",
+          targets: [
+            { provider: "a", model: "m1" },
+            { provider: " b ", model: " m2 " },
+          ],
+        },
+      });
+      expect(padded?.status).toBe(200);
+      expect(config.combos?.padded).toMatchObject({
+        targets: [
+          { provider: "a", model: "m1" },
+          { provider: "b", model: "m2", lastResort: true },
+        ],
+      });
+      const persisted = JSON.parse(readFileSync(getConfigPath(), "utf8")) as OcxConfig;
+      expect(persisted.combos?.padded?.targets?.[1]).toMatchObject({ lastResort: true });
+    });
+  });
+
   test("PUT rejects an unknown reasoningEffortMode", async () => {
     await withTempHome(async () => {
       const config = baseConfig({ combos: undefined });
@@ -533,6 +847,47 @@ describe("combo management API", () => {
       });
       expect(response?.status).toBe(400);
       expect(config.combos?.bad).toBeUndefined();
+    });
+  });
+
+  test("defaultEffortMode force round-trips sparsely and invalid policy never mutates config", async () => {
+    await withTempHome(async () => {
+      const config = baseConfig({ combos: undefined });
+      saveConfig(config);
+      const forced = await comboApi(config, "PUT", "/api/combos", {
+        id: "forced",
+        combo: { ...VALID_COMBO, defaultEffort: "max", defaultEffortMode: "force" },
+      });
+      expect(forced?.status).toBe(200);
+      expect(await responseJson(forced)).toMatchObject({
+        combo: { defaultEffort: "max", defaultEffortMode: "force" },
+      });
+      expect(config.combos?.forced).toMatchObject({ defaultEffort: "max", defaultEffortMode: "force" });
+
+      const missingDefault = await comboApi(config, "PUT", "/api/combos", {
+        id: "bad", combo: { ...VALID_COMBO, defaultEffortMode: "force" },
+      });
+      expect(missingDefault?.status).toBe(400);
+      expect(config.combos?.bad).toBeUndefined();
+
+      const fallback = await comboApi(config, "PUT", "/api/combos", {
+        id: "forced",
+        combo: { ...VALID_COMBO, defaultEffort: "max", defaultEffortMode: "fallback" },
+      });
+      expect(fallback?.status).toBe(200);
+      expect(config.combos?.forced).not.toHaveProperty("defaultEffortMode");
+
+      const restoreForce = await comboApi(config, "PUT", "/api/combos", {
+        id: "forced",
+        combo: { ...VALID_COMBO, defaultEffort: "max", defaultEffortMode: "force" },
+      });
+      expect(restoreForce?.status).toBe(200);
+      const guiRoundTrip = await comboApi(config, "PUT", "/api/combos", {
+        id: "forced",
+        combo: { ...VALID_COMBO, defaultEffort: "high" },
+      });
+      expect(guiRoundTrip?.status).toBe(200);
+      expect(config.combos?.forced).toMatchObject({ defaultEffort: "high", defaultEffortMode: "force" });
     });
   });
 
@@ -1270,6 +1625,8 @@ describe("supported disabled-provider activation", () => {
           return Response.json({ error: { message: "default provider must not be reached" } }, { status: 500 });
         },
       });
+      // Taken after withTempHome installs this case's home so physical dispatch owns its ledger.
+      const releaseSpendHome = acquireOwnedSpendHome();
       try {
         const config = baseConfig({
           defaultProvider: "c",
@@ -1303,9 +1660,13 @@ describe("supported disabled-provider activation", () => {
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ model: "combo/free", input: "hello", stream: false }),
         }), config, { model: "", provider: "" });
-        expect(routed.status).toBe(200);
-        expect(bHits).toBe(1);
-        expect(cHits).toBe(0);
+        try {
+          expect(routed.status).toBe(200);
+          expect(bHits).toBe(1);
+          expect(cHits).toBe(0);
+        } finally {
+          await routed.body?.cancel();
+        }
 
         expect((await comboApi(config, "PATCH", "/api/providers?name=b", { disabled: true }))?.status).toBe(200);
         const diagnostics = readConfigDiagnostics();
@@ -1325,6 +1686,8 @@ describe("supported disabled-provider activation", () => {
         expect(bHits).toBe(1);
         expect(cHits).toBe(0);
       } finally {
+        // Released before withTempHome removes the directory, preventing a live database there.
+        releaseSpendHome();
         await upstreamB.stop(true);
         await upstreamC.stop(true);
       }
@@ -1355,6 +1718,8 @@ describe("combo response-path strategy accounting", () => {
     let bHits = 0;
     const upstreamA = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch() { aHits += 1; return completion("a"); } });
     const upstreamB = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch() { bHits += 1; return completion("b"); } });
+    // Taken after the inherited test home is in effect so both physical dispatches can record.
+    const releaseSpendHome = acquireOwnedSpendHome();
     try {
       const config = baseConfig({
         providers: {
@@ -1363,10 +1728,22 @@ describe("combo response-path strategy accounting", () => {
         },
         combos: { free: { strategy: "least-used", targets: [{ provider: "a", model: "m1" }, { provider: "b", model: "m2" }] } },
       });
-      expect((await handleResponses(responseRequest(), config, { model: "", provider: "" })).status).toBe(200);
-      expect((await handleResponses(responseRequest(), config, { model: "", provider: "" })).status).toBe(200);
+      const first = await handleResponses(responseRequest(), config, { model: "", provider: "" });
+      try {
+        expect(first.status).toBe(200);
+      } finally {
+        await first.body?.cancel();
+      }
+      const second = await handleResponses(responseRequest(), config, { model: "", provider: "" });
+      try {
+        expect(second.status).toBe(200);
+      } finally {
+        await second.body?.cancel();
+      }
       expect({ aHits, bHits }).toEqual({ aHits: 1, bHits: 1 });
     } finally {
+      // Released after both bodies are cancelled so no stream retains the ledger owner.
+      releaseSpendHome();
       await upstreamA.stop(true);
       await upstreamB.stop(true);
     }
@@ -1381,6 +1758,8 @@ describe("combo response-path strategy accounting", () => {
       fetch() { aHits += 1; return Response.json({ error: { message: "busy" } }, { status: 429, headers: { "retry-after": "60" } }); },
     });
     const upstreamB = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch() { bHits += 1; return completion("b"); } });
+    // Taken after the inherited test home is in effect so failover dispatch can record its sends.
+    const releaseSpendHome = acquireOwnedSpendHome();
     try {
       const config = baseConfig({
         providers: {
@@ -1390,10 +1769,16 @@ describe("combo response-path strategy accounting", () => {
         combos: { free: { strategy: "reset-window", targets: [{ provider: "a", model: "m1" }, { provider: "b", model: "m2" }] } },
       });
       const response = await handleResponses(responseRequest(), config, { model: "", provider: "" });
-      expect(response.status).toBe(200);
-      expect({ aHits, bHits }).toEqual({ aHits: 1, bHits: 1 });
-      expect(isComboTargetInCooldown("free", { provider: "a", model: "m1" })).toBe(true);
+      try {
+        expect(response.status).toBe(200);
+        expect({ aHits, bHits }).toEqual({ aHits: 1, bHits: 1 });
+        expect(isComboTargetInCooldown("free", { provider: "a", model: "m1" })).toBe(true);
+      } finally {
+        await response.body?.cancel();
+      }
     } finally {
+      // Released after the response body is cancelled so no stream retains the ledger owner.
+      releaseSpendHome();
       await upstreamA.stop(true);
       await upstreamB.stop(true);
     }

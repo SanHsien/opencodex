@@ -1,16 +1,12 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
-import { extname, isAbsolute, join, relative, resolve } from "node:path";
+import { basename, extname, isAbsolute, join, relative, resolve } from "node:path";
 import { browserSecurityHeaders } from "./auth-cors";
 import type { GuiSessionBootstrap } from "./gui-session";
+import { packageVersion } from "../lib/package-version";
+import { isStandaloneBinary, standaloneRoot } from "../lib/standalone";
 
 /** opencodex version, read from the packaged package.json (same source as the server bootstrap). */
-const VERSION = (() => {
-  try {
-    return JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8")).version as string;
-  } catch {
-    return "0.0.0";
-  }
-})();
+const VERSION = packageVersion("0.0.0");
 
 const MIME_TYPES: Record<string, string> = {
   ".html": "text/html", ".js": "application/javascript", ".css": "text/css",
@@ -18,11 +14,19 @@ const MIME_TYPES: Record<string, string> = {
   ".ico": "image/x-icon",
 };
 
-function findGuiDist(): string | null {
+/**
+ * Matches Vite's content-hashed bundle filenames (e.g. `index-B5r7LNHN.js` or `style-D5SiRo8X.css`).
+ * Unhashed static assets (e.g. `runtime-config.js` or unversioned icons) must not be cached immutably.
+ */
+const HASHED_ASSET_PATTERN = /-[a-zA-Z0-9_-]{8,}\.[a-zA-Z0-9]+$/;
+
+export function findGuiDist(): string | null {
   const candidates = [
+    process.env.OPENCODEX_GUI_DIST,
+    ...(isStandaloneBinary() ? [join(standaloneRoot(), "gui", "dist")] : []),
     join(import.meta.dir, "..", "..", "gui", "dist"),
     join(import.meta.dir, "..", "..", "..", "gui", "dist"),
-  ];
+  ].filter((candidate): candidate is string => Boolean(candidate));
   for (const c of candidates) {
     if (existsSync(join(c, "index.html"))) return c;
   }
@@ -146,6 +150,14 @@ export function serveSessionBootstrap(session: GuiSessionBootstrap): Response {
   return htmlDocumentResponse(html);
 }
 
+/**
+ * Serves a GUI static file from the distribution directory.
+ * Returns a Response with MIME type and appropriate Cache-Control headers:
+ * - HTML files receive `no-store` to guarantee immediate bootstrap updates.
+ * - Content-hashed bundles under `assets/` receive 1-year `immutable` caching.
+ * - Non-hashed static files (e.g. favicon, unhashed assets) receive `no-cache` for prompt revalidation.
+ * Returns null if the file cannot be found or resolved.
+ */
 export function serveGuiFile(
   pathname: string,
   guiDist = findGuiDist(),
@@ -170,11 +182,31 @@ export function serveGuiFile(
   const ext = extname(filePath);
   const contentType = MIME_TYPES[ext] || "application/octet-stream";
   if (ext === ".html") return htmlResponse(filePath, session, runtimeRole, managementAuthRequired);
+
+  const root = resolve(guiDist);
+  // "assets/" matches Vite's default assetsDir (gui/vite.config.ts). If that value is
+  // ever changed, update this prefix to match. filePath is already resolve()-normalized
+  // by resolveGuiFilePath, so rel cannot contain ".." fragments.
+  //
+  // Immutable 1-year caching is only applied when the file is under assets/ AND its basename
+  // matches Vite's content-hash pattern (e.g. index-B5r7LNHN.js). Any unhashed asset under
+  // assets/ (e.g. runtime-config.js) or elsewhere falls back to no-cache so clients revalidate,
+  // whereas index.html uses no-store above to avoid storing any bootstrap state.
+  const rel = relative(root, filePath).replace(/\\/g, "/");
+  const isHashedAsset = rel.startsWith("assets/") && HASHED_ASSET_PATTERN.test(basename(filePath));
+  const cacheControl = isHashedAsset
+    ? "public, max-age=31536000, immutable"
+    : "no-cache";
+
   // Snapshot bytes before returning the response. Bun.file is lazy: if gui/dist is replaced
   // after Bun frames the response but before the stream finishes, its Content-Length can
   // describe the old file while the body comes from the new one (#2792).
   return new Response(readFileSync(filePath), {
-    headers: { "Content-Type": contentType, ...browserSecurityHeaders() },
+    headers: {
+      "Content-Type": contentType,
+      "Cache-Control": cacheControl,
+      ...browserSecurityHeaders(),
+    },
   });
 }
 

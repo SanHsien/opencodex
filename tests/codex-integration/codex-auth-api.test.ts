@@ -1,3 +1,6 @@
+import { registerWarmupRateLimitCases } from "../helpers/codex-warmup-rate-limit";
+import { registerResetCreditConsumeValidationTests } from "../helpers/reset-credit-consume-validation";
+import { registerPoolReauthCauseCases } from "../helpers/pool-reauth-cause";
 import * as usageHistoryModule from "../../src/usage/log";
 import { getAccountQuotaHistory } from "../../src/codex/quota";
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
@@ -70,12 +73,15 @@ import {
 } from "../../src/codex/account-lifecycle";
 import {
   ConfigMutationLockError,
+  armClaudeCodeBaseline,
   getConfigPath,
   loadConfig,
   saveConfig,
   setPersistedConfigMutationBeforeCommitForTests,
 } from "../../src/config";
 import * as configModule from "../../src/config";
+import { setCodexAccountAutoSwitchThresholdOverride } from "../../src/codex/account-auto-switch";
+import { prepareConfigObjectChildDeletionRebase } from "../../src/config/rebase-provenance";
 import type { CatalogDisposition } from "../../src/codex/convergence-types";
 import { captureConfigGeneration, registerStateStore } from "../../src/lib/state-store-sweeper";
 import {
@@ -167,8 +173,8 @@ async function completeMockCodexOAuth(options: {
     done: true,
     loggedIn: true,
   } as ReturnType<typeof oauth.getLoginStatus>);
-  const openSpy = spyOn(openUrlMod, "openUrl").mockImplementation(() => {});
-  // Mirrors the login-status poll delay in auth-api.ts; other timers are intentionally dropped.
+  const openSpy = spyOn(openUrlMod, "openUrl").mockImplementation(async () => ({ status: "started" as const }));
+  // Mirrors the login-status poll delay in login-flow.ts; other timers are intentionally dropped.
   const CODEX_OAUTH_LOGIN_POLL_INTERVAL_MS = 2_000;
   const timeoutSpy = spyOn(globalThis, "setTimeout").mockImplementation(((
     callback: (...args: unknown[]) => void,
@@ -2088,6 +2094,8 @@ describe("codex-auth API", () => {
     expect(existsSync(join(TEST_DIR, "config.json"))).toBe(false);
   });
 
+  registerPoolReauthCauseCases(makeConfig, seedPoolAccount);
+
   test("pool plan refresh batches multiple authoritative changes into one config save", async () => {
     const config = makeConfig();
     seedPoolAccount(config, { id: "pool-plan-a", email: "pool-plan-a@example.com", plan: "plus" });
@@ -2871,16 +2879,7 @@ describe("codex-auth API", () => {
     });
   });
 
-  test("reset-credit consume rejects invalid account ids before credential lookup", async () => {
-    const req = new Request("http://localhost/api/codex-auth/reset-credits/consume", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ accountId: "../bad" }),
-    });
-    const resp = await handleCodexAuthAPI(req, new URL(req.url), makeConfig());
-    expect(resp!.status).toBe(400);
-    expect(await resp!.json()).toMatchObject({ error: "Invalid account id format" });
-  });
+  registerResetCreditConsumeValidationTests(makeConfig, seedPoolAccount);
 
   test("reset-credit consume returns remaining from refreshed quota, not the consume payload", async () => {
     const config = makeConfig();
@@ -4016,6 +4015,7 @@ describe("codex-auth API", () => {
     expect(accounts.find(a => a.isMain)?.priority).toBe(0);
   });
 
+
   test("GET /api/codex-auth/active reports an operator pin but not an automatic pick", async () => {
     const config = makeConfig({ activeCodexAccountId: "work" });
     seedPoolAccount(config, { id: "work", email: "work@example.test" });
@@ -4597,7 +4597,7 @@ describe("codex-auth API", () => {
       instructions: "Enter code: ABCD-EFGH",
       deviceCode: "ABCD-EFGH",
     }));
-    const openSpy = spyOn(openUrlModule, "openUrl").mockImplementation(() => {});
+    const openSpy = spyOn(openUrlModule, "openUrl").mockImplementation(async () => ({ status: "started" as const }));
     try {
       const req = new Request("http://localhost/api/codex-auth/login", {
         method: "POST",
@@ -4622,7 +4622,7 @@ describe("codex-auth API", () => {
   test("the device poll budget covers the 15-minute grant", async () => {
     // The budget is a loop bound with no observable output, so a regression to
     // the 5-minute browser budget would pass every behavioral test above.
-    const source = await Bun.file(new URL("../../src/codex/auth-api.ts", import.meta.url)).text();
+    const source = await Bun.file(new URL("../../src/codex/auth-api/login-flow.ts", import.meta.url)).text();
     const budget = /const pollAttempts = useDeviceFlow \? (\d+) : (\d+);/.exec(source);
     expect(budget).toBeTruthy();
     // 900s is the grant; the extra margin covers post-grant settlement, so an
@@ -4703,7 +4703,7 @@ describe("codex-auth API", () => {
       controller.onAuth({ url: "https://example.test/oauth" });
       throw new Error("late failure at /home/alice/.opencodex/auth.json.ocx-tmp sk-secret-provider-key");
     };
-    const openSpy = spyOn(openUrlMod, "openUrl").mockImplementation(() => {});
+    const openSpy = spyOn(openUrlMod, "openUrl").mockImplementation(async () => ({ status: "started" as const }));
     const timeoutSpy = spyOn(globalThis, "setTimeout").mockImplementation(((
       callback: (...args: unknown[]) => void,
       delay?: number,
@@ -4751,7 +4751,7 @@ describe("codex-auth API", () => {
     const { OAuthMutationBusyError } = await import("../../src/oauth/store");
     const openUrlMod = await import("../../src/lib/open-url");
     const originalLogin = oauth.OAUTH_PROVIDERS.chatgpt.login;
-    const openSpy = spyOn(openUrlMod, "openUrl").mockImplementation(() => {});
+    const openSpy = spyOn(openUrlMod, "openUrl").mockImplementation(async () => ({ status: "started" as const }));
     const timeoutSpy = spyOn(globalThis, "setTimeout").mockImplementation(((
       callback: (...args: unknown[]) => void,
       delay?: number,
@@ -4814,21 +4814,6 @@ describe("codex-auth API", () => {
     }
   });
 
-  test("POST /api/codex-auth/login/cancel expires the pending flow", async () => {
-    const flowId = "flow-cancel-test";
-    const req = new Request("http://localhost/api/codex-auth/login/cancel", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ flowId }),
-    });
-    const resp = await handleCodexAuthAPI(req, new URL(req.url), {} as any);
-    expect(resp!.status).toBe(200);
-    const statusReq = new Request(`http://localhost/api/codex-auth/login-status?flowId=${flowId}`, { method: "GET" });
-    const statusResp = await handleCodexAuthAPI(statusReq, new URL(statusReq.url), {} as any);
-    const data = await statusResp!.json() as { status: string; error?: string };
-    expect(data).toMatchObject({ status: "error", error: "Login cancelled" });
-  });
-
   describe("POST /api/codex-auth/login/code", () => {
     async function startPendingFlow() {
       const oauth = await import("../../src/oauth");
@@ -4838,7 +4823,7 @@ describe("codex-auth API", () => {
         done: false,
         loggedIn: false,
       } as ReturnType<typeof oauth.getLoginStatus>);
-      const openSpy = spyOn(openUrlMod, "openUrl").mockImplementation(() => {});
+      const openSpy = spyOn(openUrlMod, "openUrl").mockImplementation(async () => ({ status: "started" as const }));
       const req = new Request("http://localhost/api/codex-auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -4846,16 +4831,13 @@ describe("codex-auth API", () => {
       });
       const resp = await handleCodexAuthAPI(req, new URL(req.url), makeConfig());
       const data = await resp!.json() as { flowId: string };
+      expect(startSpy).toHaveBeenCalledWith("chatgpt", expect.any(Object), { flowId: data.flowId });
       return {
         flowId: data.flowId,
         oauth,
         async cleanup() {
-          const cancelReq = new Request("http://localhost/api/codex-auth/login/cancel", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ flowId: data.flowId }),
-          });
-          await handleCodexAuthAPI(cancelReq, new URL(cancelReq.url), makeConfig());
+          const { codexAuthLoginState } = await import("../../src/codex/auth-api/login-state");
+          codexAuthLoginState.delete(data.flowId);
           startSpy.mockRestore();
           statusSpy.mockRestore();
           openSpy.mockRestore();
@@ -5165,7 +5147,7 @@ describe("codex-auth API", () => {
       loggedIn: false,
       error: "test-stop",
     } as ReturnType<typeof oauth.getLoginStatus>);
-    const openSpy = spyOn(openUrlMod, "openUrl").mockImplementation(() => {});
+    const openSpy = spyOn(openUrlMod, "openUrl").mockImplementation(async () => ({ status: "started" as const }));
 
     try {
       const req = new Request("http://localhost/api/codex-auth/login", {
@@ -5344,14 +5326,17 @@ describe("codex-auth API", () => {
     if (restart) clearAccountNeedsReauth(accountId);
     const rows = await listCodexAuthAccounts(config, false);
     const authFailed = !replace && (status === 401 || status === 403);
+    // The stored verdict's own http status names the cause whether or not the in-memory
+    // mark still exists; a bare mark no longer flattens the projection to refresh_failed.
+    const expectedReason = status === 403 ? "forbidden" : "unauthorized";
     const row = rows.find(entry => entry.id === accountId);
     expect(row).toMatchObject({
       needsReauth: authFailed,
-      health: { status: authFailed ? "reauth_required" : "warning", reason: authFailed ? "refresh_failed" : "validation_pending" },
+      health: { status: authFailed ? "reauth_required" : "warning", reason: authFailed ? expectedReason : "validation_pending" },
     });
     // The reason travels with the state, so an operator reading the account surface can tell a
     // failed refresh from a pending validation without inferring it from `health` (#4212).
-    if (authFailed) expect(row).toMatchObject({ reauthReason: "refresh_failed" });
+    if (authFailed) expect(row).toMatchObject({ reauthReason: expectedReason });
     else expect(row).not.toHaveProperty("reauthReason");
     fail = false;
     await refresh();
@@ -5530,27 +5515,7 @@ describe("codex-auth API", () => {
     expect(getCodexAccountCredential("quota-unknown")).toBeNull();
   });
 
-  test("OAuth creation rejects a namespace claimed during warmup without persisting", async () => {
-    const config = makeConfig();
-    const result = await completeMockCodexOAuth({
-      config,
-      requestBody: { id: "oauth-race" },
-      oauthAccountId: "acct-oauth-race",
-      email: "oauth-race@example.test",
-      onWarmup: () => {
-        config.codexAccountNamespaces = { "oauth-race": "pool-a" };
-      },
-    });
-
-    expect(result.startStatus).toBe(200);
-    expect(result.state).toMatchObject({
-      status: "error",
-      error: "account id must not collide with a configured Codex account namespace",
-    });
-    expect(config.codexAccounts).toEqual([]);
-    expect(config.codexAccountNamespaces).toEqual({ "oauth-race": "pool-a" });
-    expect(getCodexAccountCredential("oauth-race")).toBeNull();
-  });
+  registerWarmupRateLimitCases(makeConfig, completeMockCodexOAuth);
 
   test("OAuth creation reports a durable add when catalog convergence is pending", async () => {
     const accountId = "oauth-picker-pending";
@@ -5867,12 +5832,12 @@ describe("codex-auth API", () => {
   });
 
   test("OAuth pool login excludes self from collision check when reauth", async () => {
-    const source = await Bun.file("src/codex/auth-api.ts").text();
+    const source = await Bun.file("src/codex/auth-api/login-flow.ts").text();
     expect(source).toContain("checkAccountIdCollision(oauthAccountId, email, plan, reauth ? accountId : undefined)");
   });
 
   test("OAuth pool reauth binds ChatGPT identity to the existing pool slot", async () => {
-    const source = await Bun.file("src/codex/auth-api.ts").text();
+    const source = await Bun.file("src/codex/auth-api/login-flow.ts").text();
     expect(source).toContain("expectedChatgptId");
     expect(source).toContain("expectedEmail");
     expect(source).toContain("Signed-in ChatGPT account does not match this pool account");
@@ -5880,18 +5845,18 @@ describe("codex-auth API", () => {
   });
 
   test("OAuth pool login waits for the current flow to finish, not stale credentials", async () => {
-    const source = await Bun.file("src/codex/auth-api.ts").text();
+    const source = await Bun.file("src/codex/auth-api/login-flow.ts").text();
     expect(source).toContain("st.done && st.loggedIn");
     expect(source).toContain("Login timed out before OAuth completed.");
   });
 
   test("OAuth pool login stores a privacy log label at the account creation call site", async () => {
-    const source = await Bun.file("src/codex/auth-api.ts").text();
+    const source = await Bun.file("src/codex/auth-api/login-flow.ts").text();
     expect(source).toContain("withCodexAccountLogLabel({ id: accountId, email, plan, isMain: false }, accounts)");
   });
 
   test("GET /api/codex-auth/login-status projects transient flow-state emails at response boundaries", async () => {
-    const source = await Bun.file("src/codex/auth-api.ts").text();
+    const source = await Bun.file("src/codex/auth-api/login-flow.ts").text();
     // #3859 turned the unconditional mask into a policy projection. The guarantee is unchanged:
     // BOTH boundaries redact through the shared helper, and the route resolves the policy from
     // config rather than defaulting to reveal.

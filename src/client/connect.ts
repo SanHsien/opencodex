@@ -36,6 +36,7 @@ import {
   replaceServiceApiTokenFile,
   restoreTokenBackup,
   serviceApiTokenBackupPath,
+  serviceApiTokenFingerprint,
   writeTokenBackup,
   writeServiceApiTokenFile,
 } from "../lib/service-secrets";
@@ -64,6 +65,7 @@ import {
   clearClientConnection,
   commitClientConnection,
   readClientConnectionState,
+  markClientConnectPending, clearClientConnectPending, pendingClientConnectMayOwnToken,
   assertNoClientDisconnectPending, assertClientConnectionUnchanged, sameClientConnectionOwner,
 } from "./state";
 import { assertClientCatalogCompatible, type CatalogCompatibilityDeps } from "./catalog-compatibility";
@@ -490,6 +492,7 @@ function assertConnectingState(expectedTokenFingerprint?: string): void {
   }
 }
 
+/** Enroll a client key, keeping its pending ownership visible until commit or rollback. */
 export async function connectClient(
   options: ConnectOptions,
   deps: ClientConnectDeps = {},
@@ -499,6 +502,7 @@ export async function connectClient(
   let issued: IssuedClientKey | null = null;
   let cleanupCredential: { kind: "admin"; value: Uint8Array } | { kind: "gui-session"; value: ConnectGuiSession } | null = null;
   let tokenFingerprint: string | null = null;
+  let pendingConnectFingerprint: string | null = null;
   let priorCatalog: CatalogSnapshot | null = null;
   let writtenCatalogFingerprint: string | null = null;
   let injectionCommitted = false;
@@ -534,6 +538,9 @@ export async function connectClient(
 
     const initialFiles = withClientLifecycleSync(() => withConfigMutationLockSync(() => {
       assertConnectingState();
+      const fingerprint = serviceApiTokenFingerprint(issued!.key);
+      markClientConnectPending(fingerprint);
+      pendingConnectFingerprint = fingerprint;
       return { prior: catalogSnapshot(), persisted: writeServiceApiTokenFile(issued!.key) };
     }), deps.lifecycleLockDeps);
     priorCatalog = initialFiles.prior;
@@ -600,6 +607,7 @@ export async function connectClient(
     };
     withClientLifecycleSync(() => withConfigMutationLockSync(() => {
       assertConnectingState(persisted.fingerprint);
+      clearClientConnectPending(persisted.fingerprint);
       commitClientConnection(connection);
       committed = true;
     }), deps.lifecycleLockDeps);
@@ -616,9 +624,11 @@ export async function connectClient(
         if (priorCatalog && writtenCatalogFingerprint && !restoreCatalogSnapshot(priorCatalog, writtenCatalogFingerprint)) {
           rollbackFailures.push("catalog rollback did not match the written artifact");
         }
-        if (tokenFingerprint) {
-          const removed = removeServiceApiTokenFileIfOwned(tokenFingerprint);
+        if (pendingConnectFingerprint) {
+          const removed = removeServiceApiTokenFileIfOwned(pendingConnectFingerprint);
           if (removed === "changed") rollbackFailures.push("service token changed during rollback");
+          // Final commit may fail after this attempt already cleared its marker under the same lock.
+          else if (pendingClientConnectMayOwnToken(pendingConnectFingerprint)) clearClientConnectPending(pendingConnectFingerprint);
         }
       }), deps.lifecycleLockDeps);
     } catch { rollbackFailures.push("client cleanup ownership unavailable"); }

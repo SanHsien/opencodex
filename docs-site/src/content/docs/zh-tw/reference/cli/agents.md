@@ -16,25 +16,31 @@ ocx agent subagents set ark/model-a,openai/gpt-5.5
 ```
 
 `ocx agent sidecar web --list` 與 `ocx agent sidecar vision --list` 會印出伺服器目前為每個
-sidecar 提供的模型——正是儀表板選擇器所顯示的那組精確過濾清單（picker 可見的列，加上具登入
-資格的 Luna/Haiku 認證槽位，並與 web search 的執行器可用性取交集，減去對 vision 已證明僅支援
-純文字的模型）。人類可讀的清單會以中括號顯示每個模型的後端。寫入 web-search 的 `--model` 會解析
-成該伺服器提供的那一列，並把其後端與模型一起持久化，因此切換到 Anthropic 選項無法保留
-OpenAI 後端（反之亦然）。寫入走與 GUI 相同的管理路由，並受相同的 per-sidecar 閘門限制：
-web search 會拒絕不在清單內的後端/模型組合（封閉成員資格），而 vision 只拒絕已證明無法識圖的
-模型（未知 id 仍可寫入）。
+sidecar 提供的模型——恰好是儀表板選擇器顯示的那個經過篩選的集合（選擇器可見列，加上有登入
+權益的 Luna/Haiku 認證插槽，並與 web search 的執行器可用性、以及 vision 排除確認為純文字的
+模型取交集）。人類可讀清單會用方括號顯示每個模型的後端。web-search 的 `--model` 寫入會解析
+該伺服器提供的列，並一併保存其後端與模型，因此切換到 Anthropic 選項不能保留 OpenAI 後端
+（反之亦然）。寫入走與 GUI 相同的管理路由，並受相同的每個 sidecar 門檻限制：web search 拒絕
+清單外的後端／模型組合（封閉成員），而 vision 只拒絕確認看不見的模型（未知 id 仍可寫入）。
 
 ```bash
 ocx agent sidecar web --list
 ocx agent sidecar web --model gpt-5.6-luna
+ocx agent sidecar web --enabled off
 ```
+
+`--enabled off` 與儀表板中的 **關閉 (Off)** 列是同一個開關：OpenCodex 不再執行該 sidecar，
+Codex 整合會把 `web_search = "disabled"` 寫入 `~/.codex/config.toml`，這正是讓 MCP
+搜尋伺服器成為唯一搜尋路徑的前提。`--enabled on` 會再次移除該行。當儲存確實改變開關狀態時，
+指令會回報由此觸發的 Codex 端寫入（`--json` 中的 `codexWebSearch`，否則為結尾的
+`Codex config:` 行），並在無法寫入時提示 `ocx sync`。該旗標對 `vision` 同樣有效。
 
 ### `ocx effort [status|set|clear]`
 
-透過執行中的代理檢查或變更主要與子代理的 reasoning-effort 上限；沒有代理時則作用於本機設定。
-上限值可為 `low`、`medium`、`high`、`xhigh`、`max` 與 `ultra`；`-` 會清除所選的上限。`none` 與
-`minimal` 不是上限層級，會在探測代理或送出更新之前就被拒絕，即使同一個指令中的其他選項有效也
-一樣。這兩個值對 `--injection` 仍然有效，因為它設定的是獨立的注入 effort，而不是上限。
+透過即時代理檢查或變更主要與子代理的 reasoning-effort 上限；代理無法使用時則改用本機設定。
+上限值為 `low`、`medium`、`high`、`xhigh`、`max` 與 `ultra`；`-` 會清除所選的上限。`none`
+與 `minimal` 不是有效的上限層級，會在探測代理或送出更新之前就被拒絕，即使同一指令中的另一個
+選項有效也一樣。它們對 `--injection` 仍然有效，因為那設定的是獨立的注入 effort，不是上限。
 
 ```bash
 ocx effort status --json
@@ -42,10 +48,10 @@ ocx effort set --main high --subagent low
 ocx effort set --subagent -
 ```
 
-Status 會保留既有已儲存／執行階段的上限值，並在 `warnings` 中回報不受支援的值（沒有不支援值時
-為空陣列）。人類可讀輸出中會出現相同的警告，並指名被忽略的欄位以及對應的修正指令。Status 絕不會
-修復或改寫這些值。被忽略的子代理欄位不會移除有效的主要上限。`ocx effort clear` 會清除兩個上限，
-同時保留獨立的注入 effort 設定。關於上限適用的請求介面，請見[子代理介面](/zh-tw/guides/sub-agent-surface/)。
+Status 會保留既有已儲存／執行階段的上限值，並在 `warnings` 中回報不支援的值（沒有不支援值時
+為空陣列）。人類可讀輸出會顯示相同的警告，並指名被忽略的欄位與修正指令。Status 永不修復或
+重寫這些值。被忽略的子代理欄位不會移除有效的主要上限。`ocx effort clear` 會清除兩個上限，
+同時保留獨立的注入 effort 設定。上限適用的請求介面請見[子代理介面](/zh-tw/guides/sub-agent-surface/)。
 
 ### `ocx v2 <status|on|off|mode <v1|default|v2>|keep-native-v1 <on|off>|threads <n>|mode-hint <text|--clear>>`
 
@@ -237,7 +243,7 @@ ocx export --client opencode --out ~/opencodex-opencode.json
 | `hermes` | `~/.hermes/config.yaml` | `hermes-config.yaml` | `OPENCODEX_HERMES_API_KEY` |
 | `openclaw` | `~/.openclaw/openclaw.json` | `openclaw.json5` | `OPENCODEX_OPENCLAW_API_KEY` |
 | `kimi` | `~/.kimi-code/config.toml` | `kimi-config.toml` | 無——loopback 佔位符 |
-| `gajae` | `~/.gjc/agent/models.yml` | `gajae-models.yaml` | `OPENCODEX_GAJAE_API_KEY` |
+| `gajae` | `~/.gjc/agent/models.yml` | `gajae-models.yaml` | 非機密的回送佔位值 |
 | `dsh` | `$DSH_HOME/settings.yaml`（預設 `~/.dsh/settings.yaml`） | `settings.yaml` | 無——非秘密的 loopback bearer 佔位符 |
 | `mcode` | `~/.minimax/config.yaml` (設定後 `MINIMAX_DATA_DIR` 優先，其次為舊的 `MAVIS_DATA_DIR`；相對路徑會被拒絕) | `mcode-config.yaml` | 無——loopback 佔位符 |
 | `zcode` | `~/.zcode/v2/config.json` (設定後 `ZCODE_DATA_DIR` 優先；相對路徑會被拒絕) | `config.json` | 無——loopback 佔位符 |
@@ -275,9 +281,9 @@ ZCode 造成的。
 `ocx export` 永不寫入你的真實客戶端設定。目的地僅印出供你手動合併，而 `--out` 在沒有 `--force` 時拒絕覆寫既有檔案，因為取代設定檔會毀掉其中已有的其他供應商、代理與 MCP 項目。
 :::
 
-金鑰永不被序列化。設定只帶有文件化的環境變數參考，或非秘密的 loopback 佔位符。loopback 代理（`127.0.0.1`，預設值）完全不需要准入金鑰。只有客戶端 schema 支援、且代理綁定超出 loopback 時，才設定被引用的變數；關於准入金鑰的簽發方式，請見[遠端存取](/zh-tw/reference/configuration/#remote-access)。上游 provider 本身的金鑰是完全不同的事，依[供應商](/zh-tw/guides/providers/)個別設定。
+金鑰永不被序列化。設定只帶有文件化的環境變數參考，或非秘密的 loopback 佔位符。loopback 代理（`127.0.0.1`，預設值）完全不需要准入金鑰。只有客戶端 schema 支援、且代理綁定超出 loopback 時，才設定被引用的變數；關於准入金鑰的簽發方式，請見[遠端存取](/zh-tw/reference/configuration/server/#遠端存取)。上游 provider 本身的金鑰是完全不同的事，依[供應商](/zh-tw/guides/providers/)個別設定。
 
-gjc 是例外：`OPENCODEX_GAJAE_API_KEY` 只會從環境提供 provider 憑證，但其 schema 無法傳送遠端准入 header，因此產生的 gjc 整合仍僅支援 loopback。
+產生的 gjc 整合使用非機密的本機回環佔位值，不需要環境變數。此整合僅支援本機回環，不設定遠端存取憑證。
 
 相同的 payload 亦由 `GET /api/client-config` 提供，並在儀表板的 API 分頁渲染，因此 CLI、API 與 GUI 使用相同的位元組。
 
@@ -299,7 +305,22 @@ ocx system settings --stream-mode eager-relay
 ocx system codex-cli-update check --json
 ```
 
-`check` 不會向套件 registry 發出請求，只會在限定範圍內檢查設定中的安裝候選項來源證據，包括經過遮罩的可執行檔位置與所有權證據。正式發布的 launcher 所提供的可信內容只會驗證該候選項快照，並不證明 Codex 已成功執行。由於這個單次命令絕不會執行 Codex，來自環境變數與持久化記錄的候選項只供報告（`managed: false`，通常為 `selection_unattested`）；JSON 輸出包含 `candidateAvailable`、`candidateVersion` 與 `candidateSource`，而 `selectionAttested` 維持 `false`。檢查設定中的安裝候選項時，必須有正式發布的 launcher 所提供的可信內容；直接使用 Bun 啟動或從原始碼執行時不具備這項證明，因此會忽略來自環境與持久化記錄的候選項狀態，並可能報告 `candidate_unavailable`。在 Windows 上，這個首個切片不會對候選路徑或設定路徑執行任何檔案系統 I/O。只有由可信 launcher 擷取的絕對環境候選項可以取得應用程式封裝或版本管理工具的純詞彙標籤；其他所有 Windows 候選項都會以失敗關閉方式處理。此命令不會執行 Codex 或套件管理工具、不會修復 shim、不會寫入設定或快取、不會停止程序，也不會安裝任何內容。隨應用程式封裝的候選項、位於已識別版本管理工具路徑中的候選項、未經驗證的獨立候選項，以及 shim 狀態不明確的候選項，都會報告為 `unmanaged` 或 `unknown`，絕不會歸類為 `managed`。
+`check` 不會向套件 registry 發出請求，只會在限定範圍內檢查設定中的安裝候選項來源證據，包括經過遮罩的可執行檔位置與所有權證據。正式發布的 launcher 所提供的可信內容只會驗證該候選項快照，並不證明 Codex 已成功執行。由於這個單次命令絕不會執行 Codex，來自環境變數與持久化記錄的候選項只供報告（`managed: false`，通常為 `selection_unattested`）；JSON 輸出包含 `candidateAvailable`、`candidateVersion` 與 `candidateSource`，而 `selectionAttested` 維持 `false`。檢查設定中的安裝候選項時，必須有正式發布的 launcher 所提供的可信內容；直接使用 Bun 啟動或從原始碼執行時不具備這項證明，因此會忽略來自環境與持久化記錄的候選項狀態，並可能在 POSIX 系統上報告 `candidate_unavailable`。在 Windows 上，這個首個切片不會對候選路徑或設定路徑執行任何檔案系統 I/O。只有由可信 launcher 擷取的絕對環境候選項可以取得應用程式封裝或版本管理工具的純詞彙標籤；其他所有 Windows 候選項都會以失敗關閉方式處理。由於這個切片完全不會讀取持久化的選擇狀態，在未擷取任何環境候選項的 Windows 執行中會報告 `windows_inspection_deferred` 而非 `candidate_unavailable`：該命令無法觀測 Codex CLI 是否已安裝，因此會報告檢查被延後，而不是斷言候選項不存在。此命令不會執行 Codex 或套件管理工具、不會修復 shim、不會寫入設定或快取、不會停止程序，也不會安裝任何內容。隨應用程式封裝的候選項、位於已識別版本管理工具路徑中的候選項、未經驗證的獨立候選項，以及 shim 狀態不明確的候選項，都會報告為 `unmanaged` 或 `unknown`，絕不會歸類為 `managed`。
+
+在 Windows 上，如果擷取到 `CODEX_CLI_PATH=codex` 這類單純命令名稱、遠端路徑或裝置路徑，則回報 `candidate_path_unavailable`。這些情況已有擷取的候選項，但其路徑不適用於此檢查。
+
+#### 明確觀測 Windows x64 安裝
+
+```text
+ocx system codex-cli-update attest [--json]
+ocx system codex-cli-update attest --candidate <absolute-path> --npm-prefix <absolute-path> --npm-cli <absolute-path> --node <absolute-path> [--json]
+```
+
+`attest` 是選用的唯讀操作，用於觀測所選或明確指定的 Windows x64 npm 安裝。不帶任何選項時，指令會觀測由可信 launcher 快照識別的所選候選項（已設定的 `CODEX_CLI_PATH` 或所擷取 PATH 中的第一個 `codex`），其中 opencodex 包裝腳本會解析到其重新命名的 `codex.opencodex-real.cmd` npm 備份。提供全部四個絕對路徑可覆寫自動識別；自動識別僅提出路徑，持有控制代碼的觀測才是最終依據。`--candidate` 必須是標準 npm `<prefix>/codex.cmd` 或 `<prefix>/node_modules/@openai/codex/bin/codex.js`。`--npm-cli` 必須以 `node_modules/npm/bin/npm-cli.js` 結尾，`--node` 明確指定 `node.exe`。應用程式封裝、已識別的版本管理工具配置、缺少 npm 備份的 opencodex 自有 shim 與自訂包裝腳本皆會被拒絕。
+
+在有限讀取期間，原生控制代碼保持上層目錄與檔案開啟。未支援的平台、重新剖析點/junction、衝突的寫入者、不安全的路徑及超過大小限制的檔案皆會被拒絕。固定格式報告不含路徑：`status` 為 `observed` 或 `refused`，並提供 `installationIdentityObserved`；`selectionAttested`、`managed` 與 `applyAllowed` 一律為 `false`。回報拒絕時也可能回傳結束代碼 0，因此應檢查 `status`。
+
+識別值或摘要僅描述觀測當下的檔案，不是持續有效的更新許可，也不證明選用的執行階段、過去的安裝程式、實際 npm 設定或工具真實性。明確指定的 Node 也只是被觀測，不能證明啟動器會選用它。命令不會執行目標、請求套件 registry、安裝、寫入設定或控制程序。現有 Windows `check` 仍不執行候選項或設定的檔案系統 I/O。
 
 ### `ocx config <show|get|set|unset|validate|export|import> ...`
 

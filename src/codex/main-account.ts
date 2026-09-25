@@ -296,7 +296,10 @@ function persistNativeMainReauthTokens(
  *     main account's reauth quarantine for the new credential generation.
  */
 export function beginNativeMainReauth(): {
-  commit: (tokens: NativeMainReauthTokens) => Promise<{ chatgptAccountId: string }>;
+  commit: (
+    tokens: NativeMainReauthTokens,
+    options?: { signal?: AbortSignal },
+  ) => Promise<{ chatgptAccountId: string }>;
 } {
   const expected = readMainAuthJsonCredential();
   if (!expected || !expected.chatgptAccountId) {
@@ -305,7 +308,10 @@ export function beginNativeMainReauth(): {
     );
   }
   return {
-    async commit(tokens: NativeMainReauthTokens): Promise<{ chatgptAccountId: string }> {
+    async commit(
+      tokens: NativeMainReauthTokens,
+      options: { signal?: AbortSignal } = {},
+    ): Promise<{ chatgptAccountId: string }> {
       if (!tokens.accessToken || !tokens.refreshToken || !tokens.idToken) {
         throw new NativeMainReauthUnavailableError("Device grant did not produce a complete token set");
       }
@@ -322,11 +328,12 @@ export function beginNativeMainReauth(): {
             "Native main traffic is blocked by startup or recovery state",
           );
         }
+        if (options.signal?.aborted) throw options.signal.reason;
         assertMainAuthJsonSnapshotUnchanged(expected);
         persistNativeMainReauthTokens(expected, tokens);
         clearAccountNeedsReauth(MAIN_CODEX_ACCOUNT_ID);
         return { chatgptAccountId: tokens.chatgptAccountId };
-      }, { waitMs: 30_000 });
+      }, { waitMs: 30_000, signal: options.signal });
     },
   };
 }
@@ -397,6 +404,12 @@ async function resolveMainAccountToken(
             : "transient" as const;
           throw new MainAccountTokenRefreshError(reason, { cause });
         }
+        // The refresh may resolve after the caller went away (an implementation that does
+        // not observe the signal, or an abort landing in the window between resolution and
+        // commit). A cancelled request's late refresh must not rewrite auth.json on behalf
+        // of a request that no longer exists -- the same fence the reauth twin applies
+        // before its own commit above.
+        if (dependencies.signal?.aborted) throw dependencies.signal.reason;
         const result = persistRefreshedMainAuthJson(locked, refreshed);
         if (dependencies.preserveReauth !== true) clearAccountNeedsReauth(MAIN_CODEX_ACCOUNT_ID);
         return result;

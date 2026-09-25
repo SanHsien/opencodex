@@ -4,8 +4,16 @@
  * `bun run test` already sandboxes HOME/OPENCODEX_HOME/CODEX_HOME through
  * `scripts/test.ts`. The incident this file prevents happened under a bare
  * `bun test <file>` — the command anyone reaches for while iterating on one test —
- * which gets no wrapper and therefore had no isolation at all. A preload runs for
- * EVERY invocation, so the protection no longer depends on remembering the wrapper.
+ * which gets no wrapper and therefore had no isolation at all. A preload runs for every
+ * invocation that READS bunfig.toml, so the protection no longer depends on remembering
+ * the wrapper.
+ *
+ * It does still depend on WHERE the run starts. Bun resolves bunfig.toml from the current
+ * working directory, so a run launched outside the repository never loads this file: no
+ * sandbox, no arming, and getConfigDir() resolves the real ~/.opencodex. On 2026-09-15 a
+ * run of that shape deleted a live home. Nothing here can close that hole from inside, so
+ * a test that needs a config directory pins its own OPENCODEX_HOME rather than inheriting
+ * one, and tests/ci-workflows/test-home-guard.test.ts enforces it for destructive calls.
  * (devlog `_plan/260730_codex_rs_upstream_v2_live_handoff/070`.)
  *
  * Import order below is load-bearing: importing the guard captures the real home at
@@ -18,6 +26,7 @@
  * what HOME says. `assertLiveServiceManagerAllowed` in `src/service.ts` is the guard for
  * that, armed by the same flag set below.
  */
+import { afterAll } from "bun:test";
 import { isTestHomeGuardArmed, protectedHomeForTests } from "../src/lib/test-home-guard";
 import { createIsolatedTestEnvironment } from "../scripts/test";
 import {
@@ -29,7 +38,6 @@ import {
   TEST_RUN_LOCK_PATH_ENV,
   TEST_RUN_LOCK_TOKEN_ENV,
 } from "../scripts/test-run-lock";
-import { rmSync } from "node:fs";
 
 // Under `bun run test` the wrapper already handed us a sandbox (and OCX_REAL_HOME so the
 // guard could still see the true home). Isolating again is harmless and deliberate: the
@@ -64,6 +72,7 @@ for (const [key, value] of Object.entries(isolated.env)) {
 process.env.OCX_TEST_HOME_GUARD = "1";
 // Lets a test assert one preload per process rather than assuming Bun's scheduling.
 process.env.OCX_TEST_PRELOAD_PID = String(process.pid);
+process.env.OCX_DISABLE_UPDATE_CHECK = "1";
 
 if (!isTestHomeGuardArmed() || !protectedHomeForTests()) {
   throw new Error("test home guard failed to arm; refusing to run tests unprotected");
@@ -108,6 +117,25 @@ if (process.platform === "win32" && lockPath && runLock.owner) {
 }
 
 // Clean up only the root this preload created. The `bun run test` wrapper owns its own.
-process.on("exit", () => {
-  try { rmSync(isolated.root, { recursive: true, force: true }); } catch { /* best effort at exit */ }
+// Bun test workers do not reliably run process `exit` handlers, so the test lifecycle hook
+// is primary; the process hook retries only an already-drained root. Setup failures
+// leave an ownership-marked root for stale recovery rather than blocking on child handles.
+// Load cleanup dependencies only AFTER home isolation, guard arming, and run-lock admission.
+const { createTestSandboxCleanup } = await import("./helpers/test-sandbox-cleanup");
+const { flushWindowsSecretAclReapsBeforeRemoval, windowsSecretAclReapPendingAtOrBelow } =
+  await import("../src/lib/windows-secret-acl");
+// Resolve cleanup owners during protected setup, not for the first time inside a timed
+// afterAll hook. Cleanup must drain existing producers rather than initialize their graph.
+const { flushConfigDirHardeningForTests } = await import("../src/config/paths");
+const { flushNativeMainStartupReleases } = await import("../src/codex/native-profile-startup");
+const cleanup = createTestSandboxCleanup({
+  drainProducers: async () => {
+    await flushNativeMainStartupReleases();
+    await flushConfigDirHardeningForTests();
+  },
+  waitForReaps: () => flushWindowsSecretAclReapsBeforeRemoval(isolated.root),
+  hasPendingReaps: () => windowsSecretAclReapPendingAtOrBelow(isolated.root),
+  remove: () => isolated.cleanup(),
 });
+afterAll(cleanup.afterAll);
+process.on("exit", cleanup.onExit);

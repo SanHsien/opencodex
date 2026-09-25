@@ -12,13 +12,15 @@ checkout 的 script 是透過你本機的 Bun 安裝執行的。
 git clone https://github.com/lidge-jun/opencodex.git
 cd opencodex
 bun install
+bun run setup:hooks  # 安裝 post-merge 並移除舊的受管理 pre-push
 bun run dev:proxy    # 開發模式代理 API
 bun run dev:gui      # 儀表板 dev 伺服器（另一個終端）
 bun run typecheck    # bun x tsc --noEmit
-bun run test:changed              # routine import-graph test selection
-bun test tests/routing/router.test.ts     # routine focused test
-bun run test                      # complete suite (PR-ready / explicit ask)
+bun run test        # 完整測試套件（預設）
 ```
+
+`bun run setup:hooks` 僅安裝 `post-merge`，並移除未經修改的舊版受管理 `pre-push` 掛鉤，
+保留自訂掛鉤。`pre-push` 掛鉤不再是必要項目；`bun run prepush` 仍可作為選用的手動檢查。
 
 `bun run dev` 繼續作為 `bun run dev:proxy` 的別名。儀表板 dev 伺服器使用 `bun run dev:gui`；
 `GET /` 提供的打包儀表板由 `bun run build:gui` 建置到 `gui/dist`。
@@ -30,31 +32,23 @@ bun run test                      # complete suite (PR-ready / explicit ask)
 
 ```bash
 bun run typecheck                 # 嚴格 TypeScript 檢查
-bun run test:changed              # 針對已解析 dev merge base 的 import-graph 測試
-bun run test                      # 完整 tests/ suite（PR-ready／明確要求時）
+bun run test:changed              # 針對解析出的 dev merge-base 的匯入圖測試
+bun run test                      # 完整 tests/ suite
 bun test tests/routing/router.test.ts     # 聚焦單個測試檔案
 bun run build:gui                 # Vite GUI 建置 + package 準備
 bun run privacy:scan              # CI 使用的 credential/privacy 掃描
 bun run prepare:package           # 重新整理 package launcher/asset
 ```
 
-`test:changed` 會依序選擇第一個存在的比較參照：`upstream/dev`、`origin/dev`，接著是本機的
-`dev`。它會回報該參照與精確的 `git merge-base HEAD <ref>` commit，然後把該 merge-base SHA 傳給
-Bun。
+預設執行 `bun run test` 跑完整測試套件。如果相對於工作規模、機器資源或同時使用的工作樹，
+完整執行的成本過高，仍必須至少執行實際驗證變更行為的針對性迴歸測試，例如
+`bun test tests/<domain>/<name>.test.ts`。說明縮小範圍的原因，並報告確切的命令、結果和未測試範圍。
+`bun run test:changed` 可以補充涵蓋範圍，但無法找出所有間接相依性。不存在僅依賴 CI 或完全略過
+本機測試的一概豁免。合併前，所有必要的 CI 檢查必須在目前 PR 頂端的確切提交上通過。
 
-若某個測試 lane 逾時，執行器會印出它已經擷取到的 stdout 與 stderr，並以
-結束碼 124 退出。行程結束後，已擷取的管線有一秒鐘的排空上限，因此一個持續佔用管線的子行程
-不會拖住執行器。不完整的擷取會被明確回報，且不算作成功執行，即使直接子行程是以結束碼 0
-退出的也一樣。
-
-測試是鏡射 `src/` 結構的領域目錄下的 Bun test：`tests/server/`、`tests/providers/`、
-`tests/adapters/openai/`、`tests/cli/` 等等。`scripts/test-layout/layout.json` 是對應表，
-`tests/test-layout.test.ts` 會強制執行它，所以新測試必須放進對應的領域目錄，並在對應表中有
-一個項目（這個工具測試會告訴你缺了哪一個）。`tests/helpers/` 存放共享 fixture，
-`tests/helpers/repo-root.ts` 是測試存取儲存庫檔案的方式；`tests/e2e-style/` 存放範圍更廣的原生
-一致性場景。請在你改動的 subsystem 的現有測試附近加入聚焦的迴歸測試（`bun test tests/<domain>`
-可執行單一 subsystem）；若改動涉及共享 routing、adapter、config 或 server 行為，還應執行完整
-suite。
+測試是按 `src/` 劃分的領域目錄（`tests/<domain>/`）下的 Bun test，對應表在 `scripts/test-layout/layout.json`。`tests/helpers/` 存放共享 fixture，
+`tests/e2e-style/` 存放範圍更廣的原生一致性場景。請在對應 subsystem 的現有測試附近加入聚焦的
+迴歸測試。
 
 你正在閱讀的文件站點位於 `docs-site/`（Astro + Starlight）：
 
@@ -137,8 +131,10 @@ bun run release:watch               # 觀察最新的 Release workflow run
   失敗模式）。
 - 撰寫真實的描述：說明變更內容與原因的 **Summary**，加上 **Test plan**（或同等實質內容）。空的
   內文、只有佔位符的文字，以及使用跳脫 `\n` 而非真實換行的描述都會無法通過檢查。
-- 若標題或描述提到 `gui`，請在描述中附上 UI 變更的螢幕截圖；`enforce-target` 會在描述編輯時
-  重新執行，直到出現截圖為止。
+- 若 pull request 變更 `gui/` 下的檔案，請在描述中附上 UI 變更的螢幕截圖；`enforce-target` 會在
+  描述編輯時重新執行，直到附上截圖為止。請將圖片拖曳至描述中，不要 commit 到 PR 分支：否則
+  squash merge 會將圖片帶入 `dev`。透過命令列上傳的維護者應使用 `pr-assets` 分支，並以 commit SHA
+  連結圖片。
 - 此 repository 的 workflow 變更使用 **`pull_request_target`**。更新的 enforcement 邏輯只有在
   workflow 提升到 repository 預設分支後才會生效——與 #631 記錄的相同營運注意事項。
 
@@ -161,12 +157,12 @@ head 的驗證必須被記錄；CI、安全性審查與其他維護者尚未解�
   小而專注的 module 位於單一 `index.ts` 之後。
 - **在邊界處理非同步錯誤** —— sidecar 不會把例外拋進請求路徑，而會降級成合適的 marker。
 - **Structure SOT** —— 目前維護者不變數放在 `structure/`；公開使用者流程放在 `docs-site/`；
-  歷史調查/診斷記錄放在 `docs/`。
+  規劃與調查記錄放在 `devlog/`。
 - **保留 export** —— 其他 module 可能依賴它們。
 
 ## 向目錄中新增 provider
 
-所有 provider picker 與 seed 都來自 canonical registry（`src/providers/registry.ts`）：
+所有 provider picker 與 seed 都來自 canonical registry（`src/providers/registry/entries-extended.ts`）：
 
 ```ts
 {
@@ -237,6 +233,5 @@ assertion id。請把不含機密的請求向量加進 `tests/fixtures/compatibi
 
 ## 在聲稱完成前先驗證
 
-先執行能證明改動的最小命令：型別檢查用 `bun run typecheck`，行為檢查用聚焦的
-`bun test tests/<domain>/<name>.test.ts` 或 runtime probe，然後再執行適合影響範圍的更寬 gate。
-opencodex 傾向於小而可驗證的 commit，而不是大批次改動。
+遵循上述測試政策，並針對型別變更執行 `bun run typecheck`，以及受影響範圍所需的其他檢查。
+報告命令、結果和未測試範圍，只聲明實際完成的驗證。

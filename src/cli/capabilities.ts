@@ -212,6 +212,21 @@ export const CAPABILITIES: readonly Capability[] = [
     details: ["Reads /healthz plus local config; drives no management API route."],
   },
   {
+    command: ["resolve"],
+    summary: "One JSON document naming the config home, the effective port, and the identity-checked proxy liveness verdict.",
+    // No management route, same split as status: discovery is the identity-checked
+    // /healthz probe inside findLiveProxy plus local config and the home from
+    // src/config/paths.ts.
+    routes: [],
+    flags: [{ name: "--json", value: "boolean", summary: "Emit the resolve document as JSON (the shell contract)." }],
+    mutates: false,
+    json: "envelope",
+    details: [
+      "Exit 0 carries a trustworthy verdict (live or proven absent); exit 1 means the CLI could not resolve and a caller must refuse to guess — unknown liveness never reads as absent.",
+      "Built for embedding shells (desktop app): the liveness budgets stay owned by src/server/proxy-liveness.ts.",
+    ],
+  },
+  {
     command: ["hub", "invite"],
     summary: "Mint a single-use pairing code on a hub and print the exact `ocx connect` line for one more machine.",
     // Deliberately empty. The command DOES drive `POST /api/gui/pairing-grants` -- the attested
@@ -315,6 +330,22 @@ export const CAPABILITIES: readonly Capability[] = [
     ],
   },
   {
+    command: ["companion"],
+    summary: "Inspect and configure menu-bar and widget companion usage settings.",
+    routes: [
+      { method: "GET", path: "/api/companion/settings" },
+      { method: "GET", path: "/api/usage/timeline" },
+      { method: "PUT", path: "/api/companion/settings" },
+    ],
+    flags: [{ name: "--json", value: "boolean", summary: "Emit companion settings as JSON." }],
+    mutates: true,
+    json: "payload",
+    details: [
+      "`show` (the default) reads settings; `set key=value ...` updates selected settings; `reset` restores defaults.",
+      "Values accepted by `set` are parsed as JSON when valid, so booleans, numbers, arrays, objects, and null can be passed directly.",
+    ],
+  },
+  {
     command: ["account", "history"],
     summary: "Cached quota observations for one stored Codex pool account.",
     routes: [{ method: "GET", path: "/api/codex-auth/quota/history" }],
@@ -358,6 +389,25 @@ export const CAPABILITIES: readonly Capability[] = [
     details: [
       "STATUS names `paused` alongside `selected`: a paused-but-selected account still receives requests.",
       "`--quota` shows cached Codex windows (including 5h); `--refresh` bypasses the server TTL.",
+    ],
+  },
+  {
+    command: ["account", "import-orca"],
+    summary: "Preview or register read-only links to Orca-managed Codex accounts without another login.",
+    routes: [],
+    flags: [
+      { name: "--source", value: "string", required: true, summary: "Orca data directory containing codex-accounts." },
+      { name: "--registry", value: "string", required: true, summary: "The chosen Orca profile's orca-data.json account registry." },
+      { name: "--apply", value: "boolean", summary: "Register new accounts; requires a stopped proxy. Default is preview." },
+      { name: "--json", value: "boolean", summary: "Emit counts and fixed invalid-reason codes without credentials or source paths." },
+    ],
+    mutates: true,
+    json: "envelope",
+    details: [
+      "Local files only; never copies refresh tokens or changes Orca authentication files.",
+      "Skips existing ChatGPT identities. New accounts remain pending until dashboard validation.",
+      "Orca must keep the source login available and refreshed; a missing or expired source fails closed.",
+      "Mixed eligible and invalid entries exit successfully; an all-invalid result exits nonzero.",
     ],
   },
   {
@@ -709,11 +759,32 @@ export const CAPABILITIES: readonly Capability[] = [
     ],
   },
   {
+    command: ["system", "codex-cli-update", "attest"],
+    summary: "Observe the selected or explicitly named Windows npm Codex installation files without enabling updates.",
+    routes: [],
+    flags: [
+      { name: "--candidate", value: "string", summary: "Absolute npm codex.cmd or package bin/codex.js path; all four paths are all-or-none." },
+      { name: "--npm-prefix", value: "string", summary: "Absolute prefix containing node_modules/@openai/codex." },
+      { name: "--npm-cli", value: "string", summary: "Absolute node_modules/npm/bin/npm-cli.js path." },
+      { name: "--node", value: "string", summary: "Absolute node.exe path; observed, never executed." },
+      { name: "--json", value: "boolean", summary: "Emit the path-free installation identity observation." },
+    ],
+    mutates: false,
+    json: "envelope",
+    details: [
+      "Opt-in Windows x64 local-volume inspection using held native file handles; refuses reparse points, active writers and unsupported layouts.",
+      "Without explicit paths, the proof-bound launcher snapshot identifies the selected candidate: the configured CODEX_CLI_PATH or the first codex on the captured PATH, with an OpenCodex wrapper resolving to its codex.opencodex-real backing. Discovery only proposes paths; the held-handle observation remains the authority.",
+      "Success binds observed file identities and bytes, not selected-runtime admission or installer ownership.",
+      "selectionAttested, managed and applyAllowed remain false. The digest is an observation, not a durable update permit.",
+      "Does not run the named Codex/npm/Node files, query a registry, install software, control processes or persist state.",
+    ],
+  },
+  {
     command: ["system", "codex-restart"],
-    summary: "Restart the Codex app-server.",
+    summary: "Restart the Codex desktop app and app-servers.",
     routes: [{ method: "POST", path: "/api/system/codex-restart" }],
     flags: [
-      { name: "--yes", value: "boolean", summary: "Required: restarts the operator's running Codex app-server." },
+      { name: "--yes", value: "boolean", summary: "Required: fully quits and relaunches the operator's Codex desktop app, which may discard unsaved composer drafts, model-picker selections, and pending approval prompts; also restarts its app-servers." },
       { name: "--json", value: "boolean", summary: "Emit the restart result as JSON." },
     ],
     mutates: true,
@@ -721,7 +792,7 @@ export const CAPABILITIES: readonly Capability[] = [
     details: [
       "`sync --restart-codex` is not a substitute: it restarts only as a side effect after a catalog or cache write, so it cannot restart a healthy install on request.",
       "Restarts the Codex desktop app as well as the app-servers, through the same module the CLI uses. When the proxy itself runs inside the Codex app it refuses instead, because restarting the app would kill the request.",
-      "--yes is mandatory because this interrupts a running editor session, which must never happen because an agent guessed a subcommand.",
+      "--yes is mandatory because this interrupts a running editor session and may discard unsaved composer drafts, model-picker selections, and pending approval prompts; it must never happen because an agent guessed a subcommand.",
     ],
   },
   {
@@ -733,6 +804,75 @@ export const CAPABILITIES: readonly Capability[] = [
     json: "payload",
     details: [
       "Distinct from `claude desktop show`, which reports what this machine WOULD write; this reports what is actually in effect, which only the running proxy knows.",
+    ],
+  },
+  {
+    command: ["claude", "desktop", "bind"],
+    summary: "First-party: serve a Claude Desktop Code tab picker model with an opencodex route.",
+    routes: [{ method: "PUT", path: "/api/claude-desktop/first-party-bindings" }],
+    flags: [],
+    mutates: true,
+    json: "none",
+    details: [
+      "Takes a picker model id (claude-sonnet-4-6) and a route in the Desktop route vocabulary (provider/model or native/<slug>); the route must be one the Desktop profile can offer.",
+      "Only Claude Code traffic that reaches the proxy through the first-party intercept (Desktop's Code tab, the claude CLI) honours it; ocx claude and the public Messages endpoint are unaffected.",
+      "The Desktop picker keeps Anthropic's label; the binding changes which model answers, starting with the next request.",
+    ],
+  },
+  {
+    command: ["claude", "desktop", "unbind"],
+    summary: "Remove a first-party Claude Desktop Code tab picker binding.",
+    routes: [{ method: "PUT", path: "/api/claude-desktop/first-party-bindings" }],
+    flags: [],
+    mutates: true,
+    json: "none",
+    details: [
+      "Removing an id that is not bound is a no-op; the remaining bindings are printed.",
+    ],
+  },
+  {
+    command: ["claude", "desktop", "picker", "status"],
+    summary: "First-party picker mode: whether Claude Desktop's Code tab lists opencodex models, and what is missing if not.",
+    routes: [{ method: "GET", path: "/api/claude-desktop/picker" }],
+    flags: [],
+    mutates: false,
+    json: "none",
+    details: [
+      "Reports desired, effective, keychain trust, the Desktop egress profile, the model count and a reason with the next command to run.",
+    ],
+  },
+  {
+    command: ["claude", "desktop", "picker", "on"],
+    summary: "Turn first-party picker mode on and remember the choice.",
+    routes: [{ method: "PUT", path: "/api/claude-desktop/picker" }],
+    flags: [],
+    mutates: true,
+    json: "none",
+    details: [
+      "Needs a running proxy, first-party mode and macOS. The first time, macOS asks to trust a local certificate authority limited to claude.ai; when the server cannot show that prompt the command runs the trust step in this terminal.",
+      "Claude Desktop then reaches the network through opencodex; fully quit and reopen Desktop afterwards.",
+    ],
+  },
+  {
+    command: ["claude", "desktop", "picker", "off"],
+    summary: "Turn first-party picker mode off, remove its Desktop egress profile and certificate trust, and remember the choice.",
+    routes: [{ method: "PUT", path: "/api/claude-desktop/picker" }],
+    flags: [],
+    mutates: true,
+    json: "none",
+    details: [
+      "Works without a running proxy: the preference is saved and the picker profile and trust are removed locally.",
+    ],
+  },
+  {
+    command: ["claude", "desktop", "picker", "trust"],
+    summary: "Run the macOS keychain step for picker mode in this terminal, then ask the server to finish enabling it.",
+    routes: [{ method: "PUT", path: "/api/claude-desktop/picker" }],
+    flags: [],
+    mutates: true,
+    json: "none",
+    details: [
+      "The server removes trust this command added if the enable is refused; if the request is lost, trust is left alone and picker status tells what happened.",
     ],
   },
   {

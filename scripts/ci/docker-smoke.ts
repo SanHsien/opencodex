@@ -103,9 +103,9 @@ async function build() {
   check(!originalStat || originalStat.size <= 8 * 1024 * 1024, "existing manifest exceeds limit");
   const original = originalStat ? readFileSync(manifest) : undefined;
   try {
-    progress("generate compatibility manifest");
-    await command([process.execPath, "scripts/generate-compatibility-version.ts"]);
-    progress("build Docker image");
+    // Exercise the self-contained path even when a developer left a generated artifact behind.
+    rmSync(manifest, { force: true });
+    progress("build Docker image from clean Git context");
     await compose(["build", "hub"], undefined, 600_000);
   } finally {
     if (original && originalStat) {
@@ -224,8 +224,8 @@ const stateProbe = `
   const additions = {
     appOwnedMemoryBudgetMb: 256, fastRows: true, managementUsageMaxReadBytes: 67108864,
     openaiProviderTierVersion: 2,
-    subagentModels: ['gpt-6-astra', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-5.5'],
-    subagentModelsVersion: 1,
+    subagentModels: ['gpt-6-astra', 'gpt-6-sol', 'gpt-6-luna'],
+    subagentModelsVersion: 2,
   };
   for (const config of [persisted, loaded]) {
     if (Object.keys(config).some(key => !Object.hasOwn(seed, key) && !Object.hasOwn(additions, key))) throw new Error('unexpected startup config addition');

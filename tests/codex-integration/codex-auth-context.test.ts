@@ -1,3 +1,4 @@
+import { registerStoredDirectIdentityTests } from "../helpers/stored-direct-identity";
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -21,7 +22,9 @@ import {
   materializeCodexUpstreamAuth,
   CodexMainSubstitutionUnavailableError,
   isCodexAuthContextUsable,
+  codexPoolAffinityKey,
   resolveCodexAuthContext,
+  releaseCodexAuthContextProbeLease,
   shouldMarkAccountNeedsReauthForCodexAuthFailure,
   stripCodexRuntimeProviderFields,
 } from "../../src/codex/auth-context";
@@ -42,6 +45,11 @@ import {
   MAIN_CODEX_ACCOUNT_ID,
   setMainAccountPlan,
 } from "../../src/codex/main-account";
+import {
+  clearMainAccountInfoCache,
+  observeMainQuotaCredential,
+  observeMainQuotaIdentity,
+} from "../../src/codex/main-account-cache";
 import {
   clearAccountNeedsReauth,
   clearAccountQuota,
@@ -240,6 +248,28 @@ describe("Codex auth context", () => {
     expect(() => materializeCodexUpstreamAuth(new Headers(), ctx)).toThrow("validation is pending");
     expect(() => applyCodexAuthContextToProvider(cfg.providers.chatgpt!, ctx, "pool")).toThrow("validation is pending");
   });
+  test.each([
+    { enabled: true, global: 80, override: undefined, prime: true },
+    { enabled: false, global: 80, override: undefined, prime: false },
+    { enabled: true, global: 80, override: 0, prime: false },
+    { enabled: true, global: 0, override: 40, prime: true },
+  ])("priority failback primes known quota using the selected source threshold (%j)", async ({ enabled, global, override, prime }) => {
+    const cfg = config();
+    cfg.codexAccountPriorityFailback = enabled;
+    cfg.autoSwitchThreshold = global;
+    if (override !== undefined) cfg.codexAccountAutoSwitchThresholds = { "pool-a": override };
+    saveCodexAccountCredential("pool-a", {
+      accessToken: "pool_token", refreshToken: "pool_refresh",
+      expiresAt: Date.now() + 3_600_000, chatgptAccountId: "pool_acc",
+    });
+    setAccountQuotaFromParsed("pool-a", { weeklyPercent: 10 });
+    const reasons: string[] = [];
+    await expect(resolveCodexAuthContext(new Headers(), cfg, "pool", {
+      primeCodexPoolQuotas: async (_config, reason) => { reasons.push(reason); },
+    })).resolves.toMatchObject({ kind: "pool", accountId: "pool-a" });
+    expect(reasons).toEqual(prime ? ["priority-failback"] : []);
+  });
+
   test("main-profile drain routes a non-main pool account without native reads or quota priming", async () => {
     saveCodexAccountCredential("pool-a", {
       accessToken: "pool_token",
@@ -802,6 +832,7 @@ describe("Codex auth context", () => {
     } satisfies Partial<CodexModelAvailabilityError>);
   });
 
+
   test("ordinary native models do not pay the entitlement discovery path", async () => {
     saveCodexAccountCredential("pool-a", {
       accessToken: "pool-token",
@@ -896,7 +927,7 @@ describe("Codex auth context", () => {
     });
   });
 
-  test("the canonical parent-thread affinity stays authoritative over Desktop fallback headers", async () => {
+  test("a parent-bearing Desktop request keys as its own thread, not as its parent (#4546 wp8)", async () => {
     const cfg = config();
     cfg.autoSwitchThreshold = 0;
     saveCodexAccountCredential("pool-a", {
@@ -912,11 +943,24 @@ describe("Codex auth context", () => {
     });
 
     const resolved = await resolveCodexAuthContext(headers, cfg, "pool");
-    expect(resolved).toMatchObject({
-      kind: "pool",
-      accountId: "pool-a",
-      affinityKey: "canonical-parent-thread",
-    });
+    expect(resolved).toMatchObject({ kind: "pool", accountId: "pool-a" });
+    if (resolved.kind !== "pool") throw new Error("expected pool context");
+    // The parent used to BE the key (#4546 wp8); since #4780 the tree is the binding unit and
+    // the session is the cohort. What matters here is that the key stays opaque, derives from
+    // the session rather than any caller-supplied identifier, and is stable across turns.
+    expect(resolved.affinityKey?.startsWith("app:")).toBe(true);
+    expect(resolved.affinityKey).not.toContain("canonical-parent-thread");
+    expect(resolved.affinityKey).not.toContain("desktop-session-private");
+    expect(resolved.affinityKey).not.toContain("desktop-thread-private");
+    // Stable across turns that drop the parent header: the cohort is the session.
+    expect(resolved.affinityKey).toBe(codexPoolAffinityKey(new Headers({
+      "session-id": "desktop-session-private",
+      "thread-id": "desktop-thread-private",
+    })));
+    // And distinct from a session-less parent-only lane, which anchors on the parent instead.
+    expect(resolved.affinityKey).not.toBe(codexPoolAffinityKey(new Headers({
+      "x-codex-parent-thread-id": "canonical-parent-thread",
+    })));
   });
 
   test("an oversized parent-thread id falls back to the bounded Desktop pair", async () => {
@@ -1175,93 +1219,6 @@ describe("Codex auth context", () => {
     }
   });
 
-  async function resolveRequestOwnedMainPinCase(options: {
-    mainWeeklyPercent: number;
-    poolWeeklyPercent: number;
-    callerEntitled: boolean;
-  }): Promise<{
-    cfg: OcxConfig;
-    context: Awaited<ReturnType<typeof resolveCodexAuthContext>>;
-    directEntitlementChecks: number;
-  }> {
-    const cfg = config();
-    cfg.accountPoolStrategy = "quota";
-    cfg.autoSwitchThreshold = 90;
-    cfg.activeCodexAccountId = MAIN_CODEX_ACCOUNT_ID;
-    cfg.activeCodexAccountPinned = MAIN_CODEX_ACCOUNT_ID;
-    cfg.codexAccountPriorities = {
-      [MAIN_CODEX_ACCOUNT_ID]: 0,
-      "pool-a": 0,
-    };
-    resetCodexRoutingForManualSelection(MAIN_CODEX_ACCOUNT_ID);
-    saveCodexAccountCredential("pool-a", {
-      accessToken: "pool-token",
-      refreshToken: "pool-refresh",
-      expiresAt: Date.now() + 5 * 60_000,
-      chatgptAccountId: "pool-account",
-    });
-    setAccountQuotaFromParsed(MAIN_CODEX_ACCOUNT_ID, { weeklyPercent: options.mainWeeklyPercent });
-    setAccountQuotaFromParsed("pool-a", { weeklyPercent: options.poolWeeklyPercent });
-    let directEntitlementChecks = 0;
-    const context = await resolveCodexAuthContext(new Headers({
-      authorization: "Bearer caller-keyring-token",
-      "chatgpt-account-id": "caller-keyring-account",
-    }), cfg, "pool", {
-      requestScopedMainCredential: true,
-      // Uses the one model still account-gated. These #3157 cases are about how a caller
-      // entitlement MISS interacts with the main pin, so they need a model whose entitlement is
-      // actually consulted; the flagships stopped being gated on 2026-09-04 and now skip the
-      // check entirely, which would leave directEntitlementChecks at 0 and prove nothing.
-      modelId: "gpt-daybreak-blue-latest",
-      isDirectCallerEntitledToCodexModel: async () => {
-        directEntitlementChecks += 1;
-        return options.callerEntitled;
-      },
-      resolveCodexModelEntitlements: async () => ({
-        modelsByAccount: new Map([["pool-a", new Set(["gpt-daybreak-blue-latest"])]]),
-        clientVersionByAccount: new Map([["pool-a", "0.150.1"]]),
-        confirmedAccountIds: new Set(["pool-a"]),
-        credentialIdentities: new Map([["pool-a", "pool:1:pool-account"]]),
-      }),
-    });
-    return { cfg, context, directEntitlementChecks };
-  }
-
-  test("a healthy manual main pin keeps the validated caller bearer ahead of an exhausted pool account (#3157)", async () => {
-    const { cfg, context, directEntitlementChecks } = await resolveRequestOwnedMainPinCase({
-      mainWeeklyPercent: 16,
-      poolWeeklyPercent: 100,
-      callerEntitled: true,
-    });
-    expect(context).toMatchObject({ kind: "main", accountId: null });
-    expect(directEntitlementChecks).toBe(1);
-    expect(cfg.activeCodexAccountId).toBe(MAIN_CODEX_ACCOUNT_ID);
-    expect(cfg.activeCodexAccountPinned).toBe(MAIN_CODEX_ACCOUNT_ID);
-  });
-
-  test("an exhausted request-owned main pin still yields to the healthy Pool account (#3157)", async () => {
-    const { cfg, context, directEntitlementChecks } = await resolveRequestOwnedMainPinCase({
-      mainWeeklyPercent: 100,
-      poolWeeklyPercent: 16,
-      callerEntitled: true,
-    });
-    expect(context).toMatchObject({ kind: "pool", accountId: "pool-a" });
-    expect(directEntitlementChecks).toBe(0);
-    expect(cfg.activeCodexAccountId).toBe("pool-a");
-    expect(cfg.activeCodexAccountPinned).toBeUndefined();
-  });
-
-  test("a caller entitlement miss uses a Pool model detour without clearing the healthy main pin (#3157)", async () => {
-    const { cfg, context, directEntitlementChecks } = await resolveRequestOwnedMainPinCase({
-      mainWeeklyPercent: 16,
-      poolWeeklyPercent: 20,
-      callerEntitled: false,
-    });
-    expect(context).toMatchObject({ kind: "pool", accountId: "pool-a" });
-    expect(directEntitlementChecks).toBe(1);
-    expect(cfg.activeCodexAccountId).toBe(MAIN_CODEX_ACCOUNT_ID);
-    expect(cfg.activeCodexAccountPinned).toBe(MAIN_CODEX_ACCOUNT_ID);
-  });
 
   test("a failed Pool account may fall back once to the validated caller-owned main credential", async () => {
     const cfg = config();
@@ -1646,27 +1603,7 @@ describe("Codex auth context", () => {
   });
 
 
-  test("an admission bearer on main substitutes the stored credential, never forwards it (#1686)", () => {
-    // The caller proved admission with one of OUR secrets. That secret must never leave the
-    // process, so the only acceptable outcome is the stored main credential in its place.
-    const admissionSecret = "ocx_data_localsecret";
-    const storedCredential = liveJwt();
-    writeFileSync(join(testDir, "auth.json"), JSON.stringify({
-      tokens: { access_token: storedCredential, account_id: "stored_main_acc" },
-    }));
-
-    const headers = materializeCodexUpstreamAuth(
-      new Headers({ authorization: `Bearer ${admissionSecret}`, "openai-beta": "responses=experimental" }),
-      { kind: "main", accountId: null },
-      { substituteMainCredential: true },
-    );
-
-    expect(headers.get("authorization")).not.toContain(admissionSecret);
-    expect(headers.get("authorization")).toBe(`Bearer ${storedCredential}`);
-    expect(headers.get("chatgpt-account-id")).toBe("stored_main_acc");
-    // Unrelated forwarded headers still ride along.
-    expect(headers.get("openai-beta")).toBe("responses=experimental");
-  });
+  registerStoredDirectIdentityTests(() => testDir, liveJwt);
 
   test("substitution fails closed when no usable main credential exists (#1686)", () => {
     // Falling through here would forward the admission secret upstream, which is exactly
@@ -1730,6 +1667,7 @@ describe("Codex auth context", () => {
       .rejects.toBeInstanceOf(CodexAccountCooldownError);
   });
 
+
   test("reset-derived cooldown admits one probe and clears on its success (#433)", async () => {
     const originalNow = Date.now;
     const now = 1_800_000_000_000;
@@ -1767,9 +1705,22 @@ describe("Codex auth context", () => {
       await expect(resolveCodexAuthContext(headers, config(), "pool"))
         .rejects.toBeInstanceOf(CodexAccountCooldownError);
 
+      // A caller that exits before sending upstream can return its lease; the account then
+      // admits the next paced probe instead of pinning the lease until restart.
+      releaseCodexAuthContextProbeLease(probeCtx);
+      const retryAt = probeAt + CODEX_QUOTA_PROBE_INTERVAL_MS;
+      Date.now = () => retryAt;
+      const replacementProbeCtx = await resolveCodexAuthContext(headers, config(), "pool");
+      const replacementProbeLeaseId = (replacementProbeCtx as { probeLeaseId?: string }).probeLeaseId;
+      expect(replacementProbeLeaseId).toBeTruthy();
+      expect(replacementProbeLeaseId).not.toBe(probeLeaseId);
+
       // The probe succeeds: the account is proven healthy and routes normally again.
-      recordCodexUpstreamOutcome(config(), "pool-a", 200, { now: probeAt + 500, probeLeaseId });
-      Date.now = () => probeAt + 500;
+      recordCodexUpstreamOutcome(config(), "pool-a", 200, {
+        now: retryAt + 500,
+        probeLeaseId: replacementProbeLeaseId,
+      });
+      Date.now = () => retryAt + 500;
       await expect(resolveCodexAuthContext(headers, config(), "pool")).resolves.toMatchObject({
         kind: "pool",
         accountId: "pool-a",

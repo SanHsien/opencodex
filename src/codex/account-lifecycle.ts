@@ -5,18 +5,22 @@ import {
   saveConfigPreservingClaudeCode,
   withConfigMutationLockSync,
 } from "../config";
+import { captureConfigTopLevelRollback } from "../config/rebase-provenance";
 import { removeCodexAccountCredential } from "./account-store";
 import { clearAccountNeedsReauth } from "./account-runtime-state";
 import { getMainChatgptAccountId, readCodexTokensResult } from "./auth-collision";
 import { MAIN_CODEX_ACCOUNT_ID, setMainAccountPlan } from "./main-account";
 import { clearAccountQuota } from "./quota";
 import { clearCodexUpstreamHealthForAccount, clearThreadAccountMapForAccount } from "./routing";
+
+import { clearCodexPoolRefreshFailure } from "./pool-refresh-backoff";
 import { invalidateCodexWebSocketsForAccount } from "./websocket-registry";
 import { clearMainAccountCredentialPresence, clearMainAccountInfoCache, observeMainQuotaCredential, observeMainQuotaIdentity } from "./main-account-cache";
 import { extractAccountIdClaims } from "../oauth/chatgpt";
 import { forgetCodexAccountPause } from "./account-pause";
 import { clearCodexAccountPin, forgetCodexAccountPriority } from "./account-priority";
 import { forgetCodexQuotaAutoRefreshAccount } from "./quota-auto-refresh-state";
+import { forgetCodexAccountAutoSwitchThreshold } from "./account-auto-switch";
 import { codexAccountNamespaceEntries, codexAccountPickerEnabled } from "./account-namespaces";
 import type { OcxConfig } from "../types";
 
@@ -41,6 +45,7 @@ export function purgeCodexAccountRuntimeState(accountId: string): void {
   clearAccountQuota(accountId);
   clearThreadAccountMapForAccount(accountId);
   clearCodexUpstreamHealthForAccount(accountId);
+  clearCodexPoolRefreshFailure(accountId);
   if (accountId === MAIN_CODEX_ACCOUNT_ID) {
     clearMainAccountInfoCache();
     clearMainAccountCredentialPresence();
@@ -160,6 +165,7 @@ export function deleteCodexAccount(runtimeConfig: OcxConfig, accountId: string):
   let cleanupFailed = false;
   const pickerVisibilityChanged = withConfigMutationLockSync(() => {
     const previousConfig = structuredClone(runtimeConfig);
+    const restoreDeletionProvenance = captureConfigTopLevelRollback(runtimeConfig, []);
     const configPath = getConfigPath();
     const hasPersistedConfig = existsSync(configPath);
     const previousPersistedConfig = hasPersistedConfig ? readFileSync(configPath) : undefined;
@@ -174,6 +180,7 @@ export function deleteCodexAccount(runtimeConfig: OcxConfig, accountId: string):
       .filter(account => account.isMain || account.id !== accountId);
     forgetCodexAccountPause(runtimeConfig, accountId);
     forgetCodexAccountPriority(runtimeConfig, accountId);
+    forgetCodexAccountAutoSwitchThreshold(runtimeConfig, accountId);
     if (runtimeConfig.codexQuotaAutoRefresh?.[accountId]) {
       const retained = { ...runtimeConfig.codexQuotaAutoRefresh };
       delete retained[accountId];
@@ -190,6 +197,9 @@ export function deleteCodexAccount(runtimeConfig: OcxConfig, accountId: string):
         saveConfigPreservingClaudeCode(runtimeConfig);
       } catch (error) {
         restoreRuntimeConfig(runtimeConfig, previousConfig);
+        // The value snapshot cannot restore WeakMap-backed deletion intent. Retaining a
+        // rejected reset would erase a later disk override when this account inherited.
+        restoreDeletionProvenance();
         try {
           assertPersistedConfigUnchanged(configPath, previousPersistedConfig);
         } catch {

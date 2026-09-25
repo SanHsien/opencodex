@@ -18,6 +18,36 @@ export interface CodexAccountUsabilityOptions {
   isMainAccountTokenLive?: typeof isMainAccountTokenLive;
   /** Confirmed account ids for an account-gated model; omitted for ordinary native models. */
   modelEligibleAccountIds?: ReadonlySet<string>;
+  /**
+   * Accounts whose own confirmed roster definitively omits the requested model (#4768).
+   *
+   * Deliberately NOT read by this module. `modelEligibleAccountIds` is an eligibility boundary and
+   * produces `model_not_entitled`; this is an ORDERING preference applied once, in
+   * `getEligiblePoolAccounts`, and dropped whenever honouring it would leave no candidate. Reading
+   * it here would turn a preference into a refusal and re-create the fail-closed behaviour the
+   * flagships were deliberately taken out of.
+   */
+  deniedModelAccountIds?: ReadonlySet<string>;
+  /**
+   * This request's conversation carries live uploaded-file references (#4778).
+   *
+   * Also not read by this module, and for the same reason: it is a retention preference, never an
+   * eligibility boundary. Uploaded files are scoped to the account that issued them, so moving
+   * such a conversation orphans the reference and every later turn is refused with
+   * `409 account_change_file_scope` -- the reference stays in history, so the conversation is
+   * effectively dead. Retention makes that refusal rarer; it can never replace it, because an
+   * account can always become unable to serve.
+   */
+  retainAccountForUploadedFiles?: boolean;
+  /**
+   * Main is live for this request only because the request carries its own main bearer (#5019).
+   *
+   * Main may then win this request's selection, but that credential belongs to the request, not
+   * to the Pool: selecting it must never be written back as the shared active account. Persisting
+   * it made every later request -- including one whose caller identity is unreadable, or one that
+   * owns the cooled subscription -- follow a main the operator never chose.
+   */
+  requestOwnedMainCredential?: boolean;
 }
 
 /**

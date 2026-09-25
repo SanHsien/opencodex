@@ -22,6 +22,35 @@ function responseFromChunks(...chunks: Uint8Array[]): Response {
 }
 
 describe("readBoundedResponseBody", () => {
+	test("reportUtf8Validity is honoured on the fatal decode path at EOF", async () => {
+		const valid = await readBoundedResponseBody(responseFromChunks(encoder.encode('{"ok":true}')), {
+			fatalUtf8: true,
+			reportUtf8Validity: true,
+		});
+		expect(valid.utf8Valid).toBe(true);
+		let caught: unknown;
+		try {
+			await readBoundedResponseBody(responseFromChunks(new Uint8Array([0xff])), {
+				fatalUtf8: true,
+				reportUtf8Validity: true,
+			});
+		} catch (error) { caught = error; }
+		expect(boundedBodyDecodeFailure(caught)).toBe("invalid_utf8");
+	});
+
+	test("reportUtf8Validity reports a malformed body at EOF without rejecting it", async () => {
+		const valid = await readBoundedResponseBody(responseFromChunks(encoder.encode("ok")), {
+			reportUtf8Validity: true,
+		});
+		expect(valid).toMatchObject({ text: "ok", utf8Valid: true, displaySafe: true, truncated: false });
+		const malformed = await readBoundedResponseBody(responseFromChunks(new Uint8Array([0x6f, 0xff])), {
+			reportUtf8Validity: true,
+		});
+		expect(malformed).toMatchObject({ text: "o\uFFFD", utf8Valid: false, displaySafe: true, truncated: false });
+		const unrequested = await readBoundedResponseBody(responseFromChunks(encoder.encode("ok")));
+		expect(unrequested.utf8Valid).toBeUndefined();
+	});
+
 	test("only actual decoder exceptions carry the decode discriminator", async () => {
 		for (const bytes of [new Uint8Array([0xff]), new Uint8Array([0xe2, 0x82])]) {
 			let caught: unknown;
@@ -460,6 +489,35 @@ describe("readBoundedResponseBody", () => {
 		expect(result.oversized).toBe(false);
 		expect(Array.from(result.bytes)).toEqual(Array.from(expected));
 	});
+
+	test.each(["resolve", "reject", "pending"] as const)(
+		"raw byte pre-aborted reads cancel the original body without waiting: %s", async mode => {
+			const parent = new AbortController();
+			const reason = { code: "stopped-before-read" };
+			const pendingCancel = Promise.withResolvers<void>();
+			const cancellations: unknown[] = [];
+			let pulls = 0;
+			const body = new ReadableStream<Uint8Array>({
+				pull() { pulls++; },
+				cancel(value) {
+					cancellations.push(value);
+					if (mode === "reject") return Promise.reject(new Error("cancel failed"));
+					if (mode === "pending") return pendingCancel.promise;
+				},
+			}, { highWaterMark: 0 });
+			parent.abort(reason);
+			try {
+				await expect(readBoundedResponseBytes(new Response(body), { maxBytes: 5, signal: parent.signal }))
+					.rejects.toBe(reason);
+				expect(cancellations).toHaveLength(1);
+				expect(cancellations[0]).toBe(reason);
+				expect(pulls).toBe(0);
+				expect(body.locked).toBe(false);
+			} finally {
+				pendingCancel.resolve();
+			}
+		},
+	);
 
 	test("raw byte reads discard the prefix and cancel without draining the stream", async () => {
 		let cancelled = false;

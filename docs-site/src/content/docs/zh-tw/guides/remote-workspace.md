@@ -1,11 +1,9 @@
 ---
-title: Remote Workspace
-description: 讓 Codex、Claude Code、Pi 與它們的登入狀態都留在同一個 OCX Hub 上，而由只裝了 OCX 的電腦提供工作區與建置環境。
+title: 遠端工作區
+description: 將 Codex、Claude Code、Pi 及其登入集中在一台 OCX Hub，並由只安裝 OCX 的電腦提供工作區與建置環境。
 ---
 
-Remote Workspace 讓一個 OpenCodex Hub 執行你的編碼代理，同時由另一台電腦提供
-專案檔案、指令、測試與建置運算。手機或第三台電腦可以透過 Hub 儀表板控制這個工
-作階段。
+Remote Workspace 讓一台 OpenCodex Hub 執行程式碼代理，另一台電腦則提供專案檔案、指令、測試與建置運算。手機或第三台電腦可透過 Hub 儀表板控制工作階段。
 
 ```text
 Phone browser -> Computer 1 OCX Hub -> encrypted channel -> Computer 2 OCX Executor
@@ -13,22 +11,15 @@ Phone browser -> Computer 1 OCX Hub -> encrypted channel -> Computer 2 OCX Execu
                  logins and sessions                      no coding CLI login
 ```
 
-Executor 只需要 OpenCodex。它不需要 Codex、Claude Code、Pi、ChatGPT 登入，也
-不需要供應商 API 金鑰。它會對 Hub 開啟一個對外的 WebSocket 連線，所以 Executor
-不需要任何公開連接埠，也不需要路由器的連接埠轉發。
+Executor 只需要 OpenCodex，不需要 Codex、Claude Code、Pi、ChatGPT 登入或供應商 API key。它會主動向 Hub 建立對外 WebSocket 連線，因此 Executor 不需要公開連接埠或路由器連接埠轉送。
 
-:::caution[實驗性基礎]
-Remote Workspace 是選擇加入的功能，不是可正式上線的版本。Linux 提供檔案工具，
-以及有條件的 bubblewrap 指令執行。Windows 與 macOS 只提供檔案工具：它們的官方
-原生輔助程式會拒絕探測與指令請求。在有經過驗證的生命週期擁有者能透過取消動作
-保留清理權限之前，Windows 指令仍不受支援。缺少指令支援絕不會退回到在 Hub 上執
-行。
+:::caution[Experimental foundation]
+Remote Workspace 是須自行啟用的實驗基礎功能，尚未用於正式環境。Linux 提供檔案工具與有條件的 bubblewrap 指令執行。Windows 和 macOS 只提供檔案工具：其官方原生 helper 會拒絕探測與指令請求。Windows 指令須待經驗證的生命週期擁有者能在取消期間保有清理權限後才會支援。缺少指令支援時，絕不會回退到 Hub 執行。
 :::
 
 ## 設定 Hub
 
-電腦 1 擁有每一個編碼代理的登入狀態與模型工作階段。先在那裡安裝並登入你想使用
-的代理，再把 OpenCodex 以 Hub 身分執行：
+電腦 1 擁有所有程式碼代理的登入與模型工作階段。在該電腦安裝並登入要使用的代理，然後以 Hub 角色執行 OpenCodex：
 
 ```bash
 ocx config set runtimeRole hub
@@ -36,29 +27,20 @@ OCX_REMOTE_WORKSPACE_ENABLED=1 ocx start
 ocx gui
 ```
 
-請在 Hub 程序本身上設定 `OCX_REMOTE_WORKSPACE_ENABLED=1`；只對某個儀表板指令
-設定它，並不會啟用一個已經在執行中的服務。沒有明確選擇加入的 Hub，會回傳停用
-狀態，不會建立工作區金鑰，也不會探測編碼代理的執行環境。
+請在 Hub 程序本身設定 `OCX_REMOTE_WORKSPACE_ENABLED=1`；只在儀表板指令上設定，不會啟用已在執行的服務。未明確啟用的 Hub 會回傳停用狀態，不會建立工作區金鑰，也不會探測程式碼代理執行環境。
 
-從手機或另一台電腦開啟儀表板時，請使用已驗證的 HTTPS 部署。支援的管理入口與
-Tailscale 模式見 [Remote Hub 部署](/zh-tw/guides/remote-hub/)。請不要發布一個未經驗
-證的本機儀表板連接埠。
+從手機或其他電腦開啟儀表板時，請使用經驗證的 HTTPS 部署。受支援的管理入口與 Tailscale 模式請見[遠端 Hub 部署](/zh-tw/guides/remote-hub/)。請勿公開未經驗證的本機儀表板連接埠。
 
-Codex 版 Remote Workspace 使用目前的 App Server 權限設定檔。如果 Hub 選定的
-Codex 設定仍在使用舊式的 `sandbox_mode` 或 `sandbox_workspace_write`，儀表板
-會回報 Codex 無法使用，而不是以較弱的邊界啟動。使用這項功能前請先遷移該 Codex
-設定檔；不要同時設定舊式沙盒與權限設定檔。
+Codex Remote Workspace 使用目前的 App Server 權限設定檔。若 Hub 選用的 Codex 設定仍包含舊版 `sandbox_mode` 或 `sandbox_workspace_write`，儀表板會回報 Codex 不可用，而不會用較弱的邊界啟動。使用此功能前，請遷移該 Codex 設定檔；不要同時設定舊版 sandbox 與權限設定檔。
 
-## 配對一個 Executor
+## 配對 Executor
 
-1. 在 Hub 儀表板打開 **Remote Workspace**。
+1. 在 Hub 儀表板開啟 **Remote Workspace**。
 2. 選擇 **Create pairing code**。
-3. 在電腦 2 上，切換到你想公開的專案目錄。
-4. 複製該電腦對應的產生指令——**Linux / macOS terminal** 或
-   **Windows PowerShell**。它會配對目前的目錄，並在該終端機中保持
-   `ocx remote-workspace agent` 連線。
+3. 在電腦 2 上，切換至要公開的專案目錄。
+4. 複製儀表板為該電腦產生的 **Linux / macOS terminal** 或 **Windows PowerShell** 指令。它會配對目前目錄，並讓 `ocx remote-workspace agent` 在該終端機中保持連線。
 
-對應的手動流程是：
+等效的手動流程如下：
 
 ```bash
 cd /path/to/project
@@ -67,7 +49,7 @@ printf '%s\n' 'ONE-TIME-CODE' | ocx remote-workspace pair 'https://your-hub.exam
 ocx remote-workspace agent
 ```
 
-在 Windows PowerShell 上，請使用儀表板顯示的指令。對應的手動形式是：
+在 Windows PowerShell 上，請使用儀表板顯示的指令。等效的手動形式如下：
 
 ```powershell
 $pairingCode = 'ONE-TIME-CODE'
@@ -76,9 +58,7 @@ $pairingCode | ocx remote-workspace pair 'https://your-hub.example' `
 if ($LASTEXITCODE -eq 0) { ocx remote-workspace agent }
 ```
 
-目前的 OCX Bun 執行檔會自動以一個唯讀檔案的形式加進 Linux 沙盒。如果專案需要
-系統路徑之外、使用者自行安裝的工具鏈，請明確配對它，同時不暴露 home 目錄的其
-他部分：
+目前的 OCX Bun 可執行檔會自動以單一唯讀檔案加入 Linux sandbox。若專案需要位於系統路徑之外、由使用者安裝的工具鏈，可明確配對該路徑，而不用公開 home 目錄其餘部分：
 
 ```bash
 printf '%s\n' 'ONE-TIME-CODE' | ocx remote-workspace pair 'https://your-hub.example' \
@@ -86,119 +66,65 @@ printf '%s\n' 'ONE-TIME-CODE' | ocx remote-workspace pair 'https://your-hub.exam
   --toolchain-root "$HOME/.nvm/versions/node/v24/bin"
 ```
 
-原生輔助程式的原始碼已打包供審查。建置它並不會在這個版本中啟用 Windows 或
-macOS 的指令支援。`--executor-helper` 仍然只是一個「已審查輔助程式」選擇器；
-二進位檔存在或設定了路徑，都不能證明指令支援存在。
+原生 helper 原始碼隨套件提供，供審查使用。建置它不會在本次移植中啟用 Windows 或 macOS 指令。`--executor-helper` 仍是已審查 helper 的選擇器；二進位檔存在或路徑已設定，都不能證明支援指令。
 
-一次性代碼是從標準輸入讀取的，不是命令列參數。配對會建立一把本機裝置簽章金
-鑰，以及一個裝置範圍的 bearer。Hub 只儲存它的雜湊值，絕不會收到真正的
-Executor 路徑。用 Ctrl+C 停止前景的 agent；再次執行它會重新連上同一個裝置。
+一次性代碼從標準輸入讀取，而非命令列參數。配對會建立本機裝置簽章金鑰及裝置專用 bearer。Hub 只儲存其雜湊值，從不接收 Executor 的真實路徑。按 Ctrl+C 可停止前景代理；再次執行會重新連接相同裝置。
 
-在不印出任何機密的前提下檢查本機的註冊狀態：
+不印出機密資訊即可檢查本機登記狀態：
 
 ```bash
 ocx remote-workspace status
 ```
 
-## 啟動一個遠端編碼工作階段
+## 啟動遠端程式碼工作階段
 
-在儀表板中選擇：
+在儀表板選擇：
 
-1. 該線上電腦；
-2. 一個經本機核准的工作區資料夾；
+1. 上線的電腦；
+2. 一個已在本機核准的工作區資料夾；
 3. Hub 上的 Codex、Claude Code 或 Pi；以及
-4. 一種存取模式。
+4. 存取模式。
 
-**唯讀**是預設值，會公開目錄列表與檔案讀取。寫入選項只有在該 Executor 通過指
-令沙盒探測後，才會顯示為 **Edit files and run commands**；否則只會顯示為
-**Edit files only**。儀表板會顯示兩個獨立的位置，清楚表明模型與登入狀態留在
-Hub，而工作區操作則在選定的電腦上執行。
+**Read only** 是預設值，只允許列出目錄與讀取檔案。只有 Executor 通過指令 sandbox 探測時，寫入選項才會顯示為 **Edit files and run commands**；否則顯示為 **Edit files only**。儀表板會分別顯示兩個位置，明確區分模型及登入保留在 Hub，而工作區操作在選定的電腦上執行。
 
-從電腦 1、電腦 3 或手機上的 Hub 儀表板送出提示詞。這個工作階段無法悄悄切換到
-另一台電腦或另一個資料夾。若 Executor 斷線，工作階段會進入
-**Executor offline** 狀態，絕不會退回到使用 Hub 的檔案系統。
+你可以從電腦 1、電腦 3 或手機的 Hub 儀表板送出提示。工作階段不會悄悄切換至另一台電腦或資料夾。如果 Executor 中斷連線，工作階段會進入 **Executor offline**，絕不會回退到 Hub 的檔案系統。
 
-提交提示詞會立即確認已受理；儀表板會輪詢這個工作階段以取得進度與完成狀態。若
-確認訊息遺失，草稿仍會顯示，並附上一則「提交狀態未知」的提示。請先確認工作階
-段進度，再考慮重新送出；儀表板絕不會自動重試一則提示詞。
+提交提示時，系統會立即確認已接受；儀表板會輪詢工作階段的進度與完成狀態。若確認回應遺失，草稿會保留並顯示提交狀態不明的通知。重新送出前請先檢查工作階段進度；儀表板絕不會自動重試提示。
 
-在提示詞執行期間，**Stop** 一直可用。它會中斷 Hub 上的編碼代理輪次、取消一個
-進行中的 Executor 指令，並防止一個延遲的回應重新開啟已停止的工作階段。
+提示執行期間仍可使用 **Stop**。它會中斷 Hub 上程式碼代理的回合、取消進行中的 Executor 指令，並防止較晚到達的回應重新開啟已停止的工作階段。
 
-## 重新啟動與重新連線的行為
+## 重新啟動與重新連接行為
 
-Hub 會持久化有邊界的工作階段中繼資料，以及一小份最近事件的快照。Hub 重新啟動
-後，一個未完成的工作階段會等待它原本的 Executor。等該裝置重新連線後，下一則提
-示詞會接續原本的 Codex thread、Claude Code 工作階段，或 Pi 工作階段 ID。
+Hub 會保留有界的工作階段中繼資料及少量近期事件快照。Hub 重新啟動後，未完成的工作階段會等待原 Executor。裝置重新連接後，下一個提示會恢復原 Codex thread、Claude Code session 或 Pi session ID。
 
-Claude Code 會在第一則完成的提示詞時建立它的持久歷史紀錄。若 Hub 在一個新的
-Claude 工作階段完成任何提示詞之前就停止了，就沒有對話可以接續；請改為開啟一個
-新的工作階段。
+Claude Code 在第一個提示完成時才會建立持久歷史記錄。如果 Hub 在新的 Claude 工作階段完成任何提示前停止，就沒有可恢復的對話；請改為啟動新工作階段。
 
-能力清單一旦改變，不會悄悄弱化既有的工作階段。若 Executor 失去指令圍堵能力，
-或它可用的工具改變了，請開啟一個新的工作階段。撤銷一台電腦，會關閉它的
-socket，並停止綁定在它上面的工作階段。
+能力清單變更不會悄悄削弱現有工作階段。若 Executor 失去指令隔離能力，或可用工具變更，請啟動新工作階段。撤銷電腦會關閉其 socket，並停止綁定的工作階段。
 
 ## 安全邊界
 
-- 供應商憑證與編碼代理的歷史紀錄留在 Hub 上。
-- Executor 的私鑰、裝置 bearer 與真正的根目錄路徑，留在它僅擁有者可讀的 OCX
-  狀態裡。
-- 配對碼失敗次數，會依每個監聽器上、由核心觀察到的對端各自限制。十分鐘內十
-  次失敗的代碼，會回傳一個帶有 `Retry-After` 的通用 `429`；Hub 只保留這些來
-  源身分的有邊界、會過期的雜湊值。Tailscale Serve 的使用者，與管理監聽器共用
-  同一個迴路儲存桶，因為一個直連的本機呼叫端可以偽造它的身分標頭。
-- 每個工作階段都使用一次 Ed25519 簽章的暫時性 P-256 ECDH 交握，以及有序的
-  AES-256-GCM 訊息。
-- 除非雙方都同意目前的能力清單，否則一個 socket 不會顯示為線上。
-- 重新連線可能會在本機沙盒不可用時移除某項能力，但絕不會新增配對時所記錄授
-  權之外的能力。
-- 每個請求都綁定到一個模型 thread、一個裝置、一個根目錄、一種存取模式與一組
-  能力集合。
-- 路徑一律是相對路徑、經過正規化、有邊界，並且在遇到 symlink、junction 或跳
-  出父目錄時會被拒絕。Windows 裝置名稱、替代資料流，以及結尾點／空白別名，
-  一律會被拒絕。
-- Executor 的操作是序列化執行的，已開啟的檔案身分會被重新檢查，寫入的雜湊值
-  也會在原子替換前立即再次檢查。要替換一個已核准的根目錄，需要重新配對；工
-  具鏈根目錄則會在每次指令前重新驗證。
-- 檔案讀寫會拒絕硬連結檔案。在執行指令之前，OCX 最多會掃描 250,000 個工作區
-  項目，只要有任何非目錄項目擁有多個連結，就停用指令路徑；路徑沙盒無法證明
-  該 inode 的另一個名稱是否在已核准的根目錄之外。
-- Linux 上的指令透過 bubblewrap 執行，具備一個可寫入的工作區、已清空的環境
-  變數、私有的行程命名空間、作為唯一唯讀檔案的目前 OCX Bun 執行檔、有邊界的
-  輸出與逾時，以及預設停用的網路。專屬的圍堵測試需要一個明確設定的託管環境；
-  一份綠燈的一般測試套件並不能證明它們真的跑過。
-- macOS 只公開檔案工具。一個行程群組在呼叫 `setsid()` 之後就無法再包含子孫行
-  程，而僅為了啟動一個指令就匯入一份範圍廣泛的 Apple Seatbelt 系統設定檔，會
-  暴露不相關的主機服務權限。因此原生輔助程式在 OCX 擁有一個範圍狹窄、可撤銷
-  的子孫圍堵擁有者之前，會拒絕它自己的探測與直接指令請求。
-- Windows 與 macOS 的原生指令請求一律失敗封閉。它們「直連輔助程式拒絕」的測
-  試，必須與真正運作中的指令圍堵證據區分開來；Windows 的指令接受狀態目前是
-  開放（尚待處理）的。
-- 那個固定版本的原生輔助程式，必須位在每一個已核准可寫工作區之外。OCX 會在
-  宣告支援指令之前、以及每次指令執行之前立即檢查這一點，這樣工作區裡的程式
-  碼就無法替換掉那個負責強制執行下一個沙盒的二進位檔。
-- 停止一個工作階段會取消一個進行中的 Executor 指令，並清理 Hub 上的模型行程
-  與迴路工具橋接器。Windows 會停止它擁有的 npm-wrapper 行程樹，而不是留下它
-  的 Node 子行程；Linux 與 macOS 只有在某個 CLI 無視優雅停止的等待視窗時，才
-  會強制停止它。
+- 供應商憑證與程式碼代理歷史記錄保留在 Hub。
+- Executor 私鑰、裝置 bearer 與真實根路徑保留在僅擁有者可存取的 OCX 狀態中。
+- 每個監聽器都會依核心觀測到的對等端限制配對代碼失敗次數。十分鐘內十次失敗會回傳一般的 `429` 與 `Retry-After`；Hub 只保留這些來源身分有界且會過期的雜湊值。Tailscale Serve 使用者共用管理監聽器的 loopback 額度，因為直接從本機連線的呼叫端可偽造其身分標頭。
+- 每個工作階段使用經 Ed25519 簽章的暫時 P-256 ECDH 握手，以及有序的 AES-256-GCM 訊息。
+- 雙方未就目前能力清單達成一致前，socket 不會顯示為上線。
+- 當本機 sandbox 不可用時，重新連接可以移除能力，但絕不會新增配對時授權範圍外的能力。
+- 每個請求都綁定一個模型 thread、裝置、根目錄、存取模式與能力集合。
+- 路徑必須是相對路徑、經過正規化、有界，並拒絕透過符號連結、junction 或父目錄逸出。Windows 裝置名稱、替代資料串流，以及尾端含句點或空白的別名都會被拒絕。
+- Executor 操作依序執行，開啟檔案的身分會重新檢查，且在原子替換前會再次驗證寫入雜湊值。替換已核准的根目錄時必須重新配對；每次執行指令前也會重新驗證工具鏈根目錄。
+- 檔案讀寫會拒絕硬連結檔案。執行指令前，OCX 最多掃描 250,000 個工作區項目；若任何非目錄項目具有多個連結，就會停用指令路徑，因為路徑 sandbox 無法證明同一 inode 的其他名稱是否位於核准根目錄之外。
+- Linux 指令透過 bubblewrap 執行，使用一個可寫入的工作區、清空的環境、私有程序命名空間、單一唯讀檔案形式的目前 OCX Bun 可執行檔、有界輸出與逾時，且預設停用網路。專用隔離測試需要明確設定的託管環境；一般測試套件呈綠色不能證明這些測試已執行。
+- macOS 只宣告檔案工具。子程序呼叫 `setsid()` 後，程序群組便無法容納它；只為啟動指令而匯入寬泛的 Apple Seatbelt 系統設定檔，則會暴露無關的主機服務權限。因此，原生 helper 會拒絕探測與直接指令請求，直到 OCX 有狹窄且可撤銷的子程序隔離擁有者。
+- Windows 與 macOS 原生指令請求採取失敗關閉。其直接 helper 拒絕測試不能當成指令隔離有效的證據；Windows 指令接受能力仍未完成。
+- 固定版本的原生 helper 必須位於所有核准的可寫入工作區之外。OCX 會在宣告指令支援前及每次執行指令前檢查，防止工作區程式碼替換下一次執行 sandbox 的二進位檔。
+- 停止工作階段會取消進行中的 Executor 指令，並清理 Hub 模型程序與 loopback 工具橋接器。Windows 會停止受管理的 npm 包裝器程序樹，不留下 Node 子程序；Linux 與 macOS 只有在 CLI 忽略正常停止等待時間時才會強制停止。
 
-Hub 之所以刻意看得到提示詞與模型輸出，是因為它就是執行編碼代理的地方。端對端
-加密保護的是 Executor 的 RPC 酬載。這個已配對的 Hub 被信任能透過已驗證的 WSS
-選擇核准的根目錄；它並不是對自己的模型對話一無所知。
+Hub 會刻意看到提示與模型輸出，因為程式碼代理就在 Hub 上執行。端對端加密保護 Executor RPC 內容。已配對的 Hub 受信任，會透過經驗證的 WSS 選擇核准的根目錄；它對自己的模型對話並非盲目。
 
-## 目前的範圍
+## 目前範圍
 
-Remote Workspace 不會把憑證複製或同步到其他電腦。它與 Remote Hub 的供應商路
-由，以及任何未來的託管運算或 Super Sync 產品，都是分開的。要正式上線，仍需要
-簽章過的 Windows 輔助程式封裝、針對確切二進位檔的原生 CI 證明、獨立維護者審
-查，以及一次真正的三電腦驗收執行。
+Remote Workspace 不會將憑證複製或同步至其他電腦。它與 Remote Hub 供應商路由，以及未來可能推出的託管運算或 Super Sync 產品分開。正式發布仍需要已簽章的 Windows helper 套件、針對精確二進位檔的原生 CI 證據、獨立維護者審查，以及真實的三台電腦驗收測試。
 
-## 提示詞受理 API
+## 提示接受 API
 
-`POST /api/remote-workspace/sessions/:id/prompt` 回傳 HTTP 202，附上已受理
-的工作階段快照。它的工作階段 ID 與單調遞增的事件序號，標識的是這個受理快照；
-202 並不代表模型輪次已經完成。請輪詢
-`GET /api/remote-workspace/sessions` 取得後續事件與最終狀態。在該輪次進行
-期間，重新連線與執行期接續都會維持忙碌狀態。一次遺失的確認訊息，會讓受理狀
-態變成未知，所以用戶端必須先輪詢，才能決定要不要重新送出。
+`POST /api/remote-workspace/sessions/:id/prompt` 會回傳 HTTP 202 與已接受的工作階段快照。其 session ID 與單調遞增的事件序號可識別接受快照；202 不表示模型回合已完成。請輪詢 `GET /api/remote-workspace/sessions` 以取得後續事件與終止狀態。該回合執行期間，重新連接與執行環境恢復仍處於忙碌狀態。若確認回應遺失，是否已接受就不確定，因此用戶端必須先輪詢，再決定是否重新提交。

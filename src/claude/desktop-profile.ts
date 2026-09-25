@@ -22,8 +22,34 @@ export interface RenderedDesktopModel extends DesktopProfileModel {
   supports1m: boolean;
 }
 
-const DATE_ALIAS = /^claude-opus-4-8-(2026\d{4})$/;
-const DAY_COUNT_2026 = 365;
+// Managed-namespace date aliases run 2026-2035. The original 2026-only
+// (365 slots) design failed with "all 365 encoded date slots are occupied"
+// once a catalog exceeded 365 routes (stale assignments are retained by
+// design, so the set only grows). Years before 2026 stay rejected: dated
+// ids like `claude-opus-4-8-20250201` are real model snapshot ids, not
+// managed aliases, and the inbound decoder relies on that distinction.
+// Every emitted suffix stays 8 digits so modelMap date-stripping keeps
+// working.
+const DATE_ALIAS = /^claude-opus-4-8-(202[6-9]\d{4}|203[0-5]\d{4})$/;
+const LEGACY_YEAR = 2026;
+const LEGACY_DAY_COUNT = 365;
+const ALIAS_FIRST_YEAR = 2026;
+const ALIAS_LAST_YEAR = 2035;
+
+function isLeapYear(year: number): boolean {
+  return year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+}
+
+function daysInAliasYear(year: number): number {
+  return isLeapYear(year) ? 366 : 365;
+}
+
+export const TOTAL_ALIAS_SLOTS = (() => {
+  let total = 0;
+  for (let year = ALIAS_FIRST_YEAR; year <= ALIAS_LAST_YEAR; year += 1) total += daysInAliasYear(year);
+  return total;
+})();
+export const ALIAS_YEAR_RANGE = { first: ALIAS_FIRST_YEAR, last: ALIAS_LAST_YEAR } as const;
 
 export class DesktopProfileError extends Error {
   constructor(message: string, readonly path = "profile") {
@@ -51,15 +77,6 @@ function assertExactKeys(value: Record<string, unknown>, keys: readonly string[]
   }
 }
 
-/**
- * Applied-state markers survive every profile rebuild.
- *
- * `parseDesktopProfile`, `reconcileDesktopProfile` and `moveDesktopRoute` each construct a
- * fresh `{ version, assignments, defaults }`, and the management routes persist whatever they
- * return. Without this carry-through, saving an assignment — or merely dragging a model to
- * another family — would erase the fingerprint the apply route wrote, and the GUI would report
- * "not applied" for a config that is applied on disk.
- */
 function appliedMarkers(source: { appliedFingerprint?: unknown; appliedAt?: unknown }): {
   appliedFingerprint?: string;
   appliedAt?: string;
@@ -68,6 +85,19 @@ function appliedMarkers(source: { appliedFingerprint?: unknown; appliedAt?: unkn
     ...(typeof source.appliedFingerprint === "string" ? { appliedFingerprint: source.appliedFingerprint } : {}),
     ...(typeof source.appliedAt === "string" ? { appliedAt: source.appliedAt } : {}),
   };
+}
+
+export function sameProfileContent(left: DesktopProfile, right: DesktopProfile): boolean {
+  return DESKTOP_FAMILIES.every(family => left.defaults[family] === right.defaults[family])
+    && JSON.stringify(Object.entries(left.assignments).sort(([a], [b]) => a.localeCompare(b)))
+      === JSON.stringify(Object.entries(right.assignments).sort(([a], [b]) => a.localeCompare(b)));
+}
+
+/** Retain applied-state bookkeeping only when the desired Desktop config is unchanged. */
+export function preserveDesktopAppliedState(source: DesktopProfile, rebuilt: DesktopProfile): DesktopProfile {
+  return sameProfileContent(source, rebuilt)
+    ? { ...rebuilt, ...appliedMarkers(source) }
+    : rebuilt;
 }
 
 function isFamily(value: unknown): value is DesktopFamily {
@@ -119,7 +149,7 @@ export function parseDesktopProfile(value: unknown): DesktopProfile {
     if (isRealAnthropicRoute(route)) {
       if (raw.alias !== routeModelId(route)) throw new DesktopProfileError("real Anthropic routes must keep their exact model id", `profile.assignments.${route}.alias`);
     } else if (!validDateAlias(raw.alias)) {
-      throw new DesktopProfileError("must be a valid claude-opus-4-8-2026MMDD alias", `profile.assignments.${route}.alias`);
+      throw new DesktopProfileError("must be a valid claude-opus-4-8-YYYYMMDD alias", `profile.assignments.${route}.alias`);
     }
     if (aliases.has(raw.alias)) throw new DesktopProfileError(`duplicate alias "${raw.alias}"`, `profile.assignments.${route}.alias`);
     aliases.add(raw.alias);
@@ -144,26 +174,57 @@ export function parseDesktopProfile(value: unknown): DesktopProfile {
   return { version: 1, assignments, defaults, ...appliedMarkers(value) };
 }
 
-function dayOfYearAlias(dayIndex: number): string {
-  const date = new Date(Date.UTC(2026, 0, dayIndex + 1));
+function formatSlotDate(year: number, dayOfYear: number): string {
+  const date = new Date(Date.UTC(year, 0, dayOfYear));
   const y = date.getUTCFullYear();
   const m = String(date.getUTCMonth() + 1).padStart(2, "0");
   const d = String(date.getUTCDate()).padStart(2, "0");
   return `claude-opus-4-8-${y}${m}${d}`;
 }
 
+// Legacy 2026 ring, byte-identical to the original allocator: the same route
+// must keep resolving to the same 2026 alias it always had, and a probe over
+// a nearly-full 2026 set must land on the same free date as before.
+function legacyDayAlias(dayIndex: number): string {
+  return formatSlotDate(LEGACY_YEAR, dayIndex + 1);
+}
+
+// Overflow ring for catalogs past 365 routes (2027-2035). Probed only after
+// every legacy slot is taken, so existing profiles never shift into it.
+const OVERFLOW_FIRST_YEAR = LEGACY_YEAR + 1;
+const OVERFLOW_SLOT_COUNT = TOTAL_ALIAS_SLOTS - LEGACY_DAY_COUNT;
+
+function overflowSlotAlias(slotIndex: number): string {
+  let remaining = ((slotIndex % OVERFLOW_SLOT_COUNT) + OVERFLOW_SLOT_COUNT) % OVERFLOW_SLOT_COUNT;
+  for (let year = OVERFLOW_FIRST_YEAR; year <= ALIAS_LAST_YEAR; year += 1) {
+    const days = daysInAliasYear(year);
+    if (remaining < days) return formatSlotDate(year, remaining + 1);
+    remaining -= days;
+  }
+  throw new DesktopProfileError("slot index out of range", "profile.assignments");
+}
+
 function routeStartDay(route: string): number {
-  return createHash("sha256").update(route).digest().readUInt32BE(0) % DAY_COUNT_2026;
+  return createHash("sha256").update(route).digest().readUInt32BE(0) % LEGACY_DAY_COUNT;
+}
+
+function routeOverflowStart(route: string): number {
+  return createHash("sha256").update(route).digest().readUInt32BE(4) % OVERFLOW_SLOT_COUNT;
 }
 
 function allocateAlias(route: string, used: Set<string>): string {
   if (isRealAnthropicRoute(route)) return routeModelId(route);
   const start = routeStartDay(route);
-  for (let offset = 0; offset < DAY_COUNT_2026; offset += 1) {
-    const alias = dayOfYearAlias((start + offset) % DAY_COUNT_2026);
+  for (let offset = 0; offset < LEGACY_DAY_COUNT; offset += 1) {
+    const alias = legacyDayAlias((start + offset) % LEGACY_DAY_COUNT);
     if (!used.has(alias)) return alias;
   }
-  throw new DesktopProfileError("all 365 encoded date slots are occupied", `profile.assignments.${route}.alias`);
+  const overflowStart = routeOverflowStart(route);
+  for (let offset = 0; offset < OVERFLOW_SLOT_COUNT; offset += 1) {
+    const alias = overflowSlotAlias((overflowStart + offset) % OVERFLOW_SLOT_COUNT);
+    if (!used.has(alias)) return alias;
+  }
+  throw new DesktopProfileError(`all ${TOTAL_ALIAS_SLOTS} encoded date slots are occupied`, `profile.assignments.${route}.alias`);
 }
 
 export function reconcileDesktopProfile(
@@ -187,7 +248,8 @@ export function reconcileDesktopProfile(
     const current = defaults[family];
     defaults[family] = current && assignments[current]?.family === family ? current : (members[0] ?? null);
   }
-  return parseDesktopProfile({ version: 1, assignments, defaults, ...appliedMarkers(profile) });
+  const rebuilt = parseDesktopProfile({ version: 1, assignments, defaults });
+  return preserveDesktopAppliedState(profile, rebuilt);
 }
 
 export function moveDesktopRoute(
@@ -211,7 +273,7 @@ export function moveDesktopRoute(
   const destinationMembers = Object.keys(assignments).filter(key => assignments[key]!.family === family).sort();
   if (makeDefault || !defaults[family] || assignments[defaults[family]!]?.family !== family) defaults[family] = route;
   if (!defaults[family] && destinationMembers.length > 0) defaults[family] = destinationMembers[0]!;
-  return parseDesktopProfile({ version: 1, assignments, defaults, ...appliedMarkers(parsed) });
+  return parseDesktopProfile({ version: 1, assignments, defaults });
 }
 
 export function setDesktopFamilyDefault(
@@ -223,7 +285,12 @@ export function setDesktopFamilyDefault(
   const members = Object.keys(parsed.assignments).filter(key => parsed.assignments[key]!.family === family);
   if (route === null && members.length > 0) throw new DesktopProfileError("cannot clear a non-empty family default", `profile.defaults.${family}`);
   if (route !== null && parsed.assignments[route]?.family !== family) throw new DesktopProfileError("route is not a member of this family", `profile.defaults.${family}`);
-  return parseDesktopProfile({ ...parsed, defaults: { ...parsed.defaults, [family]: route } });
+  const rebuilt = parseDesktopProfile({
+    version: 1,
+    assignments: parsed.assignments,
+    defaults: { ...parsed.defaults, [family]: route },
+  });
+  return preserveDesktopAppliedState(parsed, rebuilt);
 }
 
 export function renderDesktopProfile(

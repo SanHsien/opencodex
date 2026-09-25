@@ -127,6 +127,36 @@ describe("the one-port hub recipe", () => {
     }
   });
 
+  // English-only: the zh-tw guide (this fork's second locale, per FORK.md) does not carry this
+  // ":::danger" callout at all yet, so there is no translated warning to check against.
+  test("both locales warn that the companion requires a dedicated host", async () => {
+    const warnings = [
+      ["en", GUIDE, "every process and OS user", "shared or multi-tenant host", "dedicated single-tenant host", "Do not enable"],
+    ] as const;
+    for (const [locale, file, localAccess, sharedHost, dedicated, doNotEnable] of warnings) {
+      const source = await Bun.file(file).text();
+      expect(source, locale).toContain(localAccess);
+      expect(source, locale).toContain(sharedHost);
+      expect(source, locale).toContain(dedicated);
+      expect(source, locale).toContain(doNotEnable);
+      // The warning must render inside the danger box, not flow past as ordinary prose.
+      const opened = source.indexOf(":::danger");
+      expect(opened, locale).toBeGreaterThan(-1);
+      const closing = /\r?\n:::\r?\n/.exec(source.slice(opened));
+      expect(closing, locale).not.toBeNull();
+      const callout = source.slice(opened, opened + (closing?.index ?? 0));
+      expect(callout, locale).toContain(dedicated);
+      expect(callout, locale).toContain(sharedHost);
+      expect(callout, locale).not.toMatch(/`unauthenticatedLoopbackListener` (?:command|명령)/);
+      // The same unauthenticated surface is offered again by the ported form; the warning
+      // must reach that command too, or a reader following only that section misses it.
+      const ported = source.indexOf('"port":10104');
+      expect(ported, locale).toBeGreaterThan(-1);
+      const after = source.slice(ported, ported + 600);
+      expect(after, locale).toMatch(/unauthenticated|인증/);
+    }
+  });
+
   test("no locale tells the operator to export a data-plane token by hand", async () => {
     for (const [locale, file] of LOCALES) {
       const source = await Bun.file(file).text();

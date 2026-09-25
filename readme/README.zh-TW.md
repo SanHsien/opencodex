@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="../assets/banner.png" alt="opencodex——適用於 Codex、Claude Code、Claude Desktop 與 Grok Build 的通用供應商代理" width="100%">
+</p>
+
 <h3 align="center">make codex open!</h3>
 <p align="center"><b>適用於 OpenAI Codex、Claude Code、Claude Desktop 與 Grok Build 的通用供應商代理</b><br>
 兩條命令，這四個就都能跑你指定的任何 LLM。</p>
@@ -13,6 +17,13 @@
 npm install -g @bitkyc08/opencodex
 ocx start
 ```
+
+<p align="center">
+  <a href="https://github.com/lidge-jun/opencodex/releases/latest"><img src="https://img.shields.io/badge/macOS-.dmg-24292f?logo=apple&logoColor=white" alt="下載 macOS 版 (.dmg)"></a>
+  <a href="https://github.com/lidge-jun/opencodex/releases/latest"><img src="https://img.shields.io/badge/Windows-.msi-24292f?logo=data:image/svg%2bxml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0id2hpdGUiPjxwYXRoIGQ9Ik0zIDNoOC41djguNUgzem05LjUgMEgyMXY4LjVoLTguNXpNMyAxMi41aDguNVYyMUgzem05LjUgMEgyMVYyMWgtOC41eiIvPjwvc3ZnPg==" alt="下載 Windows 版 (.msi)"></a>
+  <a href="https://github.com/lidge-jun/opencodex/releases/latest"><img src="https://img.shields.io/badge/Linux-.AppImage-24292f?logo=linux&logoColor=white" alt="下載 Linux 版 (.AppImage)"></a>
+  <a href="https://github.com/lidge-jun/opencodex/releases/latest"><img src="https://img.shields.io/badge/Linux-.deb-24292f?logo=debian&logoColor=white" alt="下載 Linux 版 (.deb)"></a>
+</p>
 
 <table>
 <tr>
@@ -76,7 +87,7 @@ Gemini、Grok、GLM、DeepSeek、Kimi、Qwen、Ollama 或任何其他 LLM。它�
 
 ## 快速開始
 
-### 個人安裝
+### 個人安裝（CLI）
 
 ```bash
 npm install -g @bitkyc08/opencodex   # Node 18+；Bun 執行環境會自動打包
@@ -88,7 +99,35 @@ ocx start                         # 代理 + 儀表板位於 localhost:10100
 開啟 **http://localhost:10100**，在網頁儀表板完成所有設定——新增供應商
 （40+ 內建，或任何 OpenAI 相容端點）、挑選模型、管理帳號。隨時可用 `ocx gui`
 重新開啟儀表板。
-它也能為 Codex 認證管理 **ChatGPT 帳號池**。新增多個 ChatGPT / Codex 帳號，
+
+<details>
+<summary><b>桌面應用程式（Beta）</b></summary>
+
+桌面應用程式是同一套代理與儀表板的原生視窗版本，附系統匣與內建的 `ocx`。
+它會接上已在執行的代理，或啟動內建的那一個；儀表板仍使用代理的連接埠
+（除非你設定了其他連接埠，否則為 **http://localhost:10100**）。請從
+[最新發行版](https://github.com/lidge-jun/opencodex/releases/latest)挑選適合你平台的檔案：
+
+| 平台 | 檔案 | 說明 |
+|---|---|---|
+| macOS 13+（Apple Silicon 與 Intel） | `OpenCodex-<version>-macos.dmg` | 通用建置，以 Developer ID 簽章並經過公證 |
+| Windows（x64） | `OpenCodex-<version>-windows-x64.msi` | 尚未經程式碼簽章：SmartScreen 會詢問一次，選擇 **More info → Run anyway** |
+| Linux（x86_64） | `OpenCodex-<version>-linux-x86_64.AppImage` 或 `-linux-amd64.deb` | 系統匣需要支援 AppIndicator 的桌面環境 |
+
+每個檔案在發行頁面上都附有 `.sha256`。在 macOS 14+ 上，應用程式還附帶
+WidgetKit 擴充套件，可顯示代理狀態、今日用量與供應商配額；它所呈現的快照模型位於
+[`app/`](../app)（`MenuBarCore`）。若要自行建置應用程式，先在儲存庫根目錄執行
+`bun install && bun run build:gui`，再於
+`desktop/` 執行：macOS 上用 `bun install && bun run prepare-sidecar && bun run prepare-widget && bun run build:local`，Windows 與 Linux 上用 `bun install && bun run prepare-sidecar && bun run build:local`（小工具步驟只能在 macOS 上執行）。
+[桌面應用程式指南](https://opencodex.me/zh-tw/guides/desktop-app/) 與
+[macOS 選單列應用程式指南](https://opencodex.me/zh-tw/guides/macos-menu-bar/) 涵蓋首次啟動，
+[`AGENTS_INSTALL.md`](../AGENTS_INSTALL.md#where-things-are-installed) 列出所有寫入磁碟的內容。
+
+</details>
+
+### ChatGPT 帳號池
+
+opencodex 也能為 Codex 認證管理 **ChatGPT 帳號池**。新增多個 ChatGPT / Codex 帳號，
 在儀表板重新整理 5 小時／每週／30 天配額。在配額路由下，新會話可使用
 使用量最低的健康帳號；round-robin 與 fill-first 則各自套用自己的策略。既有 Codex
 執行緒通常會維持對啟動帳號的親和性，因此長時間的 SSH、tmux 或
@@ -121,13 +160,13 @@ ocx start                         # 代理 + 儀表板位於 localhost:10100
 <details>
 <summary>Docker Compose</summary>
 
-本儲存庫提供 digest 釘選、非 root 的 Compose 建置。主機已安裝 Git 與 Bun 時，
-每次建置映像前先產生權威相容性清單，再透過 stdin 初始化一次資料平面權杖並啟動 hub：
+本儲存庫提供 digest 釘選、非 root 的 Compose 建置。建置會根據選定的 Git 快照自行產生並驗證
+權威相容性清單。本機 clone 需要 Git 與 Docker Compose；遠端 Git context 需要 Docker Compose。
+兩種方式都不需要主機上的 Bun，也不需要準備步驟。透過 stdin 初始化一次資料平面權杖並啟動 hub：
 
 ```bash
 git clone https://github.com/lidge-jun/opencodex.git
 cd opencodex
-bun scripts/generate-compatibility-version.ts
 docker compose build
 openssl rand -hex 32 | docker compose run --rm -T hub bun run docker/bootstrap-token.ts
 docker compose up -d
@@ -138,11 +177,27 @@ curl --fail --silent http://127.0.0.1:10100/readyz
 預設主機綁定為 `127.0.0.1:10100`。遠端公開必須明確指定
 `OPENCODEX_BIND_ADDRESS=<LAN-or-Tailscale-IP> docker compose up -d`；`0.0.0.0` 會加入
 所有主機介面。請用防火牆與已認證的 TLS／tailnet 前端限制存取。
-產生的 JSON 不會被追蹤；它會複製進映像，且不含 `.git`。
-原始碼變更後請重新產生，產生與建置之間不要改原始碼。
-建置會拒絕過期清單、缺少或不相符的檔案、多餘原始碼檔案，以及符號連結。
+產生的 JSON 不會被追蹤。建置 context 只會納入 `.git/index` 與 `.git/HEAD`，也就是
+`git ls-files` 讀取的清單；大小約為 1 MB，而不是完整的 object store。這些檔案只能透過唯讀 mount
+在建置專用的 manifest 階段看到，因此沒有任何 `COPY` 會包含 `.git`。主機上已有的 manifest 只有在
+通過驗證後才會接受；否則建置會自行產生。建置會拒絕過期清單、缺少或不相符的檔案、多餘原始碼檔案，以及符號連結。
 它會核對建置上下文與複製進去的執行檔案上每一筆記錄的 SHA-256，包括
 `package.json`、`bun.lock`，以及特別納入的 `scripts/model-metadata.source.json`。
+
+遠端 Git context 需要 BuildKit 保留 Git metadata。以下 Compose 建置片段會選擇遠端快照，
+並傳入所需的內建參數：
+
+```yaml
+services:
+  hub:
+    pull_policy: build
+    build:
+      context: https://github.com/lidge-jun/opencodex.git#main
+      dockerfile: Dockerfile
+      target: runtime
+      args:
+        BUILDKIT_CONTEXT_KEEP_GIT_DIR: "1"
+```
 
 權杖與可變狀態留在名為 `ocx-state` 的 volume；映像、Compose 檔、環境變數或 shell 引數都不會放入憑證。見
 [Remote Hub 部署指南](https://opencodex.me/zh-tw/guides/remote-hub/) 以了解供應商
@@ -157,8 +212,9 @@ curl --fail --silent http://127.0.0.1:10100/readyz
 
 ```bash
 curl -fsSL https://bun.sh/install | bash
-git clone https://github.com/lidge-jun/opencodex.git
+git clone -b dev https://github.com/lidge-jun/opencodex.git
 cd opencodex && ~/.bun/bin/bun install
+~/.bun/bin/bun run build:gui
 ~/.bun/bin/bun run src/cli/index.ts start
 ```
 
@@ -166,8 +222,9 @@ cd opencodex && ~/.bun/bin/bun install
 
 ```powershell
 irm bun.sh/install.ps1 | iex
-git clone https://github.com/lidge-jun/opencodex.git
+git clone -b dev https://github.com/lidge-jun/opencodex.git
 cd opencodex; bun install
+bun run build:gui
 bun run src/cli/index.ts start
 ```
 
@@ -197,13 +254,13 @@ ocx init      # 互動式設定：寫入 ~/.opencodex/config.json 並接上 Code
 
 ## 支援平台
 
-| 作業系統 | 狀態 | 服務管理員 |
-|---|---|---|
-| macOS (arm64 / x64) | 完整支援 | launchd |
-| Linux (x64 / arm64) | 完整支援 | systemd（使用者單元） |
-| Windows (x64) | 完整支援 | Task Scheduler（隱藏）／可選原生服務（`--native`、WinSW） |
+| 作業系統 | 狀態 | 服務管理員 | 桌面應用程式（Beta） |
+|---|---|---|---|
+| macOS (arm64 / x64) | 完整支援 | launchd | 通用 `.dmg` |
+| Linux (x64 / arm64) | 完整支援 | systemd（使用者單元） | x86_64 `.AppImage` / `.deb` |
+| Windows (x64) | 完整支援 | Task Scheduler（隱藏）／可選原生服務（`--native`、WinSW） | x64 `.msi` |
 
-需要 [Node](https://nodejs.org) 18+。Bun 執行環境在 `npm install` 時一併打包——不必另外安裝
+CLI 安裝需要 [Node](https://nodejs.org) 18+；桌面應用程式則不需要 Node 或 Bun。Bun 執行環境在 `npm install` 時一併打包——不必另外安裝
 Bun，Windows 也不需要 WSL。若 npm 攔截了打包執行環境的安裝腳本，
 見[安裝文件](https://opencodex.me/zh-tw/getting-started/installation/)。
 
@@ -238,14 +295,15 @@ Bun，Windows 也不需要 WSL。若 npm 攔截了打包執行環境的安裝腳
 <details>
 <summary>記憶體所有權細節</summary>
 
-OpenCodex 追蹤 36 類行程保留狀態。每一類都有文件化的上限：
+OpenCodex 在下列類別中追蹤行程保留狀態。每一類都有文件化的上限：
 
-- **12 個保留儲存**（請求日誌、除錯環形緩衝、圖片快取、模型快取、視覺
+- **14 個保留儲存**（請求日誌、除錯環形緩衝、圖片快取、模型快取、視覺
   描述、cursor blob、responses 延續等）以位元組計帳，並由
-  應用程式自己的記憶體預算淘汰（預設 256 MiB）。
+  應用程式自己的記憶體預算淘汰（預設 256 MiB）；其中 native control replay
+  儲存為固定，不會被淘汰。
 - **4 個觀測緩衝區**（翻譯累加器、image/OAuth/Grok 尾端）會
   監控進行中的位元組壓力，但不淘汰。
-- **24 個狀態儲存註冊**負責到期清掃（間隔 60 秒）與
+- **28 個狀態儲存註冊**負責到期清掃（間隔 60 秒）與
   設定世代調和，以移除過期的供應商／帳號鍵。
 - **路徑與指紋 memo**（工作區中繼資料、強化身分、安裝
   salt、mode-hint 能力）使用插入順序 LRU 上限（8–128 筆）。
@@ -286,7 +344,7 @@ Qwen Cloud、Qoder Global 與 CN（官方 PAT + CLI）、SiliconFlow 等等。�
 
 ```bash
 ocx init                       # 互動式設定（寫入設定、接上 Codex、提供 shim）
-ocx start [--port 10100]       # 在前景啟動代理
+ocx start [--port 10100] [--socks5 [host:port] | --socks5-off]  # SOCKS5 預設為 socks5://127.0.0.1:10808
 ocx stop                       # 停止並還原原生 Codex
 ocx service [install|repair|restart|start|stop|status|uninstall|remove]  # 背景服務
 ocx codex-shim install         # 每次啟動 `codex` 時按需啟動代理
@@ -301,8 +359,8 @@ ocx v2 <...>                   # 多代理 v1/v2 介面控制
 ocx update [--tag preview]     # 更新 opencodex
 ```
 
-未釘選連接埠的啟動，在偏好連接埠被占用時可能改選其他空閒連接埠；明確的 `--port`
-絕不會跳號。完整參考：[CLI 文件](https://opencodex.me/zh-tw/reference/cli/)。
+偏好的連接埠被占用時，啟動會停止並指出占用者，而不會改用其他連接埠，因此絕不會在第一個代理旁留下另一個
+執行中的代理。請釋放該連接埠，或用 `--port` 指定其他連接埠。完整參考：[CLI 文件](https://opencodex.me/zh-tw/reference/cli/)。
 
 ### 健康狀態與就緒
 

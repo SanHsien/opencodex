@@ -72,6 +72,21 @@ JSON mode: `envelope`.
 
 - Reads /healthz plus local config; drives no management API route.
 
+### `ocx resolve`
+
+One JSON document naming the config home, the effective port, and the identity-checked proxy liveness verdict.
+
+Drives no management route.
+
+| Flag | Value | Meaning |
+|---|---|---|
+| `--json` | boolean | Emit the resolve document as JSON (the shell contract). |
+
+JSON mode: `envelope`.
+
+- Exit 0 carries a trustworthy verdict (live or proven absent); exit 1 means the CLI could not resolve and a caller must refuse to guess — unknown liveness never reads as absent.
+- Built for embedding shells (desktop app): the liveness budgets stay owned by src/server/proxy-liveness.ts.
+
 ### `ocx capabilities`
 
 List the declared CLI capabilities and the management routes they drive.
@@ -384,6 +399,28 @@ JSON mode: `envelope`.
 - Makes no package-registry request.
 - Does not execute Codex or npm, install or repair software, control a process, or write configuration or cache state.
 
+### `ocx system codex-cli-update attest`
+
+Observe the selected or explicitly named Windows npm Codex installation files without enabling updates.
+
+Drives no management route.
+
+| Flag | Value | Meaning |
+|---|---|---|
+| `--candidate` | string | Absolute npm codex.cmd or package bin/codex.js path; all four paths are all-or-none. |
+| `--npm-prefix` | string | Absolute prefix containing node_modules/@openai/codex. |
+| `--npm-cli` | string | Absolute node_modules/npm/bin/npm-cli.js path. |
+| `--node` | string | Absolute node.exe path; observed, never executed. |
+| `--json` | boolean | Emit the path-free installation identity observation. |
+
+JSON mode: `envelope`.
+
+- Opt-in Windows x64 local-volume inspection using held native file handles; refuses reparse points, active writers and unsupported layouts.
+- Without explicit paths, the proof-bound launcher snapshot identifies the selected candidate: the configured CODEX_CLI_PATH or the first codex on the captured PATH, with an OpenCodex wrapper resolving to its codex.opencodex-real backing. Discovery only proposes paths; the held-handle observation remains the authority.
+- Success binds observed file identities and bytes, not selected-runtime admission or installer ownership.
+- selectionAttested, managed and applyAllowed remain false. The digest is an observation, not a durable update permit.
+- Does not run the named Codex/npm/Node files, query a registry, install software, control processes or persist state.
+
 ### `ocx claude desktop status`
 
 Applied-vs-desired Claude Desktop state, including staleness, drift, and health.
@@ -399,6 +436,18 @@ Applied-vs-desired Claude Desktop state, including staleness, drift, and health.
 JSON mode: `payload`.
 
 - Distinct from `claude desktop show`, which reports what this machine WOULD write; this reports what is actually in effect, which only the running proxy knows.
+
+### `ocx claude desktop picker status`
+
+First-party picker mode: whether Claude Desktop's Code tab lists opencodex models, and what is missing if not.
+
+| Method | Route |
+|---|---|
+| GET | `/api/claude-desktop/picker` |
+
+JSON mode: `none`.
+
+- Reports desired, effective, keychain trust, the Desktop egress profile, the model count and a reason with the next command to run.
 
 ## State-changing capabilities
 
@@ -515,6 +564,25 @@ JSON mode: `payload`.
 - `store` verifies every keychain write by read-back before config.json is rewritten with keychain: references; an unavailable keychain refuses with 503 and leaves the file untouched.
 - Headless services usually have no unlocked keychain session; prefer ${ENV_VAR} references there.
 
+### `ocx companion`
+
+Inspect and configure menu-bar and widget companion usage settings.
+
+| Method | Route |
+|---|---|
+| GET | `/api/companion/settings` |
+| GET | `/api/usage/timeline` |
+| PUT | `/api/companion/settings` |
+
+| Flag | Value | Meaning |
+|---|---|---|
+| `--json` | boolean | Emit companion settings as JSON. |
+
+JSON mode: `payload`.
+
+- `show` (the default) reads settings; `set key=value ...` updates selected settings; `reset` restores defaults.
+- Values accepted by `set` are parsed as JSON when valid, so booleans, numbers, arrays, objects, and null can be passed directly.
+
 ### `ocx account main reauth`
 
 Reauthenticate the native main Codex login with a device code (#3898); headless hubs need no Codex App or keyring.
@@ -537,6 +605,26 @@ JSON mode: `payload`.
 - Same-identity reauth only: the device login must complete for the ChatGPT account that already holds the native main slot, and the commit is fenced by the exclusive claim plus a path/hash/inode snapshot.
 - /api/codex-auth/login stays pool-only and keeps rejecting __main__; this namespace is the only device-reauth surface for the native main slot.
 - Payloads carry only flowId, status, the verification URL, the device code, and a closed set of failure codes -- never tokens, emails, or raw account ids.
+
+### `ocx account import-orca`
+
+Preview or register read-only links to Orca-managed Codex accounts without another login.
+
+Drives no management route.
+
+| Flag | Value | Meaning |
+|---|---|---|
+| `--source` | string | Orca data directory containing codex-accounts. |
+| `--registry` | string | The chosen Orca profile's orca-data.json account registry. |
+| `--apply` | boolean | Register new accounts; requires a stopped proxy. Default is preview. |
+| `--json` | boolean | Emit counts and fixed invalid-reason codes without credentials or source paths. |
+
+JSON mode: `envelope`.
+
+- Local files only; never copies refresh tokens or changes Orca authentication files.
+- Skips existing ChatGPT identities. New accounts remain pending until dashboard validation.
+- Orca must keep the source login available and refreshed; a missing or expired source fails closed.
+- Mixed eligible and invalid entries exit successfully; an all-invalid result exits nonzero.
 
 ### `ocx account refresh`
 
@@ -750,7 +838,7 @@ JSON mode: `payload`.
 
 ### `ocx system codex-restart`
 
-Restart the Codex app-server.
+Restart the Codex desktop app and app-servers.
 
 | Method | Route |
 |---|---|
@@ -758,14 +846,77 @@ Restart the Codex app-server.
 
 | Flag | Value | Meaning |
 |---|---|---|
-| `--yes` | boolean | Required: restarts the operator's running Codex app-server. |
+| `--yes` | boolean | Required: fully quits and relaunches the operator's Codex desktop app, which may discard unsaved composer drafts, model-picker selections, and pending approval prompts; also restarts its app-servers. |
 | `--json` | boolean | Emit the restart result as JSON. |
 
 JSON mode: `payload`.
 
 - `sync --restart-codex` is not a substitute: it restarts only as a side effect after a catalog or cache write, so it cannot restart a healthy install on request.
 - Restarts the Codex desktop app as well as the app-servers, through the same module the CLI uses. When the proxy itself runs inside the Codex app it refuses instead, because restarting the app would kill the request.
-- --yes is mandatory because this interrupts a running editor session, which must never happen because an agent guessed a subcommand.
+- --yes is mandatory because this interrupts a running editor session and may discard unsaved composer drafts, model-picker selections, and pending approval prompts; it must never happen because an agent guessed a subcommand.
+
+### `ocx claude desktop bind`
+
+First-party: serve a Claude Desktop Code tab picker model with an opencodex route.
+
+| Method | Route |
+|---|---|
+| PUT | `/api/claude-desktop/first-party-bindings` |
+
+JSON mode: `none`.
+
+- Takes a picker model id (claude-sonnet-4-6) and a route in the Desktop route vocabulary (provider/model or native/<slug>); the route must be one the Desktop profile can offer.
+- Only Claude Code traffic that reaches the proxy through the first-party intercept (Desktop's Code tab, the claude CLI) honours it; ocx claude and the public Messages endpoint are unaffected.
+- The Desktop picker keeps Anthropic's label; the binding changes which model answers, starting with the next request.
+
+### `ocx claude desktop unbind`
+
+Remove a first-party Claude Desktop Code tab picker binding.
+
+| Method | Route |
+|---|---|
+| PUT | `/api/claude-desktop/first-party-bindings` |
+
+JSON mode: `none`.
+
+- Removing an id that is not bound is a no-op; the remaining bindings are printed.
+
+### `ocx claude desktop picker on`
+
+Turn first-party picker mode on and remember the choice.
+
+| Method | Route |
+|---|---|
+| PUT | `/api/claude-desktop/picker` |
+
+JSON mode: `none`.
+
+- Needs a running proxy, first-party mode and macOS. The first time, macOS asks to trust a local certificate authority limited to claude.ai; when the server cannot show that prompt the command runs the trust step in this terminal.
+- Claude Desktop then reaches the network through opencodex; fully quit and reopen Desktop afterwards.
+
+### `ocx claude desktop picker off`
+
+Turn first-party picker mode off, remove its Desktop egress profile and certificate trust, and remember the choice.
+
+| Method | Route |
+|---|---|
+| PUT | `/api/claude-desktop/picker` |
+
+JSON mode: `none`.
+
+- Works without a running proxy: the preference is saved and the picker profile and trust are removed locally.
+
+### `ocx claude desktop picker trust`
+
+Run the macOS keychain step for picker mode in this terminal, then ask the server to finish enabling it.
+
+| Method | Route |
+|---|---|
+| PUT | `/api/claude-desktop/picker` |
+
+JSON mode: `none`.
+
+- The server removes trust this command added if the enable is refused; if the request is lost, trust is left alone and picker status tells what happened.
 
 ### `ocx integration native`
 
@@ -854,6 +1005,6 @@ JSON mode: `payload`.
 
 ## Counts
 
-- declared capabilities: 46
-- of those, state-changing: 23
+- declared capabilities: 56
+- of those, state-changing: 30
 - head-resolved invocations: 2

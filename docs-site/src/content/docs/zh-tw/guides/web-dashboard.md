@@ -31,39 +31,54 @@ GUI session 簽發到服務的頁面中，並在到期或代理重啟時靜默�
 儀表板本身仍然只在記憶體中保留 token，不會寫入 `localStorage` 或 `sessionStorage`；是否儲存完全
 由瀏覽器或密碼管理員決定。
 
-### 尋找 admin token
+### 找到 admin token
 
-只有在非 loopback 綁定時才需要它。本機儀表板永遠不會詢問；如果本機儀表板*真的*詢問了，問題不在
-token——請見下方[當本機儀表板無法啟動 session 時](#when-a-local-dashboard-cannot-start-a-session)。
+只有非 loopback 綁定才需要這個。本機儀表板永不會詢問；若本機儀表板**確實**詢問，問題不是
+token——請見下方的[本機儀表板無法啟動 session 時](#本機儀表板無法啟動-session-時)。
 
-proxy 會在第一次啟動時為你產生這個 token。它刻意不會被印在任何地方，所以請從檔案中讀取：
+代理第一次啟動時會替你產生這個 token。它刻意不會被印出來，因此請從檔案讀取：
 
 ```bash
 cat ~/.opencodex/admin-api-token
 ```
 
-若設定了 `OPENCODEX_HOME`，該檔案改為位於 `$OPENCODEX_HOME/admin-api-token`。在 Windows 上則是
-`%USERPROFILE%\.opencodex\admin-api-token`。產生的 token 看起來像 `ocx_admin_` 後接 43 個字元；
-proxy 會拒絕一個形狀不符的檔案，而不是靜默重新產生一個。
+若設定了 `OPENCODEX_HOME`，該檔案改位於 `$OPENCODEX_HOME/admin-api-token`。在 Windows 上則是
+`%USERPROFILE%\.opencodex\admin-api-token`。產生的 token 形如 `ocx_admin_` 加上 43 個字元；
+代理會拒絕不符合此形狀的檔案，而不是靜默重新產生一個。
 
-若要自行選擇這個值，請在啟動 proxy 之前設定 `OPENCODEX_ADMIN_AUTH_TOKEN`。它優先於檔案，此時
-該檔案既不會被讀取也不會被建立。請選擇與你的資料平面憑證（`OPENCODEX_API_AUTH_TOKEN` 或已設定的
-API 金鑰）不同的值——重複使用同一個值會被拒絕。
+若要自行選擇這個值，請在啟動代理之前設定 `OPENCODEX_ADMIN_AUTH_TOKEN`。它優先於檔案，此時
+檔案既不會被讀取也不會被建立。請選擇與你的資料平面憑證（`OPENCODEX_API_AUTH_TOKEN` 或已設定
+的 API 金鑰）不同的值——重複使用會被拒絕。
 
-沒有任何 CLI 指令會印出這個 token。`ocx doctor` 刻意只回報憑證是否存在，絕不會揭露它的值。
+沒有任何 CLI 指令會印出這個 token。`ocx doctor` 刻意只回報憑證是否存在，絕不揭露其值。
 
-### 當本機儀表板無法啟動 session 時
+### 本機儀表板無法啟動 session 時
 
-位於 `localhost` 的儀表板會自己簽發 session，所以它不會要求你輸入 token。若它回報無法啟動
-session，原因通常出在你使用的位址，而不是缺少憑證——proxy 沒有把該請求辨識為 loopback。請在
-proxy 啟動時印出的那個位址（通常是 `http://127.0.0.1:<port>`）開啟儀表板，並優先使用那個確切的
-主機與連接埠，而不是 LAN IP 或別名。
+`localhost` 上的儀表板會自行簽發 session，因此不會要求你輸入 token。若它回報無法啟動 session，
+原因是你使用的位址，而不是缺少憑證——代理沒有把該請求識別為 loopback。請在代理啟動時印出的
+位址（通常是 `http://127.0.0.1:<port>`）開啟儀表板，並優先使用該確切的主機與連接埠，而不是
+LAN IP 或別名。
 
 ## 儀表板版面
 
-Overview 使用相符的狀態卡片與全寬的設定列。在寬螢幕上，標籤共用一欄，模型／effort 控制項共用
-另一欄。在較窄的螢幕上，控制項會移到其標籤下方，並維持相同的閱讀順序。過長的版本標籤會在視覺上
-縮短；將滑鼠移到版本徽章或版本值上即可看到完整值。
+Overview 使用相符的狀態卡片與全寬設定列。在寬螢幕上，標籤共用一欄，模型／effort 控制項共用
+另一欄。在較窄的螢幕上，控制項會依原本的閱讀順序移到標籤下方。過長的版本標籤會在視覺上縮短；
+將滑鼠移到版本徽章或版本值上可讀取完整內容。
+
+### 配額摘要列
+
+除啟動安全頁面外，每個頁面頂端的一行摘要會顯示各供應商目前的配額用量，例如
+`OpenAI 31% | Claude 54% | xAI 12% | Google 8%`。它讀取與供應商工作區相同的配額報告
+（`GET /api/provider-quotas`，分頁可見時每 60 秒一次），且絕不會強制重新整理上游。
+
+- 每個項目顯示優先選用的已回報視窗：依序為每週、30 天、5 小時，然後是供應商自訂視窗或
+  預付額度。
+- 用量達 70% 時轉為琥珀色，達 90% 時轉為紅色。
+- 將游標移到項目上或點擊項目，可查看所有已回報的視窗及其重設時間和讀取時間。按
+  Escape 或點擊其他位置可關閉已固定的項目。
+- 未回報任何配額視窗的供應商不會顯示。所有供應商都未回報時，整條列會隱藏。
+- 右端顯示儀表板上次讀取報告的時間。當最近一次讀取失敗且仍在顯示上一次讀數時，它
+  會轉為琥珀色。
 
 ## 可以完成哪些操作
 
@@ -72,7 +87,7 @@ Overview 使用相符的狀態卡片與全寬的設定列。在寬螢幕上，�
 | **Dashboard 摘要** | 顯示 multi-agent 模式、線上狀態、版本、運行時間、provider 數量、30 天 token 總量、活動 provider 和可用的原生/路由模型。 |
 | **Sub-agent delegation** | 為 OpenCodex 委派指引與獨立的原生預設值 opt-in 共用，選擇原生或路由模型，以及可選的 reasoning effort。這不是 proxy 端逐次生成的路由器；詳見下文。 |
 | **Sidecar** | 選擇 web-search 模型及強度，以及圖像描述模型；更改從下一次請求開始生效。 |
-| **Maintenance** | 重新同步 Codex 模型目錄，檢視專案級設定繞過警告，檢查 latest/preview 版本，並可在更新後重啟代理。 |
+| **Maintenance** | 重新同步 Codex 模型目錄，檢視專案級設定繞過警告，檢查 latest/preview 版本，並可在更新後重啟代理。 在桌面 shell 中，該更新入口會開啟原生應用程式更新頁面，而不是執行套件更新器。 |
 | **啟動安全** | 顯示注入的 Codex 路由能否在重啟後繼續工作，並分別顯示服務、launcher shim 狀態和準確的修復命令。 |
 | **Windows 托盤** | 安裝使用者登入托盤，一鍵控制代理啟動、停止、重啟、面板和狀態。托盤不是代理重啟服務。 |
 | **Codex 自動啟動** | 允許已安裝的 Codex launcher shim 執行 `ocx ensure`。此開關不會安裝 shim 或後臺服務。 |
@@ -80,8 +95,8 @@ Overview 使用相符的狀態卡片與全寬的設定列。在寬螢幕上，�
 | **Add provider** | 分頁上方的單一搜尋框可同時搜尋帳號、免費、本機、付費四個分頁。搜尋時選取的分頁不會跳轉，結果依分頁分組並顯示數量。本機執行環境（Ollama、vLLM、LM Studio、LiteLLM）有專屬分頁，過長的說明會截斷為兩行，點擊即可查看全文。 |
 | **Codex Auth** | 新增 ChatGPT/Codex 池帳號，選擇下一 session 的帳號，重新整理 5h / 每週 / 30d 配額，啟用或停用配額自動切換，設定其 1–100% 閾值和臨時故障 failover。 |
 | **Subagents** | 在 `spawn_agent` override 列表中置頂最多五個原生或路由模型。 |
-| **Models** | 開關原生 GPT 與路由模型，設定 provider allowlist、上下文上限、v1/base/v2 以及 v2 thread 數量。探索關閉或回傳空清單時，已設定的 provider 仍會以零模型分組顯示。 |
-| **Logs** | 自動重新整理近期請求，顯示 token、請求 effort，以及（在可取得時）有效的外送 effort、解析後的模型、provider、狀態、request id、耗時與錯誤詳情。詳情檢視在適配器有輸出時，會包含精確的 reasoning 線路欄位。可依不透明的對話／session id（當客戶端有送出時）篩選，計算目前已載入 Logs ring 的 token 總量與估計牌價成本。 |
+| **Models** | 開關原生 GPT 與路由模型，設定 provider allowlist、上下文上限、v1/base/v2 以及 v2 thread 數量。頁面會區分已儲存至中樞端、此用戶端已取得，以及已在執行中的用戶端生效這三種狀態。取得時間無法證明內容包含中樞端最新儲存，執行階段生效狀態會明確顯示為尚未驗證。 |
+| **Logs** | 自動重新整理近期請求，顯示 token、請求強度、實際模型、provider、狀態、request id、耗時和錯誤詳情。 |
 | **Usage / Debug** | 檢視 token usage 覆蓋率與趨勢，或啟用可選的 provider transport 和 usage 提取診斷。 |
 | **Storage** | 唯讀的 CODEX_HOME 磁碟分佈（sessions、封存、資料庫、附件）。選用的封存清理：預覽最舊的 N%，然後隔離到 `CODEX_HOME/.trash`（預設），或在明確勾選核取方塊後永久刪除。**自動清理政策**是選擇加入，**預設關閉**（`storageCleanupPolicy.enabled`）；在 Storage 頁面設定門檻／目標／排程／模式，或觸發**立即執行**。被隔離的項目可以從 Storage 頁面還原（JSONL + threads）。作用中的 session 維持唯讀。當 Codex 持有最新／作用中的 `state_*.sqlite` 鎖定時，清理與還原會被拒絕。 |
 | **Stop** | 優雅地停止代理和已安裝的後臺服務，恢復原生 Codex 並退出（`POST /api/stop`）。在使用工作排程器後端的 Windows 上，儀表板會拒絕並提示改用 `ocx stop`：工作結束後包裝程序仍可能重新啟動 Proxy，只有執行在 Proxy 之外的 stop 才能在還原用戶端設定前確認這個重啟視窗。被拒絕時不會做任何變更。 |
@@ -289,3 +304,9 @@ provider 設定。因此無需手動分類，[vision sidecar](/zh-tw/guides/side
 瀏覽器驗證還在等待期間，儀表板不會建議重新啟動一個健康的已連線用戶端。完成配對會立即刷新儀表板
 資料，包括先前快取的驗證失敗。工作階段逾期會回到配對流程；權限遭拒則保有自己的存取設定指引。
 其他刷新失敗可能會顯示最後收到的資料，並附上過期資料提示與重試動作。
+
+### 用量圖表的鍵盤與觸控操作
+
+用量熱力圖的每一天只有一個 Tab 進入點。用上／下移到相鄰的日期，左／右移到相鄰的週。週長條在
+鍵盤 focus、指標 hover 或觸控時，都會顯示相同的當日細節。日期標籤包含日期、請求數與 token 數；
+提示框會保持在可視範圍內。

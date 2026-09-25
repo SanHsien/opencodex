@@ -1,8 +1,9 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { restartCodexDesktopApp, type DesktopAppRestartIo } from "../../src/codex/desktop-app-restart";
+import { setDarwinKillForTests } from "../../src/codex/desktop-app/darwin";
 import { isUnderRoot } from "../../src/codex/desktop-app/types";
 import {
   acquireDesktopRestartLock,
@@ -52,6 +53,15 @@ function psRows(rows: Array<[number, number, string]>): string {
   return rows.map(([pid, ppid, exe]) => `${pid} ${ppid} ${WHEN}   ${process.getuid?.() ?? 0} ${exe}`).join("\n");
 }
 
+/**
+ * Every signal the darwin adapter sends. The adapter signals through `process.kill`, which the
+ * exec seam cannot intercept, so without this recorder the synthetic pids below (15901 …) were
+ * signalled for real on whatever machine ran the suite.
+ */
+const kills: Array<[number, string]> = [];
+beforeEach(() => { setDarwinKillForTests((pid, signal) => { kills.push([pid, signal]); }); });
+afterEach(() => { setDarwinKillForTests(null); });
+
 function darwinIo(options: {
   calls: Call[];
   rows?: Array<[number, number, string]>;
@@ -97,9 +107,27 @@ describe("desktop restart membership is a path boundary, not a prefix", () => {
     expect(isUnderRoot("/usr/lib/chatgpt-evil/ChatGPT", "/usr/lib/chatgpt")).toBe(false);
     expect(isUnderRoot("/usr/lib/chatgpt/ChatGPT", "/usr/lib/chatgpt")).toBe(true);
   });
+
+  test("a forward slash separates on every host, a backslash only where the host says so", () => {
+    // Windows accepts `/` wherever it accepts `\`, and a probe can return either. Reading a
+    // forward-slash member as "outside the tree" is fail-closed but wrong: the restart the
+    // user asked for silently becomes a no-op.
+    expect(isUnderRoot("C:/Program Files/OpenAI.Codex/chatgpt.exe", "C:/Program Files/OpenAI.Codex")).toBe(true);
+    expect(isUnderRoot("C:/Program Files/OpenAI.Codex-evil/chatgpt.exe", "C:/Program Files/OpenAI.Codex")).toBe(false);
+    // The reverse is NOT symmetric. On POSIX a backslash is an ordinary filename
+    // character, so admitting it as a separator would reopen the sibling hole.
+    expect(isUnderRoot("/usr/lib/chatgpt\\evil", "/usr/lib/chatgpt")).toBe(process.platform === "win32");
+  });
 });
 
-describe("macOS desktop restart", () => {
+/**
+ * The POSIX adapters scope enumeration to the current user through `process.getuid()`,
+ * which a Windows host does not provide. There the probe correctly reports that it could
+ * not run, so these cases cannot be driven from Windows at all - the shared ladder they
+ * exercise is covered by the Ubuntu and macOS shards. The membership and lock cases above
+ * have no such dependency and keep running everywhere.
+ */
+describe.skipIf(process.platform === "win32")("macOS desktop restart", () => {
   test("quits through the Apple event and relaunches by bundle id", () => {
     const calls: Call[] = [];
     const result = restartCodexDesktopApp(darwinIo({ calls }));
@@ -196,7 +224,7 @@ describe("macOS desktop restart", () => {
   });
 });
 
-describe("a stop is only ever claimed when the enumeration agrees (measured on Windows)", () => {
+describe.skipIf(process.platform === "win32")("a stop is only ever claimed when the enumeration agrees (measured on Windows)", () => {
   // The defect this pins was invisible to ten rounds of code review and surfaced in the
   // first thirty seconds of running the ladder on a real Windows host: it reported
   // {"stopped":[27788],"surviving":[],"relaunch":"started"} while the app kept its
@@ -258,6 +286,26 @@ describe("a stop is only ever claimed when the enumeration agrees (measured on W
     expect(result.surviving).toEqual([15901]);
     expect(result.reason).toBe("targets_survived");
     expect(calls.some(call => call.file === "/usr/bin/open")).toBe(false);
+  });
+});
+
+describe.skipIf(process.platform === "win32")("darwin signals stay inside the suite", () => {
+  test("a forced stop signals the recorder, never a real pid", () => {
+    kills.length = 0;
+    restartCodexDesktopApp({
+      platform: "darwin",
+      lock: isolatedLock(),
+      ancestryPids: () => [99_999],
+      isAlive: () => true,
+      sleep: () => {},
+      now: (() => { let t = 0; return () => (t += 500); })(),
+      execFile: (file) => {
+        if (file === "/bin/ps") return psRows([[15901, 1, SHELL]]);
+        if (file === "/usr/libexec/PlistBuddy") return "com.openai.codex";
+        return "";
+      },
+    });
+    expect(kills.some(([pid]) => pid === 15901)).toBe(true);
   });
 });
 
@@ -325,4 +373,3 @@ describe("a restart already in flight does not start a second one", () => {
     expect(calls).toEqual([]);
   });
 });
-

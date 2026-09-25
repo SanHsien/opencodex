@@ -2,11 +2,27 @@ import { describe, expect, test } from "bun:test";
 import { createCursorAdapter as createCursorAdapterProduction } from "../../../src/adapters/cursor";
 import {
   CURSOR_ECHO_RETRY_CONTINUATION_TEXT,
+  CURSOR_ROUTING_COMMENTARY_RETRY_TEXT,
   CursorEnvelopeEchoSniffer,
   CursorMidstreamEchoObserver,
   CursorRoutingCommentarySniffer,
   MAX_MIDSTREAM_SCAN_LENGTH,
+  stripAssistantEchoedToolEnvelope,
 } from "../../../src/adapters/cursor/envelope-echo";
+import {
+  CURSOR_ENVELOPE_ECHO_REMINT_MAX,
+  clearCursorEnvelopeEchoRemintForTests,
+  clearCursorIncompleteToolRemintForTests,
+  clearCursorThreadContinuityForTests,
+  cursorEnvelopeEchoRemintScopeKey,
+  lookupCursorThreadConversation,
+  recordCursorEnvelopeEchoRemint,
+  recordCursorIncompleteToolRemint,
+  rememberCursorConversationRewrite,
+  resolveCursorConversationRewrite,
+} from "../../../src/adapters/cursor/thread-continuity";
+import { resolveCursorConversationId } from "../../../src/adapters/cursor/request-builder";
+import { ToolEnvelopeEchoFilter } from "../../../src/lib/tool-envelope-echo-filter";
 import type { AdapterEvent, OcxParsedRequest, OcxProviderConfig } from "../../../src/types";
 import type { CursorRunRequest, CursorServerMessage } from "../../../src/adapters/cursor/types";
 import { withTestTranslatorBudget } from "../../helpers/translator-budget";
@@ -84,8 +100,12 @@ describe("cursor external output quarantine + corrective retry (devlog 260826 ga
       observer.feed("Leading text about progress.\n");
       observer.feed(RUN03_SPECIMEN);
       const findings = observer.findings();
-      expect(findings).toHaveLength(1);
-      expect(findings[0]!.callIdCorrupt).toBe(true);
+      expect(findings).toHaveLength(2);
+      expect(findings[0]!.marker).toBe("[Tool Result]");
+      // The corrupt call-id sits after the second (duplicated) marker, so it is
+      // attributed to that marker's window — the first marker's span is clean.
+      expect(findings[0]!.callIdCorrupt).toBe(false);
+      expect(findings[1]!.callIdCorrupt).toBe(true);
     });
 
     test("clean call-id lines do not flag corruption", () => {
@@ -93,8 +113,8 @@ describe("cursor external output quarantine + corrective retry (devlog 260826 ga
       observer.feed("Leading text.\n");
       observer.feed("[Tool Result]\n[tool_result]\ncall_id: call-1\nfc_63367283-2aec-9a25_1\noutput:\nok\n");
       const findings = observer.findings();
-      expect(findings).toHaveLength(1);
-      expect(findings[0]!.callIdCorrupt).toBe(false);
+      expect(findings).toHaveLength(2);
+      expect(findings.every(finding => !finding.callIdCorrupt)).toBe(true);
     });
 
     test("a marker fragmented across delta boundaries still fires", () => {
@@ -105,6 +125,38 @@ describe("cursor external output quarantine + corrective retry (devlog 260826 ga
       expect(findings).toHaveLength(1);
       expect(findings[0]!.marker).toBe("[Tool Result]");
       expect(findings[0]!.callIdCorrupt).toBe(true);
+    });
+
+    test("closely spaced markers retain independent corruption findings", () => {
+      const observer = new CursorMidstreamEchoObserver();
+      observer.feed("lead\n[Tool Result]\nfc_63367283 mar-broken_0\n[Tool Error]\nclean\n");
+      expect(observer.findings()).toEqual([
+        { marker: "[Tool Result]", offset: 5, callIdCorrupt: true },
+        { marker: "[Tool Error]", offset: 44, callIdCorrupt: false },
+      ]);
+    });
+
+    test("a clean marker is not contaminated by corruption after the next marker", () => {
+      const observer = new CursorMidstreamEchoObserver();
+      observer.feed("lead\n[Tool Result]\nclean\n[Tool Error]\nfc_123 mar-broken_0\n");
+      const findings = observer.findings();
+      expect(findings).toHaveLength(2);
+      expect(findings[0]!.marker).toBe("[Tool Result]");
+      expect(findings[0]!.callIdCorrupt).toBe(false);
+      expect(findings[1]!.marker).toBe("[Tool Error]");
+      expect(findings[1]!.callIdCorrupt).toBe(true);
+    });
+
+    test.each([false, true])("same-line corruption belongs to the new marker (split=%s)", split => {
+      const observer = new CursorMidstreamEchoObserver();
+      observer.feed("lead\n[Tool Result]\nclean\n");
+      if (split) {
+        observer.feed("[Tool Er");
+        observer.feed("ror] fc_123 mar-broken_0\n");
+      } else {
+        observer.feed("[Tool Error] fc_123 mar-broken_0\n");
+      }
+      expect(observer.findings().map(finding => finding.callIdCorrupt)).toEqual([false, true]);
     });
 
     test("a mid-line marker mention does not fire", () => {
@@ -210,6 +262,42 @@ describe("cursor external output quarantine + corrective retry (devlog 260826 ga
     expect(contextFree.finish().kind).toBe("flush");
   });
 
+  test.each(["네이티브 셸", "네이티브 쉘", "네이티브셸", "네이티브\t쉘", "“네이티브 셸”", "(네이티브쉘)"])(
+    "localized shell requires a redirect or a second distinct tool (%s)", nativeShell => {
+      const redirect = new CursorRoutingCommentarySniffer();
+      expect(redirect.feed(`${nativeShell}이 차단되어 exec_command로 전환합니다.`).kind).toBe("hallucination");
+      const distinct = new CursorRoutingCommentarySniffer();
+      expect(distinct.feed(`${nativeShell}과 Read가 모두 unavailable 상태입니다.`).kind).toBe("hallucination");
+    },
+  );
+
+  test.each(["비네이티브 셸", "비네이티브쉘", "x네이티브 셸", "_네이티브쉘", "1네이티브 셸", "a\u0301네이티브 셸"])(
+    "embedded Korean shell wording does not fabricate a second tool (%s)", nativeShell => {
+      const sniffer = new CursorRoutingCommentarySniffer();
+      expect(sniffer.feed(`${nativeShell} 관련 Read가 unavailable 상태입니다.`).kind).toBe("hold");
+      expect(sniffer.finish().kind).toBe("flush");
+    },
+  );
+
+  test("localized shell detection spans native-name and redirect delta boundaries", () => {
+    const sniffer = new CursorRoutingCommentarySniffer();
+    for (const fragment of ["네이", "티브 ", "쉘이 차단되어 ", "exec_"]) {
+      expect(sniffer.feed(fragment).kind).toBe("hold");
+    }
+    expect(sniffer.feed("command로 전환합니다.").kind).toBe("hallucination");
+  });
+
+  test.each([
+    "네이티브 셸이 unavailable 상태입니다.",
+    "네이티브 셸과 네이티브 쉘이 모두 blocked 상태입니다.",
+    "Shell과 네이티브 셸이 모두 blocked 상태입니다.",
+    "SHELL과 네이티브쉘, 네이티브 셸이 모두 unavailable 상태입니다.",
+  ])("shell aliases alone do not fabricate two distinct tools (%s)", text => {
+    const sniffer = new CursorRoutingCommentarySniffer();
+    expect(sniffer.feed(text).kind).toBe("hold");
+    expect(sniffer.finish().kind).toBe("flush");
+  });
+
   test("external tool-result echo retries once with the corrective action text and no leaked envelope", async () => {
     const { factory, runRequests, attempts } = echoingThenHealthyTransportFactory();
     const adapter = createCursorAdapter({ ...provider, apiKey: "cursor-token" }, { createTransport: factory as never });
@@ -265,6 +353,180 @@ describe("cursor external output quarantine + corrective retry (devlog 260826 ga
     expect(text).toBe("[note] leading bracket but not an envelope");
   });
 
+  test("reasoning-only quarantine is capped and disarms before unbounded retention", async () => {
+    let attempt = 0;
+    const factory = () => ({
+      async *run() {
+        attempt += 1;
+        for (let i = 0; i < 100; i += 1) {
+          yield { type: "thinking", thinking: "x".repeat(128) } satisfies CursorServerMessage;
+        }
+        // Once the aggregate hold cap flushes, the turn cannot retry, but the independent
+        // client-facing filter still removes the echoed envelope.
+        yield { type: "text", text: ECHO_TEXT } satisfies CursorServerMessage;
+        yield { type: "done", usage: { inputTokens: 1, outputTokens: 1 } } satisfies CursorServerMessage;
+      },
+      writeClient() {},
+    });
+    const adapter = createCursorAdapter(
+      { ...provider, apiKey: "cursor-token" },
+      { createTransport: factory as never },
+    );
+    const events: AdapterEvent[] = [];
+    await adapter.runTurn?.(
+      toolResultBody("cursor/kimi-k3"),
+      { headers: new Headers() },
+      event => events.push(event),
+    );
+
+    expect(attempt).toBe(1);
+    expect(events.filter(event => event.type === "thinking_delta")).toHaveLength(100);
+    expect(events.filter(event => event.type === "text_delta")).toHaveLength(0);
+  });
+
+  test("an oversized first text delta is still classified by the echo sniffer", async () => {
+    // One text delta larger than the aggregate hold cap whose leading bytes are the
+    // echoed envelope marker.
+    let attempt = 0;
+    const runRequests: CursorRunRequest[] = [];
+    const oversizedFactory = () => ({
+      async *run(request: CursorRunRequest) {
+        runRequests.push(request);
+        attempt += 1;
+        if (attempt === 1) {
+          yield { type: "text", text: ECHO_TEXT + "x".repeat(32 * 1024) } satisfies CursorServerMessage;
+          yield { type: "done", usage: { inputTokens: 1, outputTokens: 1 } } satisfies CursorServerMessage;
+          return;
+        }
+        yield { type: "text", text: "STATE A17" } satisfies CursorServerMessage;
+        yield { type: "done", usage: { inputTokens: 1, outputTokens: 1 } } satisfies CursorServerMessage;
+      },
+      writeClient() {},
+    });
+    const adapter = createCursorAdapter({ ...provider, apiKey: "cursor-token" }, { createTransport: oversizedFactory as never });
+    const events: AdapterEvent[] = [];
+    await adapter.runTurn?.(toolResultBody("cursor/kimi-k3"), { headers: new Headers() }, event => events.push(event));
+    expect(attempt).toBe(2);
+    const text = events.filter(e => e.type === "text_delta").map(e => (e as { text: string }).text).join("");
+    expect(text).toBe("STATE A17");
+  });
+
+  test("an oversized first text delta is still classified by the routing sniffer", async () => {
+    let attempt = 0;
+    const factory = () => ({
+      async *run() {
+        attempt += 1;
+        if (attempt === 1) {
+          // Routing claim padded past the 8 KiB aggregate cap in a single delta.
+          yield {
+            type: "text",
+            text: "네이티브 셸은 차단됐으니 exec_command 경로로 읽겠습니다. " + "x".repeat(32 * 1024),
+          } satisfies CursorServerMessage;
+          yield { type: "done", usage: { inputTokens: 1, outputTokens: 1 } } satisfies CursorServerMessage;
+          return;
+        }
+        yield { type: "text", text: "READ_OK" } satisfies CursorServerMessage;
+        yield { type: "done", usage: { inputTokens: 1, outputTokens: 1 } } satisfies CursorServerMessage;
+      },
+      writeClient() {},
+    });
+    const body = {
+      modelId: "cursor/kimi-k3-1m",
+      context: {
+        messages: [{ role: "user", content: "Read the file and report its first line.", timestamp: 1 }],
+        tools: [{
+          name: "exec",
+          description: "Run JavaScript code to orchestrate nested tool calls.",
+          parameters: {},
+          freeform: true,
+        }],
+      },
+      stream: false,
+      options: {},
+      _cursorConversationId: "cursor_routing_oversized",
+      _cursorIdentityScope: "acct-routing-commentary",
+    } as OcxParsedRequest;
+    const adapter = createCursorAdapter({ ...provider, apiKey: "cursor-token" }, { createTransport: factory as never });
+    const events: AdapterEvent[] = [];
+    await adapter.runTurn?.(body, { headers: new Headers() }, event => events.push(event));
+    expect(attempt).toBe(2);
+    const text = events.filter(e => e.type === "text_delta").map(e => (e as { text: string }).text).join("");
+    expect(text).toBe("READ_OK");
+  });
+
+  test("a single reasoning frame larger than the cap flushes without unbounded retention", async () => {
+    let attempt = 0;
+    const bigThinking = "y".repeat(64 * 1024);
+    const factory = () => ({
+      async *run() {
+        attempt += 1;
+        yield { type: "thinking", thinking: bigThinking } satisfies CursorServerMessage;
+        yield { type: "text", text: "post-thought answer" } satisfies CursorServerMessage;
+        yield { type: "done", usage: { inputTokens: 1, outputTokens: 1 } } satisfies CursorServerMessage;
+      },
+      writeClient() {},
+    });
+    const adapter = createCursorAdapter({ ...provider, apiKey: "cursor-token" }, { createTransport: factory as never });
+    const events: AdapterEvent[] = [];
+    await adapter.runTurn?.(
+      toolResultBody("cursor/kimi-k3"),
+      { headers: new Headers() },
+      event => events.push(event),
+    );
+    expect(attempt).toBe(1);
+    const thinking = events.filter(e => e.type === "thinking_delta").map(e => (e as { thinking: string }).thinking).join("");
+    expect(thinking).toBe(bigThinking);
+    const text = events.filter(e => e.type === "text_delta").map(e => (e as { text: string }).text).join("");
+    expect(text).toBe("post-thought answer");
+  });
+
+  test.each([
+    " ".repeat(513) + ECHO_TEXT + "x".repeat(32 * 1024),
+    "Ordinary prose. ".repeat(150) + "Shell is blocked; switching to exec_command. " + "x".repeat(32 * 1024),
+  ])("matches beyond bounded retry prefixes still pass the line-aware output filter", async text => {
+    let attempts = 0;
+    const adapter = createCursorAdapter({ ...provider, apiKey: "cursor-token" }, {
+      createTransport: (() => ({
+        async *run() {
+          attempts++;
+          yield { type: "text", text } satisfies CursorServerMessage;
+          yield { type: "done" } satisfies CursorServerMessage;
+        },
+        writeClient() {},
+      })) as never,
+    });
+    const body = toolResultBody("cursor/kimi-k3");
+    body.context.tools = [{ name: "exec", description: "Execute tools", parameters: {}, freeform: true }];
+    const events: AdapterEvent[] = [];
+    await adapter.runTurn?.(body, { headers: new Headers() }, event => events.push(event));
+    expect(attempts).toBe(1);
+    const delivered = events.filter(event => event.type === "text_delta").map(event => event.text).join("");
+    expect(delivered).toBe(text.startsWith(" ".repeat(513))
+      ? " ".repeat(513) + "[Tool Result]\n"
+      : text);
+    expect(events.some(event => event.type === "error")).toBe(false);
+  });
+
+  test.each([1, 100])("quarantine keeps reasoning ordered before an upstream error (%s frames)", async count => {
+    const adapter = createCursorAdapter({ ...provider, apiKey: "cursor-token" }, {
+      createTransport: (() => ({
+        async *run() {
+          for (let i = 0; i < count; i++) {
+            yield { type: "thinking", thinking: `${i}:` + "x".repeat(128) } satisfies CursorServerMessage;
+          }
+          yield { type: "error", message: "upstream fixture failure" } satisfies CursorServerMessage;
+        },
+        writeClient() {},
+      })) as never,
+    });
+    const events: AdapterEvent[] = [];
+    await adapter.runTurn?.(toolResultBody("cursor/kimi-k3"), { headers: new Headers() }, event => events.push(event));
+    const output = events.filter(event => event.type === "thinking_delta" || event.type === "error");
+    expect(output.filter(event => event.type === "thinking_delta").map(event => event.thinking))
+      .toEqual(Array.from({ length: count }, (_, i) => `${i}:` + "x".repeat(128)));
+    expect(output.at(-1)).toMatchObject({ type: "error", message: "upstream fixture failure" });
+  });
+
   test("plain user turns (no trailing toolResult) never arm the sniffer", async () => {
     let attempt = 0;
     const factory = () => ({
@@ -318,7 +580,11 @@ describe("cursor external output quarantine + corrective retry (devlog 260826 ga
     expect(runRequests[1]?.echoRetryContinuationText).toBeDefined();
   });
 
-  test("code-mode routing commentary that invents a blocked native Shell is quarantined and retried", async () => {
+  test.each([
+    { fragments: ["`Shell` 경로는 차단됐으니 exec_command 경로로 읽겠습니다."] },
+    { fragments: ["네이", "티브 셸은 차단됐으니 ", "exec_command 경로로 읽겠습니다."] },
+    { fragments: ["네이티브", "쉘은 차단됐으니 ", "exec_command 경로로 읽겠습니다."] },
+  ])("code-mode routing commentary is quarantined and retried once (%j)", async ({ fragments }) => {
     let attempt = 0;
     const runRequests: CursorRunRequest[] = [];
     const factory = () => ({
@@ -326,10 +592,9 @@ describe("cursor external output quarantine + corrective retry (devlog 260826 ga
         runRequests.push(request);
         attempt += 1;
         if (attempt === 1) {
-          yield {
-            type: "text",
-            text: "`Shell` 경로는 또 같은 문구로 차단됐으니, 통과가 확인된 `exec_command` 경로로 읽겠습니다.",
-          } satisfies CursorServerMessage;
+          for (const text of fragments) {
+            yield { type: "text", text } satisfies CursorServerMessage;
+          }
         } else {
           yield { type: "text", text: "READ_OK" } satisfies CursorServerMessage;
         }
@@ -359,7 +624,340 @@ describe("cursor external output quarantine + corrective retry (devlog 260826 ga
     const text = events.filter(e => e.type === "text_delta").map(e => (e as { text: string }).text).join("");
     expect(attempt).toBe(2);
     expect(text).toBe("READ_OK");
-    expect(text).not.toContain("Shell");
-    expect(runRequests[1]?.echoRetryContinuationText).toBeDefined();
+    expect(text).not.toContain(fragments.join(""));
+    expect(runRequests).toHaveLength(2);
+    expect(runRequests[1]?.echoRetryContinuationText).toBe(CURSOR_ROUTING_COMMENTARY_RETRY_TEXT);
+  });
+});
+
+describe("stripAssistantEchoedToolEnvelope", () => {
+  test("keeps leading commentary and drops the envelope that follows it", () => {
+    expect(stripAssistantEchoedToolEnvelope(
+      "20-24 pages are on the board.\n[Tool Result]\n[tool_result]\nname: Write\noutput:\nwrote it\n",
+    )).toBe("20-24 pages are on the board.");
+  });
+
+  test("keeps a real answer written after the echo", () => {
+    // The whole point of bounding the strip at the blank line: truncating to the end of the
+    // message would have discarded this answer from every later replay.
+    expect(stripAssistantEchoedToolEnvelope(
+      "Checking now.\n[Tool Result]\nname: Read\noutput: 41 rows\n\nThe table has 41 rows.",
+    )).toBe("Checking now.\n\nThe table has 41 rows.");
+  });
+
+  test("keeps a marker line that sits inside a fenced code block", () => {
+    const fence = "\x60\x60\x60";
+    const source = "Example output:\n" + fence + "text\n[Tool Result]\nname: Read\n" + fence + "\nThat is the format.";
+    expect(stripAssistantEchoedToolEnvelope(source)).toBe(source);
+  });
+
+  test("an unclosed block in stored history does not shield an echoed envelope", () => {
+    const fence = "\x60\x60\x60";
+    expect(stripAssistantEchoedToolEnvelope("Intro\n" + fence + "text\n[Tool Result]\nsecret"))
+      .toBe("Intro\n" + fence + "text");
+  });
+
+  test("does not strip an inline mention of the marker", () => {
+    const source = "The string [Tool Result] appeared in the transcript I reviewed.";
+    expect(stripAssistantEchoedToolEnvelope(source)).toBe(source);
+  });
+
+  test("drops a prefix-only envelope to empty text", () => {
+    expect(stripAssistantEchoedToolEnvelope("[Tool Result]\n[tool_result]\ncall_id: 1\n")).toBe("");
+  });
+
+  test("drops truncated result and tool-call replay markers after prose", () => {
+    expect(stripAssistantEchoedToolEnvelope("Done.\n[Tool Result")).toBe("Done.");
+    expect(stripAssistantEchoedToolEnvelope("Done.\n[Tool call: Glob\nargs\n"))
+      .toBe("Done.");
+  });
+});
+
+describe("shared incremental tool-envelope filter", () => {
+  test("flushes false prefixes promptly and harmless partial text on finish", () => {
+    const filter = new ToolEnvelopeEchoFilter();
+    expect(filter.feed("[Tool")).toBe("");
+    expect(filter.feed(" usage] is ordinary.\n[Tool"))
+      .toBe("[Tool usage] is ordinary.\n");
+    expect(filter.feed(" prose\n[Too")).toBe("[Tool prose\n");
+    expect(filter.finish()).toBe("[Too");
+    expect(filter.matched).toBe(false);
+  });
+
+  test("drops a truncated result marker at normal end after preserved prose", () => {
+    const filter = new ToolEnvelopeEchoFilter();
+    expect(filter.feed("Done.\n  [Tool Res")).toBe("Done.\n");
+    expect(filter.feed("ult")).toBe("");
+    expect(filter.finish()).toBe("");
+    expect(filter.matched).toBe(true);
+  });
+
+  test("drops a truncated result marker followed by a split CRLF line", () => {
+    const filter = new ToolEnvelopeEchoFilter();
+    expect(filter.feed("Safe.\r\n[Tool Result\r")).toBe("Safe.\r\n");
+    expect(filter.feed("\nsecret tail")).toBe("");
+    expect(filter.matched).toBe(true);
+  });
+});
+
+describe("Cursor midstream envelope-echo remint", () => {
+  test("rotates the conversation after grok-4.6 copies the envelope mid-message", async () => {
+    clearCursorThreadContinuityForTests();
+    clearCursorEnvelopeEchoRemintForTests();
+    const seen: string[] = [];
+    let attempts = 0;
+    const factory = () => ({
+      async *run(request: CursorRunRequest) {
+        seen.push(request.conversationId);
+        attempts += 1;
+        if (attempts === 1) {
+          yield { type: "text", text: "I'll write the import script now.\n" } satisfies CursorServerMessage;
+          yield { type: "text", text: "  [Tool " } satisfies CursorServerMessage;
+          yield { type: "text", text: "Result]\nname: Write\noutput: ok\n" } satisfies CursorServerMessage;
+          yield { type: "done", usage: { inputTokens: 1, outputTokens: 1 } } satisfies CursorServerMessage;
+          return;
+        }
+        yield { type: "text", text: "NEXT" } satisfies CursorServerMessage;
+        yield { type: "done", usage: { inputTokens: 1, outputTokens: 1 } } satisfies CursorServerMessage;
+      },
+      writeClient() {},
+    });
+    const adapter = createCursorAdapter({ ...provider, apiKey: "cursor-token" }, { createTransport: factory as never });
+
+    const threadId = "midstream-echo-remint-thread";
+    const body = {
+      ...toolResultBody("cursor/grok-4.6"),
+      _clientThreadId: threadId,
+      _cursorIdentityScope: "acct-midstream-echo",
+      _cursorConversationId: undefined,
+    } as OcxParsedRequest;
+
+    const first: AdapterEvent[] = [];
+    await adapter.runTurn?.(body, { headers: new Headers() }, event => first.push(event));
+    const firstText = first.filter(e => e.type === "text_delta").map(e => (e as { text: string }).text).join("");
+    expect(firstText).toContain("I'll write the import script now.");
+    expect(firstText).not.toContain("[Tool");
+    expect(body._cursorConversationId).toBeDefined();
+    expect(body._cursorConversationId).not.toBe(seen[0]);
+    expect(lookupCursorThreadConversation(threadId, "acct-midstream-echo")).toBe(body._cursorConversationId);
+
+    const second: AdapterEvent[] = [];
+    await adapter.runTurn?.(body, { headers: new Headers() }, event => second.push(event));
+    expect(attempts).toBe(2);
+    expect(seen[1]).toBe(body._cursorConversationId);
+    expect(second.filter(e => e.type === "text_delta").map(e => (e as { text: string }).text).join("")).toBe("NEXT");
+
+    clearCursorThreadContinuityForTests();
+    clearCursorEnvelopeEchoRemintForTests();
+  });
+
+  // composer-2.5-fast is a native-wire model, but since #5673 its tool results are replayed as
+  // root text like an external model's, so a pasted envelope must be stripped and reminted too.
+  test.each(["cursor/composer-2.5-fast", "cursor/composer-2.5"])(
+    "%s strips a mid-message envelope and rotates the conversation",
+    async modelId => {
+      clearCursorThreadContinuityForTests();
+      clearCursorEnvelopeEchoRemintForTests();
+      const seen: string[] = [];
+      const factory = () => ({
+        async *run(request: CursorRunRequest) {
+          seen.push(request.conversationId);
+          yield { type: "text", text: "Saved the file.\n[Tool " } satisfies CursorServerMessage;
+          yield { type: "text", text: "Result]\nname: Write\noutput: ok\n" } satisfies CursorServerMessage;
+          yield { type: "done", usage: { inputTokens: 1, outputTokens: 1 } } satisfies CursorServerMessage;
+        },
+        writeClient() {},
+      });
+      const adapter = createCursorAdapter({ ...provider, apiKey: "cursor-token" }, { createTransport: factory as never });
+      const body = {
+        ...toolResultBody(modelId),
+        _clientThreadId: `fast-echo-${modelId}`,
+        _cursorIdentityScope: "acct-fast-echo",
+        _cursorConversationId: undefined,
+      } as OcxParsedRequest;
+      const events: AdapterEvent[] = [];
+      await adapter.runTurn?.(body, { headers: new Headers() }, event => events.push(event));
+      const text = events.filter(e => e.type === "text_delta").map(e => (e as { text: string }).text).join("");
+      expect(text).toBe("Saved the file.\n");
+      expect(body._cursorConversationId).toBeDefined();
+      expect(body._cursorConversationId).not.toBe(seen[0]);
+      clearCursorThreadContinuityForTests();
+      clearCursorEnvelopeEchoRemintForTests();
+    },
+  );
+
+  test("a marker quoted in a closed code block is delivered intact and does not rotate the thread", async () => {
+    clearCursorThreadContinuityForTests();
+    clearCursorEnvelopeEchoRemintForTests();
+    const fence = "\x60\x60\x60";
+    const answer = "The replay looks like this:\n" + fence + "text\n[Tool Result]\nname: Write\n" + fence + "\nDone.";
+    const seen: string[] = [];
+    const factory = () => ({
+      async *run(request: CursorRunRequest) {
+        seen.push(request.conversationId);
+        yield { type: "text", text: answer.slice(0, 40) } satisfies CursorServerMessage;
+        yield { type: "text", text: answer.slice(40) } satisfies CursorServerMessage;
+        yield { type: "done", usage: { inputTokens: 1, outputTokens: 1 } } satisfies CursorServerMessage;
+      },
+      writeClient() {},
+    });
+    const adapter = createCursorAdapter({ ...provider, apiKey: "cursor-token" }, { createTransport: factory as never });
+    const body = {
+      ...toolResultBody("cursor/grok-4.6"),
+      _clientThreadId: "fenced-marker-thread",
+      _cursorIdentityScope: "acct-fenced",
+      _cursorConversationId: "cursor_fenced_conv",
+    } as OcxParsedRequest;
+    const events: AdapterEvent[] = [];
+    await adapter.runTurn?.(body, { headers: new Headers() }, event => events.push(event));
+    expect(events.filter(e => e.type === "text_delta").map(e => (e as { text: string }).text).join("")).toBe(answer);
+    expect(body._cursorConversationId).toBe(seen[0]);
+    clearCursorThreadContinuityForTests();
+    clearCursorEnvelopeEchoRemintForTests();
+  });
+
+  test("a fenced marker released by hold overflow still rotates the thread", async () => {
+    clearCursorThreadContinuityForTests();
+    clearCursorEnvelopeEchoRemintForTests();
+    const fence = "\x60\x60\x60";
+    const answer = fence + "\n[Tool Result]\n" + "x".repeat(70_000) + "\n";
+    const seen: string[] = [];
+    const factory = () => ({
+      async *run(request: CursorRunRequest) {
+        seen.push(request.conversationId);
+        yield { type: "text", text: answer } satisfies CursorServerMessage;
+        yield { type: "done", usage: { inputTokens: 1, outputTokens: 1 } } satisfies CursorServerMessage;
+      },
+      writeClient() {},
+    });
+    const adapter = createCursorAdapter({ ...provider, apiKey: "cursor-token" }, { createTransport: factory as never });
+    const body = {
+      ...toolResultBody("cursor/grok-4.6"),
+      _clientThreadId: "overflow-marker-thread",
+      _cursorIdentityScope: "acct-overflow",
+      _cursorConversationId: undefined,
+    } as OcxParsedRequest;
+    const events: AdapterEvent[] = [];
+    await adapter.runTurn?.(body, { headers: new Headers() }, event => events.push(event));
+    expect(events.filter(e => e.type === "text_delta").map(e => (e as { text: string }).text).join("")).toBe(answer);
+    expect(body._cursorConversationId).toBeDefined();
+    expect(body._cursorConversationId).not.toBe(seen[0]);
+    clearCursorThreadContinuityForTests();
+    clearCursorEnvelopeEchoRemintForTests();
+  });
+
+  test("a closed fenced block longer than the hold does not rotate the thread", async () => {
+    clearCursorThreadContinuityForTests();
+    clearCursorEnvelopeEchoRemintForTests();
+    const fence = "\x60\x60\x60";
+    const answer = fence + "\n[Tool Result]\n" + "x".repeat(70_000) + "\n" + fence + "\nDone.";
+    const seen: string[] = [];
+    const factory = () => ({
+      async *run(request: CursorRunRequest) {
+        seen.push(request.conversationId);
+        yield { type: "text", text: answer } satisfies CursorServerMessage;
+        yield { type: "done", usage: { inputTokens: 1, outputTokens: 1 } } satisfies CursorServerMessage;
+      },
+      writeClient() {},
+    });
+    const adapter = createCursorAdapter({ ...provider, apiKey: "cursor-token" }, { createTransport: factory as never });
+    const body = {
+      ...toolResultBody("cursor/grok-4.6"),
+      _clientThreadId: "overflow-closed-thread",
+      _cursorIdentityScope: "acct-overflow-closed",
+      _cursorConversationId: "cursor_overflow_closed",
+    } as OcxParsedRequest;
+    const events: AdapterEvent[] = [];
+    await adapter.runTurn?.(body, { headers: new Headers() }, event => events.push(event));
+    expect(events.filter(e => e.type === "text_delta").map(e => (e as { text: string }).text).join("")).toBe(answer);
+    expect(body._cursorConversationId).toBe(seen[0]);
+    clearCursorThreadContinuityForTests();
+    clearCursorEnvelopeEchoRemintForTests();
+  });
+
+  test("the echo allowance is bounded and independent of the incomplete-tool allowance", () => {
+    clearCursorEnvelopeEchoRemintForTests();
+    clearCursorIncompleteToolRemintForTests();
+    const scopeKey = cursorEnvelopeEchoRemintScopeKey("thread-echo-budget", "acct-echo-budget");
+    expect(scopeKey).not.toBeNull();
+
+    // Bounded: an endlessly echoing model must not rotate the conversation on every turn.
+    for (let attempt = 0; attempt < CURSOR_ENVELOPE_ECHO_REMINT_MAX; attempt++) {
+      expect(recordCursorEnvelopeEchoRemint(scopeKey!)).toBe(true);
+    }
+    expect(recordCursorEnvelopeEchoRemint(scopeKey!)).toBe(false);
+
+    // Independent: spending the echo budget leaves incomplete-tool recovery its full allowance,
+    // so a cheap repeated failure cannot starve the rarer structural one.
+    expect(recordCursorIncompleteToolRemint(scopeKey!)).toBe(true);
+
+    clearCursorEnvelopeEchoRemintForTests();
+    clearCursorIncompleteToolRemintForTests();
+  });
+
+  test("a missing or changing owner cannot reset the same conversation's remint budget", () => {
+    clearCursorThreadContinuityForTests();
+    clearCursorEnvelopeEchoRemintForTests();
+    let id = "poisoned";
+    const keys: string[] = [];
+    for (let index = 0; index <= CURSOR_ENVELOPE_ECHO_REMINT_MAX; index++) {
+      const owner = index % 2 ? `owner-${index}` : undefined;
+      const scope = cursorEnvelopeEchoRemintScopeKey(owner, "account-a", id)!;
+      keys.push(scope);
+      const allowed = recordCursorEnvelopeEchoRemint(scope);
+      expect(allowed).toBe(index < CURSOR_ENVELOPE_ECHO_REMINT_MAX);
+      if (allowed) {
+        const next = `fresh-${index}`;
+        rememberCursorConversationRewrite(id, next, "account-a");
+        id = next;
+      }
+    }
+    expect(new Set(keys).size).toBe(1);
+    clearCursorThreadContinuityForTests();
+    clearCursorEnvelopeEchoRemintForTests();
+  });
+
+  test("ownerless Desktop restores follow remints and stop after the echo allowance", async () => {
+    clearCursorThreadContinuityForTests();
+    clearCursorEnvelopeEchoRemintForTests();
+    const seen: string[] = [];
+    const adapter = createCursorAdapter({ ...provider, apiKey: "cursor-token" }, {
+      createTransport: (() => ({
+        async *run(request: CursorRunRequest) {
+          seen.push(request.conversationId);
+          yield { type: "text", text: "Progress.\n[Tool " } satisfies CursorServerMessage;
+          yield { type: "text", text: "Result]\nsecret" } satisfies CursorServerMessage;
+          yield { type: "done" } satisfies CursorServerMessage;
+        },
+        writeClient() {},
+      })) as never,
+    });
+    const after: string[] = [];
+    for (let index = 0; index <= CURSOR_ENVELOPE_ECHO_REMINT_MAX; index++) {
+      const body = { ...toolResultBody("cursor/grok-4.6"), _cursorConversationId: "restored-poisoned", _cursorIdentityScope: "ownerless-account" };
+      const events: AdapterEvent[] = [];
+      await adapter.runTurn?.(body, { headers: new Headers() }, event => events.push(event));
+      expect(events.filter(event => event.type === "text_delta").map(event => event.text).join(""))
+        .toBe("Progress.\n");
+      after.push(body._cursorConversationId!);
+    }
+    expect(seen[0]).toBe("restored-poisoned");
+    expect(new Set(seen).size).toBe(CURSOR_ENVELOPE_ECHO_REMINT_MAX + 1);
+    expect(after.at(-1)).toBe(seen.at(-1));
+    clearCursorThreadContinuityForTests();
+    clearCursorEnvelopeEchoRemintForTests();
+  });
+
+  test("restored conversation ids rewrite only inside their credential scope", () => {
+    clearCursorThreadContinuityForTests();
+    rememberCursorConversationRewrite("poisoned", "fresh-a", "account-a");
+    rememberCursorConversationRewrite("fresh-a", "latest-a", "account-a");
+    rememberCursorConversationRewrite("poisoned", "fresh-b", "account-b");
+    expect(resolveCursorConversationRewrite("poisoned", "account-a")).toBe("latest-a");
+    expect(resolveCursorConversationRewrite("poisoned", "account-b")).toBe("fresh-b");
+    expect(resolveCursorConversationRewrite("poisoned", "account-c")).toBe("poisoned");
+    const body = { ...toolResultBody("cursor/grok-4.6"), _cursorConversationId: "poisoned", _cursorIdentityScope: "account-b" };
+    expect(resolveCursorConversationId(body, "grok-4.6")).toBe("fresh-b");
+    clearCursorThreadContinuityForTests();
   });
 });

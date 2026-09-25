@@ -1,8 +1,10 @@
 import { describe, expect, spyOn, test } from "bun:test";
 import {
   comboStreamPayloadCommitsOutput,
+  deferProtocolSafeResetRecovery,
   preflightComboStreamResponse,
 } from "../../src/server/responses/combo-stream-preflight";
+import { stageCommitment, type RequestFailureStage } from "../../src/lib/request-failure-model";
 import type { RequestLogContext } from "../../src/server/request-log";
 import { MAX_CLIENT_SSE_FRAME_BYTES } from "../../src/server/sse-frame-buffer";
 
@@ -312,12 +314,30 @@ describe("combo stream preflight", () => {
     return message === DECRYPT_REJECTION;
   };
 
-  test("default 2-arg preflight commits a bare error, including exact decrypt, and preserves bytes", async () => {
+  test("default preflight retries zero-output bare errors without structured status", async () => {
     expect(comboStreamPayloadCommitsOutput({ type: "error" })).toBe(true);
+    for (const [payload, status] of [
+      [{ type: "error", message: "An error occurred while processing your request. Please include request ID r1." }, 502],
+      [{ type: "error", error: { message: "unknown upstream failure" } }, 502],
+      [{ type: "error", error: { type: "server_error", message: "busy" } }, 502],
+      [{ type: "error", error: { status: "429", message: "slow down" } }, 429],
+      [{ type: "error", error: { http_status: 503, message: "unavailable" } }, 503],
+    ]) {
+      const source = sse(
+        { type: "response.created", response: { id: "r1", status: "in_progress" } },
+        payload,
+      );
+      const result = await preflightComboStreamResponse(source, { model: "m1", provider: "a" });
+      expect(result.kind).toBe("failed");
+      expect(result.response.status).toBe(status);
+    }
+  });
+
+  test("does not retry explicit zero-output client errors", async () => {
     for (const payload of [
-      { type: "error", message: "unrelated upstream busy" },
-      { type: "error", message: DECRYPT_REJECTION },
-      { type: "error", error: { message: DECRYPT_REJECTION } },
+      { type: "error", error: { status: 400, message: "bad request" } },
+      { type: "error", error: { type: "invalid_request_error", message: "bad parameter" } },
+      { type: "error", code: "invalid_request_error", message: "bad argument" },
     ]) {
       const source = sse(
         { type: "response.created", response: { id: "r1", status: "in_progress" } },
@@ -330,10 +350,66 @@ describe("combo stream preflight", () => {
     }
   });
 
-  test("explicit 3-arg decrypt predicate converts a pre-output bare error into a failed terminal", async () => {
+  test("passes a zero-output credential error to the ordinary combo classifier", async () => {
+    const result = await preflightComboStreamResponse(sse({
+      type: "error",
+      error: { type: "authentication_error", message: "bad credential" },
+    }), { model: "m1", provider: "a" });
+
+    expect(result.kind).toBe("failed");
+    expect(result.response.status).toBe(401);
+  });
+
+  test("retries a structured model-lifecycle 410 through the ordinary combo classifier", async () => {
+    const result = await preflightComboStreamResponse(sse(
+      { type: "response.created", response: { id: "r1", status: "in_progress" } },
+      {
+        type: "error",
+        status: 410,
+        error: { code: "model_end_of_life", message: "model retired" },
+      },
+    ), { model: "m1", provider: "a" });
+
+    expect(result.kind).toBe("failed");
+    expect(result.response.status).toBe(410);
+  });
+
+  test("honors root status when a bare error has a nested error object", async () => {
+    const clientError = sse({
+      type: "error",
+      status: 400,
+      error: { status: 503, message: "bad request" },
+    });
+    const expected = await clientError.clone().text();
+    const clientResult = await preflightComboStreamResponse(clientError, { model: "m1", provider: "a" });
+    expect(clientResult.kind).toBe("accepted");
+    expect(await clientResult.response.text()).toBe(expected);
+
+    const serverResult = await preflightComboStreamResponse(sse({
+      type: "error",
+      status: 503,
+      error: { status: 400, message: "upstream failed" },
+    }), { model: "m1", provider: "a" });
+    expect(serverResult.kind).toBe("failed");
+    expect(serverResult.response.status).toBe(503);
+  });
+
+  test("treats invalid explicit error statuses as unknown upstream failures", async () => {
+    for (const status of [Number.NaN, 204, 999, "999"]) {
+      const result = await preflightComboStreamResponse(sse({
+        type: "error",
+        status,
+        error: { message: "upstream failed" },
+      }), { model: "m1", provider: "a" });
+      expect(result.kind).toBe("failed");
+      expect(result.response.status).toBe(502);
+    }
+  });
+
+  test("an explicit predicate can retry a known client-classified bare error", async () => {
     const source = sse(
       { type: "response.created", response: { id: "r1", status: "in_progress" } },
-      { type: "error", message: DECRYPT_REJECTION },
+      { type: "error", error: { status: 400, message: DECRYPT_REJECTION } },
     );
     const original = await source.clone().text();
     const result = await preflightComboStreamResponse(
@@ -343,12 +419,12 @@ describe("combo stream preflight", () => {
     );
 
     expect(result.kind).toBe("failed");
-    expect(result.response.status).toBe(502);
+    expect(result.response.status).toBe(400);
     expect(result.response.headers.get("content-type")).toContain("application/json");
     expect(await result.response.text()).not.toBe(original);
   });
 
-  test("an unrelated error followed by a matching failed terminal does not retry", async () => {
+  test("an explicit predicate still commits an unrelated bare error", async () => {
     const source = sse(
       { type: "response.created", response: { id: "r1", status: "in_progress" } },
       { type: "error", message: "unrelated upstream busy" },
@@ -371,7 +447,7 @@ describe("combo stream preflight", () => {
     expect(await result.response.text()).toBe(expected);
   });
 
-  test("output before a decrypt bare error does not retry", async () => {
+  test("output before a bare error does not retry", async () => {
     const source = sse(
       { type: "response.created", response: { id: "r1", status: "in_progress" } },
       { type: "response.output_text.delta", delta: "visible" },
@@ -383,6 +459,28 @@ describe("combo stream preflight", () => {
       { model: "m1", provider: "a" },
       exactDecryptRetryable,
     );
+
+    expect(result.kind).toBe("accepted");
+    expect(await result.response.text()).toBe(expected);
+  });
+
+  test("a bare error before output in the same chunk keeps the retry decision", async () => {
+    const result = await preflightComboStreamResponse(sse(
+      { type: "error", message: "upstream failed" },
+      { type: "response.output_text.delta", delta: "too late" },
+    ), { model: "m1", provider: "a" });
+
+    expect(result.kind).toBe("failed");
+    expect(result.response.status).toBe(502);
+  });
+
+  test("a completed terminal before a bare error in the same chunk stays authoritative", async () => {
+    const source = sse(
+      { type: "response.completed", response: { id: "r1", status: "completed", output: [] } },
+      { type: "error", message: "too late" },
+    );
+    const expected = await source.clone().text();
+    const result = await preflightComboStreamResponse(source, { model: "m1", provider: "a" });
 
     expect(result.kind).toBe("accepted");
     expect(await result.response.text()).toBe(expected);
@@ -442,7 +540,7 @@ describe("combo stream preflight", () => {
     expect(source.cancelSpy()!.mock.calls).toHaveLength(0);
   });
 
-  test("replayReadErrors accepts a reconstructed prefix and the same reader.read error", async () => {
+  test("replayReadErrors returns a reconstructed prefix, the same read error, and the observed stage", async () => {
     const readError = new Error("preflight-read-reset");
     const source = prefixThenReadError(createdPrefix, readError);
     const result = await preflightComboStreamResponse(
@@ -451,7 +549,14 @@ describe("combo stream preflight", () => {
       undefined,
       { replayReadErrors: true },
     );
-    expect(result.kind).toBe("accepted");
+    expect(result.kind).toBe("read-error");
+    if (result.kind === "read-error") {
+      expect(result.error).toBe(readError);
+      // response.created and nothing else: the failure model puts that in the prelude, and a
+      // prelude is a stage at which the caller has observed nothing.
+      expect(result.stage).toBe("protocol-prelude");
+      expect(stageCommitment(result.stage)).toBe("nothing-observed");
+    }
     expect(source.cancelSpy()).toBeDefined();
     expect(source.cancelSpy()!.mock.calls).toHaveLength(0);
     const reader = result.response.body!.getReader();
@@ -461,6 +566,90 @@ describe("combo stream preflight", () => {
     await expect(reader.read()).rejects.toBe(readError);
     expect(source.cancelSpy()).toBeDefined();
     expect(source.cancelSpy()!.mock.calls).toHaveLength(0);
+  });
+
+  test("a read error before any event is headers-only, and a committed stream never reports one", async () => {
+    const readError = new Error("preflight-read-reset");
+    const bare = await preflightComboStreamResponse(
+      prefixThenReadError(new TextEncoder().encode(""), readError).response,
+      { model: "m1", provider: "a" },
+      undefined,
+      { replayReadErrors: true },
+    );
+    expect(bare.kind).toBe("read-error");
+    if (bare.kind === "read-error") {
+      expect(bare.stage).toBe("headers-only");
+      expect(stageCommitment(bare.stage)).toBe("nothing-observed");
+    }
+
+    // Once output commits the preflight stops buffering and hands the body back, so the read
+    // error that follows happens on the caller's side of the boundary and no stage is ever
+    // reported. That is the stronger statement: a committed stream does not reach the resend
+    // gate at all, rather than reaching it and being refused there.
+    const outputPrefix = new TextEncoder().encode(`data: ${JSON.stringify({
+      type: "response.output_text.delta", delta: "hi",
+    })}\n\n`);
+    const committed = await preflightComboStreamResponse(
+      prefixThenReadError(outputPrefix, readError).response,
+      { model: "m1", provider: "a" },
+      undefined,
+      { replayReadErrors: true },
+    );
+    expect(committed.kind).toBe("accepted");
+    // The prefix is still relayed and the error still reaches whoever reads it.
+    const reader = committed.response.body!.getReader();
+    expect((await reader.read()).value).toEqual(outputPrefix);
+    await expect(reader.read()).rejects.toBe(readError);
+  });
+
+  /**
+   * The boundary that decides resend permission, asserted where it is actually enforced.
+   *
+   * The stage a read error is reported at is only half the guarantee. What matters is that a
+   * stream which committed output never gets a replacement offered at all, and the seam that
+   * decides it is the deferred wrapper, not the preflight. The commitment is read from
+   * `stageCommitment` rather than compared against a written-out stage name, so a stage added
+   * to the model later cannot pass this by being unlisted.
+   */
+  test("a replacement is offered only for a stage the caller observed nothing at", async () => {
+    const readError = new Error("preflight-read-reset");
+    const logCtx: RequestLogContext = { model: "m1", provider: "a" };
+    const seen: RequestFailureStage[] = [];
+    const recover = async (_error: unknown, stage: RequestFailureStage): Promise<Response | null> => {
+      seen.push(stage);
+      return null;
+    };
+
+    const prelude = deferProtocolSafeResetRecovery(
+      prefixThenReadError(createdPrefix, readError).response, logCtx, recover);
+    const preludeReader = prelude.body!.getReader();
+    expect((await preludeReader.read()).value).toEqual(createdPrefix);
+    await expect(preludeReader.read()).rejects.toBe(readError);
+    expect(seen).toHaveLength(1);
+    expect(stageCommitment(seen[0]!)).toBe("nothing-observed");
+
+    seen.length = 0;
+    const outputPrefix = new TextEncoder().encode(`data: ${JSON.stringify({
+      type: "response.output_text.delta", delta: "hi",
+    })}\n\n`);
+    const committed = deferProtocolSafeResetRecovery(
+      prefixThenReadError(outputPrefix, readError).response, logCtx, recover);
+    const committedReader = committed.body!.getReader();
+    expect((await committedReader.read()).value).toEqual(outputPrefix);
+    await expect(committedReader.read()).rejects.toBe(readError);
+    // Never consulted. A turn whose output the caller already saw cannot be replaced, and it
+    // does not get as far as asking.
+    expect(seen).toEqual([]);
+  });
+
+  test("a response.created carrying output is not a prelude", () => {
+    expect(comboStreamPayloadCommitsOutput({
+      type: "response.created", response: { id: "r1", output: [] },
+    })).toBe(false);
+    expect(comboStreamPayloadCommitsOutput({
+      type: "response.created",
+      response: { id: "r1", output: [{ type: "message", role: "assistant" }] },
+    })).toBe(true);
   });
 
 });

@@ -21,10 +21,14 @@ import {
   type ExportModel,
   type HermesGeneratedConfig,
   type McodeGeneratedConfig,
+  type KimiGeneratedConfig,
+  type OpenclawGeneratedConfig,
   type OpencodeGeneratedConfig,
   type PiGeneratedConfig,
   type RaycastGeneratedConfig,
+  type ZcodeGeneratedConfig,
 } from "../../src/clients/config-export";
+import type { ClineGeneratedConfig } from "../../src/clients/config-export/cline";
 import type { OcxConfig } from "../../src/types";
 import { catalogConvergenceFactory } from "../helpers/catalog-convergence";
 import { removeTreeWithRetry } from "../helpers/remove-tree";
@@ -161,6 +165,75 @@ function toExportModel(row: ModelRow): ExportModel {
   };
 }
 
+
+describe("native Anthropic image input reaches client documents", () => {
+  test.each(["anthropic", "anthropic-apikey"])("all capability-aware exports advertise image input for %s", async (provider) => {
+    const config = {
+      port: 10100,
+      hostname: "127.0.0.1",
+      defaultProvider: provider,
+      providers: {
+        [provider]: {
+          adapter: "anthropic",
+          baseUrl: "https://api.anthropic.com",
+          authMode: provider === "anthropic" ? "oauth" : "key",
+          liveModels: false,
+          // Anthropic Fast is opt-in; enable it so the export roster includes the --fast selectors.
+          fastEnabled: true,
+        },
+      },
+    } as unknown as OcxConfig;
+    // Use the production catalog, not hand-authored ExportModels that would conceal missing seeds.
+    const models = (await loadExportModels(config))
+      .filter(model => model.provider === provider);
+    expect(models.length).toBeGreaterThan(0);
+    const context = { baseUrl: "http://127.0.0.1:10100/v1", config, models };
+    // Client exports must include exactly the documented Anthropic Fast selectors. Keep this
+    // roster explicit so new base catalog models cannot silently change the assertion.
+    const expectedInputs = models
+      .map(model => ({ id: model.namespaced, input: ["text", "image"] }))
+      .sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+    const expectedFastInputs = ["claude-opus-4-8", "claude-opus-5", "claude-opus-5-5"]
+      .map(model => ({ id: `${provider}/${model}--fast`, input: ["text", "image"] }))
+      .sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+    const expectImageInputs = (rows: Array<{ id: string; input: string[] }>) => {
+      const baseRows = rows.filter(row => !row.id.endsWith("--fast"));
+      const fastRows = rows.filter(row => row.id.endsWith("--fast"));
+      expect(baseRows).toEqual(expectedInputs);
+      expect(fastRows).toEqual(expectedFastInputs);
+    };
+
+    for (const client of ["aside", "pi", "gajae", "prime", "omo", "omp"] as const) {
+      const document = buildClientConfig(client, context) as PiGeneratedConfig;
+      const rows = document.providers[OPENCODE_PROVIDER_ID]!.models;
+      expectImageInputs(rows.map(({ id, input }) => ({ id, input })));
+    }
+    const dsh = buildClientConfig("dsh", context) as DshGeneratedConfig;
+    expectImageInputs(dsh["llm-pi-ai"].providers[OPENCODE_PROVIDER_ID]!.models.map(({ id, input }) => ({ id, input })));
+
+    const openclaw = buildClientConfig("openclaw", context) as OpenclawGeneratedConfig;
+    expectImageInputs(openclaw.models.providers[OPENCODE_PROVIDER_ID]!.models.map(({ id, input }) => ({ id, input })));
+    const kimi = buildClientConfig("kimi", context) as KimiGeneratedConfig;
+    const opencode = buildClientConfig("opencode", context) as OpencodeGeneratedConfig;
+    const zcode = buildClientConfig("zcode", context) as ZcodeGeneratedConfig;
+    const cline = buildClientConfig("cline", context) as ClineGeneratedConfig;
+    const hermes = buildClientConfig("hermes", context) as HermesGeneratedConfig;
+    const raycast = buildClientConfig("raycast", context) as RaycastGeneratedConfig;
+    for (const model of models) {
+      expect(kimi.models[`${OPENCODE_PROVIDER_ID}/${model.namespaced}`]?.capabilities).toEqual(["image_in"]);
+      for (const block of [opencode.provider, opencode.providers]) {
+        expect(block[OPENCODE_PROVIDER_ID]!.models[model.namespaced]?.modalities?.input).toEqual(["text", "image"]);
+        expect(block[OPENCODE_PROVIDER_ID]!.models[model.namespaced]?.attachment).toBe(true);
+      }
+      expect(zcode.provider[OPENCODE_PROVIDER_ID]!.models[model.namespaced]?.modalities.input).toEqual(["text", "image"]);
+      const clineModel = cline.catalog.providers[OPENCODE_PROVIDER_ID]!.models[model.namespaced];
+      expect(clineModel?.modalities?.input).toEqual(["text", "image"]);
+      expect(clineModel?.supportsVision).toBe(true);
+      expect(hermes.providers[OPENCODE_PROVIDER_ID]!.models[model.namespaced]?.supports_vision).toBe(true);
+      expect(raycast.providers[0]!.models.find(row => row.id === model.namespaced)?.abilities.vision.supported).toBe(true);
+    }
+  });
+});
 
 describe("native Anthropic effort ladder reaches the Aside document", () => {
   /**
@@ -401,7 +474,13 @@ describe("GET /api/client-config", () => {
       const config = baseConfig({
         providers: {
           ...baseConfig().providers,
-          openai: { authMode: "forward", liveModels: false, models: [] },
+          // Spelled out the same way as the other `openai` fixture in this file: `adapter` and
+          // `baseUrl` are required by the persisted-config schema, so a row without them is not a
+          // state configuration loading can produce, and discovery builds a request from it.
+          openai: {
+            adapter: "openai-responses", authMode: "forward", liveModels: false,
+            baseUrl: "https://chatgpt.com/backend-api/codex", models: [],
+          },
         },
       });
       const response = await clientConfigApi(config, "?client=opencode");

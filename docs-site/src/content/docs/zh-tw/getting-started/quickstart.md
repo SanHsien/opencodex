@@ -5,6 +5,11 @@ description: 設定你的第一個 provider,用三條命令讓 OpenAI Codex 透�
 
 本指南將帶你從全新安裝,一路走到用一個非 OpenAI 模型執行 Codex。
 
+## 獨立執行檔（免 npm）
+
+你也可以使用內含 `ocx` 執行檔與 Bun 執行環境的發布壓縮檔，不需要 npm。解壓縮時讓 `gui/dist`
+目錄與執行檔放在一起，然後執行 `./ocx start`。
+
 ## 1. 執行設定嚮導
 
 ```bash
@@ -13,7 +18,7 @@ ocx init
 
 `ocx init` 會引導你完成:
 
-1. **選擇 provider** —— 從內建 registry 的 79 個預設中選擇一個，或選擇 `custom` 手動輸入
+1. **選擇 provider** —— 從內建 registry 的 98 個預設中選擇一個，或選擇 `custom` 手動輸入
    base URL 和 adapter。
 2. **API key** —— 貼上一個 key,或引用一個環境變數,例如 `${ANTHROPIC_API_KEY}`。
 3. **預設模型** —— 對於 API key、本機和 custom provider，可接受預設值或輸入模型 id。
@@ -77,8 +82,9 @@ ocx start --port 8080
 - 在 provider 支援時發現即時模型，並**把原生與已路由條目同步進 Codex 的模型目錄**，以及
 - 在 `http://localhost:<port>/v1` 上監聽。
 
-如果請求的埠已被佔用，`ocx start` 會選擇一個空閒埠，將其寫入 `runtime-port.json`，並更新
-Codex 設定以使用實際監聽埠。
+如果請求的埠已被佔用，`ocx start` 會停止並告訴你是什麼佔用了該埠：如果回應的是
+opencodex，請先執行 `ocx stop`；也可以使用 `ocx start --port <port>` 在空閒埠上啟動。
+它不會自行切換到其他埠；舊行為會讓兩個代理同時執行，並將 Codex 重新指向後啟動的代理。
 
 檢查它:
 

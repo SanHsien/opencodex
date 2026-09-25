@@ -1,7 +1,8 @@
-import { describe, expect, spyOn, test } from "bun:test";
+import { beforeAll, describe, expect, spyOn, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { MANAGED_AGENTS_TABLE_MARKER, MANAGED_SUBAGENT_DEFAULT_MARKER } from "../../src/codex/subagent-defaults";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -12,11 +13,49 @@ import {
   normalizeHubOrigin,
 } from "../../src/client/hub-client";
 import { handleConnectCommand } from "../../src/cli/connect";
+import { COLD_SPAWN_WARMUP_HOOK_BUDGET_MS, warmModuleGraph } from "../helpers/cold-spawn-warmup";
 import { removeTreeWithRetry } from "../helpers/remove-tree";
 import { repoRoot as findRepoRoot } from "../helpers/repo-root";
 import { INTERNAL_DEADLINE_MS, SPAWN_BUDGET_MS } from "../helpers/test-budget";
 
 const repoRoot = findRepoRoot();
+
+const CLIENT_STATE_EVAL_SOURCE = `
+  const { readClientConnectionState } = require("./src/client/state");
+  console.log(JSON.stringify(readClientConnectionState()));
+`;
+
+const CLIENT_TRANSACTION_EVAL_IMPORT_PROLOGUE = `
+  const { connectClient, disconnectClient } = require("./src/client/connect");
+  const { readClientConnectionState } = require("./src/client/state");
+  const { serviceApiTokenFilePath } = require("./src/lib/service-secrets");
+  const { hubStateCachePath, writeCachedHubState } = require("./src/client/hub-state");
+  const { DEFAULT_CATALOG_PATH } = require("./src/codex/paths");
+  const { setPersistedConfigMutationBeforeCommitForTests } = require("./src/config");
+`;
+
+/**
+ * Split in two because the order is load-bearing: the fixture installs its synthetic Windows
+ * principal and icacls runner between these two groups, so every module that might consult either
+ * at import time still loads after the stubs are in place. The warm-up scans both.
+ */
+const CLIENT_LIFECYCLE_ACL_IMPORT_PROLOGUE = `
+  const aclApi = require("./src/lib/windows-secret-acl");
+  const principalApi = require("./src/lib/windows-user-principal");
+`;
+
+const CLIENT_LIFECYCLE_MODULE_IMPORT_PROLOGUE = `
+  const configApi = require("./src/config");
+  const connectApi = require("./src/client/connect");
+  const stateApi = require("./src/client/state");
+  const store = require("./src/claude/desktop-remote-store");
+  const locks = require("./src/client/lifecycle-lock");
+  const { handleConnectCommand } = require("./src/cli/connect");
+  const { DEFAULT_CATALOG_PATH } = require("./src/codex/paths");
+`;
+
+const CLIENT_LIFECYCLE_FIXTURE_IMPORT_PROLOGUE =
+  CLIENT_LIFECYCLE_ACL_IMPORT_PROLOGUE + CLIENT_LIFECYCLE_MODULE_IMPORT_PROLOGUE;
 
 const CLIENT_FIXTURE_FAILURE_CATEGORIES = ["module_load", "config_setup", "desktop_setup", "scenario", "child_failed"] as const;
 type ClientFixtureFailureCategory = typeof CLIENT_FIXTURE_FAILURE_CATEGORIES[number];
@@ -142,21 +181,23 @@ function readyBody(protocol = 1, minimumClientProtocol = 1) {
 }
 
 describe("remote hub client boundary", () => {
+  // The first state-reader child in this describe pays the client-state module graph load.
+  // Warm that exact eval source before its 15-second deadline starts measuring behavior.
+  beforeAll(async () => {
+    await warmModuleGraph({ graph: "client-state/eval", source: CLIENT_STATE_EVAL_SOURCE, cwd: repoRoot });
+  }, COLD_SPAWN_WARMUP_HOOK_BUDGET_MS);
+
   test("runtimeRole=hub without client state reads as disconnected so the hub can start", async () => {
     // First clisu-oracle dogfood boot: the hub role refused 'ocx start' because the
     // client-state reader classified role=hub (no client block) as mismatched. A hub
     // is a server; without client state it is simply not a connected client.
-    const readScript = `
-      const { readClientConnectionState } = require("./src/client/state");
-      console.log(JSON.stringify(readClientConnectionState()));
-    `;
     const home = mkdtempSync(join(tmpdir(), "ocx-hub-role-"));
     try {
       writeFileSync(join(home, "config.json"), JSON.stringify({ port: 10190, runtimeRole: "hub" }));
-      expect((await readStateProbe(readScript, home)).kind).toBe("disconnected");
+      expect((await readStateProbe(CLIENT_STATE_EVAL_SOURCE, home)).kind).toBe("disconnected");
       // Hub role WITH a client block stays mismatched (the honest conflict).
       writeFileSync(join(home, "config.json"), JSON.stringify({ port: 10190, runtimeRole: "hub", client: { serverUrl: "https://hub.example.test" } }));
-      expect((await readStateProbe(readScript, home)).kind).toBe("mismatched");
+      expect((await readStateProbe(CLIENT_STATE_EVAL_SOURCE, home)).kind).toBe("mismatched");
     } finally {
       removeTreeWithRetry(home);
     }
@@ -197,8 +238,12 @@ describe("remote hub client boundary", () => {
   test("canonicalizes origin and terminal /v1 only", () => {
     expect(normalizeHubOrigin("https://hub.example.test/v1")).toBe("https://hub.example.test");
     expect(normalizeHubOrigin("https://hub.example.test/v1/")).toBe("https://hub.example.test");
+    expect(normalizeHubOrigin("http://localhost:10100/v1")).toBe("http://localhost:10100");
+    expect(normalizeHubOrigin("http://127.0.0.1:10100")).toBe("http://127.0.0.1:10100");
+    expect(normalizeHubOrigin("http://[::1]:10100")).toBe("http://[::1]:10100");
     for (const value of [
       "ftp://hub.example.test",
+      "http://hub.example.test",
       "https://user@hub.example.test",
       "https://hub.example.test/private",
       "https://hub.example.test/?secret=1",
@@ -223,9 +268,17 @@ describe("remote hub client boundary", () => {
     }
   });
 
+  test("rejects plaintext remote discovery before sending a request", async () => {
+    let calls = 0;
+    await expect(fetchHubReady("http://hub.example.test", {
+      fetchImpl: async () => { calls += 1; return Response.json(readyBody()); },
+    })).rejects.toThrow("plaintext remote HTTP is not permitted");
+    expect(calls).toBe(0);
+  });
+
   test("admin key issuance is HTTPS-only and pairing exchanges into a full GUI session", async () => {
     let calls = 0;
-    await expect(issueClientKey("http://hub.example.test", {
+    await expect(issueClientKey("http://localhost:10100", {
       kind: "admin",
       value: new TextEncoder().encode("ocx_admin_secret"),
     }, "client", {
@@ -339,8 +392,9 @@ describe("remote hub client boundary", () => {
 /** A catalog the user already had before ever connecting. */
 const PRIOR_CATALOG_BYTES = '{"models":[{"slug":"local/only-model"}]}';
 
+/** Exercise enrollment and rollback in a fresh process with isolated client homes. */
 function runTransactionScenario(
-  stage: "success" | "catalog" | "preflight" | "commit" | "prior-catalog" | "coordinator",
+  stage: "success" | "catalog" | "preflight" | "commit" | "prior-catalog" | "coordinator" | "uninstall-during-catalog",
   options: { script?: string; timeoutMs?: number } = {},
 ) {
   const opencodexHome = mkdtempSync(join(tmpdir(), "ocx-client-connect-home-"));
@@ -352,7 +406,11 @@ function runTransactionScenario(
     defaultProvider: "openai",
   };
   writeFileSync(configPath, `${JSON.stringify(originalConfig, null, 2)}\n`, "utf8");
-  if (stage !== "preflight") writeFileSync(join(codexHome, "config.toml"), 'model_provider = "openai"\n', "utf8");
+  // A missing config.toml is bootstrapped now (issue 5422), so the preflight fault is a
+  // deterministic injection refusal instead: ambiguous OpenCodex-managed sub-agent markers.
+  writeFileSync(join(codexHome, "config.toml"), stage === "preflight"
+    ? [MANAGED_AGENTS_TABLE_MARKER, "[agents]", MANAGED_SUBAGENT_DEFAULT_MARKER, "", 'default_subagent_model = "gpt-5.6-sol"', ""].join("\n")
+    : 'model_provider = "openai"\n', "utf8");
   // A catalog the user already had. Connect overwrites it; disconnect has to put it back.
   if (stage === "prior-catalog") {
     writeFileSync(join(codexHome, "opencodex-catalog.json"), PRIOR_CATALOG_BYTES, "utf8");
@@ -369,15 +427,11 @@ function runTransactionScenario(
     }) + "\\n");
     markTransaction("module_load");
     const { createHash } = require("node:crypto");
-    const { connectClient, disconnectClient } = require("./src/client/connect");
-    const { readClientConnectionState } = require("./src/client/state");
-    const { serviceApiTokenFilePath } = require("./src/lib/service-secrets");
-    const { hubStateCachePath, writeCachedHubState } = require("./src/client/hub-state");
-    const { DEFAULT_CATALOG_PATH } = require("./src/codex/paths");
+    ${CLIENT_TRANSACTION_EVAL_IMPORT_PROLOGUE}
     const stage = ${JSON.stringify(stage)};
-    const { setPersistedConfigMutationBeforeCommitForTests } = require("./src/config");
     markTransaction("module_ready");
     let commitFaultTriggered = false;
+    let uninstallDuringCatalog = null;
     const catalog = '{"models":[]}';
     const etag = '"sha256-' + createHash("sha256").update(catalog).digest("base64url") + '"';
     const calls = [];
@@ -395,6 +449,13 @@ function runTransactionScenario(
       if (url.endsWith("/api/keys") && init.method === "DELETE") return Response.json({ success: true });
       if (url.endsWith("/v1/catalog")) {
         if (stage === "catalog") return Response.json({ error: "down" }, { status: 503 });
+        if (stage === "uninstall-during-catalog") {
+          const { removeServiceTokenAfterUninstall } = require("./src/service/cli");
+          uninstallDuringCatalog = {
+            cleanup: removeServiceTokenAfterUninstall({ lockPath: process.env.OPENCODEX_HOME + "/lifecycle.sqlite" }),
+            tokenExists: existsSync(serviceApiTokenFilePath()),
+          };
+        }
         return new Response(catalog, { headers: { ETag: etag, "Content-Type": "application/json" } });
       }
       throw new Error("unexpected request " + url);
@@ -448,7 +509,7 @@ function runTransactionScenario(
       if ((stage === "success" || stage === "prior-catalog") && connected) disconnected = await disconnectClient({}, { lifecycleLockDeps: { lockPath: process.env.OPENCODEX_HOME + "/lifecycle.sqlite" } });
       const catalogAfter = existsSync(DEFAULT_CATALOG_PATH) ? readFileSync(DEFAULT_CATALOG_PATH, "utf8") : null;
       const hubStateCacheAfter = existsSync(hubStateCachePath());
-      writeSync(1, JSON.stringify({ connected, error, coordinatorUnavailable, beforeDisconnect, artifacts, disconnected, catalogAfter, hubStateCacheBefore, hubStateCacheAfter, after: readClientConnectionState(), calls, commitFaultTriggered }) + "\\n");
+      writeSync(1, JSON.stringify({ connected, error, coordinatorUnavailable, beforeDisconnect, artifacts, disconnected, catalogAfter, hubStateCacheBefore, hubStateCacheAfter, after: readClientConnectionState(), calls, commitFaultTriggered, uninstallDuringCatalog, pendingAtResult: existsSync(process.env.OPENCODEX_HOME + "/client-connect-pending") }) + "\\n");
       markTransaction("result_published");
     })();
   `;
@@ -484,6 +545,12 @@ function runTransactionScenario(
 }
 
 describe("connect transaction and offline disconnect", () => {
+  // The first default-bounded transaction child pays the connect transaction module graph load.
+  // Warm its shared require prologue before any timed transaction assertion reaches that graph.
+  beforeAll(async () => {
+    await warmModuleGraph({ graph: "client-connect/transaction-eval", source: CLIENT_TRANSACTION_EVAL_IMPORT_PROLOGUE, cwd: repoRoot });
+  }, COLD_SPAWN_WARMUP_HOOK_BUDGET_MS);
+
   test("transaction diagnostics retain only allowlisted phase and bounded elapsed evidence", () => {
     for (const missing of [undefined, null, { secret: "private-marker-value" }]) {
       expect(transactionProgress(missing)).toBeUndefined();
@@ -611,7 +678,19 @@ describe("connect transaction and offline disconnect", () => {
       expect(run.parsed.after).toEqual({ kind: "disconnected" });
       expect(run.parsed.calls.filter((call: any) => call.method === "DELETE")).toEqual([]);
     } finally { run.cleanup(); }
-  });
+  }, SPAWN_BUDGET_MS);
+
+  test("service uninstall during catalog download retains the pending client key", () => {
+    const run = runTransactionScenario("uninstall-during-catalog");
+    try {
+      expect(run.status).toBe(0);
+      expect(run.parsed.uninstallDuringCatalog).toEqual({ cleanup: "retained", tokenExists: true });
+      expect(run.parsed.error).toBeNull();
+      expect(run.parsed.connected.apiKeyId).toBe("issued-id");
+      expect(run.parsed.beforeDisconnect.kind).toBe("connected");
+      expect(run.parsed.pendingAtResult).toBe(false);
+    } finally { run.cleanup(); }
+  }, SPAWN_BUDGET_MS);
 
   test("disconnect puts back the catalog the user had before connecting", () => {
     // Connect overwrites whatever catalog is already on disk. Disconnect used to delete the
@@ -626,7 +705,7 @@ describe("connect transaction and offline disconnect", () => {
       expect(run.parsed.catalogAfter).toBe(PRIOR_CATALOG_BYTES);
       expect(run.parsed.after).toEqual({ kind: "disconnected" });
     } finally { run.cleanup(); }
-  });
+  }, SPAWN_BUDGET_MS);
 
   test("disconnect removes the catalog when the user had none", () => {
     // The other half of the same contract: `priorCatalog: ""` records "there genuinely was
@@ -636,7 +715,7 @@ describe("connect transaction and offline disconnect", () => {
       expect(run.parsed.disconnected).toMatchObject({ catalogRemoved: true, catalogRestored: false });
       expect(run.parsed.catalogAfter).toBeNull();
     } finally { run.cleanup(); }
-  });
+  }, SPAWN_BUDGET_MS);
 
   for (const stage of ["catalog", "preflight", "commit"] as const) {
     test(`rolls back local artifacts when ${stage} fails before final commit`, () => {
@@ -646,11 +725,13 @@ describe("connect transaction and offline disconnect", () => {
         expect(run.parsed.connected).toBeNull();
         expect(run.parsed.beforeDisconnect).toEqual({ kind: "disconnected" });
         expect(run.parsed.artifacts.token).toBe(false);
+        expect(run.parsed.pendingAtResult).toBe(false);
         expect(run.parsed.artifacts.catalog).toBe(false);
         expect(run.parsed.artifacts.credentialZeroed).toBe(true);
         expect(run.parsed.calls.some((call: any) => call.method === "DELETE")).toBe(true);
         if (stage === "commit") {
           expect(run.parsed.commitFaultTriggered).toBe(true);
+          expect(run.parsed.error).not.toContain("client cleanup ownership unavailable");
           expect(run.parsed.calls.some((call: any) => call.method === "POST" && call.url.endsWith("/api/keys"))).toBe(true);
         }
         expect(run.configBytes).not.toContain("issued-id");
@@ -940,20 +1021,23 @@ describe("recoverable connected key rotation", () => {
 });
 
 
-/** Real per-process files and SQLite; only hub HTTP is substituted. Never return credential bytes. */
+/**
+ * Real per-process files and SQLite; hub HTTP and Windows ACL process runners are substituted.
+ * ACL behavior has dedicated tests. Launching PowerShell/icacls here only adds unrelated
+ * process contention to the Desktop lifecycle assertion. Never return credential bytes.
+ */
 function runDesktopLifecycleScenario(mode: string) {
   const root = mkdtempSync(join(tmpdir(), "ocx-desktop-lifecycle-client-"));
   const script = `
     const fs = require("node:fs"), path = require("node:path"), crypto = require("node:crypto");
     const { Readable } = require("node:stream");
     const { spyOn } = require("bun:test");
-    const configApi = require("./src/config");
-    const connectApi = require("./src/client/connect");
-    const stateApi = require("./src/client/state");
-    const store = require("./src/claude/desktop-remote-store");
-    const locks = require("./src/client/lifecycle-lock");
-    const { handleConnectCommand } = require("./src/cli/connect");
-    const { DEFAULT_CATALOG_PATH } = require("./src/codex/paths");
+    ${CLIENT_LIFECYCLE_ACL_IMPORT_PROLOGUE}
+    const aclSuccess = { success: true, exitCode: 0, timedOut: false, stdout: "" };
+    principalApi.setSyntheticWindowsPrincipalForTests("*S-1-5-21-1-2-3-1001");
+    aclApi.setIcaclsRunnerForTests(() => aclSuccess);
+    aclApi.setAsyncIcaclsRunnerForTests(async () => aclSuccess);
+    ${CLIENT_LIFECYCLE_MODULE_IMPORT_PROLOGUE}
     const mode = ${JSON.stringify(mode)};
     const home = process.env.OPENCODEX_HOME, desktop = process.env.OPENCODEX_CLAUDE_DESKTOP_CONFIG_DIR;
     for (const dir of [home, desktop, process.env.CODEX_HOME]) fs.mkdirSync(dir, { recursive: true });
@@ -1200,6 +1284,12 @@ function runDesktopLifecycleScenario(mode: string) {
 }
 
 describe("Desktop copy coherence across client lifecycle", () => {
+  // The first generated lifecycle fixture pays the full client lifecycle module graph load.
+  // Warm the same relative require prologue before the fixture's 15-second child deadline.
+  beforeAll(async () => {
+    await warmModuleGraph({ graph: "client-lifecycle-fixture", source: CLIENT_LIFECYCLE_FIXTURE_IMPORT_PROLOGUE, cwd: repoRoot });
+  }, COLD_SPAWN_WARMUP_HOOK_BUDGET_MS);
+
   test.each(["rotate", "recover-both", "recover-current", "commit-lost"])("%s settles Desktop before reporting committed", mode => {
     const r = runDesktopLifecycleScenario(mode);
     expect(r.error).toBeNull();

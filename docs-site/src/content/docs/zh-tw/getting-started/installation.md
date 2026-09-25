@@ -49,6 +49,18 @@ ocx --version
 opencodex --version
 ```
 
+## 獨立執行檔（免 npm）
+
+發布下載頁也提供支援 macOS、Linux 與 Windows 的獨立 `ocx` 執行檔。內含 Bun 執行環境與儀表板，
+因此不需要 npm、Node 或另外安裝 Bun。下載對應平台的壓縮檔、解壓縮後執行：
+
+```bash
+./ocx --version
+./ocx start
+```
+
+解壓縮出的 `gui/dist` 目錄必須與執行檔放在一起，`GET /` 才能提供儀表板。
+
 ### 釋出渠道
 
 穩定的 `latest` 渠道已經包含 ChatGPT、OpenAI API key、OpenRouter 以及實驗性 Cursor 路由所需的
@@ -85,7 +97,7 @@ opencodex 狀態檔案位於 `$OPENCODEX_HOME`（預設 `~/.opencodex`），Code
 | --- | --- |
 | `$OPENCODEX_HOME/config.json` | 你的 provider、預設 provider、埠及選項。 |
 | `$OPENCODEX_HOME/ocx.pid` | 正在執行的代理的 PID（單例項保護）。 |
-| `$OPENCODEX_HOME/runtime-port.json` | 目前 PID、主機名和埠，包括自動選擇的備用埠。 |
+| `$OPENCODEX_HOME/runtime-port.json` | 目前 PID、主機名和埠，包括 `config.port` 為 `0` 時由作業系統指派的埠。 |
 | `$OPENCODEX_HOME/auth.json` | 執行 `ocx login` 後儲存的 OAuth 憑證。 |
 | `$OPENCODEX_HOME/catalog-backup*.json` | opencodex 修改 Codex 模型目錄前建立的備份。 |
 | `$CODEX_HOME/config.toml` | 僅監聽迴環地址時，opencodex 會新增由自身標記管理的根級 `openai_base_url`；監聽非迴環地址時，則使用 `model_provider = "opencodex"` 和 `[model_providers.opencodex]`，以便 Codex 傳送 API 認證 header。 |

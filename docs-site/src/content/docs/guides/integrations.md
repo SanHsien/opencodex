@@ -14,7 +14,7 @@ file, and removes it again. Fifteen clients work this way, each with a switch:
 | Hermes | `~/.hermes/config.yaml` | YAML | new sessions | `OPENCODEX_HERMES_API_KEY` |
 | OpenClaw | `~/.openclaw/openclaw.json` | JSON5 | immediately, on a running gateway | `OPENCODEX_OPENCLAW_API_KEY` |
 | Kimi Code | `~/.kimi-code/config.toml` | TOML | on restart, or `/reload` | loopback placeholder |
-| gjc | `~/.gjc/agent/models.yml` | YAML | new sessions, or when you open `/model` |`OPENCODEX_GAJAE_API_KEY` |
+| gjc | `~/.gjc/agent/models.yml` | YAML | new sessions, or when you open `/model` |non-secret loopback placeholder |
 | DeepSeek Harness (DSH) | `$DSH_HOME/settings.yaml` (default `~/.dsh/settings.yaml`) | YAML | hot reload | non-secret loopback bearer placeholder |
 | MiniMax Code | `~/.minimax/config.yaml` | YAML | new sessions, or after opening the model picker | loopback placeholder |
 | Prime Agent | `~/.prime/agent/models.json` | JSON | new sessions | loopback placeholder |
@@ -27,6 +27,16 @@ file, and removes it again. Fifteen clients work this way, each with a switch:
 Generated catalogs include only enabled models from each provider selection. This applies to both
 downloads and managed integrations, including Pi and Aside. The management model list still shows
 the full roster so you can enable additional models.
+
+For Gajae built-in presets, keep the routing choice in `~/.gjc/agent/config.yml`:
+
+```yaml
+modelProfile:
+  proxyProvider: opencodex
+  proxyMode: always
+```
+
+Keep your chosen `modelProfile.default` to apply it when plain `gjc` starts. The managed integration owns only `providers.opencodex` in `models.yml`; refreshing or disabling that provider does not rewrite your preset choice. Refresh the integration after changing the exported model selection.
 
 The managed OpenCode integration owns two fragments: `provider.opencodex` (opencode V1) and
 `providers.opencodex` (opencode V2). Only the V2 block carries the per-model reasoning-effort
@@ -190,6 +200,46 @@ undoable. The switch itself stays locked, because the switch cannot know which e
 you meant to keep — only you can say so. Nothing else is relaxed: a file we cannot
 parse, or one whose structure we cannot reason about, still refuses.
 
+## Hermes session affinity
+
+The generated `providers.opencodex` block includes `session_affinity_header: session-id` for all
+models. This names a header; Hermes supplies its dynamic conversation identifier. OpenCodex does
+not write a shared static identifier or change `api_mode` to enable affinity.
+
+Use a Hermes version supporting [per-provider request options](https://hermes-agent.nousresearch.com/docs/user-guide/configuring-models#per-provider-request-options).
+Older versions may ignore or discard the option; a valid configuration alone does not prove that
+Hermes sends the header. Conversation isolation, compaction lineage and auxiliary/child requests
+follow Hermes' affinity semantics. This setting does not guarantee a particular cache-hit rate.
+
+For an existing managed integration, open **Integrations → Hermes**, review **Apply**, and confirm
+the update. Until then, it shows **Update needed** and implicit catalog refresh leaves it unchanged,
+including its model list. Reading the page does not upgrade the configuration. After Apply, normal
+catalog refresh resumes and retains the setting; **Replace** also includes it.
+
+If you already added exactly `session_affinity_header: session-id` inside the managed block, Apply
+can adopt it when all other managed settings still match the ownership record. This is the narrow
+exception to the conflict rule above: other edits, a different header name, or a block without a
+matching ownership record still require conflict resolution. Unrelated YAML settings and comments
+remain untouched, and the existing snapshot and Restore workflow applies to the upgrade.
+
+## Preview and confirm changes
+
+Apply, Replace, Disable, and Restore now begin with a preview. The dialog shows exactly which
+managed settings will change, including the bounded change paths and whether each change adds,
+updates, or removes a value. Review that plan before confirming.
+
+When a plan reports no changes, it means the managed client document already has the requested
+state. For a selected Aside profile, confirming can still save that profile's sync preference even
+though the managed document does not change.
+
+If the file changes after you review it, the write is refused as stale. The dialog replaces the
+old plan with the updated one and asks you to confirm again; it never retries the write
+automatically. If a preview is temporarily unavailable, reload the page normally and start the
+action again.
+
+Aside uses the same preview and confirmation flow for one selected profile at a time. **Sync all
+profiles** remains a separate bulk action and is not bound to one combined preview.
+
 ## What to expect, honestly
 
 **Formatting is generally not preserved.** Applying parses a config and writes it back
@@ -347,6 +397,34 @@ catalogs are refused; the existing explicit overwrite and drift-confirmation con
 available. Fully quit and reopen Aside to load changed model files.
 
 
+## ZCode 3.14 and later
+
+ZCode 3.14 moved its custom providers to `~/.zcode/v2/provider_config.json` and left
+`~/.zcode/v2/config.json` reachable only through a one-shot import that runs when the new file is
+missing. ZCode creates the new file the first time it runs, so on any install that has ever been
+launched the import is already spent and a write to `config.json` reaches nothing.
+
+opencodex writes `provider_config.json` directly where it can. Enabling the integration adds the
+`opencodex` provider rule to that file, a catalog refresh updates it, and disabling removes exactly
+what opencodex put there. Every other rule in the file is left alone, including a rule another
+provider keeps for a model id that also appears under ours. A rule carrying the `opencodex` id that
+opencodex did not write is a conflict rather than something to take over; resolve it in ZCode, or
+use the explicit overwrite.
+
+An unreadable or non-file provider store also refuses writes; it is not treated as an absent store that permits the legacy import.
+
+Two other situations still refuse rather than write. A block opencodex applied before ZCode moved its
+store keeps the integration on `config.json`: disable it there first, then enable it again to write
+the new store. And a `provider_config.json` whose `schemaVersion` is not one opencodex has observed
+is reported rather than merged into, because that file holds every provider ZCode has and asserting
+a shape into it would trade a silent no-op for a silent loss. Status names the file ZCode reads
+whenever the integration is not writing it.
+
+In that second case, add the provider in ZCode's own settings: base URL
+`http://127.0.0.1:10100/v1` (adjust the port to your bind), any non-empty key, and the model ids
+from `ocx export --client zcode`. Deleting `provider_config.json` to re-trigger ZCode's import is
+not supported — it discards every provider ZCode keeps there.
+
 ## Cline CLI
 
 This integration targets Cline's current CLI/shared SDK provider store, whose native schema has
@@ -395,3 +473,39 @@ The download `cline-config-bundle.json` contains two native document members: `s
 `providers.json`, and `catalog` for `models.json`. It is not itself a Cline settings file. Prefer
 the integration command for a journaled merge and rollback. Remote admission wiring is not
 supported by this generated integration; it requires unauthenticated loopback access.
+
+## GitHub Copilot App
+
+The GitHub Copilot desktop app can use opencodex as an OpenAI-compatible model provider. This is a
+manual client setup with no Integrations-tab switch, and it is separate from the upstream
+`github-copilot` provider, which uses a Copilot subscription as a backend for opencodex.
+
+1. Start opencodex and confirm it answers:
+
+   ```bash
+   curl http://127.0.0.1:10100/healthz
+   curl http://127.0.0.1:10100/v1/models
+   ```
+
+2. In the Copilot app, open **Settings → Model providers → Add provider** and enter:
+
+   | Field | Value |
+   |---|---|
+   | Name | any label, for example `OpenCodex` |
+   | Base URL | `http://127.0.0.1:10100/v1` (adjust the port to your bind) |
+   | API key | leave blank on loopback |
+
+3. Sync models from the endpoint, or add one by its `provider/model` id, and select it.
+
+The app uses `GET /v1/models` for discovery and `POST /v1/chat/completions` for turns. Those turns
+go through opencodex's normal model routing, so provider credentials, OAuth accounts and combos apply
+as they do for any other client. The accepted request fields are listed in the
+[proxy formats reference](/reference/proxy-formats/).
+
+If the app reports no models, check that the base URL ends in `/v1` rather than
+`/v1/chat/completions` and that `/v1/models` returns a non-empty `data` array. When opencodex
+listens on a non-loopback address, put a data-admission key (the token described under
+[remote access](/reference/configuration/server/#remote-access), or a dashboard-generated `ocx_…`
+key) in the app's API key field. The app sends it as `Authorization: Bearer`, which
+`/v1/chat/completions` accepts as proxy admission and never forwards upstream; see the
+[authentication matrix](/reference/proxy-formats/#authentication-matrix).

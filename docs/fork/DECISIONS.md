@@ -391,3 +391,13 @@ commit，均 defer 至 stable promotion。open platform `#4200`（remote-hub doc
 **理由**：上游 issue 4204 說明確的 pin 是使用者的決定、不可被靜默取代——那條規則講的是**仍然解析得到**的 pin。指向的檔案已經不存在的 pin 根本無法被遵守，此時退回優先序會優先採用 PATH 而非帶版本的安裝目錄，那是靜默降級，不是尊重。Codex Desktop 讓這件事變成常態而非邊角案例：它把每個 build 裝在各自的 content-hash 目錄下，所以每次自動更新都會刪掉被 pin 的路徑。2026-09-19 實測：pin 指向 `...\Codex\bin\cdef5aaf3e41ab53\codex.exe`，更新寫入 `...\247581e40ee272fb\codex.exe`（0.155.0-alpha.9.2），解析卻退回 PATH 上的 0.150.0；`ocx doctor --fix-codex-runtime` 再寫一個新 hash 的 pin，下次更新又刪掉，形成迴圈。兩邊都要報得出版本才比得出高低，未知版本不視為升級。
 
 **連帶**：`src/lib/bounded-file-read.ts` 成為本 fork 讀取本機狀態檔的共用入口（open 一次、驗描述子、讀描述子、再比對身分）。它不是新設計，是把 `src/codex/shim.ts` 裡原本就寫對的那段抽出來共用。新增測試檔因 `server` domain 的 `bounded-` seed 與實際模組位置 `src/lib/` 不一致，已加入 `layout.json` 的 `explicit` 表與 tooling oracle 的 pinned-overrides。
+
+## 2026-09-25：一般 merge v2.65.0；6 個 src fork 修正逐檔判定
+
+**決定**：把上游穩定版本 `v2.65.0`（`87a78e5f26f81373bf57c39495037849bd7996f0`）一般 merge 進本 fork，package development version 前推至 `2.66.0`。理由是 `#5743`／`#5694` 把主帳號 98% 硬鎖設為預設開啟，正式修掉 Codex Desktop 在 100% 用量時停用 Send 按鈕的回歸（`#5797`）。
+
+**src 逐檔判定**（詳見 `UPSTREAM.md` 同日條目的完整表格）：`provider-fetch.ts` 的 Vertex host 比對與 log 清洗修正移植進 upstream 拆出的新檔 `provider-models.ts`；`history-provider.ts`、`shim.ts`、`service-secrets.ts`、`codex-ws-exchange.ts` 的修正已隨自動合併或小幅補丁落地在 upstream 拆分後的對應新檔；`server/index.ts` 的 compact route timeout 修正判定 upstream 的 `createServeOptions()` 已有等價（且時機更精確的）處理，不移植、整棵採用 upstream 新架構。
+
+**理由**：這輪 upstream 對多個大檔（`provider-fetch.ts`、`shim.ts`、`server/index.ts`）做了拆分成多個小檔的重構，逐檔比對後確認 fork 的安全/穩健性修正要點沒有一項被 upstream 真正涵蓋以外的情況遺漏——凡是 upstream 已有等價修正就採 upstream，凡是沒有就移植到新檔位置，不在舊檔位置留重複定義製造未來衝突。
+
+**測試與語系**：`gui/`、`docs-site/` 的非保留 locale（ru/ja/tr/vi/fr/ko/zh-cn 等）延續既有政策一併剃除，包含 upstream 這次新增的 `gui/src/i18n/vi.ts`、`native-main-translations.ts` 的 7 個非保留 locale 區塊，以及 3 個假設多語 README／docs-site 存在的新 `tests/ci-workflows/` 測試（`docs-provider-discovery-limits`、`docs-provider-preset-counts`、`docs-readme-memory-inventory`）。`scripts/test.ts` 的 fresh-process batch runner 保留 fork 版本，不採 upstream 改成的單一 `OCX_TEST_MAIN_TIMEOUT_MS` 主 lane 設計。

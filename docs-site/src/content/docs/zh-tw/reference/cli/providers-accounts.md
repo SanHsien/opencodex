@@ -91,15 +91,15 @@ OAuth 重新認證會保留維運方的設定，例如模型選擇、價格覆�
 
 ## 帳號與金鑰池
 
-### 主帳號 99% 保護
+### 主帳號 98% 保護
 
-在 **Codex settings → Multi-auth → Advanced settings** 中，**Block main account at 99%** 是 Ultra Fast 旁邊一個獨立的選擇加入選項。啟用時會先顯示後果；取消不會改變設定。即使 Advanced settings 已關閉，主帳號卡片仍會顯示監控中、未知用量或目前的政策封鎖狀態。
+在 **Codex settings → Multi-auth → Advanced settings** 中，**Block main account at 98%** 是 Ultra Fast 旁邊一個獨立的選擇加入選項。啟用時會先顯示後果；取消不會改變設定。即使 Advanced settings 已關閉，主帳號卡片仍會顯示監控中、未知用量或目前的政策封鎖狀態。
 
-此政策在存在時使用 **5 小時窗口**，否則使用週窗口。僅有月配額的帳號使用其月窗口。它不會取所有窗口中的最高百分比。在開關保持開啟的情況下，一次全新的 **0%** 觀測會自動解除封鎖；下一次 99% 觀測會再次封鎖。未知用量不會被捏造成零，缺失的讀數也不會抹除已經量測到的封鎖狀態組。單靠預測的重置時間並不會解鎖。封鎖期間，既有的每分鐘一次背景週期會檢查全新的自有用量；失敗或無效的讀數會維持封鎖。其他暫停、重新認證與上游限制彼此獨立。
+此政策在存在時使用 **5 小時窗口**，否則使用週窗口。僅有月配額的帳號使用其月窗口。它不會取所有窗口中的最高百分比。在開關保持開啟的情況下，一次全新的 **0%** 觀測會自動解除封鎖；下一次 98% 觀測會再次封鎖。未知用量不會被捏造成零，缺失的讀數也不會抹除已經量測到的封鎖狀態組。單靠預測的重置時間並不會解鎖。封鎖期間，既有的每分鐘一次背景週期會檢查全新的自有用量；失敗或無效的讀數會維持封鎖。其他暫停、重新認證與上游限制彼此獨立。
 
 持久化的選項是 OpenCodex `config.json` 中的 `"codexMainAccountHardLock": true`，預設為關閉。這保護的是使用已識別主帳號的新請求，不是最後那 1% 本身：已在執行的請求、不相符的呼叫者自有 keyring 憑證，以及 proxy 之外的流量仍可以消耗配額。已新增的帳號與其他供應商仍可使用。
 
-啟用保護時，一次自有的啟動會在原生設定檔復原與清理之後，還原主憑證的記憶體內身分繫結，所以持久化的 99% 封鎖在重啟後仍會存續。呼叫者自有的 Direct、exact-main、main-fallback 與 main-pin 請求，在繫結尚未完成期間可能短暫收到 503；健康的已儲存池帳號全程保持合格。這項初始化不會從外來或未確認的服務 home 讀取任何憑證。
+啟用保護時，一次自有的啟動會在原生設定檔復原與清理之後，還原主憑證的記憶體內身分繫結，所以持久化的 98% 封鎖在重啟後仍會存續。呼叫者自有的 Direct、exact-main、main-fallback 與 main-pin 請求，在繫結尚未完成期間可能短暫收到 503；健康的已儲存池帳號全程保持合格。這項初始化不會從外來或未確認的服務 home 讀取任何憑證。
 
 當此政策封鎖主帳號時，該帳號上的 Luna Reserve 也會被封鎖。維持在一般配額耗盡之前可能會阻止 Reserve 啟用。關閉這個開關會恢復一般的本機處理方式，不會授予額外的上游權益。請使用帳號配額重新整理動作來取得一次全新的觀測；不會自動消耗 reset credit。
 
@@ -111,7 +111,7 @@ OAuth 重新認證會保留維運方的設定，例如模型選擇、價格覆�
 
 用 `ocx system settings --desktop-authless on` 啟用 authless Desktop 模式，執行 `ocx sync`，然後完全結束並重新開啟 Codex Desktop，讓它重新載入改寫後的設定與目錄。請遵循[標準 authless Desktop 工作流程](/zh-tw/guides/codex-integration/#authless-codex-desktop-opt-in)。
 
-每個相容性請求都會檢查一次綁定憑證的伺服器授權，最多快取 60 秒。OpenCodex 在一次自有主帳號用量讀取上發送 Reserve 能力標頭，並要求一般用量被拒絕、出現 Luna Reserve 橫幅，且恰好有一個獲准的 Reserve bucket。缺失、被拒絕、過期或不相符的證據會拒絕該請求；它不會切換帳號，也不會悄悄改用一般的 Luna。被動用量可以撤銷授權，但無法建立授權。全域冷卻、暫停、重新認證與 99% 硬鎖定仍然適用。若想在已耗盡的主帳號上使用 Reserve，請停用硬鎖定；這麼做不會授予伺服器端的權益。這條相容性路徑支援對話請求與壓縮，Reserve 不能作為視覺或網頁搜尋輔助工具，也不能作為獨立的搜尋轉送模型。這些輔助用途請改選其他模型。
+每個相容性請求都會檢查一次綁定憑證的伺服器授權，最多快取 60 秒。OpenCodex 在一次自有主帳號用量讀取上發送 Reserve 能力標頭，並要求一般用量被拒絕、出現 Luna Reserve 橫幅，且恰好有一個獲准的 Reserve bucket。缺失、被拒絕、過期或不相符的證據會拒絕該請求；它不會切換帳號，也不會悄悄改用一般的 Luna。被動用量可以撤銷授權，但無法建立授權。全域冷卻、暫停、重新認證與 98% 硬鎖定仍然適用。若想在已耗盡的主帳號上使用 Reserve，請停用硬鎖定；這麼做不會授予伺服器端的權益。這條相容性路徑支援對話請求與壓縮，Reserve 不能作為視覺或網頁搜尋輔助工具，也不能作為獨立的搜尋轉送模型。這些輔助用途請改選其他模型。
 
 選擇器偏好真正的 Reserve 中繼資料。當尚未觀測到任何資料時，它會使用明確標記的 Luna 中繼資料轉接，依循 Desktop 的 Reserve-or-Luna 預設對應。可見的項目不代表可用性的證明。已檢查過 Desktop 原始碼與以 fixture 為基礎的路徑；尚未使用實際 Reserve 啟用中的帳號驗證這條相容性路徑。
 
@@ -156,6 +156,44 @@ grok-reset-coupons [<id>] [--consume --yes] [--token-id <token-id>] [--operation
   "quota": null
 }
 ```
+
+### `ocx account import-orca --source <orca-data-directory> --registry <orca-data.json> [--apply] [--json]`
+
+重用本機由 Orca 管理的 Codex 登入，不需要再次瀏覽器登入。來源目錄必須包含
+`codex-accounts/<account>/home/auth.json`。請明確提供 Orca 資料目錄，以及所選 profile 的
+`orca-data.json`。只有登記在該 profile 中的帳號會被納入考量；殘留或已移除的帳號 home 不會被
+匯入。每個 home 都必須帶有 Orca 相符的 `.orca-managed-home` 標記。此指令不會掃描不相關的
+home 或遠端主機。
+
+```powershell
+# Windows：僅預覽；不會註冊任何帳號。
+ocx account import-orca --source "$env:APPDATA\orca" --registry "$env:APPDATA\orca\profiles\local-default\orca-data.json" --json
+
+# 套用前先完成進行中的代理請求並停止代理。
+ocx stop
+ocx account import-orca --source "$env:APPDATA\orca" --registry "$env:APPDATA\orca\profiles\local-default\orca-data.json" --apply
+ocx start
+```
+
+較舊的 Orca profile 可能把 `orca-data.json` 直接放在資料目錄下。在其他平台上，請以相同的
+目錄結構傳入本機 Orca 資料目錄與 profile registry。匯入器會略過已存在於原生主登入、帳號池
+或憑證儲存中的身分，包括來源內部的重複項目。這刻意把 ChatGPT 帳號 ID 當作保守的分組依據：
+共用同一個 workspace 帳號 ID 的不同成員也會被略過，不會被合併或個別匯入。重複執行匯入會
+保留既有帳號。如果先前的匯入在儲存憑證與註冊帳號池項目之間中斷，只有在未被動過的待處理
+紀錄仍與來源相符時，重試才能用相同的 ID 完成該次註冊。無效項目會依固定的原因代碼計數。
+只要有至少一個合格帳號，混合結果就會成功結束；若每一筆發現的項目都無效，則以非零狀態結束。
+輸出只包含計數與原因代碼，不含電子郵件、帳號識別碼、路徑或 token。
+
+**Orca 保留 refresh 的所有權。** OpenCodex 只儲存一個唯讀的來源連結，以及一份 access-token
+快照，絕不儲存 Orca 的 refresh token。解析憑證時，它會重新讀取來源，並驗證其仍屬於被匯入的
+身分。Orca 必須讓該登入持續可用並保持已更新。來源憑證缺失、格式錯誤、已過期或身分不符時，
+會 fail closed；OpenCodex 不會退回使用舊快照，也不會自行 refresh 來源登入。這是一個本機連結，
+不是可攜式匯出，也不是 refresh 所有權的轉移。已經送往上游的請求仍使用它們當時取得的憑證。
+
+新帳號會以**驗證待處理**狀態註冊。啟動代理之後，開啟 **Codex Auth** 並點擊**重新整理配額**
+以授權既有的模型驗證步驟，這可能會消耗少量配額。離線匯入與 JWT 解析並不會建立上游認證。
+單靠 CLI 的配額重新整理也不會執行那項驗證。匯入器永不啟動或停止任一應用程式、變更 Orca
+檔案，或變更目前使用中的帳號池帳號。
 
 ### `ocx account list [provider] [--json] [--all] [--quota [--refresh]]`
 
@@ -325,6 +363,8 @@ ocx account main reauth cancel --flow <id> [--json]
 ocx account main switch <profile-id-or-label> --yes [--json]
 ocx account main recover [--rollback --yes] [--json]
 ```
+
+`ocx account main reauth --device --no-wait --json` 成功時只會向 stdout 輸出一個 JSON 物件，不會輸出供人閱讀的 `follow up:` 提示行。將回傳的 `flowId` 傳給 `ocx account main reauth status --flow <id> --json` 即可查看進度。
 
 每個會變更狀態的命令都會回報執行中代理回傳的 canonical 有效 `CODEX_HOME`。這個路徑可能與
 呼叫端的 `CODEX_HOME` 不同；支援 JSON 的命令以 `effectiveCodexHome` 暴露同一個值。

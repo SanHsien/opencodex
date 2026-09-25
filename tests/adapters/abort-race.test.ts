@@ -1,20 +1,33 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import type { ProviderAdapter } from "../../src/adapters/base";
 import type { AdapterEvent, OcxConfig, OcxProviderConfig } from "../../src/types";
+import { acquireOwnedSpendHome } from "../helpers/owned-spend-home";
 
 const actualResolver = await import("../../src/server/adapter-resolve");
+// Capture the real function before the override. `mock.module` rewrites the namespace's live
+// binding in place, so a lookup through `actualResolver` inside the wrapper would reach
+// whichever override is current, including this one, once another file in the same process
+// has mocked this module too.
+const actualResolveAdapter = actualResolver.resolveAdapter;
 let adapterFactory: ((provider: OcxProviderConfig) => ProviderAdapter) | undefined;
 
 mock.module("../../src/server/adapter-resolve", () => ({
   ...actualResolver,
   resolveAdapter(provider: OcxProviderConfig, cacheRetention?: "none" | "short" | "long") {
-    return adapterFactory?.(provider) ?? actualResolver.resolveAdapter(provider, cacheRetention);
+    return adapterFactory?.(provider) ?? actualResolveAdapter(provider, cacheRetention);
   },
 }));
 
 const { handleResponses } = await import("../../src/server/responses");
+let releaseSpendHome: (() => void) | undefined;
+
+// Direct physical dispatch needs the writer lease to prevent spend-ledger ownership failures.
+const takeSpendHome = (): void => { releaseSpendHome ??= acquireOwnedSpendHome(); };
 
 afterEach(() => {
+  // Release first so a failed dispatch cannot leak ownership into the next case.
+  releaseSpendHome?.();
+  releaseSpendHome = undefined;
   adapterFactory = undefined;
 });
 
@@ -63,6 +76,7 @@ describe("Responses abort guards", () => {
       },
     });
 
+    takeSpendHome();
     const response = await post("test-run-turn", false);
     const body = await response.text();
 
@@ -107,6 +121,7 @@ describe("Responses abort guards", () => {
         },
       });
 
+      takeSpendHome();
       const response = await post("test-fetch", true, clientAbort.signal);
       await response.text();
       await new Promise<void>(resolve => setImmediate(resolve));
@@ -175,6 +190,7 @@ describe("Responses abort guards", () => {
         },
       });
 
+      takeSpendHome();
       const response = await handleResponses(new Request("http://localhost/v1/responses", {
         method: "POST",
         headers: { "content-type": "application/json" },

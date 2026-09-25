@@ -1,8 +1,11 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
+import { execFileSync } from "node:child_process";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { restartCodexDesktopApp, type DesktopAppRestartIo } from "../../src/codex/desktop-app-restart";
+import { windowsDesktopAppAdapter } from "../../src/codex/desktop-app/windows";
+import { handleDesktopAppRestart } from "../../src/cli/restart-scope";
 import { setTrustedWindowsElevationExecutablesForTests } from "../../src/lib/windows-elevation";
 
 /**
@@ -26,6 +29,53 @@ function withTrustedExes<T>(run: () => T): T {
 }
 
 interface Call { file: string; args: string[] }
+
+describe.skipIf(process.platform !== "win32")("Windows membership through the real PowerShell prefilter", () => {
+  for (const [label, root, executable] of [
+    ["forward-slash images under a backslash root", INSTALL, INSTALL.replaceAll("\\", "/") + "/ChatGPT.exe"],
+    ["backslash images under a forward-slash root", INSTALL.replaceAll("\\", "/"), INSTALL + "\\ChatGPT.exe"],
+  ] as const) {
+    test(label, () => {
+      const sibling = executable.replace(/([\\/])ChatGPT\.exe$/, "-evil$1ChatGPT.exe");
+      const psLiteral = (value: string) => "'" + value.replaceAll("'", "''") + "'";
+      const fixture = [
+        // These functions shadow the CIM cmdlets: the generated list-only script
+        // sees synthetic rows and never enumerates or controls real processes.
+        "function Get-CimInstance {",
+        "  param([string]$ClassName, [string]$Filter)",
+        "  if ($ClassName -cne 'Win32_Process' -or $Filter -cne \"Name='ChatGPT.exe'\") { throw 'Unexpected fixture query' }",
+        "  @(",
+        `    [pscustomobject]@{ ProcessId = 1000; ParentProcessId = 900; CreationDate = [datetime]'2026-09-15T00:00:00Z'; ExecutablePath = ${psLiteral(executable)} }`,
+        `    [pscustomobject]@{ ProcessId = 2000; ParentProcessId = 900; CreationDate = [datetime]'2026-09-15T00:00:00Z'; ExecutablePath = ${psLiteral(sibling)} }`,
+        "  )",
+        "}",
+        "function Invoke-CimMethod {",
+        "  param($InputObject, [string]$MethodName)",
+        "  if ($MethodName -cne 'GetOwner' -or $InputObject.ProcessId -notin @(1000, 2000)) { throw 'Unexpected fixture owner query' }",
+        "  [pscustomobject]@{ ReturnValue = 0; Domain = ''; User = ([Security.Principal.WindowsIdentity]::GetCurrent()).Name }",
+        "}",
+      ].join("\n");
+      let rawListing = "";
+      const listed = withTrustedExes(() => windowsDesktopAppAdapter.listProcesses((file, args) => {
+        expect(file).toBe(PS);
+        expect(args.slice(0, 3)).toEqual(["-NoProfile", "-NonInteractive", "-Command"]);
+        const script = args[3]!;
+        rawListing = execFileSync(file, [...args.slice(0, 3), fixture + "\n" + script], {
+          encoding: "utf8",
+          timeout: 10_000,
+          windowsHide: true,
+        });
+        return rawListing;
+      }, { id: AUMID.replace("!App", ""), root, relaunch: AUMID }));
+      // The real prefilter admits both lexical prefixes despite mixed slashes.
+      // The shared JS boundary check then removes the similarly named sibling.
+      expect(rawListing.trim().split(/\r?\n/).map(line => Number(line.split(" ")[0]))).toEqual([1000, 2000]);
+      expect(listed?.map(entry => ({ pid: entry.pid, executable: entry.executable }))).toEqual([
+        { pid: 1000, executable },
+      ]);
+    }, 15_000);
+  }
+});
 
 /** Scripted exec seam: discovery, then process list, then whatever the branch does. */
 /**
@@ -91,6 +141,35 @@ function scriptedIo(options: {
 
 const DISCOVERY = [AUMID.replace("!App", ""), INSTALL, AUMID].join("\n");
 
+// The guard follows the test preload's OCX_TEST_HOME_GUARD, as the home guard does, rather than
+// NODE_ENV: Bun's test runner keeps an inherited NODE_ENV, and a real `NODE_ENV=test ocx ...`
+// must still restart the app.
+describe("the test-runner guard follows the test preload, not NODE_ENV", () => {
+  const originalNodeEnv = process.env.NODE_ENV;
+  const originalGuard = process.env.OCX_TEST_HOME_GUARD;
+  afterEach(() => {
+    if (originalNodeEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = originalNodeEnv;
+    if (originalGuard === undefined) delete process.env.OCX_TEST_HOME_GUARD;
+    else process.env.OCX_TEST_HOME_GUARD = originalGuard;
+  });
+
+  test("an armed test process is guarded even when NODE_ENV was inherited as something else", () => {
+    process.env.NODE_ENV = "development";
+    const result = restartCodexDesktopApp({ lock: isolatedLock(), platform: "win32" });
+    expect(result.reason).toBe("test_environment");
+  });
+
+  test("a process the test preload did not arm restarts as usual even with NODE_ENV=test", () => {
+    process.env.NODE_ENV = "test";
+    process.env.OCX_TEST_HOME_GUARD = "0";
+    // discover() answers without exec, so this never reaches the OS.
+    const adapter = { ...windowsDesktopAppAdapter, discover: () => null };
+    const result = restartCodexDesktopApp({ lock: isolatedLock(), platform: "win32", adapter });
+    expect(result.reason).toBe("package_discovery_failed");
+  });
+});
+
 describe("Codex desktop app restart (#2292)", () => {
   // macOS and Linux are no longer no-ops: they have real adapters. What survives from the
   // original assertion is that a platform with NO adapter still refuses without execing
@@ -107,6 +186,33 @@ describe("Codex desktop app restart (#2292)", () => {
       attempted: false, stopped: [], surviving: [], relaunch: "skipped", reason: "unsupported_platform",
     });
     expect(calls).toEqual([]);
+  });
+
+  // A test that reaches the restart without injecting an adapter or exec used to drive the real
+  // OS adapter: on a developer Mac `performCodexRestart` tests quit the user's ChatGPT (Codex)
+  // app and relaunched it through `/usr/bin/open` with the runner's sandbox HOME, logged out.
+  // win32 keeps the pre-fix run harmless off Windows (no PowerShell to discover anything with).
+  test("under the test runner, the real OS adapter is never used without an injected one", () => {
+    const result = restartCodexDesktopApp({ lock: isolatedLock(), platform: "win32" });
+    expect(result).toEqual({
+      attempted: false, stopped: [], surviving: [], relaunch: "skipped", reason: "test_environment",
+    });
+  });
+
+  // An injected adapter still execs through the platform default when no exec is injected, so
+  // only an injected exec proves the caller is simulating the OS.
+  test("an injected adapter without an injected exec still never reaches the OS", () => {
+    const result = restartCodexDesktopApp({ lock: isolatedLock(), platform: "win32", adapter: windowsDesktopAppAdapter });
+    expect(result.reason).toBe("test_environment");
+  });
+
+  // win32 keeps this call away from the OS on macOS and Linux even if the guard regressed.
+  test("the CLI says why nothing was restarted under the test runner", async () => {
+    const out: string[] = [];
+    const log = { log: (...a: unknown[]) => { out.push(a.join(" ")); }, error: (...a: unknown[]) => { out.push(a.join(" ")); } };
+    const result = await handleDesktopAppRestart(log, { platform: "win32", lock: isolatedLock() });
+    expect(result.reason).toBe("test_environment");
+    expect(out.join("\n")).toContain("OCX_TEST_HOME_GUARD");
   });
 
   test("fails closed when the package cannot be identified, killing nothing", () => {
@@ -140,6 +246,34 @@ describe("Codex desktop app restart (#2292)", () => {
     const launch = calls.find(c => c.args.join(" ").includes("Start-Process"));
     expect(launch?.args.join(" ")).toContain(AUMID);
   });
+
+
+  for (const [label, root, executable, isMember] of [
+    ["forward-slash executable under backslash root", INSTALL, INSTALL.replaceAll("\\", "/") + "/ChatGPT.exe", true],
+    ["backslash executable under forward-slash root", INSTALL.replaceAll("\\", "/"), INSTALL + "\\ChatGPT.exe", true],
+    ["forward-slash sibling outside backslash root", INSTALL, INSTALL.replaceAll("\\", "/") + "-evil/ChatGPT.exe", false],
+    ["backslash sibling outside forward-slash root", INSTALL.replaceAll("\\", "/"), INSTALL + "-evil\\ChatGPT.exe", false],
+  ] as const) {
+    test(label, () => {
+      const calls: Call[] = [];
+      const result = withTrustedExes(() => restartCodexDesktopApp(scriptedIo({
+        discovery: [AUMID.replace("!App", ""), root, AUMID].join("\n"),
+        processes: `1000 900 T0 ${executable}`,
+        calls,
+        aliveFor: (_pid, poll) => poll <= 2,
+      })));
+      if (isMember) {
+        expect(result).toEqual({ attempted: true, stopped: [1000], surviving: [], relaunch: "started" });
+        expect(calls.some(c => c.args.join(" ").includes("CloseMainWindow"))).toBe(true);
+      } else {
+        expect(result.reason).toBe("no_targets");
+        expect(result.attempted).toBe(false);
+        expect(calls.some(c => c.args.join(" ").includes("CloseMainWindow"))).toBe(false);
+        expect(calls.some(c => c.args.join(" ").includes("Start-Process"))).toBe(false);
+      }
+      expect(calls.some(c => c.file === TASKKILL)).toBe(false);
+    });
+  }
 
   test("forces only after the graceful window elapses", () => {
     const calls: Call[] = [];

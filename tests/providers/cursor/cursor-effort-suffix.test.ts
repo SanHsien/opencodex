@@ -26,6 +26,19 @@ const RECORDED_CURSOR_GROK_46_DISCOVERY_IDS = [
   "cursor-grok-4.6-xhigh-fast",
 ] as const;
 
+// Live GetUsableModels roster (live calls accepted grok-4.7-low and grok-4.7-xhigh-fast):
+// devlog/_plan/260923_grok47_parity/010_probe-evidence.md.
+const RECORDED_CURSOR_GROK_47_DISCOVERY_IDS = [
+  "grok-4.7-low",
+  "grok-4.7-medium",
+  "grok-4.7-high",
+  "grok-4.7-xhigh",
+  "grok-4.7-low-fast",
+  "grok-4.7-medium-fast",
+  "grok-4.7-high-fast",
+  "grok-4.7-xhigh-fast",
+] as const;
+
 function modelIdFor(modelId: string, reasoning?: string): string {
   const parsed: OcxParsedRequest = {
     modelId,
@@ -188,6 +201,24 @@ describe("Cursor per-model reasoning-effort suffix", () => {
     expect(RECORDED_CURSOR_GROK_46_DISCOVERY_IDS).toContain("cursor-grok-4.6-xhigh-fast");
   });
 
+  test("grok-4.7 regular and Fast requests use the unprefixed live ids", () => {
+    for (const effort of ["low", "medium", "high", "xhigh"] as const) {
+      const regular = selectionFor("cursor/grok-4.7", effort);
+      const fast = selectionFor("cursor/grok-4.7-fast", effort);
+      expect(regular).toEqual({ modelId: `grok-4.7-${effort}`, parameters: undefined });
+      expect(fast).toEqual({ modelId: `grok-4.7-${effort}-fast`, parameters: undefined });
+      expect(RECORDED_CURSOR_GROK_47_DISCOVERY_IDS).toContain(regular.modelId);
+      expect(RECORDED_CURSOR_GROK_47_DISCOVERY_IDS).toContain(fast.modelId);
+      expect(cursorWireModelIdWithEffort("grok-4.7-fast", effort)).toBe(fast.modelId);
+    }
+    expect(modelIdFor("cursor/grok-4.7", "max")).toBe("grok-4.7-xhigh");
+    expect(modelIdFor("cursor/grok-4.7-fast", "max")).toBe("grok-4.7-xhigh-fast");
+    expect(modelIdFor("cursor/grok-4.7-fast")).toBe("grok-4.7-xhigh-fast");
+    expect(RECORDED_CURSOR_GROK_47_DISCOVERY_IDS).not.toContain("grok-4.7-fast");
+    expect(cursorModelEffortLadder("grok-4.7")).toEqual(["low", "medium", "high", "xhigh"]);
+    expect(cursorModelEffortLadder("grok-4.7-fast")).toEqual(["low", "medium", "high", "xhigh"]);
+  });
+
   test("kimi-k3 maps to its live effort-suffixed variants", () => {
     expect(modelIdFor("cursor/kimi-k3", "low")).toBe("kimi-k3-low");
     expect(modelIdFor("cursor/kimi-k3", "medium")).toBe("kimi-k3-high");
@@ -235,6 +266,17 @@ describe("#2569 Cursor catalog tracks the live GetUsableModels roster", () => {
 
   test("gemini-3.7-flash carries the low/medium/high ladder the wire lists", () => {
     expect(cursorModelEffortLadder("gemini-3.7-flash")).toEqual(["low", "medium", "high"]);
+  });
+
+  test("muse-spark-1.3 publishes minimal..xhigh and withholds the advertised max rung", () => {
+    expect(cursorModelEffortLadder("muse-spark-1.3")).toEqual(["minimal", "low", "medium", "high", "xhigh"]);
+    expect(cursorEffortSuffix("muse-spark-1.3", "minimal")).toBe("minimal");
+    expect(cursorWireModelIdWithEffort("muse-spark-1.3", "minimal")).toBe("muse-spark-1.3-minimal");
+    // Cursor's roster advertises muse-spark-1.3-max, but Meta publishes no max rung for Muse
+    // Spark and an independent probe rejected it, so a Codex request at max clamps to the top
+    // rung the vendor documents instead of sending an id only the reseller claims.
+    expect(cursorEffortSuffix("muse-spark-1.3", "max")).toBe("xhigh");
+    expect(cursorWireModelIdWithEffort("muse-spark-1.3", "xhigh")).toBe("muse-spark-1.3-xhigh");
   });
 
   test("both families survive live-discovery filtering from effort-suffixed wire ids", () => {

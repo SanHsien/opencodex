@@ -112,6 +112,8 @@ export interface CatalogModel {
   displayName?: string;
   owned_by?: string;
   reasoningEfforts?: string[];
+  /** Suppress only catalog synthesis of a missing max rung; provider-declared max survives. */
+  suppressSyntheticMax?: boolean;
   defaultReasoningEffort?: string;
   contextWindow?: number;
   maxInputTokens?: number;
@@ -192,6 +194,8 @@ export const ROUTED_MODEL_COMPATIBILITY_EXCLUSIONS = new Set([
    * keep appearing with its capabilities broken. Excluding the slug is what actually takes
    * it out of the routed catalog.
    */
+  "deepseek/deepseek-v4-pro",
+  "opencode-go/deepseek-v4-pro",
   "command-code/deepseek-deepseek-v4-pro",
   "commandcode/deepseek-deepseek-v4-pro",
   "orcarouter/deepseek-deepseek-v4-pro",
@@ -255,12 +259,19 @@ export function readCodexCatalogPath(): string {
   return activeDefaultCatalogPath();
 }
 
-/** Resolve the configured catalog without consulting ambient CODEX_HOME again. */
-export function readCodexCatalogPathForHome(codexHome: string): string {
+/**
+ * Resolve the configured catalog without consulting ambient CODEX_HOME again.
+ *
+ * `configText` is for a caller that has already read that same `config.toml` under
+ * its own constraints - the prompt-text probe reads it bounded, on the request
+ * thread - so resolving the catalog does not cost a second, unbounded read of the
+ * file the caller is holding. Omitting it keeps the original behaviour.
+ */
+export function readCodexCatalogPathForHome(codexHome: string, configText?: string): string {
   try {
     const configPath = join(codexHome, "config.toml");
-    if (existsSync(configPath)) {
-      const toml = readFileSync(configPath, "utf-8");
+    if (configText !== undefined || existsSync(configPath)) {
+      const toml = configText ?? readFileSync(configPath, "utf-8");
       const path = readRootTomlString(toml, "model_catalog_json");
       if (path) return resolve(codexHome, path);
     }
@@ -279,6 +290,30 @@ export function readConfiguredAutoReviewModel(): string | null {
     if (existsSync(configPath)) {
       const toml = readFileSync(configPath, "utf-8");
       return readRootTomlString(toml, "auto_review_model");
+    }
+  } catch { /* ignore */ }
+  return null;
+}
+
+/**
+ * Read the root `model` pin from Codex's config.toml (issue #4646).
+ *
+ * Codex starts every new session on this id, and nothing in opencodex checks that the id is one
+ * the proxy actually exposes: the pin lives in Codex's config, while exposure is decided here by
+ * `disabledModels`, provider `selectedModels`, and account entitlements. When the two disagree
+ * every turn fails and no surface says why, which is what the `ocx doctor` section added for
+ * #4646 reports.
+ *
+ * Read-only, and deliberately the same shape and the same swallow-and-return-null error policy as
+ * `readConfiguredAutoReviewModel` above: a diagnostic must degrade to "unknown" on an unreadable
+ * or absent config rather than throw out of the surface that called it.
+ */
+export function readConfiguredDefaultModel(): string | null {
+  try {
+    const configPath = activeCodexConfigPath();
+    if (existsSync(configPath)) {
+      const toml = readFileSync(configPath, "utf-8");
+      return readRootTomlString(toml, "model");
     }
   } catch { /* ignore */ }
   return null;
@@ -627,6 +662,14 @@ export interface MultiAgentModeOptions {
    * so they can still spawn Grok/Claude — ChatGPT encrypts v2 NEW_TASK bodies.
    */
   keepNativeChatGptOnV1?: boolean;
+  /**
+   * Pristine installed-catalog pins keyed by bare native slug. When provided, the
+   * backup — not the bundled snapshot — is authoritative for the rows it contains,
+   * and a preserved live/native row outside it keeps the pin it already carries:
+   * an absent baseline entry cannot distinguish a stale forced stamp from a
+   * legitimate user- or provider-preserved pin, so the non-destructive read wins.
+   */
+  nativeDefaults?: ReadonlyMap<string, string | null>;
 }
 
 /** Catalog rows that run on the ChatGPT backend (encrypt v2 child tasks). */
@@ -688,6 +731,7 @@ export function applyMultiAgentMode(
 ): RawEntry[] {
   if (mode === "v2" && options.keepNativeChatGptOnV1 === true) {
     for (const entry of entries) {
+      recordMultiAgentOrigin(entry);
       entry.multi_agent_version = catalogEntryIsNativeChatGpt(entry) ? "v1" : "v2";
     }
     return entries;
@@ -696,6 +740,9 @@ export function applyMultiAgentMode(
     // Restore upstream defaults: clear any stale forced multi_agent_version and
     // re-apply upstream pins from the snapshot for native entries that have one.
     for (const entry of entries) {
+      // A forced mode recorded what this row carried before it was overwritten; returning
+      // to default consumes that record whichever branch below decides the row.
+      const origin = takeMultiAgentOrigin(entry);
       if (options.preserveDefaultMultiAgentVersion?.(entry)) continue;
       const slug = typeof entry.slug === "string" ? entry.slug : "";
       const nativeAlias = entry.opencodex_catalog_kind === CODEX_NATIVE_ALIAS_CATALOG_KIND;
@@ -707,13 +754,44 @@ export function applyMultiAgentMode(
         && hasNativeOpenAiCapabilityMetadata(routedNativeSlug)
         ? routedNativeSlug
         : undefined;
+      const accountBoundNativeSlug = trustedAccountBoundNativeCatalogSlug(entry);
+      const nativeLookupSlug = accountBoundNativeSlug ?? slug;
+      // The baseline is built from bare native slugs only, so "absent from the
+      // baseline" is not evidence about a routed row — it is guaranteed. Only a
+      // native row can carry a pin the baseline legitimately failed to mention;
+      // a routed row keeps the documented default-mode normalization.
+      const isNativeCatalogEntry = accountBoundNativeSlug !== undefined || !slug.includes("/");
+      const hasNativeDefault = !nativeAlias
+        && codexForwardCapabilityAlias === undefined
+        && options.nativeDefaults?.has(nativeLookupSlug) === true;
       const upstreamPin = nativeAlias
         ? nativeMultiAgentVersion(slug)
         : codexForwardCapabilityAlias
           ? nativeMultiAgentVersion(codexForwardCapabilityAlias)
-          : UPSTREAM_NATIVE_ENTRIES.get(trustedAccountBoundNativeCatalogSlug(entry) ?? slug)?.multi_agent_version;
+          : hasNativeDefault
+            ? options.nativeDefaults?.get(nativeLookupSlug)
+            : options.nativeDefaults === undefined
+              ? UPSTREAM_NATIVE_ENTRIES.get(nativeLookupSlug)?.multi_agent_version
+              : undefined;
       if (typeof upstreamPin === "string") {
         entry.multi_agent_version = upstreamPin;
+      } else if (options.nativeDefaults !== undefined
+        && !nativeAlias
+        && codexForwardCapabilityAlias === undefined
+        && isNativeCatalogEntry
+        && !hasNativeDefault
+        && typeof entry.multi_agent_version === "string") {
+        // The baseline predates this native row, so it cannot say whether the live pin
+        // is genuine. With a recorded origin it no longer has to guess: restore what the
+        // row carried before the first forced mode (issue 5636). A row without a record
+        // (older catalogs) keeps the non-destructive read.
+        if (origin === undefined) continue;
+        if (typeof origin === "string") {
+          entry.multi_agent_version = origin;
+          continue;
+        }
+        if (v2FeatureEnabled) entry.multi_agent_version = "v2";
+        else delete entry.multi_agent_version;
       } else if (v2FeatureEnabled) {
         entry.multi_agent_version = "v2";
       } else {
@@ -723,9 +801,33 @@ export function applyMultiAgentMode(
     return entries;
   }
   for (const entry of entries) {
+    recordMultiAgentOrigin(entry);
     entry.multi_agent_version = mode;
   }
   return entries;
+}
+
+/**
+ * Provenance for a forced multi-agent stamp: the value the row carried before the first
+ * forced v1/v2 pass, or null when it carried none. Repeated forced passes never replace it,
+ * so a v1 -> v2 -> default round trip still restores the original. Codex ignores unknown
+ * catalog fields, as it does opencodex_catalog_kind.
+ */
+export const MULTI_AGENT_ORIGIN_FIELD = "opencodex_multi_agent_version_origin";
+
+function recordMultiAgentOrigin(entry: RawEntry): void {
+  if (Object.hasOwn(entry, MULTI_AGENT_ORIGIN_FIELD)) return;
+  (entry as Record<string, unknown>)[MULTI_AGENT_ORIGIN_FIELD] = typeof entry.multi_agent_version === "string"
+    ? entry.multi_agent_version
+    : null;
+}
+
+/** Remove and return the recorded origin: a string pin, null for "no pin", undefined when unrecorded. */
+function takeMultiAgentOrigin(entry: RawEntry): string | null | undefined {
+  if (!Object.hasOwn(entry, MULTI_AGENT_ORIGIN_FIELD)) return undefined;
+  const raw = (entry as Record<string, unknown>)[MULTI_AGENT_ORIGIN_FIELD];
+  delete (entry as Record<string, unknown>)[MULTI_AGENT_ORIGIN_FIELD];
+  return typeof raw === "string" ? raw : raw === null ? null : undefined;
 }
 
 export function normalizeRoutedCatalogEntry(
@@ -741,6 +843,13 @@ export function normalizeRoutedCatalogEntry(
   delete entry.multi_agent_reasoning_effort;
   delete entry.use_responses_lite;
   delete entry.supports_websockets;
+  // Routed rows cloned from native templates must not inherit OpenAI-only experimental context
+  // delivery. Codex reads the flag as "this model accepts experimental context history" and drives
+  // its context-management cadence from it, so a third-party provider that never negotiated it gets
+  // a compact-after-every-step loop instead (observed on a routed DeepSeek row: 1,600+ compactions
+  // in a single thread). Nothing re-applies the field from provider metadata during this step, so
+  // the row leaves this normalization without it.
+  delete entry.supports_experimental_context;
   /*
    * Tier metadata is stripped from routed rows because a row cloned from a native template
    * would otherwise hand a third-party provider OpenAI's tiers.
@@ -885,6 +994,22 @@ export function readNativeBaseline(catalogPath: string): Map<string, number> {
     if (typeof e.slug === "string" && !e.slug.includes("/") && typeof e.priority === "number") {
       out.set(e.slug, e.priority);
     }
+  }
+  return out;
+}
+
+/**
+ * Extract the pristine baseline's per-slug multi-agent pins. A bare native row that
+ * carried no pin maps to null so "baseline says unpinned" stays distinguishable
+ * from "baseline never contained this row".
+ */
+export function nativeMultiAgentDefaults(
+  models: readonly Readonly<Record<string, unknown>>[] | null | undefined,
+): Map<string, string | null> {
+  const out = new Map<string, string | null>();
+  for (const entry of models ?? []) {
+    if (typeof entry.slug !== "string" || entry.slug.includes("/")) continue;
+    out.set(entry.slug, typeof entry.multi_agent_version === "string" ? entry.multi_agent_version : null);
   }
   return out;
 }

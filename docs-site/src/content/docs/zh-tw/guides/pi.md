@@ -27,7 +27,8 @@ ocx export --client pi
       "api": "openai-completions",
       "apiKey": "$OPENCODEX_API_KEY",
       "compat": {
-        "sendSessionAffinityHeaders": true
+        "sendSessionAffinityHeaders": true,
+        "supportsDeveloperRole": false
       },
       "models": [
         {
@@ -47,10 +48,9 @@ ocx export --client pi
 provider 時請保留這個旗標：Pi 會提供穩定的 session 身分，OpenCodex 據此推導出標準的
 OpenCode Go 親和性。當 `cacheRetention` 為 `none` 時，Pi 可能會省略這個身分。
 
-模型 id 是 proxy 的規範選擇器，因此路由模型會顯示為 `provider/model`
-（`anthropic/claude-opus-5`），而原生 OpenAI slug 維持無前綴（`gpt-5.6-sol`）。`name`
-的字尾——`(anthropic)`、`(native)`、`(routed)`——正是讓來自不同上游的兩個同名模型在 Pi 的
-選單中可以區分的關鍵。
+產生的 Pi 供應商設定也會把 `compat.supportsDeveloperRole` 設為 `false`，讓 Pi 以 `system` 而非 `developer` 角色傳送系統提示詞。OpenCodex 會照原樣轉送 Chat Completions 角色，而部分 OpenAI 相容上游會以 400 拒絕 `developer`；所有上游都接受 `system`。
+
+模型 id 是代理的規範選擇器，因此路由模型顯示為 `provider/model`（`anthropic/claude-opus-5`），而原生 OpenAI slug 保持無前綴（`gpt-5.6-sol`）。`name` 後綴 — `(anthropic)`、`(native)`、`(routed)` — 正是讓來自不同上游的兩個同名模型在 Pi 的 picker 中可區分的關鍵。
 
 ## 放置位置
 
@@ -92,10 +92,7 @@ export OPENCODEX_API_KEY=<your key>
 那個名稱只屬於 Pi。opencode 使用不同的變數
 （`OPENCODEX_OPENCODE_API_KEY`，以 `{env:…}` 形式）——見 [opencode 指南](/zh-tw/guides/opencode/)。
 
-**回路 proxy 完全不需要 key。** opencodex 預設繫結 `127.0.0.1`，在那裡不驗證任何東西，
-所以 `$OPENCODEX_API_KEY` 這個參照是無作用的，你可以讓這個變數保持未設定。它只有在
-`hostname` 設定到回路之外時才重要——這也正是 proxy 在沒有 token 時會拒絕啟動的情況——見
-[遠端存取](/zh-tw/reference/configuration/#remote-access)。
+**回送代理完全不需要 key。** opencodex 預設綁定 `127.0.0.1` 且在那裡不認證任何東西，因此 `$OPENCODEX_API_KEY` 參照是無效的，你可以讓變數未設定。它只在 `hostname` 設定到回送以外時才重要，這也是代理在沒有 token 時拒絕啟動的情況 — 見[遠端存取](/zh-tw/reference/configuration/server/#遠端存取)。
 
 ## 模型中繼資料
 

@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   copyFileSync,
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   renameSync,
@@ -21,10 +22,12 @@ import {
   readWindowsTrayRunValueWithAsyncRunner,
   readWindowsTrayRunValueWithRunner,
   replaceWindowsTrayOwnedFile,
+  windowsPowerShellPath,
   windowsTrayProcessArgs,
   windowsTrayRunValue,
   windowsTrayStatePathsOwned,
   windowsTrayRegistrationIsStale,
+  windowsTrayRequiredFilesPresent,
   windowsRegistryParentShowsRunKey,
   type WindowsTrayEntry,
 } from "../../src/tray/windows";
@@ -225,6 +228,19 @@ describe("Windows tray packaging and command safety", () => {
       .toBe(windowsTrayRunValue("C:\\Users\\Test\\.opencodex\\."));
   });
 
+  test("an install from before the dotted icons still owns its registration", () => {
+    const home = "C:\\Users\\Test\\.opencodex";
+    const state = { bun: "C:\\bun.exe", cli: "C:\\ocx\\cli.ts", script: home + "\\opencodex-tray.ps1" };
+    const icons = ["online", "warning", "offline"].flatMap(name => [
+      `${home}\\opencodex-tray-${name}.ico`, `${home}\\opencodex-tray-${name}-update.ico`]);
+    const legacy = new Set([state.bun, state.cli, state.script, ...icons.filter(path => !path.endsWith("-update.ico"))]);
+    // Only the three base icons exist: still owned, so an update refreshes it instead of dropping it.
+    expect(windowsTrayRequiredFilesPresent(state, icons, path => legacy.has(path))).toBe(true);
+    // A missing base icon still means the install is broken.
+    legacy.delete(`${home}\\opencodex-tray-warning.ico`);
+    expect(windowsTrayRequiredFilesPresent(state, icons, path => legacy.has(path))).toBe(false);
+  });
+
   test("treats an unexpected registry type or unreadable value as foreign", () => {
     const value = "OpenCodexTray-test";
     const command = '"C:\\Windows\\powershell.exe" -File "C:\\tray.ps1"';
@@ -373,12 +389,263 @@ describe("Windows tray packaging and command safety", () => {
     expect(source).toContain('Load-TrayIcon "opencodex-tray-online.ico"');
     expect(source).toContain('Load-TrayIcon "opencodex-tray-warning.ico"');
     expect(source).toContain('Load-TrayIcon "opencodex-tray-offline.ico"');
-    expect(source).toContain("$notify.Icon = $offlineIcon");
+    expect(source).toContain('if ($script:updateAvailable) { $offlineUpdateIcon } else { $offlineIcon }');
     expect(source).not.toContain("$menu.add_Opening({ Update-TrayState })");
     expect(source).not.toContain("Invoke-Expression");
     expect(source).not.toContain("taskkill");
     expect(source).not.toContain("Stop-Process");
   });
+
+  test("tray reads restart safety through the CLI instead of the admin-gated /api endpoint", () => {
+    const source = readFileSync(repoPath("src", "tray", "windows-tray.ps1"), "utf8");
+    // The management API is admin-token gated, and the tray runs without that token,
+    // so a plain GET /api/startup-health always 401s and leaves the tray stuck on the
+    // yellow warning icon. The tray must collect the same local diagnostic through the
+    // CLI's __startup-health internal command instead.
+    expect(source).toContain('@($CliPath, "__startup-health")');
+    expect(source).not.toContain('Read-JsonUrl "$origin/api/startup-health"');
+    // The local diagnostic does not re-run the Windows service-manager probe on every
+    // 3s tick, so its refresh cadence must stay throttled...
+    expect(source).toContain("$script:startupRefreshMs");
+    expect(source).toContain("$script:startupHealthCheckedAt -gt $script:startupRefreshMs");
+    // ...and it must not block the Windows Forms UI thread. The probe is a detached
+    // child whose stdout pipe is drained asynchronously; the 3s tick only touches the
+    // completed read task, so a slow or hung diagnostic can never freeze the tray menu.
+    expect(source).toContain("ReadToEndAsync()");
+    expect(source).toContain("$script:startupProbeProcess");
+    // A timed-out diagnostic must be terminated, not left to become an orphaned
+    // Bun process on the next refresh.
+    expect(source).toContain("startupProbeProcess.Kill()");
+    // A launch failure or invalid result must not start a new probe on the very next
+    // 3s tick: the refresh decides by the throttled attempt timestamp, never by a null
+    // cached health, and records the attempt before spawning the child.
+    expect(source).toContain("$script:startupHealthCheckedAt -eq 0 -or");
+    expect(source).toContain("# Record the attempt so launch failures and invalid results remain throttled.");
+    // A probe still in flight when the tray shuts down must not outlive it: the
+    // finally block kills the active probe, waits briefly, then completes it.
+    expect(source).toContain("terminating active startup-health probe on tray shutdown");
+    expect(source).toContain("startupProbeProcess.WaitForExit(3000)");
+    // Placement proof that runs on every platform: the behavioral test below is
+    // win32-only and the Windows CI leg runs on dispatch rather than on PRs,
+    // so merge-time coverage needs a lightweight check here too. The timeout
+    // maintenance must sit BEFORE the online-only UI branch: moving it inside
+    // flips the order and deleting it removes the anchor, and a plain
+    // substring could not tell inside from outside. The branch anchor is a
+    // line-anchored regex (not a substring) because the `$script:proxyPid`
+    // assignment a few lines above contains the same `if ($script:online) {`
+    // text inline.
+    const timeoutAnchorIdx = source.search(
+      /^\s*} elseif \(\$probeTimedOut\) \{$/m,
+    );
+    const onlineBranchIdx = source.search(/^\s*if \(\$script:online\) \{$/m);
+    expect(timeoutAnchorIdx).toBeGreaterThanOrEqual(0);
+    expect(onlineBranchIdx).toBeGreaterThanOrEqual(0);
+    expect(timeoutAnchorIdx).toBeLessThan(onlineBranchIdx);
+    // Hung-child termination itself is proven behaviorally by "terminates a hung
+    // startup-health probe without stacking a replacement" below.
+    // The malformed-payload guard requires a real boolean, matching the shared
+    // server-side parser instead of accepting any non-null rebootSafe value.
+    expect(source).toContain("($parsed.rebootSafe -is [bool])");
+    // If the async pipe setup fails after the child started, the child must be
+    // terminated, not merely disposed and lost. That catch block logs a
+    // distinct string, which breaks if the branch is deleted.
+    expect(source).toContain("startup-health probe launch cleanup failed");
+  });
+
+  test("drops CODEX_HOME for tray children only when the default home is still missing", () => {
+    if (process.platform !== "win32") return;
+    const directory = mkdtempSync(join(tmpdir(), "ocx-tray-env-"));
+    mkdirSync(join(directory, "custom-existing"), { recursive: true });
+    const driver = join(directory, "driver.ps1");
+    writeFileSync(driver, [
+      "param([string]$TrayScriptPath)",
+      "$ErrorActionPreference = 'Stop'",
+      "$ast = [System.Management.Automation.Language.Parser]::ParseFile($TrayScriptPath, [ref]$null, [ref]$null)",
+      "foreach ($fn in $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true)) {",
+      "  if (@('Normalize-HomePath', 'Set-OcxChildEnvironment') -contains $fn.Name) { . ([ScriptBlock]::Create($fn.Extent.Text)) }",
+      "}",
+      "$OpenCodexHome = Join-Path $env:USERPROFILE '.opencodex'",
+      "$result = [ordered]@{}",
+      "foreach ($case in @(",
+      "  @{ Name = 'defaultMissing'; Home = (Join-Path $env:USERPROFILE '.codex') },",
+      "  @{ Name = 'customMissing'; Home = (Join-Path $env:USERPROFILE 'custom-missing') },",
+      "  @{ Name = 'customExisting'; Home = (Join-Path $env:USERPROFILE 'custom-existing') }",
+      ")) {",
+      "  $CodexHome = Normalize-HomePath $case.Home",
+      "  $psi = New-Object System.Diagnostics.ProcessStartInfo",
+      "  $psi.EnvironmentVariables['CODEX_HOME'] = 'inherited'",
+      "  Set-OcxChildEnvironment $psi",
+      "  $result[$case.Name] = if ($psi.EnvironmentVariables.ContainsKey('CODEX_HOME')) { $psi.EnvironmentVariables['CODEX_HOME'] } else { $null }",
+      "}",
+      "$result | ConvertTo-Json -Compress",
+    ].join("\r\n"));
+    const run = Bun.spawnSync([
+      windowsPowerShellPath(), "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+      "-File", driver, "-TrayScriptPath", repoPath("src", "tray", "windows-tray.ps1"),
+    ], { env: { ...process.env, USERPROFILE: directory }, stdout: "pipe", stderr: "pipe" });
+    expect(run.exitCode, run.stderr.toString()).toBe(0);
+    const result = JSON.parse(run.stdout.toString().trim()) as Record<string, string | null>;
+    expect(result.defaultMissing).toBeNull();
+    expect(result.customMissing?.endsWith("\\custom-missing")).toBe(true);
+    expect(result.customExisting?.endsWith("\\custom-existing")).toBe(true);
+  });
+
+  // Behavioral proof for the probe lifecycle: the driver loads the REAL probe
+  // functions out of windows-tray.ps1 (via the PowerShell AST, so comment and
+  // whitespace edits cannot fake it), stages a REAL hung child through the
+  // real Start-StartupHealthProbe, backdates its start past the real 30s
+  // timeout (elapsed time is an input to the maintenance branch, not the logic
+  // under test), then invokes the real Update-TrayState ticks and reports
+  // observable process facts. Offline proves the maintenance branch runs
+  // outside the online-only UI gate; Online proves the refresh throttle stacks
+  // no replacement. Either scenario fails if the Kill() is deleted (the child
+  // survives) or if maintenance moves inside the online branch (the offline
+  // child survives).
+  test("terminates and later reaps hung, overflowing, or failed tray probes without stacking", async () => {
+    if (process.platform !== "win32") return;
+    const psExe = windowsPowerShellPath();
+    const driver = helperPath("windows-tray-probe-lifecycle-driver.ps1");
+    const trayScript = repoPath("src", "tray", "windows-tray.ps1");
+    const scenarios = ["Offline", "Online", "BadgeOffline", "BadgeOverflowStdout", "BadgeOverflowStderr", "BadgeStaleFailure"] as const;
+    for (const scenario of scenarios) {
+      const directory = mkdtempSync(join(tmpdir(), "ocx-tray-probe-"));
+      const codexHome = join(directory, "codex");
+      const openCodexHome = join(directory, "ohome");
+      mkdirSync(codexHome, { recursive: true });
+      mkdirSync(openCodexHome, { recursive: true });
+      // The fake CLI name stays simple ASCII on purpose: the child engine here
+      // is powershell.exe (not bun), and its -Command parsing mangles paths
+      // with spaces or `&` even when quoted.
+      const hangChild = join(directory, "hangchild.ps1");
+      writeFileSync(hangChild, [
+        "$pidFile = $env:OCX_PROBE_TEST_PID_FILE",
+        "if ($pidFile) { Add-Content -LiteralPath $pidFile -Value $PID }",
+        ...(scenario === "BadgeOverflowStdout" ? ["[Console]::Out.Write('x' * 32768)"] : []),
+        ...(scenario === "BadgeOverflowStderr" ? ["[Console]::Error.Write('x' * 32768)"] : []),
+        ...(scenario === "BadgeStaleFailure" ? ["exit 1"] : ["Start-Sleep -Seconds 120"]),
+      ].join("\r\n"));
+      const pidFile = join(directory, "pids.txt");
+      const resultPath = join(directory, "verdict.json");
+      let server: ReturnType<typeof Bun.serve> | undefined;
+      try {
+        if (scenario === "Online") {
+          server = Bun.serve({
+            hostname: "127.0.0.1",
+            port: 0,
+            fetch: request => {
+              if (new URL(request.url).pathname === "/healthz") {
+                return Response.json({ status: "ok", service: "opencodex", port: server!.port, pid: 424242 });
+              }
+              return new Response("not found", { status: 404 });
+            },
+          });
+          writeFileSync(
+            join(openCodexHome, "runtime-port.json"),
+            JSON.stringify({ port: server.port, hostname: "127.0.0.1" }),
+          );
+        } else {
+          // Port 1 refuses immediately, so the offline premise holds even on a
+          // dev machine already running the proxy on 10100.
+          writeFileSync(
+            join(openCodexHome, "runtime-port.json"),
+            JSON.stringify({ port: 1, hostname: "127.0.0.1" }),
+          );
+        }
+        const child = Bun.spawn([psExe,
+          "-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+          "-File", driver,
+          "-TrayScriptPath", trayScript,
+          "-ChildEnginePath", psExe,
+          "-HangChildPath", hangChild,
+          "-CodexHome", codexHome,
+          "-OpenCodexHome", openCodexHome,
+          "-ResultPath", resultPath,
+          "-Scenario", scenario,
+        ], {
+          stdout: "pipe",
+          stderr: "pipe",
+          env: { ...process.env, OCX_PROBE_TEST_PID_FILE: pidFile },
+        });
+        const stdoutPromise = new Response(child.stdout).text();
+        const stderrPromise = new Response(child.stderr).text();
+        const finished = await Promise.race([
+          Promise.all([stdoutPromise, stderrPromise, child.exited])
+            .then(([stdout, stderr, exitCode]) => ({ stdout, stderr, exitCode })),
+          Bun.sleep(30_000).then(() => null),
+        ]);
+        if (!finished) {
+          try { child.kill(); } catch { /* already exited */ }
+          await Bun.sleep(500);
+          expect(false, `${scenario}: probe driver hung for 30s (a blocked tick would wait out the 120s sleeper)`).toBe(true);
+          return;
+        }
+        const { stdout, stderr, exitCode } = finished;
+        expect(exitCode, `${scenario}: driver exit=${exitCode} stdout=${stdout.slice(0, 500)} stderr=${stderr.slice(0, 500)}`).toBe(0);
+        expect(existsSync(resultPath), `${scenario}: driver exited 0 without writing ${resultPath}`).toBe(true);
+        const verdict = JSON.parse(readFileSync(resultPath, "utf8")) as {
+          scenario: string;
+          onlineObserved: boolean;
+          maintenanceMs: number;
+          totalMs: number;
+          childPid: number;
+          childTerminated: boolean;
+          probeCleared: boolean;
+          launches: number;
+          terminatingAfterMaintenance: boolean;
+          trackedAfterMaintenance: boolean;
+          maxTickMs: number;
+          failedProbeExitCode: number | null;
+          iconBeforeMaintenance: string | null;
+          updateAvailableBeforeMaintenance: boolean;
+          iconAfterMaintenance: string | null;
+          updateAvailableAfterMaintenance: boolean;
+          observedAtBeforeMaintenance: number;
+          observedAgeMsAtMaintenance: number;
+          observedAtAfterMaintenance: number;
+          updateItemVisibleAfterMaintenance: boolean;
+          updateItemEnabledAfterMaintenance: boolean;
+        };
+        expect(verdict.scenario).toBe(scenario);
+        expect(verdict.onlineObserved, `${scenario}: online=${verdict.onlineObserved}; the premise of this scenario did not hold`).toBe(scenario === "Online");
+        expect(verdict.childTerminated, `${scenario}: hung probe child ${verdict.childPid} survived the timeout`).toBe(true);
+        expect(verdict.probeCleared, `${scenario}: probe reference was not released after the kill`).toBe(true);
+        expect(verdict.launches, `${scenario}: expected exactly 1 probe launch, saw ${verdict.launches}`).toBe(1);
+        if (scenario.startsWith("Badge")) {
+          expect(verdict.maxTickMs, `${scenario}: UI tick blocked`).toBeLessThan(250);
+          if (scenario === "BadgeStaleFailure") {
+            expect(verdict.failedProbeExitCode, `${scenario}: probe did not fail`).toBe(1);
+            expect(verdict.iconBeforeMaintenance).toBe("offline-update");
+            expect(verdict.updateAvailableBeforeMaintenance).toBe(true);
+            expect(verdict.observedAtBeforeMaintenance).toBeGreaterThan(0);
+            expect(verdict.observedAgeMsAtMaintenance).toBeGreaterThan(180_000);
+            expect(verdict.observedAtAfterMaintenance).toBe(verdict.observedAtBeforeMaintenance);
+            expect(verdict.updateAvailableAfterMaintenance).toBe(false);
+            expect(verdict.iconAfterMaintenance).toBe("offline-base");
+            expect(verdict.updateItemVisibleAfterMaintenance).toBe(false);
+            expect(verdict.updateItemEnabledAfterMaintenance).toBe(false);
+          } else {
+            expect(verdict.terminatingAfterMaintenance, `${scenario}: no terminating state after kill`).toBe(true);
+            expect(verdict.trackedAfterMaintenance, `${scenario}: disposed on the timeout tick`).toBe(true);
+          }
+        } else {
+          expect(verdict.totalMs, `${scenario}: two ticks took ${verdict.totalMs}ms; a UI-thread block would hang until the 120s sleeper exits`).toBeLessThan(20_000);
+        }
+      } finally {
+        try {
+          if (existsSync(pidFile)) {
+            for (const line of readFileSync(pidFile, "utf8").split(/\r?\n/)) {
+              const pid = Number(line.trim());
+              if (Number.isSafeInteger(pid) && pid > 0) {
+                try { process.kill(pid); } catch { /* already reaped */ }
+              }
+            }
+          }
+        } catch { /* cleanup best-effort */ }
+        if (server) await server.stop(true);
+        removeTreeWithRetry(directory);
+      }
+    }
+  }, { timeout: SPAWN_BUDGET_MS });
 
   // This test really does launch PowerShell, which really does launch a Bun child, and
   // then rebinds the port to prove the child did not inherit the listen socket. Those
@@ -466,6 +733,64 @@ describe("Windows tray packaging and command safety", () => {
     }
   });
 
+  test("update ICOs contain nine valid PNG frames with the base sizes and changed artwork", () => {
+    const sizes = [16, 20, 24, 32, 40, 48, 64, 128, 256];
+    const signature = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+    function frames(bytes: Buffer): Map<number, Buffer> {
+      expect(bytes.length).toBeGreaterThanOrEqual(6 + 16 * sizes.length);
+      expect(bytes.readUInt16LE(0)).toBe(0);
+      expect(bytes.readUInt16LE(2)).toBe(1);
+      expect(bytes.readUInt16LE(4)).toBe(9);
+      const found = new Map<number, Buffer>();
+      for (let i = 0; i < 9; i += 1) {
+        const at = 6 + 16 * i;
+        const width = bytes[at] || 256;
+        const height = bytes[at + 1] || 256;
+        const length = bytes.readUInt32LE(at + 8);
+        const offset = bytes.readUInt32LE(at + 12);
+        expect(width).toBe(height);
+        expect(offset).toBeGreaterThanOrEqual(6 + 16 * 9);
+        expect(length).toBeGreaterThanOrEqual(33);
+        expect(offset + length).toBeLessThanOrEqual(bytes.length);
+        const png = bytes.subarray(offset, offset + length);
+        expect(png.subarray(0, 8)).toEqual(signature);
+        expect(png.readUInt32BE(8)).toBe(13);
+        expect(png.toString("ascii", 12, 16)).toBe("IHDR");
+        expect(png.readUInt32BE(16)).toBe(width);
+        expect(png.readUInt32BE(20)).toBe(height);
+        expect(found.has(width)).toBe(false);
+        found.set(width, png);
+      }
+      expect([...found.keys()]).toEqual(sizes);
+      return found;
+    }
+    for (const name of ["online", "warning", "offline"]) {
+      const asset = (suffix: string) => readFileSync(repoPath("src", "tray", "assets", `opencodex-tray-${name}${suffix}.ico`));
+      const base = frames(asset(""));
+      const dotted = frames(asset("-update"));
+      for (const size of sizes) {
+        expect(dotted.get(size)?.equals(base.get(size)!)).toBe(false);
+      }
+    }
+  });
+
+  test("badge probe is bounded and selected after safety classification", () => {
+    const source = readFileSync(repoPath("src", "tray", "windows-tray.ps1"), "utf8");
+    expect(source).toContain('@($CliPath, "__update-badge")');
+    expect(source).toContain('$script:updateBadgeRefreshMs = 60000L');
+    expect(source).toContain('$script:updateBadgeExpiryMs = 180000L');
+    expect(source).toContain('$script:updateBadgeTimeoutMs = 12000L');
+    expect(source).toContain('$script:updateBadgeMaxBytesPerStream = 16384');
+    expect(source).toContain('[TrayUpdateBadgeReader]::ReadAsync');
+    expect(source).toContain('$script:updateBadgeTerminating = $true');
+    expect(source).toContain('Stop-UpdateBadgeProbe');
+    expect(source.indexOf('Maintain-UpdateBadgeProbe $now')).toBeLessThan(source.indexOf('  if ($script:online) {\n'));
+    expect(source.indexOf('  Stop-UpdateBadgeProbe -Shutdown\n  $notify.Dispose()')).toBeGreaterThanOrEqual(0);
+    for (const name of ["online", "warning", "offline"]) {
+      expect(source).toContain(`Load-TrayIcon "opencodex-tray-${name}-update.ico"`);
+    }
+  });
+
   test("serves tray status without blocking the proxy event loop", async () => {
     if (process.platform !== "win32") return;
     const url = new URL("http://localhost/api/windows-tray");
@@ -493,6 +818,9 @@ describe("Windows tray packaging and command safety", () => {
     expect(tray).toContain('join(getConfigDir(), "opencodex-tray.ps1")');
     expect(tray).toContain('join(import.meta.dir, "assets", name)');
     expect(tray).toContain("installedTrayIconPaths()");
+    expect(tray).toContain('"opencodex-tray-online-update.ico"');
+    expect(tray).toContain('"opencodex-tray-warning-update.ico"');
+    expect(tray).toContain('"opencodex-tray-offline-update.ico"');
     expect(tray).toContain("const hardened = hardenSecretPath(target, { required: true, timeoutMemoKey: path })");
     expect(tray).toContain("if (!hardened.ok)");
     expect(tray).toContain("if (!hardenedDir.ok)");

@@ -1,7 +1,7 @@
 import { accessSync, constants, readFileSync, writeFileSync, unlinkSync, mkdirSync, statSync } from "node:fs";
 import { delimiter, join } from "node:path";
 import { getConfigDir } from "../config";
-import { resolveAutoContext, type AutoContextMode } from "../claude/context-windows";
+import { claudeToolSearchEnv, resolveAutoContext, type AutoContextMode } from "../claude/context-windows";
 import { PROXY_MARKER, defaultAuthDetectDeps, detectClaudeAuth, ownAdmissionTokens, type AuthDetectDeps } from "../claude/auth-detect";
 import { resolveClaudeAuthMode } from "../claude/auth-mode";
 import { ANTHROPIC_PARENT_ENV_SLOTS, trustedNodeLauncherContext, type AnthropicParentEnvSlot } from "../cli/launcher-context";
@@ -120,7 +120,6 @@ export function writeShellEnvFile(
   const maxCtx = config.claudeCode?.maxContextTokens;
   if (typeof maxCtx === "number" && Number.isFinite(maxCtx) && maxCtx > 0) {
     lines.push(conditional("CLAUDE_CODE_MAX_CONTEXT_TOKENS", String(Math.floor(maxCtx))));
-    lines.push(conditional("DISABLE_COMPACT", "1"));
   }
   // Auto-context (devlog 260712 020): same contract as `ocx claude` / launchctl.
   const autoShell = auto ?? resolveAutoContext(config.claudeCode);
@@ -128,6 +127,10 @@ export function writeShellEnvFile(
   if (config.claudeCode?.alwaysEnableEffort === true) {
     lines.push(conditional("CLAUDE_CODE_ALWAYS_ENABLE_EFFORT", "1"));
   }
+  // Tool-search deferral (#4838): opt-in, conditional like every other lever so a
+  // value already exported in the user's shell wins.
+  const toolSearch = claudeToolSearchEnv(config.claudeCode?.toolSearch);
+  if (toolSearch !== undefined) lines.push(conditional("ENABLE_TOOL_SEARCH", toolSearch));
   const shellEnvPath = getShellEnvFilePath();
   recordOwnedConfigPath(getConfigDir(), shellEnvPath);
   mkdirSync(getConfigDir(), { recursive: true, mode: 0o700 });

@@ -10,8 +10,8 @@
 import { spawn } from "node:child_process";
 import { loadConfig } from "../config";
 import { injectClaudeAgentDefs } from "../claude/agents-inject";
-import { CLAUDE_ALIAS_PREFIX_V1, CLAUDE_ALIAS_PREFIX_V2 } from "../claude/alias";
-import { effectiveModelEnv, resolveAutoContext } from "../claude/context-windows";
+import { CLAUDE_ALIAS_PREFIX_CURRENT, CLAUDE_ALIAS_PREFIX_CURRENT_V2, CLAUDE_ALIAS_PREFIX_V1, CLAUDE_ALIAS_PREFIX_V2 } from "../claude/alias";
+import { claudeToolSearchEnv, effectiveModelEnv, resolveAutoContext } from "../claude/context-windows";
 import { claudeConfigDir, refreshGatewayModelCacheFromProxy } from "../claude/gateway-cache";
 import { commandInvocation } from "../lib/win-exec";
 import { isProxyAdmissionSecret } from "../server/auth-cors";
@@ -30,7 +30,7 @@ import { readServiceApiTokenState, type ServiceApiTokenState } from "../lib/serv
 import { DEFAULT_CATALOG_PATH } from "../codex/paths";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { aliasForNative, aliasForRoute } from "../claude/alias";
+import { aliasForNative, aliasForRoute, legacyAliasForNative, legacyAliasForRoute } from "../claude/alias";
 import { desktop3pAlias } from "../claude/desktop-3p";
 
 export interface ClaudeLaunchEnv {
@@ -357,12 +357,29 @@ export function buildClaudeEnv(
   if (config.claudeCode?.alwaysEnableEffort === true) {
     setDefault("CLAUDE_CODE_ALWAYS_ENABLE_EFFORT", "1");
   }
-  // Context-window override: the official pair — MAX_CONTEXT_TOKENS alone is ignored
-  // for recognized claude-shaped ids unless DISABLE_COMPACT=1 rides along (devlog 135).
+  // Tool-search deferral (#4838). Claude Code disables MCP tool deferral whenever
+  // ANTHROPIC_BASE_URL is not a first-party Anthropic host — keyed on the host, not
+  // the model — so every routed session inlines all MCP tool schemas. Its own log
+  // line states the precondition: "Set ENABLE_TOOL_SEARCH=true (or auto / auto:N)
+  // if your proxy forwards tool_reference blocks."
+  //
+  // We forward them on the native Anthropic passthrough route only. A translated
+  // route cannot honour the shape: deferred tools still carry input_schema on the
+  // wire (deferral is a server-side context optimisation, not a smaller request),
+  // toolsToResponses drops the tool_search server tool and ignores defer_loading,
+  // and compatibility.ts lists tool_search/tool_reference/deferred_tools as
+  // unsupported. Turning it on there leaves the routed provider holding every
+  // schema while Claude Code stops counting them and stops compacting, which is
+  // worse than the problem. So this stays opt-in per config rather than
+  // unconditional, and setDefault keeps an operator's own export.
+  setDefault("ENABLE_TOOL_SEARCH", claudeToolSearchEnv(config.claudeCode?.toolSearch));
   const maxCtx = config.claudeCode?.maxContextTokens;
   if (typeof maxCtx === "number" && Number.isFinite(maxCtx) && maxCtx > 0) {
     setDefault("CLAUDE_CODE_MAX_CONTEXT_TOKENS", String(Math.floor(maxCtx)));
-    setDefault("DISABLE_COMPACT", "1");
+    // Claude Code 2.1.278 honors this without DISABLE_COMPACT when the model id
+    // does not start with "claude-" (gF). Current ocx-claude aliases qualify.
+    // A persisted claude-ocx id is still claude-shaped, so that one session keeps
+    // the 200k accounting until the picker is moved to the new id.
   }
   // Auto-context (devlog 260712 020): min(believed window, env) inside the CLI means
   // one global env acts as a per-model floor — [1m]-marked models compact here while
@@ -448,10 +465,15 @@ export function readConnectedClaudeContextWindows(path = DEFAULT_CATALOG_PATH): 
         const id = slug.slice(slash + 1);
         const routeAlias = aliasForRoute(provider, id);
         if (routeAlias) put(routeAlias, contextWindow);
+        // A selector saved under the legacy claude-ocx spelling keeps its window here too.
+        const legacyRoute = legacyAliasForRoute(provider, id);
+        if (legacyRoute) put(legacyRoute, contextWindow);
         put(desktop3pAlias(provider, id), contextWindow);
       } else {
         const nativeAlias = aliasForNative(slug);
         if (nativeAlias) put(nativeAlias, contextWindow);
+        const legacyNative = legacyAliasForNative(slug);
+        if (legacyNative) put(legacyNative, contextWindow);
         put(desktop3pAlias("native", slug), contextWindow);
       }
     }
@@ -469,7 +491,8 @@ export async function ensureProxyForClaude(deps: ClaudeProxyEnsureDeps = {}): Pr
   // A proxy that has only just bound can miss a single probe while its event loop
   // is still settling startup work — the same just-started race the stop paths
   // already retry for (#764, SERVICE_STOP_LIVENESS). Only the attempts budget is
-  // borrowed here; the probe timeout remains DEFAULT_PROBE_TIMEOUT_MS (750 ms).
+  // borrowed here; the probe timeout remains DEFAULT_PROBE_TIMEOUT_MS (750 ms unless
+  // OCX_PROBE_TIMEOUT_MS raises it).
   // Without this, `ocx claude` can spawn a second proxy while the first is serving.
   const live = await (deps.findLiveProxy ?? findLiveProxy)({ attempts: 3 });
   if (live) return live.port;
@@ -542,9 +565,20 @@ export function claudeLaunchPreflight(
     : { kind: "native", notice: CLAUDE_NATIVE_ROUTING_OFF };
 }
 
+/**
+ * Levers a native (non-routed) launch must shed. The loop below deletes them
+ * unconditionally, because each one either points Claude Code at a gateway that
+ * is not there or asserts host ownership that a native session does not have.
+ *
+ * ENABLE_TOOL_SEARCH is deliberately NOT in this list (#4838). It is the only
+ * one of these whose value is meaningful to a native session: natively the base
+ * URL is first-party, where deferral is already Claude Code's default and the
+ * variable is the user's own tuning knob (auto:N, force). Stripping it would
+ * delete a preference that works, to protect a session that does not need
+ * protecting.
+ */
 const NATIVE_STRIPPED_LEVERS = [
   "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY",
-  "CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST",
   "CLAUDE_CODE_MAX_CONTEXT_TOKENS",
   "CLAUDE_CODE_AUTO_COMPACT_WINDOW",
   "CLAUDE_CODE_ALWAYS_ENABLE_EFFORT",
@@ -565,7 +599,8 @@ const DESKTOP_3P_ALIAS = /^claude-opus-4(?:-8)?-[a-z][0-9a-z]{2}$/;
 export function isProxyOnlyModelId(value: string, providerNames: readonly string[] = []): boolean {
   const id = value.trim().replace(/\[1m\]$/, "");
   if (!id) return false;
-  if (id.startsWith(CLAUDE_ALIAS_PREFIX_V1) || id.startsWith(CLAUDE_ALIAS_PREFIX_V2) || DESKTOP_3P_ALIAS.test(id)) {
+  const aliasPrefixes = [CLAUDE_ALIAS_PREFIX_CURRENT, CLAUDE_ALIAS_PREFIX_CURRENT_V2, CLAUDE_ALIAS_PREFIX_V1, CLAUDE_ALIAS_PREFIX_V2];
+  if (aliasPrefixes.some(prefix => id.startsWith(prefix)) || DESKTOP_3P_ALIAS.test(id)) {
     return true;
   }
   const slash = id.indexOf("/");
@@ -604,6 +639,9 @@ export function buildNativeClaudeEnv(
   }
 
   for (const name of NATIVE_STRIPPED_LEVERS) delete env[name];
+  // An explicit caller-owned guard must follow a caller-owned gateway and credential;
+  // otherwise settings.env can replace the destination while retaining the credential.
+  if (hasOwnedAdmission) delete env.CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST;
   const providerNames = Object.keys(config.providers);
   for (const name of MODEL_ENV_SLOT_NAMES) {
     const value = env[name];

@@ -1,7 +1,12 @@
+import { formatErrorResponse as formatReplaySafetyError } from "../../src/bridge/errors";
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import {
   fetchWithResetRetry,
+  fetchWithTransientRetry,
   isConnectionResetError,
+  isNonReplayableResponse,
+  isReplayRefusalResponse,
+  UPSTREAM_RESET_REPLAY_REFUSED_CODE,
   prepareSameTarget429Wait,
   releaseResponseBodyBestEffort,
   retryBackoffDelayMs,
@@ -147,7 +152,7 @@ describe("fetchWithResetRetry", () => {
   test("retries a Bun-shaped reset and returns the second attempt's response", async () => {
     silenceWarn();
     const mock = mockDoFetch([bunResetError(), new Response("ok", { status: 200 })]);
-    const res = await fetchWithResetRetry(mock.doFetch, { label: "test" });
+    const res = await fetchWithResetRetry(mock.doFetch, { label: "test", replaySafe: true });
     expect(res.status).toBe(200);
     expect(await res.text()).toBe("ok");
     expect(mock.calls).toHaveLength(2);
@@ -160,7 +165,7 @@ describe("fetchWithResetRetry", () => {
       new Error("The socket connection was closed unexpectedly."),
       new Response("ok", { status: 200 }),
     ]);
-    const res = await fetchWithResetRetry(mock.doFetch);
+    const res = await fetchWithResetRetry(mock.doFetch, { replaySafe: true });
     expect(res.status).toBe(200);
     expect(mock.calls).toHaveLength(2);
   });
@@ -189,7 +194,7 @@ describe("fetchWithResetRetry", () => {
   test("gives up after max attempts and rethrows the last reset error", async () => {
     silenceWarn();
     const mock = mockDoFetch([bunResetError(), bunResetError(), bunResetError(), bunResetError()]);
-    await expect(fetchWithResetRetry(mock.doFetch)).rejects.toThrow("socket connection was closed unexpectedly");
+    await expect(fetchWithResetRetry(mock.doFetch, { replaySafe: true })).rejects.toThrow("socket connection was closed unexpectedly");
     expect(mock.calls).toHaveLength(3);
     expect(warnSpies[0]).toHaveBeenCalledTimes(2);
   });
@@ -206,7 +211,7 @@ describe("fetchWithResetRetry", () => {
     silenceWarn();
     const ac = new AbortController();
     const mock = mockDoFetch([bunResetError(), new Response("ok", { status: 200 })]);
-    const pending = fetchWithResetRetry(mock.doFetch, { abortSignal: ac.signal });
+    const pending = fetchWithResetRetry(mock.doFetch, { abortSignal: ac.signal, replaySafe: true });
     // First attempt rejects with a reset synchronously-ish; abort lands mid-backoff.
     setTimeout(() => ac.abort(new DOMException("client closed", "AbortError")), 10);
     await expect(pending).rejects.toThrow("client closed");
@@ -263,15 +268,103 @@ describe("retryBackoffDelayMs", () => {
     })).toBe(30_000);
   });
 
-  test("an honoured Retry-After is still ceilinged so it cannot park a request (#4546)", () => {
+  test("an honoured Retry-After is preserved in full, never shortened (#4546)", () => {
     const headers = new Headers({ "Retry-After": "3600" });
+    // The instruction is the provider's statement of when it will serve again. Clamping it
+    // to a local ceiling produced a send the upstream already said it would refuse; whether
+    // the request can wait that long is the caller's deadline decision, not a shorter delay.
     expect(retryBackoffDelayMs(0, {
       baseDelayMs: 250,
       maxDelayMs: 5_000,
       headers,
       retryAfterIsLowerBound: true,
       retryAfterCeilingMs: 60_000,
-    })).toBe(60_000);
+    })).toBe(3_600_000);
+  });
+
+  test("an instruction past the wait deadline ends with the upstream answer intact (#4546)", async () => {
+    silenceWarn();
+    const upstream = new Response("overloaded", {
+      status: 503,
+      headers: { "Retry-After": "3600" },
+    });
+    const { calls, doFetch } = mockDoFetch([upstream]);
+    const res = await fetchWithTransientRetry(doFetch);
+    // No early retry: one send, and the caller gets the real 503 with its Retry-After
+    // rather than a second refusal the provider already announced.
+    expect(calls.length).toBe(1);
+    expect(res.status).toBe(503);
+    expect(res.headers.get("retry-after")).toBe("3600");
+  });
+
+  test("an instruction inside the wait deadline is still honoured before retrying (#4546)", async () => {
+    silenceWarn();
+    const limited = new Response("overloaded", {
+      status: 503,
+      headers: { "Retry-After": "1" },
+    });
+    const ok = new Response("fine", { status: 200 });
+    const { calls, doFetch } = mockDoFetch([limited, ok]);
+    const started = Date.now();
+    const res = await fetchWithTransientRetry(doFetch);
+    expect(res.status).toBe(200);
+    expect(calls.length).toBe(2);
+    expect(Date.now() - started).toBeGreaterThanOrEqual(900);
+  });
+
+  test("a caller deadline shorter than the default is not slept past (#4546)", async () => {
+    silenceWarn();
+    const limited = new Response("overloaded", {
+      status: 503,
+      headers: { "Retry-After": "1" },
+    });
+    const ok = new Response("fine", { status: 200 });
+    const { calls, doFetch } = mockDoFetch([limited, ok]);
+    const started = Date.now();
+    // The caller can wait 500ms; the upstream asked for 1s. Reading the module default
+    // instead of this deadline parked the request for the full second -- the 30s-budget /
+    // 45s-instruction shape, scaled down so the test does not have to sleep it.
+    const res = await fetchWithTransientRetry(doFetch, { retryAfterCeilingMs: 500 });
+    expect(calls.length).toBe(1);
+    expect(res.status).toBe(503);
+    expect(res.headers.get("retry-after")).toBe("1");
+    expect(Date.now() - started).toBeLessThan(500);
+  });
+
+  test("an instruction exactly at the caller deadline is honoured, not refused (#4546)", async () => {
+    silenceWarn();
+    const limited = new Response("overloaded", {
+      status: 503,
+      headers: { "Retry-After": "1" },
+    });
+    const ok = new Response("fine", { status: 200 });
+    const { calls, doFetch } = mockDoFetch([limited, ok]);
+    const started = Date.now();
+    // Equality is inside the budget: the deadline is what the caller CAN wait, so a wait of
+    // exactly that length is affordable and the retry happens after it.
+    const res = await fetchWithTransientRetry(doFetch, { retryAfterCeilingMs: 1_000 });
+    expect(res.status).toBe(200);
+    expect(calls.length).toBe(2);
+    expect(Date.now() - started).toBeGreaterThanOrEqual(900);
+  });
+
+  test("a caller deadline longer than the default waits instead of ending early (#4546)", async () => {
+    silenceWarn();
+    const limited = new Response("overloaded", {
+      status: 503,
+      headers: { "Retry-After": "90" },
+    });
+    const { calls, doFetch } = mockDoFetch([limited, new Response("fine", { status: 200 })]);
+    const ac = new AbortController();
+    // 90s is past the module default but inside this caller's 120s deadline, so the call must
+    // be waiting -- not returning the 503 the default ceiling used to hand back immediately.
+    // Aborting mid-wait is how the test observes the wait without sitting through it.
+    setTimeout(() => ac.abort(new DOMException("deadline probe", "AbortError")), 20);
+    await expect(fetchWithTransientRetry(doFetch, {
+      retryAfterCeilingMs: 120_000,
+      abortSignal: ac.signal,
+    })).rejects.toThrow("deadline probe");
+    expect(calls.length).toBe(1);
   });
 
   test("opting in never shortens a wait below the local backoff (#4546)", () => {
@@ -337,5 +430,299 @@ describe("prepareSameTarget429Wait", () => {
     }
     expect(events.length).toBeGreaterThanOrEqual(2);
     expect(events.every(type => type === "heartbeat")).toBe(true);
+  });
+});
+
+describe("ambiguous reset safety", () => {
+  test("a reset is terminal by default, even with a remaining send budget", async () => {
+    const reports: number[] = [];
+    const mock = mockDoFetch([bunResetError(), new Response("duplicate")]);
+    const response = await fetchWithResetRetry(mock.doFetch, {
+      attempts: 3, onSendsConsumed: count => reports.push(count),
+    });
+    // 429, not 502: the Codex client is configured retry_5xx / no-retry-429, so a 5xx here
+    // would be re-sent four times by the caller this refusal exists to protect.
+    expect(response.status).toBe(429);
+    expect(isNonReplayableResponse(response)).toBe(true);
+    expect((await response.json()).error.code).toBe(UPSTREAM_RESET_REPLAY_REFUSED_CODE);
+    expect(mock.calls).toHaveLength(1);
+    expect(reports).toEqual([1]);
+  });
+
+  test("a 503 followed by a reset stops both retry layers and reports both sends once", async () => {
+    silenceWarn();
+    const reports: number[] = [];
+    const mock = mockDoFetch([
+      new Response("busy", { status: 503 }), bunResetError(), new Response("duplicate"),
+    ]);
+    const response = await fetchWithTransientRetry(mock.doFetch, {
+      attempts: 3, onSendsConsumed: count => reports.push(count),
+    });
+    expect(response.status).toBe(429);
+    expect(isNonReplayableResponse(response)).toBe(true);
+    expect((await response.json()).error.code).toBe(UPSTREAM_RESET_REPLAY_REFUSED_CODE);
+    expect(mock.calls).toHaveLength(2);
+    expect(reports).toEqual([2]);
+  });
+
+  test("an exhausted last send still carries the no-replay verdict", async () => {
+    const mock = mockDoFetch([bunResetError()]);
+    const response = await fetchWithResetRetry(mock.doFetch, { attempts: 1 });
+    expect(isNonReplayableResponse(response)).toBe(true);
+    expect(mock.calls).toHaveLength(1);
+  });
+
+  test("EPIPE and message-only resets are ambiguous too, without leaking the exception", async () => {
+    for (const error of [
+      Object.assign(new Error("private transport detail"), { code: "EPIPE" }),
+      new Error("The socket connection was closed unexpectedly. private transport detail"),
+    ]) {
+      const mock = mockDoFetch([error]);
+      const response = await fetchWithResetRetry(mock.doFetch);
+      expect(isNonReplayableResponse(response)).toBe(true);
+      expect(await response.text()).not.toContain("private transport detail");
+      expect(mock.calls).toHaveLength(1);
+    }
+  });
+
+  test("zero and invalid budgets never dispatch regardless of replay safety", async () => {
+    for (const replaySafe of [false, true]) {
+      for (const attempts of [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+        const mock = mockDoFetch([new Response("must not send")]);
+        await expect(fetchWithResetRetry(mock.doFetch, { attempts, replaySafe })).rejects.toThrow();
+        expect(mock.calls).toHaveLength(0);
+      }
+    }
+  });
+
+  test("explicitly replay-safe resets still share the total budget with 5xx", async () => {
+    silenceWarn();
+    const reports: number[] = [];
+    const mock = mockDoFetch([
+      bunResetError(), new Response("busy", { status: 503 }), new Response("ok"),
+    ]);
+    const response = await fetchWithTransientRetry(mock.doFetch, {
+      attempts: 3, replaySafe: true, onSendsConsumed: count => reports.push(count),
+    });
+    expect(await response.text()).toBe("ok");
+    expect(mock.calls).toHaveLength(3);
+    expect(reports).toEqual([3]);
+  });
+});
+
+describe("operator-granted replacement of an ambiguous reset", () => {
+  test("no claim callback keeps the refusal and never sends again", async () => {
+    const mock = mockDoFetch([bunResetError(), new Response("duplicate")]);
+    const response = await fetchWithResetRetry(mock.doFetch, { attempts: 3 });
+    expect(response.status).toBe(429);
+    expect(mock.calls).toHaveLength(1);
+  });
+
+  test("a granted claim buys exactly one more send and is asked exactly once", async () => {
+    silenceWarn();
+    const reports: number[] = [];
+    let asked = 0;
+    const mock = mockDoFetch([bunResetError(), new Response("ok")]);
+    const response = await fetchWithResetRetry(mock.doFetch, {
+      attempts: 3,
+      onSendsConsumed: count => reports.push(count),
+      claimAmbiguousResend: () => { asked += 1; return asked === 1; },
+    });
+    expect(await response.text()).toBe("ok");
+    expect(mock.calls).toHaveLength(2);
+    expect(asked).toBe(1);
+    expect(reports).toEqual([1, 1]);
+  });
+
+  test("a spent grant settles as the refusal rather than sending again", async () => {
+    silenceWarn();
+    const mock = mockDoFetch([bunResetError(), bunResetError(), new Response("duplicate")]);
+    const response = await fetchWithResetRetry(mock.doFetch, {
+      attempts: 3,
+      // The shape a request-wide allowance of one produces on its second question.
+      claimAmbiguousResend: (() => { let left = 1; return () => left-- > 0; })(),
+    });
+    expect(response.status).toBe(429);
+    expect(isNonReplayableResponse(response)).toBe(true);
+    expect((await response.json()).error.code).toBe(UPSTREAM_RESET_REPLAY_REFUSED_CODE);
+    expect(mock.calls).toHaveLength(2);
+  });
+
+  test("the grant never widens the send budget it was given", async () => {
+    const mock = mockDoFetch([bunResetError(), new Response("duplicate")]);
+    let asked = 0;
+    const response = await fetchWithResetRetry(mock.doFetch, {
+      attempts: 1,
+      claimAmbiguousResend: () => { asked += 1; return true; },
+    });
+    expect(response.status).toBe(429);
+    expect(mock.calls).toHaveLength(1);
+    // Asking would have spent the request's one replacement on a send there was no room for.
+    expect(asked).toBe(0);
+  });
+
+  test("a replay-safe operation never consults the grant", async () => {
+    silenceWarn();
+    let asked = 0;
+    const mock = mockDoFetch([bunResetError(), new Response("ok")]);
+    const response = await fetchWithResetRetry(mock.doFetch, {
+      attempts: 3, replaySafe: true, claimAmbiguousResend: () => { asked += 1; return true; },
+    });
+    expect(await response.text()).toBe("ok");
+    expect(asked).toBe(0);
+  });
+
+  test("a non-reset failure after a replacement settles as the refusal, not a rejection", async () => {
+    silenceWarn();
+    // The hazard the refusal exists for: a thrown transport error here becomes a 502 at the
+    // caller, and a 502 is what the Codex client retries -- so the turn whose first send may
+    // already have run would be sent again, four more times.
+    const mock = mockDoFetch([bunResetError(), new Error("upstream fetch failed")]);
+    const response = await fetchWithResetRetry(mock.doFetch, {
+      attempts: 3, claimAmbiguousResend: () => true,
+    });
+    expect(response.status).toBe(429);
+    expect(isNonReplayableResponse(response)).toBe(true);
+    expect((await response.json()).error.code).toBe(UPSTREAM_RESET_REPLAY_REFUSED_CODE);
+    expect(mock.calls).toHaveLength(2);
+  });
+
+  test("a transient response after a replacement settles as the refusal", async () => {
+    silenceWarn();
+    const mock = mockDoFetch([
+      bunResetError(), new Response("busy", { status: 502 }), new Response("duplicate"),
+    ]);
+    const response = await fetchWithTransientRetry(mock.doFetch, {
+      attempts: 3, claimAmbiguousResend: () => true,
+    });
+    expect(response.status).toBe(429);
+    expect(isNonReplayableResponse(response)).toBe(true);
+    expect((await response.json()).error.code).toBe(UPSTREAM_RESET_REPLAY_REFUSED_CODE);
+    expect(mock.calls).toHaveLength(2);
+  });
+
+  // 429 and 529 are the cases the gateway-only transient set let through: the client retry table
+  // and the proxy's own quota rotation both resend them. 401 and 402 are proxy recovery triggers.
+  test.each([307, 308, 401, 402, 408, 409, 413, 429, 500, 501, 503, 507, 529])(
+    "a %d answer to a spent replacement settles as the refusal and releases its body",
+    async (status) => {
+      silenceWarn();
+      let cancelled = false;
+      const body = new ReadableStream<Uint8Array>({ cancel: () => { cancelled = true; } });
+      const mock = mockDoFetch([
+        bunResetError(), new Response(body, { status }), new Response("duplicate"),
+      ]);
+      const response = await fetchWithTransientRetry(mock.doFetch, {
+        attempts: 3, claimAmbiguousResend: () => true,
+      });
+      expect(response.status).toBe(429);
+      expect(isNonReplayableResponse(response)).toBe(true);
+      expect(isReplayRefusalResponse(response)).toBe(true);
+      expect(response.headers.get("x-should-retry")).toBe("false");
+      expect((await response.json()).error.code).toBe(UPSTREAM_RESET_REPLAY_REFUSED_CODE);
+      expect(cancelled).toBe(true);
+      expect(mock.calls).toHaveLength(2);
+    },
+  );
+
+  test.each([400, 403, 404, 422])(
+    "a %d answer to a spent replacement keeps its status but can no longer trigger recovery",
+    async (status) => {
+      silenceWarn();
+      const mock = mockDoFetch([
+        bunResetError(), new Response("request defect", { status }), new Response("duplicate"),
+      ]);
+      const response = await fetchWithTransientRetry(mock.doFetch, {
+        attempts: 3, claimAmbiguousResend: () => true,
+      });
+      expect(response.status).toBe(status);
+      expect(isNonReplayableResponse(response)).toBe(true);
+      // Still the upstream's own answer: quota and credential recorders must not treat it as a
+      // refusal this proxy synthesized.
+      expect(isReplayRefusalResponse(response)).toBe(false);
+      expect(await response.text()).toBe("request defect");
+      expect(mock.calls).toHaveLength(2);
+    },
+  );
+
+  test("a successful answer to a spent replacement is returned unchanged", async () => {
+    silenceWarn();
+    const mock = mockDoFetch([bunResetError(), new Response("answer"), new Response("duplicate")]);
+    const response = await fetchWithTransientRetry(mock.doFetch, {
+      attempts: 3, claimAmbiguousResend: () => true,
+    });
+    expect(response.status).toBe(200);
+    expect(isNonReplayableResponse(response)).toBe(false);
+    expect(await response.text()).toBe("answer");
+    expect(mock.calls).toHaveLength(2);
+  });
+
+  test("an error answer with no replacement spent stays an ordinary recoverable response", async () => {
+    const mock = mockDoFetch([new Response("request defect", { status: 400 })]);
+    const response = await fetchWithResetRetry(mock.doFetch, {
+      attempts: 3, claimAmbiguousResend: () => true,
+    });
+    expect(response.status).toBe(400);
+    expect(isNonReplayableResponse(response)).toBe(false);
+    expect(mock.calls).toHaveLength(1);
+  });
+
+  test("the transient layer carries the grant into its inner reset layer", async () => {
+    silenceWarn();
+    const reports: number[] = [];
+    const mock = mockDoFetch([
+      new Response("busy", { status: 503 }), bunResetError(), new Response("ok"),
+    ]);
+    const response = await fetchWithTransientRetry(mock.doFetch, {
+      attempts: 3,
+      onSendsConsumed: count => reports.push(count),
+      claimAmbiguousResend: () => true,
+    });
+    expect(await response.text()).toBe("ok");
+    expect(mock.calls).toHaveLength(3);
+    // One report, from the one layer that owns the budget: three sends, counted once each.
+    expect(reports).toEqual([3]);
+  });
+});
+
+describe("ambiguous reset safety through error formatting", () => {
+  test("every terminal code survives formatting without advertising Retry-After", async () => {
+    for (const code of ["upstream_no_response", "upstream_closed_before_response", "upstream_reset_replay_refused"]) {
+      const response = formatReplaySafetyError(502, "upstream_error", "closed", { code, retryAfter: "2" });
+      expect(isNonReplayableResponse(response)).toBe(true);
+      expect(response.headers.get("retry-after")).toBeNull();
+      expect((await response.json()).error.code).toBe(code);
+    }
+  });
+
+  test("only the proxy-owned refusal restates the status; upstream verdicts keep theirs", async () => {
+    // The formatter is reached from combo and adapter paths holding an upstream-shaped 502.
+    // The two transport verdicts describe something upstream did and keep it; the refusal is
+    // this proxy's own decision and carries its own status wherever it is re-wrapped.
+    const refused = formatReplaySafetyError(502, "upstream_error", "closed", {
+      code: "upstream_reset_replay_refused",
+    });
+    expect(refused.status).toBe(429);
+    for (const code of ["upstream_no_response", "upstream_closed_before_response"]) {
+      expect(formatReplaySafetyError(502, "upstream_error", "closed", { code }).status).toBe(502);
+    }
+  });
+
+  test("unrecognized upstream codes do not override ordinary error classification", async () => {
+    const response = formatReplaySafetyError(502, "upstream_error", "failed", {
+      code: "untrusted_provider_code", retryAfter: "2",
+    });
+    expect(isNonReplayableResponse(response)).toBe(false);
+    expect(response.headers.get("retry-after")).toBe("2");
+    expect((await response.json()).error.code).not.toBe("untrusted_provider_code");
+  });
+
+  test("the cyber-policy hard block retains precedence", async () => {
+    const response = formatReplaySafetyError(502, "upstream_error", "blocked due to high-risk cybersecurity activity", {
+      code: "upstream_closed_before_response", retryAfter: "2",
+    });
+    expect(response.status).toBe(400);
+    expect(response.headers.get("retry-after")).toBeNull();
+    expect((await response.json()).error.code).toBe("cyber_policy");
   });
 });

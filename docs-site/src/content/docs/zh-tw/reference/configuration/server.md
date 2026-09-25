@@ -10,20 +10,20 @@ description: 監聽器、遠端存取、許可金鑰、逾時、儲存、sidecar
 | 欄位 | 型別 | 預設值 | 意義 |
 | --- | --- | --- | --- |
 | `port` | `number` | `10100` | 代理監聽連接埠。 |
-| `hostname?` | `string` | `"127.0.0.1"` | 綁定位址。非回送綁定需要資料准入 token，依序解析自 `OPENCODEX_API_AUTH_TOKEN`，接著是 `OCX_API_TOKEN_FILE`，最後是已安裝、僅擁有者可讀的 `service-api-token`——不需要手動匯出任何東西。詳見[遠端存取](#remote-access)。 |
-| `proxy?` | `string` | — | 對外 HTTP(S) 代理 URL、`${ENV_VAR}`，或 `"auto"`。只有在 `HTTP_PROXY` / `HTTPS_PROXY` 未設定時才會套用；回送位址一律保留在 `NO_PROXY` 中。`"auto"` 會在行程啟動時讀取一次 Windows 系統代理設定（WinINET 的 `ProxyEnable`/`ProxyServer`，先讀 `https=` 再讀 `http=` 項目），並記錄它選中的主機。在其他平台，或系統代理關閉、僅支援 SOCKS 或無法讀取時，會改用直接對外連線並記錄此事。不會追蹤 PAC/WPAD 或即時的代理變更；變更系統代理後請重新啟動服務。 |
-| `noProxy?` | `string \| string[]` | — | 允許繞過 `proxy` 的主機，與繼承的 `NO_PROXY` 及回送項目合併。字串可使用逗號分隔的 `NO_PROXY` 語法，或 `${ENV_VAR}`。 |
+| `hostname?` | `string` | `"127.0.0.1"` | 綁定位址。非回送綁定需要 `OPENCODEX_API_AUTH_TOKEN`。 |
+| `proxy?` | `string` | — | 對外 HTTP(S) 或 SOCKS5 代理 URL（`socks5://host:port`）或 `${ENV_VAR}`。HTTP URL 僅在那些變數未設定時套用至 `HTTP_PROXY` / `HTTPS_PROXY`。SOCKS5 URL 使用內建的真實 SOCKS5 通道，也會套用至 `ALL_PROXY`（`ocx start --socks5`），並清除此行程繼承的 `HTTP(S)_PROXY`。回送保留在 `NO_PROXY` 中。 |
 | `emptyCompletionRetry?` | `boolean` | `false` | 明確啟用：當 Responses 完成時沒有文字或工具呼叫，以相同請求重試一次。重試可能產生費用。`OCX_EMPTY_COMPLETION_RETRY=0` 可在不變更設定的情況下停用；combo 與 routed-compaction turn 不適用。 |
 | `dropCodexSafetyBuffering?` | `boolean` | `false` | 從規範的 Codex Responses 透傳中移除選用的、面向客戶端的提示：兩個 `x-codex-safety-buffering-enabled` / `x-codex-safety-buffering-faster-model` 回應標頭、中繼資料類型為 `safety_buffering` 的 `response.metadata` 事件，以及頂層的 `safety_buffering` 欄位。其他標頭、回應資料、政策拒絕與失敗都會保留。這不會停用供應商的安全機制或上游緩衝。原生的 `codex.response.metadata.headers` WebSocket 中繼資料與 `/responses/compact` 不受此過濾影響。 |
 | `stallTimeoutSec?` | `number` | `300` | 上游無有效進展的秒數，適用於 Responses 與原生 Chat；最小 1 秒。 |
 | `oauthOpenBrowser?` | `boolean` | `true` | 登入是否可以在執行 proxy 的機器上開啟瀏覽器。缺省與 `true` 都會開啟，所以既有安裝不受影響；只有明確的 `false` 才會拒絕。當你需要在不同的瀏覽器設定檔中開啟授權連結，或儀表板不在 proxy 所在機器上時，請選擇拒絕——登入仍會開始，URL 仍會被回傳並顯示。`POST /api/oauth/login` 與 `POST /api/codex-auth/login` 接受可覆寫此設定的逐請求 `openBrowser` 布林值，儀表板也在登入按鈕旁提供相同選項。裝置碼流程無論如何都不會開啟瀏覽器。 |
 | `connectTimeoutMs?` | `number` | `200000` | 每次嘗試的 DNS/TCP/TLS/final-header 截止時間；它在 body 生成前結束。 |
 | `shutdownTimeoutMs?` | `number` | `5000` | 在中止活躍回合前的優雅排空截止時間。 |
-| `websockets?` | `boolean` | `false` | 廣告並允許面向客戶端的 Responses WebSocket 路徑。設為 false 時客戶端維持使用 HTTP/SSE；不會停用符合資格的規範 ChatGPT 上游 WS 最佳化。完整輸入的請求可以在相同已選憑證、帳號、執行緒與回合內重用一個上游連線；握手政策改變或缺少身分識別時，請求會維持各自獨立的連線。這不會裁剪 HTTP 輸入，也不會建立 previous-response id。 |
-| `corsAllowOrigins?` | `string[]` | `[]` | CORS 額外允許的精確 origin。回送 origin 一律被允許。支援基於權威的瀏覽器擴充功能 origin，例如 `chrome-extension://<extension-id>`；`*` 不是萬用字元。Firefox 與 Safari 會重新產生擴充功能 UUID（每次安裝／每次啟動瀏覽器），所以 origin 改變時請更新此項目。 |
-| `apiKeys?` | `OcxApiKey[]` | `[]` | 生成的 `ocx_…` 憑證，在非回送綁定上被管理與 data-plane 認證接受。由儀表板管理。 |
+| `websockets?` | `boolean` | `false` | 廣告並允許面向 client 的 Responses WebSocket 路徑。False 時 client 使用 HTTP/SSE；不會停用符合條件的 canonical ChatGPT upstream WS 最佳化。 |
+| `corsAllowOrigins?` | `string[]` | `[]` | 額外的精確 CORS 來源。回送來源恆被允許。 |
+| `apiKeys?` | `OcxApiKey[]` | `[]` | 生成的 `ocx_…` data-plane 准入憑證（用於非回送綁定）。它們不授權管理 API；管理存取使用[管理 API 參考](/zh-tw/reference/management-api/)中說明的獨立憑證。由儀表板管理。 |
 | `storageCleanupPolicy?` | `StorageCleanupPolicy` | 停用 | 選擇加入的已封存 session 清理政策。永不隱含啟用。 |
 | `appOwnedMemoryBudgetMb?` | `number` | `256` | 以 MiB 為單位、可被驅逐的 app 擁有日誌、快取、blob 與 continuation payload 上限。範圍 64–4096；非 RSS 上限。 |
+| `metricsExport.enabled?` | `boolean` | `false` | 在已驗證的 `GET /api/metrics` 啟用程序本機的彙總請求指標。需要重新啟動；停用時路徑回傳 404，且不會啟動任何匯出活動。 |
 | `codexAutoStart?` | `boolean` | `true` | 讓 Codex shim 在啟動 Codex 前執行 `ocx ensure`。False 使 ensure 為 no-op。 |
 | `codexShimAutoRestore?` | `boolean` | `true` | 在完成的外部 Codex 更新取代已安裝的 shim 後還原它。環境退出：`OPENCODEX_CODEX_SHIM_AUTO_RESTORE=0`。 |
 | `codexDesktopAuthless?` | `boolean` | `false` | 在回送綁定上選擇加入無驗證的 Codex Desktop 路由：注入專屬的 `opencodex` 供應商並設定 `requires_openai_auth = false`，讓 Desktop 不需要 ChatGPT 登入即可開啟。在非回送綁定上會被忽略。`ocx system settings --desktop-authless on`。詳見 [Codex 整合](/zh-tw/guides/codex-integration/#authless-codex-desktop-opt-in)。 |
@@ -54,6 +54,12 @@ socket 不支援 ping，只要有自己的 frame 就仍會維持存活；只有�
 
 ```jsonc
 { "proxy": "http://proxy.corp:8080", "noProxy": ["internal.example", "10.0.0.0/8"] }
+```
+
+SOCKS5（包括 Clash 混合連接埠監聽器）屬於 `ALL_PROXY`，不是 `HTTP_PROXY`：
+
+```jsonc
+{ "proxy": "socks5://127.0.0.1:10808" }
 ```
 
 若較舊的開發組建在備份支援存在前變更了 resume-history 中繼資料，請執行 `ocx recover-history --legacy-openai --yes` 以強制原生供應商復原。
@@ -106,6 +112,25 @@ shell。請設定該服務的 proxy 選項或環境變數，然後重新啟動�
 
 請在同一台機器、同一個帳號上，於兩種網路模式下比較這項診斷。單靠一次成功的 TUN 測試，無法判斷
 服務的 HTTP 代理路徑為何失敗，也無法確立一個通用的修復方式。
+
+## 特定上游主機的連線重用
+
+有些上游會在停止服務某條連線之後仍讓它保持開啟。下一個請求會重用那個池化的 socket，並在連不到
+provider 的情況下失敗。`OCX_FRESH_CONNECTION_HOSTS` 指名永不重用池化連線的主機，這是一個環境
+變數而不是設定欄位，因此可以只套用在單一機器上而不必修改共用設定：
+
+```bash
+OCX_FRESH_CONNECTION_HOSTS="api.example.com, relay.example.net" ocx start
+```
+
+此值是以逗號分隔的主機名稱清單。比對不分大小寫，涵蓋每個指名主機及其子網域，並忽略開頭的點，
+因此 `.example.com` 與 `example.com` 都會比對到 `api.example.com`。請不要包含 scheme、連接埠
+或路徑。未設定或空字串會維持預設的連線行為不變。
+
+符合條件的送出會帶有 `Connection: close`，並以停用 keep-alive 的方式發送。判斷依據是實際在
+連線上使用的位址，因此即使 provider transport 在憑證選擇之後重寫了目的地，這個規則仍會套用。
+這些主機的每次請求延遲會略微上升，因為每個請求都要付出一次全新的 TCP 與 TLS 交握；只指名真正
+需要的主機。
 
 ## 遠端存取
 
@@ -280,6 +305,23 @@ redirect URL，或授權碼，貼進 OpenCodex。等待中的流程會保留 sta
 
 `storageCleanupPolicy` 預設停用。啟用時，它在已封存位元組超過 `trigger.archivedBytesOver` 後於 `startup`、`daily`、`weekly` 或 `manual` 執行。它朝 `target.reduceToBytes` 或 `target.removeOldestPercent` 選擇最舊的封存。`mode` 預設為 `quarantine`；僅將 `permanent` 作為明確的破壞性選擇。政策持久化 `lastRun` 與 `nextRun`。在 Storage 頁面或以 `GET`/`PUT /api/storage/cleanup-policy` 設定它；以 `POST /api/storage/cleanup-policy/run` 觸發手動執行。
 
+## 用量歷史大小
+
+`usageLedgerMaxBytes` 預設未設定，未設定代表 `usage.jsonl` 中的請求歷史會無限制成長。沒有
+你沒要求刪除的歷史會被刪除。
+
+設定一個位元組上限，代理會在某次附加寫入超過上限之後修剪檔案，保留最新的完整資料列並捨棄
+最舊的。它會修剪到略低於上限，而不是精確等於上限，這樣下一次附加寫入不會立即再次超過那條線。
+接受的最小值是 1 MiB；較小的數字，或不是安全整數的值，會讓上限維持關閉，而不是讓設定失敗。
+
+資料列是逐位元組複製、絕不重寫的，因此每個欄位都能在修剪後存活——包括較新版本寫入、較舊版本
+看不懂的欄位。若修剪執行期間有任何內容附加到帳本，替換動作會直接拒絕，因此修剪期間記錄的請求
+絕不會遺失；下一次附加會再試一次。修剪也會更新儀表板顯示的內容，因此 `/api/logs` 會停止提供
+帳本已經沒有的資料列。
+
+目前還沒有對應的儀表板控制項；請在 `config.json` 中設定，或使用
+`ocx config set usageLedgerMaxBytes <bytes>`。
+
 ## 配額重置通知（`quotaResetNotify`）
 
 預設關閉。當這個區塊缺席時，不會執行偵測、不會啟動計時器，也不會寫入任何狀態檔案。
@@ -374,21 +416,60 @@ proxy 能連到你瀏覽器連不到的主機，包括雲端中繼資料端點�
 | `claudeCode.classifierFallbacks?` | `string[]` | 未設定 | 當 `classifierModel` 未設定時使用的有序分類器目標清單。採用相同的限定 `provider/model` 格式；第一個可用的項目會勝出。分類器模型的明確 `modelMap` 項目仍然優先於兩者。 |
 | `claudeCode.subagentEffort?` | `"low" \| "medium" \| "high" \| "xhigh" \| "max"` | 繼承 | 寫入生成的 `~/.claude/agents/ocx-*.md` 的 effort；與 Codex guidance 與代理上限分開。透過 `ocx claude` 重啟以重新生成。 |
 
-這項相容性政策適用於 Claude Code、Desktop 與其他使用轉換後 Messages 的客戶端，包括 `?beta=true`
-與非串流請求。每一個轉換目標都使用相同保守的政策，包括 Anthropic 與原生 Responses 適配器。它會
-拒絕文件內容、thinking/redacted-thinking 重播、託管搜尋與執行工具、tool-search 參照、主動的延遲
-載入、strict tools、非預設呼叫者模式、結構化輸出格式、明確的服務層級意圖、MCP 連接器功能、
-context 管理、容器、推論放置位置，以及不受支援的協定欄位或區塊。
+自動認證在找到已儲存的 Claude 認證時選擇訂閱，無認證時選擇 proxy，偵測不明確時選擇訂閱並附帶警告。請見[Claude Code 認證模式](/zh-tw/guides/claude-code/#認證模式)。
 
-未設定會保留舊版轉換行為。快取提示、工具輸入範例與一般的 thinking/effort 設定會被刻意放行，
-但可能有所降級：這個設定不保證快取斷點或 TTL、保留的範例、精確的 thinking 預算，或無損轉換。
-單靠 beta 標頭不會被驗證是否支援該功能。Shadow 證據只包含固定的協定代碼與衍生原因，會保留在
-請求日誌與 `usage.jsonl` 中，並在重啟後還原。一個無效的、非未設定的模式，會在轉換後的 Messages
-上回傳固定的 503 設定錯誤。請在 `config.json` 中設定此值並重新啟動 proxy 以載入它；沒有專屬的
-GUI 設定項。Count-tokens 與直接的 Responses/Chat API 不受此政策影響；成功計數 token 不代表
-Messages 會被放行。這個設定不會新增全域的授權邊界。
+## Compaction 路由
 
-自動認證在找到已儲存的 Claude 認證時選擇訂閱，無認證時選擇 proxy，偵測不明確時選擇訂閱並附帶警告。請見[Claude Code 認證模式](/zh-tw/guides/claude-code/#auth-mode)。
+在**儀表板 → Overview → Compaction routing**中，選擇一個模型、它適用的觸發條件，以及選填的
+reasoning effort，然後點擊**儲存**。選擇**使用對話模型**並儲存可移除該覆寫。變更會套用到下一次
+compaction 請求，不需要重啟代理。
+
+在 OpenCodex 的 `config.json` 中設定 `compactionRouting`，可覆寫 Codex compaction 請求使用的
+模型。省略時此設定為停用。
+
+```json
+{
+  "compactionRouting": {
+    "model": "provider/model-id",
+    "reasoningEffort": "low",
+    "triggers": ["manual"]
+  }
+}
+```
+
+`model` 接受原生模型 ID、供應商限定的模型 ID，以及已設定的 combo。`reasoningEffort` 為選填；
+省略時保留原始的 effort。支援的宣告值為 `none`、`minimal`、`low`、`medium`、`high`、`xhigh`、
+`max` 與 `ultra`。既有的 provider effort 規則仍會套用。原生的 `/responses/compact` 端點維持
+既有行為，不轉發 reasoning 設定。
+
+`triggers` 指名此覆寫涵蓋哪些 compaction 請求，使用 Codex 自己的 `compaction.trigger` 值：
+你手動輸入 `/compact` 對應 `"manual"`，Codex 在對話接近 context 上限時自動執行的 compaction
+對應 `"auto"`。省略 `triggers` 時，覆寫只套用於手動 `/compact`，自動 compaction 完全維持
+現在的路由方式。使用 `["auto"]` 或 `["manual", "auto"]` 可讓自動 compaction 也被路由。
+
+路由自動 compaction 正是讓路由供應商上的長對話，能在規範 OpenAI 配額耗盡時繼續進行的關鍵。
+Codex 會為 compaction 這一輪選擇一個裸原生模型，而 OpenCodex 只要有已啟用的規範 `openai`
+provider 就會保留它給該用途，因此即使對話本身在別處執行，compaction 仍會在該輪開始前就以
+配額錯誤失敗。在這裡指名 `"auto"`，會把 compaction 指向一個帶有自己憑證與配額的供應商限定
+模型。
+
+OpenCodex 只會變更帶有明確 `request_kind: "compaction"` 中繼資料、且 `compaction.trigger`
+是你列出的其中一個值、送往 `/v1/responses/compact` 或帶有 `compaction_trigger` 輸入項目的
+`/v1/responses` 的請求。之後的對話回合維持原始的路由與設定。缺失、格式錯誤或衝突的中繼資料
+不會啟用此覆寫，包括在沒有 trigger 中繼資料的較舊客戶端上；當提供多份中繼資料時，它們必須
+指名相同的 trigger。WebSocket 請求使用每個 frame 自己的中繼資料，而不是連線先前 handshake
+時的中繼資料。
+
+所選模型的供應商會收到整份對話以進行摘要，包括通常在另一個供應商上執行的對話。combo
+選擇器會把它送給每個 combo 目標，包括 failover 目標。選定模型後，儀表板面板會在模型選擇器
+旁說明這一點，並指名目的地供應商，或 combo 的目標供應商。當覆寫涵蓋自動 compaction 時，這種
+轉移會在你沒有要求的情況下發生，時機由 Codex 決定何時 compaction；儀表板面板也會如此說明。
+此覆寫重用既有的 compaction 處理器與摘要格式。當所選模型與對話模型共用相同的供應商與帳號路由
+身分（供應商名稱、Codex 帳號模式與帳號命名空間）時，請求會保留呼叫者的憑證，並可能使用該
+後端的原生 compact 端點。否則——包括任一方是 combo，或對話模型被記為 combo 目標的情況——
+OpenCodex 會改用可攜式摘要器，這樣當對話在自己的模型上恢復時摘要仍可讀，且呼叫者的憑證不會
+跨到另一個供應商。所選模型必須支援輸入大小與內容。手動編輯 `config.json` 後請重啟代理。
+儀表板儲存會立即套用。
 
 ## Shadow call
 
@@ -406,6 +487,12 @@ Codex 使用小型 helper 模型處理如標題與 commit 訊息等任務。啟�
 }
 ```
 
+### 目標無法使用時
+
+替換目標是操作者選定的唯一目的地，因此無法再解析的目標會讓輔助呼叫失敗，而不是把它送到別處。當目標的供應商被停用或刪除，或其組合已不存在時，被攔截的請求會在向上游送出任何內容之前回傳 `409` 與錯誤代碼 `intercept_target_unavailable`。請求記錄會記下相同代碼。請求不會直通給原生輔助模型，也不會退回預設供應商，因為兩者都會在你未選擇的情況下改變目的地、憑證與費用。組合或路由設定檔目標仍會在自身成員之間容錯移轉。像 `provider/model` 這樣的限定目標，若其供應商部分未指向任何已設定項目，也以相同方式處理，設定 API 會拒絕儲存。透過預設供應商解析的不帶前綴模型 ID 仍然有效。
+
+停用（帶 `disabled: true` 的 `PATCH /api/providers?name=<provider>`）或刪除目標所解析到的供應商仍會成功；回應會加入 `dependentShadowIntercept: { model, enabled }`，儀表板會顯示警告。重新啟用該供應商或選擇其他目標即可恢復攔截。
+
 ## Sidecar
 
 ### `images`（`OcxImagesConfig`）
@@ -421,7 +508,7 @@ Codex 使用小型 helper 模型處理如標題與 commit 訊息等任務。啟�
 
 | 欄位 | 型別 | 預設值 | 意義 |
 | --- | --- | --- | --- |
-| `enabled?` | `boolean` | 可用時開啟 | 主開關。 |
+| `enabled?` | `boolean` | 可用時開啟 | 主開關。為 `false` 時，OpenCodex 停止攔截 `web_search`，且 Codex 整合會把 `web_search = "disabled"` 寫入 `~/.codex/config.toml`。 |
 | `backend?` | `"openai" \| "anthropic" \| "xai" \| "gemini" \| "exa"` | `openai` | 明確設定優先；省略時一律使用 `openai`。`anthropic` 與 `xai` 僅在明確設定時執行；`gemini` 與 `exa` 在 executor 推出前仍為保留值。 |
 | `model?` | `string` | 視 backend 而定 | OpenAI 為 `gpt-5.6-luna`、Anthropic 為 `claude-sonnet-5`、xAI 為 `grok-4.6`。舊版明確 `gpt-5.4-mini` 在啟動時遷移。 |
 | `exaApiKey?` | `string` | 無 | `exa` backend 的操作員金鑰。僅可寫入：管理讀取永遠不會傳回已儲存的值。 |
@@ -481,3 +568,11 @@ socket：管理是發布在 443 上、僅限迴路的 ingress，資料則是發�
 [`unauthenticatedLoopbackListener`](#local-clients-that-cannot-receive-the-token)。它不帶連接埠的
 companion 形式，正是讓 hub 成為單一連接埠部署的原因，而它在迴路或萬用 `hostname` 上會被拒絕，
 因為公開的 listener 已經佔用了 `127.0.0.1:<連接埠>`。
+
+## 實驗性原生回應控制
+
+`codexNativeSteering` 與 `codexNativeInjection` 啟用兩條獨立、預設關閉的原生 WebSocket
+控制路徑。詳見規範指南中的
+[支援的 steering 路由與設定](/zh-tw/guides/codex-integration/#steering-continuation-settings)、
+[型別化結果與核准的續傳](/zh-tw/guides/codex-integration/#rich-tool-results-and-explicit-approvals-after-response-completion)，
+以及[確認期限與保留的內容](/zh-tw/guides/codex-integration/#steering-confirmation-deadlines-and-retained-context)。

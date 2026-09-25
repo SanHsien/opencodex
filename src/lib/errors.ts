@@ -1,3 +1,5 @@
+import { parseRetryAfterFromMessage } from "./retry-delay";
+
 export interface OcxErrorPayload {
   message: string;
   type: string;
@@ -6,6 +8,15 @@ export interface OcxErrorPayload {
 
 export const ENCRYPTED_FUNCTION_OUTPUT_REJECTION =
   "Encrypted function output content could not be decrypted or decoded.";
+
+/**
+ * The error identity for a send this proxy declined to make (#4708).
+ *
+ * Declared here rather than only on the error class because the classifier is what decides
+ * whether the identity survives serialization, and every dispatch path has to name the same
+ * string for a client to be able to tell this apart from a provider rate limit.
+ */
+export const SEND_BUDGET_EXHAUSTED_CODE = "request_send_budget_exhausted";
 
 /** Canonical human-readable message paths used by Responses upstream failures. */
 export function upstreamErrorMessageFromPayload(payload: unknown): string | undefined {
@@ -63,6 +74,75 @@ export function isCyberPolicyMessage(text: string): boolean {
   return false;
 }
 
+/**
+ * Refusal codes Codex ends a turn on.
+ *
+ * Its Responses parser classifies a `response.failed` terminal by `error.code`
+ * alone (codex-rs/codex-api/src/sse/responses.rs:423-462). These four become a
+ * fatal `ApiError` the client reports instead of reconnecting. A code outside
+ * this set is never read as a refusal: `server_is_overloaded` and `slow_down`
+ * take the overload arm, `rate_limit_exceeded` takes the rate-limit arm, and
+ * everything else falls through to `ApiError::Retryable` and is reconnected up
+ * to `stream_max_retries`.
+ *
+ * Deliberately scoped to content refusals. `insufficient_quota` and
+ * `context_length_exceeded` are terminal for Codex too, but they are separate
+ * failure families this proxy already classifies through its own quota and
+ * context paths, and pulling them in here would change their retry behavior
+ * with no evidence asking for it.
+ */
+const TERMINAL_REFUSAL_CODES = new Set<string>([
+  CYBER_POLICY_ERROR_CODE,
+  "misalignment_policy_violation",
+  "invalid_prompt",
+  "bio_policy",
+]);
+
+/** True when an upstream error code is a refusal the client must not retry. */
+export function isTerminalRefusalCode(code: string | null | undefined): boolean {
+  return typeof code === "string" && TERMINAL_REFUSAL_CODES.has(code);
+}
+
+/** Stand-in copy for a refusal the upstream sent without a message of its own. */
+export const TERMINAL_REFUSAL_FALLBACK_MESSAGE = "The upstream refused this request.";
+
+/** Readable copy for a refusal code, used when the upstream carried no message. */
+export function terminalRefusalFallbackMessage(code: string): string {
+  return code === CYBER_POLICY_ERROR_CODE
+    ? CYBER_POLICY_FALLBACK_MESSAGE
+    : TERMINAL_REFUSAL_FALLBACK_MESSAGE;
+}
+
+/**
+ * Name the refusal code behind upstream safety copy when the structured code
+ * was not carried on the wire.
+ *
+ * Same discipline as {@link isCyberPolicyMessage}: whole distinctive phrases
+ * only. A loose match here is the mirror-image defect — it would end a turn
+ * that a genuine transient failure would have retried successfully — so a
+ * message that merely mentions safety or blocking does not qualify. Callers
+ * must consult this only when the upstream carried no structured code at all,
+ * so that a transport failure quoting a refusal in its diagnostic text cannot
+ * be promoted past the verdict the upstream actually gave.
+ *
+ * Copy provenance: "limited access to this content for safety reasons" is the
+ * prefix Codex itself matches (tui/src/chatwidget/turn_runtime.rs:8-15) and
+ * pairs with `invalid_prompt` in its parser fixture (sse/responses.rs:1358-1366),
+ * which also pairs "flagged for possible biological risk" with `bio_policy`.
+ * "blocked by our safety systems" is the copy reported in #5176; pairing it
+ * with `invalid_prompt` is an inference from the two verified pairings above,
+ * not something the upstream source states.
+ */
+export function safetyRefusalCodeFromMessage(text: string): string | undefined {
+  const lower = String(text ?? "").toLowerCase();
+  if (lower.includes("flagged for possible biological risk")) return "bio_policy";
+  if (
+    lower.includes("blocked by our safety systems")
+    || lower.includes("limited access to this content for safety reasons")
+  ) return "invalid_prompt";
+  return undefined;
+}
+
 function isSubscriptionGateMessage(text: string): boolean {
   return (
     text.includes("requires a subscription") ||
@@ -74,6 +154,93 @@ function isSubscriptionGateMessage(text: string): boolean {
     text.includes("ollama.com/upgrade") ||
     (text.includes("upgrade") && text.includes("subscription"))
   );
+}
+
+/**
+ * xAI (and similar Chat Completions gateways) sometimes refuse a turn with HTTP 403
+ * and a model-refusal sentence instead of 200 + finish_reason=content_filter.
+ * Codex treats that 403 as a transport failure, so the user message is never
+ * recorded as a completed turn and retries loop. Keep this allowlist narrow:
+ * entitlement / plan / model-access 403s must stay errors.
+ */
+const POLICY_REFUSAL_PHRASES = [
+  "i can't help with that request",
+  "i cannot help with that request",
+  "i'm unable to help with that request",
+  "i am unable to help with that request",
+] as const;
+
+function hasModelAccessCue(text: string): boolean {
+  return (
+    text.includes("not allowed to use this model")
+    || text.includes("not allowed to use this operation")
+  );
+}
+
+/**
+ * xAI plan and credit 403 wording. Checked only by the refusal matcher below: adding these to
+ * the global subscription classifier would also change status and error-code inference for
+ * every message-only error that happens to mention credits.
+ */
+function hasEntitlementCue(text: string): boolean {
+  return (
+    isSubscriptionGateMessage(text)
+    || text.includes("need a grok subscription")
+    || text.includes("run out of credits")
+  );
+}
+
+/** Lowercase, collapse whitespace, and strip trailing .!? so an exact phrase match is stable. */
+function normalizePolicyRefusalSentence(text: string): string {
+  return text
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .replace(/[.!?]+$/g, "")
+    .trim();
+}
+
+/**
+ * True only when the extracted error sentence is exactly a known model-refusal
+ * phrase. JSON / "Provider error 403:" wrappers are unwrapped first. Extra
+ * plan, credit, entitlement, or model-access wording keeps the error path.
+ */
+export function isUpstreamPolicyRefusalMessage(text: string): boolean {
+  const extracted = extractPolicyRefusalText(text);
+  const originalLower = text.toLowerCase();
+  const extractedLower = extracted.toLowerCase();
+  if (hasEntitlementCue(originalLower) || hasEntitlementCue(extractedLower)) return false;
+  if (hasModelAccessCue(originalLower) || hasModelAccessCue(extractedLower)) return false;
+  const normalized = normalizePolicyRefusalSentence(extracted);
+  return (POLICY_REFUSAL_PHRASES as readonly string[]).includes(normalized);
+}
+
+/** HTTP 403 plus {@link isUpstreamPolicyRefusalMessage}; other statuses never rewrite. */
+export function isUpstreamPolicyRefusal(status: number, text: string): boolean {
+  return status === 403 && isUpstreamPolicyRefusalMessage(text);
+}
+
+/** Pull the human-readable refusal sentence out of a JSON or prefixed error body. */
+export function extractPolicyRefusalText(raw: string): string {
+  const trimmed = raw.trim();
+  try {
+    const parsed = JSON.parse(trimmed) as { error?: unknown; message?: unknown };
+    const nested = parsed.error;
+    if (typeof nested === "string" && nested.trim()) return nested.trim();
+    if (nested && typeof nested === "object") {
+      const msg = (nested as { message?: unknown; error?: unknown }).message
+        ?? (nested as { error?: unknown }).error;
+      if (typeof msg === "string" && msg.trim()) return msg.trim();
+    }
+    if (typeof parsed.message === "string" && parsed.message.trim()) return parsed.message.trim();
+  } catch {
+    /* not JSON */
+  }
+  // The proxy's own error text wraps the upstream JSON (`Provider error 403: {"error": ...}`),
+  // so the remainder after the prefix gets the same unwrapping.
+  const prefixed = trimmed.match(/^Provider error 403:\s*([\s\S]+)$/i);
+  if (prefixed?.[1]?.trim()) return extractPolicyRefusalText(prefixed[1]);
+  return trimmed;
 }
 
 function isLocalAclHardeningMessage(text: string): boolean {
@@ -176,6 +343,18 @@ export function isClientClosedMessage(text: string): boolean {
   );
 }
 
+/**
+ * Ambiguous-reset refusal wording owned by this proxy (src/lib/upstream-retry.ts):
+ * the upstream exchange did not complete reliably, so the request may already have
+ * been processed and automatic replay was stopped. Matched narrowly so a
+ * provider-sent message is never relabeled by it.
+ */
+export function isUpstreamResetReplayRefusedMessage(text: string): boolean {
+  return text.toLowerCase().includes(
+    "the upstream exchange did not complete reliably. the request may already have been processed",
+  );
+}
+
 export function classifyError(status: number, type: string, message: string): OcxErrorPayload {
   const text = message.toLowerCase();
   if (type === "previous_response_not_found") {
@@ -252,6 +431,14 @@ export function classifyError(status: number, type: string, message: string): Oc
     text.includes("daily quota exceeded")
   ) {
     return { message, type: "insufficient_quota", code: "insufficient_quota" };
+  }
+  // A refusal this proxy made itself, kept apart from the provider rate limits below. The HTTP
+  // semantics are identical -- 429, do not send this again now -- but the code is the only thing
+  // that tells an operator reading a log whether the provider throttled the request or whether
+  // this process declined to send it. Folding it into the generic rate-limit code sent them to
+  // the provider's dashboard to explain a decision that was never made there.
+  if (type === SEND_BUDGET_EXHAUSTED_CODE) {
+    return { message, type: "rate_limit_error", code: SEND_BUDGET_EXHAUSTED_CODE };
   }
   if (
     status === 429 ||
@@ -359,21 +546,7 @@ export function isRateLimitOrQuotaFailureMessage(message: string): boolean {
   return normalized.toLowerCase().includes("usage limit");
 }
 
-/** Best-effort parse of a retry delay embedded in an upstream error message. */
-export function parseRetryAfterFromMessage(message: string): number | undefined {
-  const patterns = [
-    /try again in (\d+(?:\.\d+)?)\s*s(?:ec(?:ond)?s?)?/i,
-    /retry after (\d+(?:\.\d+)?)\s*s(?:ec(?:ond)?s?)?/i,
-    /retry[- ]after[:\s]+(\d+)/i,
-  ];
-  for (const pattern of patterns) {
-    const match = message.match(pattern);
-    if (!match?.[1]) continue;
-    const seconds = Number.parseFloat(match[1]);
-    if (Number.isFinite(seconds) && seconds > 0) return Math.ceil(seconds);
-  }
-  return undefined;
-}
+export { parseRetryAfterFromMessage };
 
 /** Infer HTTP status from adapter terminal error text (provider-agnostic keyword matching). */
 export function inferHttpStatusFromAdapterMessage(message: string): number {

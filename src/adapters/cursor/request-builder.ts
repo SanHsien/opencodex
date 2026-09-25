@@ -26,7 +26,7 @@ import {
   isCursorExecutionPathTool,
   isCursorWaitTool,
 } from "./tool-definitions";
-import { lookupCursorThreadConversation } from "./thread-continuity";
+import { lookupCursorThreadConversation, resolveCursorConversationRewrite } from "./thread-continuity";
 import {
   getCursorCheckpoint,
   getCursorCheckpointForPrefix,
@@ -209,11 +209,12 @@ export function cursorRequestEmitsFastVariant(parsed: OcxParsedRequest): boolean
 
 /**
  * Resolve a `cursor/<model>` selection + Codex reasoning effort to Cursor's requested model shape.
- * Most models encode effort in a flat id (`claude-4.6-opus-high`). Grok Fast is parameterized
- * instead: current Cursor clients send the matching Grok base id plus `effort` and `fast` parameters.
+ * Most models encode effort in a flat id (`claude-4.6-opus-high`). Grok 4.5/4.6 Fast is
+ * parameterized: current Cursor clients send the matching base id plus `effort` and `fast` parameters;
+ * Grok 4.7 (no wirePrefix) instead uses the flattened effort-fast id.
  * A fully-qualified id (one that is not a known effort base) passes through unchanged.
  */
-function normalizeCursorModelId(modelId: string, reasoning?: string, fast?: boolean): {
+function normalizeCursorModelId(modelId: string, reasoning?: string, fast?: boolean, liveRosterScope?: string): {
   modelId: string;
   requestedModelParameters?: readonly CursorRequestedModelParameter[];
   routingLevel?: CursorRoutingLevel;
@@ -226,8 +227,8 @@ function normalizeCursorModelId(modelId: string, reasoning?: string, fast?: bool
   // resolver owns effort composition, variant dimensions, the synthetic -1m
   // marker (ultra -> Max Mode, evidence-gated), and the cursor- wire prefix.
   const id = selection.modelId;
-  // Grok Fast stays parameterized: current Cursor clients send the base id
-  // plus effort/fast parameters instead of the flattened -fast id.
+  // Grok 4.5/4.6 Fast stays parameterized: current Cursor clients send the base id
+  // plus effort/fast parameters; 4.7 (no wirePrefix) uses the flattened effort-fast id.
   const grokFast = cursorGrokFastSelection(id, reasoning, fast);
   if (grokFast) {
     return {
@@ -239,7 +240,7 @@ function normalizeCursorModelId(modelId: string, reasoning?: string, fast?: bool
       ],
     };
   }
-  const resolved = resolveCursorSelection(id, reasoning, undefined, { fast });
+  const resolved = resolveCursorSelection(id, reasoning, undefined, { fast, liveRosterScope });
   return {
     ...selection,
     ...(resolved.maxMode ? { maxMode: true } : {}),
@@ -250,6 +251,9 @@ function normalizeCursorModelId(modelId: string, reasoning?: string, fast?: bool
 function contentPartToText(part: OcxContentPart | OcxAssistantContentPart): string | undefined {
   switch (part.type) {
     case "text":
+      return part.text;
+    case "document":
+      // Cursor has no document carrier; the marker keeps the turn from serializing to nothing.
       return part.text;
     case "thinking":
       return part.thinking;
@@ -340,7 +344,13 @@ export function cursorConversationIdFromClientThread(threadId: string, identityS
 
 /**
  * Resolve the Cursor conversation id for this turn.
- * Priority: force-fresh → isolate helper → remembered → client thread owner → random.
+ * Priority: force-fresh → isolate helper → thread remint override → stored conversation id
+ * → client thread hash → random.
+ *
+ * The remint override must beat a stored `_cursorConversationId`. Only the remint path writes
+ * the thread store (cursor.ts), so a stored id that disagrees with it is the pre-remint value,
+ * and preferring it let a second Responses chain in the same Codex thread keep resuming the
+ * conversation the previous turn just rotated away from.
  * Never use OpenAI Responses `previous_response_id` (resp_*) or shared `prompt_cache_key`
  * (cache-cohort fingerprint, not conversation ownership).
  */
@@ -351,12 +361,22 @@ export function resolveCursorConversationId(
 ): string {
   if (options.forceFreshConversation === true) return generatedCursorConversationId();
   if (parsed._cursorIsolateConversation === true) return generatedCursorConversationId();
-  if (parsed._cursorConversationId) return parsed._cursorConversationId;
   const threadId = cursorClientThreadOwner(parsed);
-  if (threadId) {
+  // A compaction turn carries its own conversation id and must not be pulled onto the parent's
+  // thread override. It is isolated in effect without ever setting the isolate flag, which is why
+  // the override check has to exclude it explicitly rather than rely on that flag.
+  if (threadId && parsed._compactionRequest !== true) {
     const recovered = lookupCursorThreadConversation(threadId, parsed._cursorIdentityScope);
-    if (recovered) return recovered;
-    return cursorConversationIdFromClientThread(`thread:${threadId}`, parsed._cursorIdentityScope);
+    if (recovered) return resolveCursorConversationRewrite(recovered, parsed._cursorIdentityScope);
+  }
+  if (parsed._cursorConversationId) {
+    return resolveCursorConversationRewrite(parsed._cursorConversationId, parsed._cursorIdentityScope);
+  }
+  if (threadId) {
+    return resolveCursorConversationRewrite(
+      cursorConversationIdFromClientThread(`thread:${threadId}`, parsed._cursorIdentityScope),
+      parsed._cursorIdentityScope,
+    );
   }
   return generatedCursorConversationId();
 }
@@ -396,6 +416,8 @@ export function cursorCoveredPrefixDigest(parsed: OcxParsedRequest, coveredMessa
 export interface CreateCursorRequestOptions {
   /** Force a brand-new Cursor conversation id even when remembered state exists. */
   forceFreshConversation?: boolean;
+  /** Credential-bound scope for live Cursor model spelling and Max-Mode evidence. */
+  liveRosterScope?: string;
 }
 
 function lookupPrefixSnapshot(
@@ -465,7 +487,13 @@ function resolveCursorCheckpoint(
   if (cursorCheckpointModelAffinityId(snapshot.modelId) !== cursorCheckpointModelAffinityId(request.modelId)) {
     return { reason: "model_changed" };
   }
-  if (parsed.context.messages.at(-1)?.role !== "toolResult" && cursorState?.checkpointUsable === false) {
+  // The continuation state only exists on the ref path; a ref-less prefix hit carries
+  // the suspension on the snapshot itself, or a non-toolResult request could resume
+  // bytes upstream serialized mid-tool-call.
+  if (
+    parsed.context.messages.at(-1)?.role !== "toolResult"
+    && (snapshot.toolSuspended === true || cursorState?.checkpointUsable === false)
+  ) {
     return { reason: "trailing_tool_result" };
   }
   const lineage = lineageMismatch(parsed, snapshot);
@@ -482,7 +510,12 @@ export function createCursorRequest(
   const visibleTools = cursorToolsForActivePrompt(parsed.context.tools, activeText, parsed.options.toolChoice);
   const budget = applyCursorToolBudget(visibleTools, parsed.options.toolChoice);
   const limitNote = catalogLimitNote(budget.tools, budget.omitted);
-  const model = normalizeCursorModelId(parsed.modelId, parsed.options.reasoning, cursorFastRequested(parsed));
+  const model = normalizeCursorModelId(
+    parsed.modelId,
+    parsed.options.reasoning,
+    cursorFastRequested(parsed),
+    options.liveRosterScope,
+  );
   const request: CursorRunRequest = {
     modelId: model.modelId,
     ...(model.requestedModelParameters ? { requestedModelParameters: model.requestedModelParameters } : {}),

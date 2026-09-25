@@ -1,11 +1,47 @@
 # Codex Home
 
+Catalog HTTP acquisition follows the [proxy-routing contract](catalog.md#remote-catalog-http-proxy-routing).
+
+A lock in the Codex credential store is governed by [descriptor identity and age](catalog.md#accounts-namespaces-and-pool-rotation), so the mere presence of its filename is neither acquisition nor release authority. Failed path-identity probes leave the lock for stale recovery and preserve the refresh callback outcome. Cooperating lock metadata changes serialize through the existing SQLite mutation transaction; release keeps the descriptor open through identity comparison and any unlink, then closes it. Failed metadata writes remove only a matching owned path after successful coordination; unknown identity, failed probes or unavailable coordination retain the path for stale recovery. Async refresh work holds no metadata transaction.
+
+CLI installation inspection reason codes, including Windows deferral, follow the [runtime inspection contract](runtime.md#lifecycle).
+
+Explicit Codex CLI installation observation does not discover a Codex home or read/write its state. See the [read-only observation contract](runtime.md#explicit-codex-cli-installation-observation).
+
+## Orca source-owned account import
+
+`src/codex/orca-import.ts` reads only accounts listed in an explicitly selected Orca registry.
+Each host-managed home must match its UUID directory and ownership marker. Preview is offline
+and read-only; applying requires an initialized target and a stopped proxy. Existing main,
+configured and orphan credential identities participate in account-ID deduplication.
+Retry can complete an interrupted registration only for a sole, untouched importer-owned
+pending credential matching the registered source path and identity; it retains that record's ID.
+
+Imported pool records retain an access-token snapshot and a local source reference, with no
+refresh token. `src/codex/orca-auth-source.ts` bounds reads and rejects linked or nonlocal paths.
+`src/codex/account-store.ts` rereads the source before returning credentials, pins account and
+subject identity, and fails closed for missing, expired or changed-identity sources. Orca owns
+refresh; even forced refresh never exchanges its refresh token. A new source bearer advances
+the target generation while retaining validation state and the same account's quota-history identity.
+Writers captured under the old generation become stale; already retained history is not reset.
+New imports remain validation-pending.
+
+`src/codex/auth-api/pool-quota-probe.ts` also rechecks linked sources after asynchronous quota validation before
+issuing deferred inference warmups. Already dispatched requests retain their captured bearer.
+
 ## Codex home
 
 `src/codex/paths.ts` resolves Codex state from `CODEX_HOME` when set and valid, otherwise from
-`~/.codex`. An unset `CODEX_HOME` falls back to `~/.codex`, including WSL discovery. An explicitly
+`~/.codex`. An unset `CODEX_HOME` falls back to `~/.codex`, including WSL discovery. On WSL,
+discovery of a Windows Desktop home applies when the Linux `~/.codex` is absent, is not a directory,
+or is a directory holding no Codex state (none of `config.toml`, `auth.json`, `sessions`,
+`history.jsonl`; `defaultCodexHome` in `src/codex/home.ts`). A fresh local home Codex is already using
+stays the home before `config.toml` exists (issue 5441), a bare directory does not move an existing
+user off a Windows home they were running against, and a stat failure other than absence keeps the
+local home rather than switching to a different one. Codex runtime discovery (src/codex/runtime.ts) also reads this home on Linux: after an explicit runtime, PATH, and the ordinary install locations, it enumerates the direct children of <effective CODEX_HOME>/bin/wsl/<version-hash>/codex newest first, probes each through the isolated --version seam, and re-enumerates on every resolve so a Desktop update that replaces the hash directory is picked up (issue 5635). An explicitly
 set path that is unreadable or not a directory is an error, not a fallback: silently using a
-different home than the operator named would write provider state where nobody is looking for it.
+different home than the operator named would write provider state where nobody is looking for it. A fresh install can have that directory but no `config.toml` yet; applying the integration then creates an empty `config.toml` there (never overwriting an existing file) and continues, while a missing home directory is refused with instructions to start Codex once or set `CODEX_HOME` (issue 5422).
+`src/codex/home.ts` imports path expansion directly from `src/config/paths.ts`, so a fresh WSL process can resolve its Codex home without re-entering the config facade before the resolver initializes.
 The managed files are:
 
 ```text
@@ -19,6 +55,14 @@ $CODEX_HOME/.opencodex-native-main-profiles/
 
 Never assume macOS-only paths. Windows, service installs, and app-launched Codex can all depend on
 the resolved `CODEX_HOME`.
+
+Log Guard reclaim in `src/codex/log-guard/maintenance.ts` refuses a non-regular or redirected
+database path. It compares canonical path and full-width filesystem device and file identity
+from path observations before and immediately after SQLite opens the database, before maintenance
+statements. Reclaim is unavailable where the filesystem does not report a usable stable file
+identity: missing or zero inode values return `unsafe_path`. File size and timestamps are
+measurements, not identity evidence. These path observations do not attest SQLite's opened handle
+or continuous file identity between the observations.
 
 Observed catalog/cache rows and restore output follow the [retired-native policy](catalog.md#shared-catalog).
 Restore filters retired bare and trusted account-qualified native rows from its output with or
@@ -49,8 +93,9 @@ treat it as destructive, not as an upgrade or restart command.
 Service install-state ownership uses this same resolver. In WSL, an unset `CODEX_HOME` may resolve
 to the single discoverable Windows Desktop home; recording Linux `~/.codex` instead would make a
 later repair or uninstall look foreign even though the service and runtime were started from the
-same environment. An explicit `CODEX_HOME` remains authoritative, and existing foreign ownership
-records are never migrated implicitly.
+same environment. A record written before that discovery still names Linux `~/.codex`; service
+commands refuse it and name the recorded home to rerun with, because stop and repair would otherwise
+restore a different home. An explicit `CODEX_HOME` remains authoritative; nothing migrates implicitly.
 
 > Decision record: [ADR-0006](decisions/ADR-0006-codex-home.md)
 
@@ -62,6 +107,9 @@ call time, and admission/residue checks consume the same database path. Storage 
 owns the Codex-home tree separately and does not gain deletion authority over an external SQLite
 root from this resolver alone. Durable service launchers preserve an explicitly supplied
 `CODEX_SQLITE_HOME` so a background service resolves the same split state as the installing shell.
+Service install state records that effective SQLite home beside `CODEX_HOME` and `OPENCODEX_HOME`,
+and a lifecycle command requires the recorded value to match the current effective resolution; a
+legacy record without the field keeps its existing behavior.
 An absent `config.toml` or absent root `sqlite_home` permits the environment/home fallback. Any
 other read failure, malformed TOML, wrong-typed or blank `sqlite_home` is indeterminate and fails
 closed so history code cannot select a different database by accident. This strict parse is scoped
@@ -86,6 +134,13 @@ subsystem from fencing native traffic or creating lock contention. Presence, an 
 or any observation error still takes the locked sweep and fails closed; the fast path is based only
 on proven absence, never on an unreadable path.
 
+Native-main admission is one process-global gate owned by the live startup entry. Releasing the
+last reference to that entry returns the gate to its process-initial `ready` state synchronously,
+before the release awaits anything, so a server stopped in the middle of startup convergence
+cannot leave the process fenced for the servers that follow it; an entry created afterwards for
+the same home arms its own gate, and the retired generation's late convergence writes are ignored.
+`tests/codex-integration/native-profile-startup-release.test.ts` pins that ordering.
+
 The native main slot also accepts one same-identity device reauth (#3898):
 `/api/codex-auth/main/reauth-device` (start/status/cancel) plus
 `ocx account main reauth`. The grant is the OpenAI deviceauth grant already
@@ -97,7 +152,12 @@ owner lifecycle), path/hash/inode re-verification inside the claim, and one
 atomic write of access/refresh/id token + account_id. The old identity token
 is never retained beside the new grant. No claim is held while the human
 completes the device page, and no DTO, log, or error carries tokens, emails,
-or raw account ids.
+or raw account ids. Cancellation is bound to the commit's exclusive claim and
+is rechecked immediately before publication, so a cancel delivered while the
+claim is contended aborts the wait and a cancelled flow cannot replace
+`auth.json` or clear its reauthentication quarantine. A cancel that arrives
+after the write still reports `succeeded`: the credential was replaced, so
+that is the honest terminal.
 
 > Decision record: [ADR-0008](decisions/ADR-0008-codex-home.md)
 
@@ -232,6 +292,8 @@ to snapshot persistence instead of relying on the progress argument alone.
 
 ## Codex-home diagnostics
 
+Desktop executable membership uses the [discovered installation root](runtime.md#codex-desktop-process-membership), independently of the Codex state directory resolved here.
+
 Some Codex-home conditions are reported rather than repaired, because repairing them would overwrite
 a deliberate user choice:
 
@@ -239,22 +301,57 @@ a deliberate user choice:
   `ocx status`.
 - Project-level Codex config that bypasses managed routing
   (`src/codex/project-config-warnings.ts`), surfaced by `ocx doctor` as a warning rather than an
-  override.
+  override. Project candidates and opened handles must be regular files of at most 1 MiB;
+  nonblocking descriptor reads reject changed size or timestamps. Global config reads are unchanged.
 
-Codex display-cache expiry, retained main-policy evidence, and reset history follow the
+Codex display-cache expiry, retained blocking main-policy evidence, and reset history follow the
 [quota cache contract](providers/openai-tiers.md#quota-cache-and-short-window-history).
 
-Plan-based automatic exclusions leave native credential files untouched and preserve the native-main exemption in the [selection policy](providers/openai-tiers.md#automatic-pool-plan-exclusions).
+Plan-based automatic exclusions leave native credential files untouched and preserve the native-main exemption in the [selection policy](providers/openai-accounts.md#automatic-pool-plan-exclusions).
+
+## Prompt text probe
+
+`src/codex/prompt-text-probe.ts` reports the prompt Codex assembles for the resolved Codex home. It
+runs `codex debug prompt-input` in that home, bounded in time and in bytes, maps each rendered section
+onto a layer, and takes no caller-supplied directory. Captured process output is never serialized
+back: a failure is a classified kind plus a fixed phrase and the resolved command.
+
+The base prompt is absent from that output, because Codex discards `base_instructions` before
+rendering `prompt.input`. It is read from configuration instead, and it is read before the subprocess
+starts, so an unresolved Codex runtime, a failed probe and a cancelled request all still answer with
+it. Precedence follows Codex: a `model_instructions_file` decides the answer whenever the key is set,
+including when the file it names is missing, blank or unreadable, and otherwise the selected model's
+catalog row supplies `base_instructions`, with `model_messages.instructions_template` as the fallback.
+Only the first form is reported as text Codex sends. A template is reported as a template and the
+legacy `base-instructions` layer slot carries no text for it: that slot has five coarse reasons and no
+representation, and its dialog labels every readable layer as text sent to the model.
+
+Each configured source is opened once, non-blocking, and read to at most the probe's byte ceiling,
+which is what keeps a FIFO, a device node or an oversized file from stalling or ballooning a
+synchronous request. The regular-file check reads the opened descriptor rather than the path, and the
+whole TOML document parses before any key from it is trusted, because Codex rejects a malformed
+config outright. Every failure is a reason on the response rather than an exception, so the
+management read degrades instead of returning an error page.
 
 ## Paginated history writer boundary
 
-`src/codex/history-provider.ts` rejects provider-history changes with `history_paginated_requires_native_writer` when a target begins with an ordinal-bearing record, later contains a paginated record after a legacy start (#4311), or declares `history_mode=paginated`. The first line alone is not sufficient: a rollout that started unnumbered and was later migrated is also refused. Apply, manifest-backed restore, and explicit legacy recovery preflight all selected targets before changing database rows or manifests. The append boundary checks again. Codex owns ordinal allocation and the live projection cursor; reading the last ordinal and appending N+1 is not safe concurrent coordination. Legacy unnumbered rollouts retain their existing behavior. This guard prevents the observed stable-format corruption; it does not implement native-writer integration.
+`src/codex/history-provider.ts` rejects provider-history changes with `history_paginated_requires_native_writer` when a target begins with an ordinal-bearing record, later contains a paginated record after a legacy start (#4311), or declares `history_mode=paginated`. The first line alone is not sufficient: a rollout that started unnumbered and was later migrated is also refused. Apply, manifest-backed restore, and explicit legacy recovery preflight all selected targets before changing database rows or manifests. The append boundary checks again. Codex owns ordinal allocation and the live projection cursor; reading the last ordinal and appending N+1 is not safe concurrent coordination. Legacy unnumbered rollouts retain their existing behavior. History Worker targets resolve the canonical manifest first and an existing pre-normalization Windows filename second, so passing an explicit target cannot bypass upgrade recovery. This guard prevents the observed stable-format corruption; it does not implement native-writer integration.
 
 Injection preflights affected history using the normalized config candidate before writing config/profile/journal, then checks again after the complete artifact write. Native restore also rechecks after successful journal restoration or fallback removal, while exact config/profile/journal preimages and any coordinated remove transaction remain available for compensation.
 
-What a detected migration does depends on which refusal it is, and on direction. On apply, `history_paginated_requires_native_writer` retires the relabel unit and the config/profile/journal write stands: it is permanent, so compensating it only produced a home with no OpenCodex models at all. Any other reason there — an unreadable state database, a changed rollout identity, a preflight that could not run — may succeed on a later attempt, so it still restores all three preimages before returning a structured refusal, including on legacy-uncoordinated homes. Restore and removal compensate on every reason, because retiring a provider definition its thread rows still name would orphan them. A failed config restore stops catalog/history work; coordinated restore rolls back its published remove transition. Legacy first-line provider patches are bound to the validated file identity before and after writing. These compensating checks do not provide a native-writer lock or authorize external ordinal allocation.
+The preflight opens the state store read-write-free and in that order deliberately. `{ readonly: true }` is the primary open and the only one that joins a live writer's WAL shared memory, so a thread another process just migrated to paginated history is visible and refuses here. A WAL store whose last writer closed cleanly has no `-shm` to join and a read-only connection may not create one, so that open fails `SQLITE_CANTOPEN` on a perfectly healthy store and the catch-all turned it into `history_injection_preflight_unavailable` on every attempt (#4943). The immutable fallback (`immutable=1` over a `file:` URI, the same idiom as the storage scanner and the log-guard inspector) is admitted only when neither `-wal` nor `-shm` is on disk, because that is the state in which the main database is the whole store and an immutable read is exact rather than stale. Either sidecar present, or any other open failure, keeps the original error and the refusal that follows: an immutable read is a snapshot, and a refusal this preflight fails to observe is a config transition over history Codex owns. The guard covers the whole primary attempt, not only the constructor. `sqlite3_open_v2` never reads page 1, so a WAL header is not inspected until the first prepare, and on macOS that is where the absent `-shm` is raised; the first read therefore happens inside the attempt, where the error can still be classified. Bun's bundled SQLite on Linux materializes both sidecars on that same read and never fails, which is why Linux and Windows evidence could not see this gap.
 
-The legacy external writer is now refused for affected rows in any store whose schema includes history_mode, even while their row mode is still legacy. This deliberately sacrifices automatic relabeling on migration-capable stores rather than racing native conversion. Synchronous/asynchronous restore, inline journal restore, and direct config removal preserve all artifacts on that refusal, so an already-paginated home cannot yet be uninstalled through the product; apply instead writes its config and keeps a `[model_providers.opencodex]` table the home already published, so rows naming that provider keep resolving.
+What a detected migration does depends on which refusal it is, and on direction. The reason that stands down is one exported constant, `HISTORY_RELABEL_STANDS_DOWN` in `src/codex/history-provider.ts`, because apply and restore have to agree on it exactly and once did not.
+
+On apply, that reason retires the relabel unit and the config/profile/journal write stands when the admitted candidate preserves any existing provider table. Retention is decided before witness construction and does not depend on history preflight passing: apply keeps any existing provider definition while selecting the requested root provider. This also protects references when native migration begins after artifact commit or during worker startup, without compensating over newer native writes. Background worker failures remain reported, and candidate bytes never change after admission. Any other reason there — an unreadable state database, a changed rollout identity, a preflight that could not run — may succeed on a later attempt, so it still restores all three preimages before returning a structured refusal, including on legacy-uncoordinated homes.
+
+`history_paginated_openai_requires_native_writer` is the one apply-side reason that is neither of those. It means a provider-table transition found an `openai`-tagged row already paginated, and the transition as planned would take the root `openai_base_url` out from under it. `applyPaginatedOpenaiCompat` in `src/codex/inject/paginated-openai-compat.ts` resolves it in the same window as the provider-table retention above, before the witness: it keeps the marker-owned root override beside the table and downgrades the reason to the stand-down constant, so the relabel unit never starts and the paginated row is neither read nor written. The retained line is journaled as OpenCodex's own, which is what lets restore remove it later; a line the user owns is left in place and journaled as theirs. Only an admission-token form still refuses, because Codex's built-in `openai` entry cannot carry `x-opencodex-api-key`, and that refusal names the configuration that resolves it rather than telling the operator not to retry (#5321).
+
+On restore and removal, that same reason no longer refuses the config half. It selects a degraded restore: every OpenCodex root routing key comes out, `[model_providers.opencodex]` is retained verbatim including its ownership marker, and the history relabel is skipped rather than attempted. The retained table is captured from the pre-transform bytes and re-appended into the same buffer, so the write is one atomic transformation — a config carrying root `model_provider = "opencodex"` without a matching table fails the whole Codex config load, not one thread, which makes that intermediate state strictly worse than the routing it replaces. If an exact journal restore brings back a same-named provider table, retention accepts it only when the parsed provider values match. `src/codex/inject/provider-table.ts` captures lossless table spans using the shared lexical lines in `src/codex/toml-source-lines.ts`, also consumed by the native defaults editor. Header-shaped text and blank lines inside multiline values stay intact; only the isolated provider block is parsed so unrelated large integers do not prevent retention. Cosmetic spacing and comments do not change equality, but multiline string contents do. Invalid, duplicate, array-root or unsupported inline provider definitions refuse; retained bytes are never regenerated from parsed values. A different table fails the restore and compensation reinstates the pre-restore files rather than rebinding tagged threads to another destination. `resolveRestoreHistoryDisposition` in `src/codex/inject/restore.ts` is the single place that reads the preflight reason and answers the separate question of whether routing may come out. Every other reason keeps the hard refusal and compensates on every artifact, because retiring a provider definition its thread rows still name would orphan them. A failed config restore stops catalog/history work; coordinated restore rolls back its published remove transition. Legacy first-line provider patches are bound to the validated file identity before and after writing. These compensating checks do not provide a native-writer lock or authorize external ordinal allocation.
+
+The legacy external writer is now refused for affected rows in any store whose schema includes history_mode, even while their row mode is still legacy. This deliberately sacrifices automatic relabeling on migration-capable stores rather than racing native conversion. It no longer costs the home its ability to be uninstalled: synchronous and asynchronous restore, inline journal restore, and direct config removal all take routing down on that reason while keeping the provider table, so an already-paginated home can be stopped and uninstalled and plain `codex` returns to the built-in provider. Rows naming `opencodex` still resolve through the retained table; their requests reach a proxy that is gone and fail with an ordinary connection error, which is a per-conversation failure rather than a broken config. `ocx restore --remove-codex-provider-table` removes the table for a user who accepts that those conversations stop opening; nothing selects it implicitly.
+
+A degraded restore reports `artifacts.config.state = "partial"` with `action = "routing-restored-provider-retained"`, carries the retained lines and the follow-up command, and leaves `historyPreflightRefusal` unset — that field still means nothing was attempted at all, and a stop obligation that was in fact discharged must release its receipt rather than preserve it.
 
 Native restore preflight also checks manifest-owned targets whose rows already returned to `openai`, including interrupted restores. Preimage capture distinguishes absent files from unreadable artifacts and aborts before mutation when a complete snapshot cannot be read.
 A config restoration that was attempted and failed retains its failed artifact in the restore
@@ -268,10 +365,16 @@ Exact [model input declarations](config.md#explicit-per-model-capability-declara
 
 Provider-scoped approval reviewer settings are projected by the [catalog owner](catalog.md#provider-scoped-approval-reviewer); this surface retains its existing routing, transport and account-selection behavior.
 
-Private pool credential metadata follows the [quota-history publication identity contract](providers/openai-tiers.md#quota-history-publication-identity); credential-only and account DTO projections omit it.
+Private pool credential metadata follows the [quota-history publication identity contract](providers/openai-accounts.md#quota-history-publication-identity); credential-only and account DTO projections omit it.
 
-Pool quota producers and account commands follow the [bounded raw-observation contract](providers/openai-tiers.md#bounded-pool-quota-observations), separate from the latest display snapshot and capacity estimates.
+Pool quota producers and account commands follow the [bounded raw-observation contract](providers/openai-accounts.md#bounded-pool-quota-observations), separate from the latest display snapshot and capacity estimates.
 
-The account history response can include a [low-confidence effective capacity estimate](providers/openai-tiers.md#observed-effective-token-capacity); usage normalization retains local-answer provenance so local responses cannot supply samples.
+The account history response can include a [low-confidence effective capacity estimate](providers/openai-accounts.md#observed-effective-token-capacity); usage normalization retains local-answer provenance so local responses cannot supply samples.
 
-Codex pool settings and their consumers follow the [reset-first ordering contract](providers/openai-tiers.md#reset-first-account-ordering), including independent-quota fallback and preserved affinity.
+Codex pool settings and their consumers follow the [reset-first ordering contract](providers/openai-accounts.md#reset-first-account-ordering), including independent-quota fallback, preserved affinity, strategy-specific threshold summaries, and shared short-observation freshness for switch warnings.
+
+Upstream API-key usage follows the [physical-attempt account attribution contract](dashboard-and-usage.md#upstream-key-account-attribution), independently of subscription quota observations.
+
+Stored Direct substitution follows the [credential identity contract](providers/openai-accounts.md#sidecars-management-and-ui): both synchronous and asynchronous materializers discard the caller account header before applying the stored credential; ordinary native Direct passthrough is unchanged.
+
+Native-main owner claims and credential-generation backoff remain authoritative during [priority failback priming](providers/openai-accounts.md#ongoing-priority-failback); the preference grants no access through a fenced main profile.

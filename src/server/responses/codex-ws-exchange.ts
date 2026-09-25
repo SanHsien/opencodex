@@ -1,4 +1,8 @@
 import { sanitizeLogMetadataString } from "../../lib/redact";
+import { NativeSteeringError } from "./native-steering";
+import { mergeSteeringContinuation } from "./native-steering-settings";
+import { markNativeControlResponse } from "./native-response-control";
+import type { NativeResponseControl } from "./native-response-control";
 import { MAX_CLIENT_SSE_FRAME_BYTES } from "../sse-frame-buffer";
 import { isSafeResponseHeader } from "../safe-response-headers";
 import { CodexWsMetadata, type CodexWsQuotaObserver } from "./codex-ws-metadata";
@@ -7,10 +11,12 @@ import { CodexWsCorrelation } from "./codex-ws-correlation";
 import type { CodexWsSession } from "./codex-ws-session";
 import { UPGRADE_DEADLINE_MS, CODEX_WS_LIVENESS_PING_INTERVAL_MS, CODEX_WS_RESPONSE_PRELUDE_TIMEOUT_MS, MAX_CODEX_WS_FRAME_BYTES,
   MAX_CODEX_WS_QUEUE_BYTES, markCodexWsResponse, normalizeResponsesWsRelayEvent, closedBeforeTerminalMessage,
-  codexWsFailureDetail, codexWsPreResponseFailure, markCodexWsStage, codexWsOcxVersion,
-  type CodexWsFailureStage, type CodexWsStageRecord } from "./codex-ws-wire";
+  codexWsCreateFrameExceedsLimit, codexWsFailureDetail, codexWsPreResponseFailure, markCodexWsStage, codexWsOcxVersion,
+  markCodexWsSocketDeath, type CodexWsFailureStage, type CodexWsStageRecord } from "./codex-ws-wire";
 
 interface ExchangeOptions {
+  nativeControl?: NativeResponseControl;
+  beforeContinuation?: () => Promise<void>;
   session: CodexWsSession;
   url: string;
   init: RequestInit;
@@ -87,7 +93,7 @@ function wrappedRejectionResponse(payload: Record<string, unknown>, prelude: Hea
 
 /** The sole SSE exchange state machine for both one-shot and retained sockets. */
 export function codexWsExchange(options: ExchangeOptions): Promise<Response> {
-  const { session, url, init, prepared, sseFallback, onQuota, beforeDispatch, bunVersion } = options;
+  const { session, url, init, prepared, sseFallback, onQuota, beforeDispatch, bunVersion, nativeControl, beforeContinuation } = options;
   const { frameText, headers } = prepared;
   const signal = init.signal ?? undefined;
   return new Promise<Response>((resolve, reject) => {
@@ -117,6 +123,8 @@ export function codexWsExchange(options: ExchangeOptions): Promise<Response> {
     const metadata = url === CODEX_RESPONSES_HTTP_URL ? new CodexWsMetadata(onQuota) : null;
     const correlation = session.retainable ? new CodexWsCorrelation(session.reused, id => session.hasCompleted(id)) : null;
     let detachOwner = () => {};
+    let detachSteering = () => {};
+    let continuationBase: Record<string, unknown> | undefined;
     // Liveness while waiting for the first response event (metadata path only): the
     // silence timer is re-armed by every inbound frame or pong; the pinger runs on a fixed
     // interval so a peer that answers pings can never trip the silence bound while alive.
@@ -143,6 +151,7 @@ export function codexWsExchange(options: ExchangeOptions): Promise<Response> {
       metadata?.finish();
       correlation?.finish();
       detachOwner();
+      detachSteering();
       ws.removeEventListener("open", onOpen);
       ws.removeEventListener("message", onMessage);
       ws.removeEventListener("close", onClose);
@@ -199,19 +208,20 @@ export function codexWsExchange(options: ExchangeOptions): Promise<Response> {
       const response = new Response(stream, { status: 200, headers: responseHeaders });
       metadata?.commit();
       markCodexWsResponse(response, Boolean(metadata && onQuota));
+      if (nativeControl) markNativeControlResponse(response);
       markCodexWsStage(response, stageRecord(null));
       committedResponse = response;
       resolve(response);
     };
 
-    const failStream = (error: unknown, status: 502 | 504 = 502) => {
+    const failStream = (error: unknown, status: 502 | 504 = 502, { socketDied = false } = {}) => {
       if (terminal) return;
       terminal = true;
       if (sent && !responseCommitted && metadata) {
         // Nothing has been promised to the client yet, so the honest answer is a gateway
         // status, not a 200 whose body then fails. The frame may already be executing
-        // upstream: the response is marked non-replayable so no layer of this process sends
-        // it again, and the client applies its own retry policy as it would on the direct
+        // upstream: the response is marked non-replayable so no retry layer of this process
+        // sends it again, and the client applies its own retry policy as it would on the direct
         // path. Same settle order as a refused create: snapshot, detach, close, dispose.
         const prelude = metadata.snapshot();
         // Claim the commit slot so no later path can resolve a second, 200 Response.
@@ -229,7 +239,13 @@ export function codexWsExchange(options: ExchangeOptions): Promise<Response> {
         const raw = error instanceof Error ? error.message : String(error);
         const message = sanitizeLogMetadataString(raw, 400) ?? "codex websocket relay failed";
         const failureResponse = codexWsPreResponseFailure(status, message, prelude);
-        markCodexWsStage(failureResponse, stageRecord(Buffer.byteLength(frameText, "utf8")));
+        const stage = failureStage();
+        markCodexWsStage(failureResponse, stageRecord(stage.requestBytes));
+        // #4191: a socket that died under the send is the one settle the dispatch may replace,
+        // once, and only under the operator's `retryOnReset` grant. Native steering and injection
+        // are left out: their channel may already have sent continuation frames on this socket, so
+        // the create frame alone no longer describes the turn.
+        if (socketDied && !nativeControl) markCodexWsSocketDeath(failureResponse, stage);
         resolve(failureResponse);
         return;
       }
@@ -339,6 +355,69 @@ export function codexWsExchange(options: ExchangeOptions): Promise<Response> {
       if (terminal || settledPreOpen || signal?.aborted) return;
       sent = true;
       try {
+        if (nativeControl) {
+          // Parsed once: the base body is immutable for this exchange, and a
+          // full-replay frame runs to megabytes. It seeds continuationBase on
+          // the first create frame.
+          let base: Record<string, unknown> | undefined;
+          detachSteering = nativeControl.attach(frame => {
+            // Build, serialize and bound-check the reconstructed frame synchronously in the
+            // channel callback: a typed refusal must reach the channel's synchronous rollback
+            // (continuation slot released, journal unwritten) rather than the asynchronous
+            // failStream path, so a corrected continuation can still retry on this channel.
+            const prepare = () => {
+              let outgoing = frame;
+              if (frame.type === "response.create") {
+                // Generation overrides have passed route policy; identity/tools remain pinned.
+                // Keep the last explicit wire settings for later explicit and automatic successors.
+                base ??= JSON.parse(frameText) as Record<string, unknown>;
+                continuationBase ??= base;
+                outgoing = nativeControl.kind === "steering"
+                  ? mergeSteeringContinuation(continuationBase, frame)
+                  : { ...continuationBase, input: frame.input, previous_response_id: frame.previous_response_id };
+              }
+              const text = JSON.stringify(outgoing);
+              nativeControl.assertOutboundFrame?.(text);
+              if (codexWsCreateFrameExceedsLimit(text)) {
+                throw new Error("Native steering frame exceeds the transport byte limit");
+              }
+              return { outgoing, text };
+            };
+            const prepared = prepare();
+            const sendControl = () => {
+              if (terminal || signal?.aborted || session.closed || ws.readyState !== WebSocket.OPEN) {
+                throw new Error("Native steering connection is no longer available");
+              }
+              beforeDispatch?.(new Headers(headers));
+              if (frame.type === "response.create") continuationBase = prepared.outgoing;
+              try { ws.send(prepared.text); } catch {
+                // A send failure has unknown delivery. Never replay or fall back.
+                failStream("Native steering send failed; delivery is unknown");
+                throw new Error("Native steering send failed; delivery is unknown");
+              }
+            };
+            if (frame.type === "response.create" && beforeContinuation) {
+              // Explicit tool-result continuations are physical request starts;
+              // they keep provider pacing and revalidate auth AFTER the wait.
+              // A typed pre-send refusal (e.g. the configured upstream body limit) is a
+              // known non-delivery and keeps its own message; every other failure keeps
+              // the unknown-delivery wording.
+              void beforeContinuation().then(sendControl).catch(error => failStream(
+                error instanceof NativeSteeringError ? error
+                  : new Error("Native steering continuation could not be dispatched; do not automatically replay queued input"),
+              ));
+            } else sendControl();
+          }, error => failStream(error));
+        }
+      } catch (error) {
+        // An attach failure is an ownership conflict, not a failed send: no frame
+        // left the process, but the channel can never bind, so resolving the HTTP
+        // fallback here would silently degrade a multi-agent turn into an ordinary
+        // one. Fail the turn visibly instead.
+        failStream(error);
+        return;
+      }
+      try {
         ws.send(frameText);
         sentAt = Date.now();
       } catch {
@@ -409,8 +488,12 @@ export function codexWsExchange(options: ExchangeOptions): Promise<Response> {
         return;
       }
       if (!controlFrame && !type.startsWith("response.") && type !== "error") return;
+      let steeringEnded = false;
       if (!controlFrame) {
-        try { correlation?.accept(normalized.payload); } catch (error) { failStream(error); return; }
+        try {
+          if (nativeControl) steeringEnded = nativeControl.observe(normalized.payload);
+          else correlation?.accept(normalized.payload);
+        } catch (error) { failStream(error); return; }
         // Correlation must run first: a reused socket's foreign-stream error settles as a
         // non-replayable 502 above, never as the refused-create 4xx projection below, which
         // is the one status family that could authorize an account replay.
@@ -452,7 +535,7 @@ export function codexWsExchange(options: ExchangeOptions): Promise<Response> {
         return;
       }
       if (!controlFrame) relayedEvents += 1;
-      if (type === "response.completed" || type === "response.failed" || type === "response.incomplete" || type === "error") {
+      if (nativeControl ? steeringEnded : (type === "response.completed" || type === "response.failed" || type === "response.incomplete" || type === "error")) {
         const completedId = correlation?.completed(normalized.payload) ?? null;
         terminal = true;
         cleanup();
@@ -481,7 +564,9 @@ export function codexWsExchange(options: ExchangeOptions): Promise<Response> {
         resolve(sseFallback(url, init));
         return;
       }
-      if (sent && !terminal) failStream(closedBeforeTerminalMessage(event, failureStage()));
+      if (sent && !terminal) {
+        failStream(closedBeforeTerminalMessage(event, failureStage()), 502, { socketDied: true });
+      }
     };
 
     const onError = () => {
@@ -492,7 +577,10 @@ export function codexWsExchange(options: ExchangeOptions): Promise<Response> {
         cleanup();
         session.dispose();
         resolve(sseFallback(url, init));
-      } else failStream(`codex websocket transport error${codexWsFailureDetail(failureStage())}`);
+      } else {
+        const message = `codex websocket transport error${codexWsFailureDetail(failureStage())}`;
+        failStream(message, 502, { socketDied: true });
+      }
     };
     detachOwner = session.bindOwner(reason => cancelExchange(reason));
     ws.addEventListener("open", onOpen);

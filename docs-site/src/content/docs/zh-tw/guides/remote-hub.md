@@ -32,7 +32,8 @@ ocx sync
 
 供人閱讀的就緒診斷會把目錄值中的控制字元顯示為可見的十六進位跳脫，第一次連線時如此，`ocx sync` 拒絕重新取得的 hub 目錄時也是如此。結構化 JSON 狀態則保留原始的診斷值。
 
-你不必自己拼出那一行。在 hub 上執行 `ocx hub invite` 會鑄造配對碼，並印出要加入的那台機器該執行的完整指令（含兩個 origin）。詳見「邀請另一台機器」。
+用戶端金鑰會寫入只有擁有者可讀的 `service-api-token`，絕不寫入 `config.json`。連線期間，用量來自 hub 並依穩定的 `apiKeyId` 篩選；中斷後則顯示本機記錄。兩者不會互相鏡像。
+`ocx service uninstall` 會移除本機服務，但在用戶端處於連線狀態、其連線中繼資料無效或不相符，或待處理的連線標記與目前金鑰一致時保留現有金鑰。舊金鑰的有效標記不會保留無關的服務金鑰。若標記不安全、格式錯誤或無法讀取，就無法驗證權杖是否已清理；此時命令會發出警告，而不會宣稱金鑰已保留。如要移除已連線用戶端的本機金鑰與狀態，請使用 `ocx disconnect`。
 
 hub 會自動簽發 per-client 金鑰。用戶端把它寫進既有的、僅擁有者可讀的 `service-api-token`，絕不會寫進 `config.json`。連線期間，用量資料來自 hub 的用量儲存，並過濾成該用戶端穩定的 `apiKeyId`。中斷連線後，用量改用本機儲存。OpenCodex 不會在兩個儲存之間互相同步用量。
 
@@ -321,7 +322,7 @@ opencodex 不發布官方容器映像。儲存庫確實維護了以原始碼建�
 
 映像會植入首次執行用的 `hub` 設定，把容器監聽器繫結到 `0.0.0.0`。在第一次正常啟動之前，請把一個全新產生的資料平面金鑰串流進 bootstrap 輔助程式。該輔助程式最多接受一行 4096 位元組、絕不印出金鑰、拒絕取代既有金鑰，並把它持久化成 `ocx-state` volume 中那份標準的、僅擁有者可讀的 `service-api-token`。
 
-此部署會持久化兩個各自獨立的 home：`ocx-state` 位於 `/home/bun/.opencodex`，存放 OpenCodex 設定、供應商憑證與用量；`codex-state` 位於 `/home/bun/.codex`，存放 Codex 狀態與 `opencodex-catalog.json`。映像與 Compose 明確設定 `CODEX_HOME=/home/bun/.codex`，所以即使 `read_only: true`，這條目錄路徑仍可寫入，而且在容器重建後存活。映像會以模式 `0700` 為非 root 的 `bun` 使用者建立這兩個目錄；既有 volume 的擁有者與權限不會自動遷移。
+本機 checkout 需要 Git 與 Docker Compose；遠端 Git context 只需要 Docker Compose。兩種方式都不再需要主機安裝 Bun 或執行手動準備步驟。專用建置階段會從所選 Git 快照產生標準清單，並在複製原始碼前完成驗證。`.git` 只透過唯讀掛載提供給該階段，不會複製到任何映像層。主機上既有的清單通過驗證後仍可繼續使用。主機連接埠預設繫結至 `127.0.0.1`。遠端存取須明確使用 `OPENCODEX_BIND_ADDRESS=<LAN或Tailscale-IP> docker compose up -d`；`0.0.0.0` 會公開所有介面。請使用防火牆與經過身分驗證的 TLS/tailnet 前端保護存取。
 
 不要把 `CODEX_HOME` 與 `OPENCODEX_HOME` 合在一起：兩個產品都使用名為 `auth.json` 的檔名，但格式不同。這次封裝變更增加的是持久化，而不是目錄產生器。請在執行下方的目錄驗收檢查之前，把一份有效的目錄具現化或匯入到 `/home/bun/.codex/opencodex-catalog.json`；沒有它時，`catalog_not_found` 就是預期的回應。
 
@@ -341,13 +342,26 @@ opencodex 不發布官方容器映像。儲存庫確實維護了以原始碼建�
 ```bash
 git clone https://github.com/lidge-jun/opencodex.git
 cd opencodex
-bun scripts/generate-compatibility-version.ts
 docker compose build
 openssl rand -hex 32 | docker compose run --rm -T hub bun run docker/bootstrap-token.ts
 docker compose up -d
 ```
 
-在不改動容器固定的 `10100` 監聽器的前提下，設定不同的主機連接埠：
+直接從遠端 Git context 建置時，請使用 BuildKit 內建參數保留 Git metadata：
+
+```yaml
+services:
+  hub:
+    pull_policy: build
+    build:
+      context: https://github.com/lidge-jun/opencodex.git#main
+      dockerfile: Dockerfile
+      target: runtime
+      args:
+        BUILDKIT_CONTEXT_KEEP_GIT_DIR: "1"
+```
+
+容器以非 root 的 `bun` 使用者執行，根檔案系統唯讀，且只發布 `10100`。不要發布 `10101`，也不要把金鑰放入 `ARG`、`ENV`、`COPY`、Compose、映像歷史或 argv。healthcheck 後仍須分別驗證 readiness、已驗證目錄與真實請求。`docker compose down` 會保留 volume；`docker compose down --volumes` 也會刪除設定、憑證與資料金鑰。
 
 ```bash
 OPENCODEX_PORT=10190 docker compose up -d

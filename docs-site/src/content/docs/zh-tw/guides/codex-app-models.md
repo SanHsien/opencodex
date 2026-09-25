@@ -101,6 +101,25 @@ cp ~/.opencodex/config.json.pre-openai-tiers-v2.bak ~/.opencodex/config.json
 省略，因此 Desktop 無法藉由忽略 `visibility` 讓它們復活。指令、停用 key 語意與安全性限制請見
 [Codex Desktop native-allowlist 相容性](/zh-tw/guides/combos/)。
 
+### 停用原生模型時代表什麼
+
+未設定 native alias 時，停用一個裸原生 GPT slug 並不會把它從目錄中移除。該列仍會保留，
+`visibility: "hide"`——`/v1/models` 與儀表板都會遵守這個標記，不再列出該模型——而 Desktop 在
+上述政策下仍可能繼續顯示它。因此你停用之後，該模型仍可能在 Desktop 中被選到，各介面對「它
+是否存在」的認定並不一致。
+
+選到它並不會因為已停用而被拒絕。`disabledModels` 控制的是目錄可見性，不是准入，因此請求會
+依一般規則路由，就像該模型仍是啟用狀態一樣：這一輪會在你停用的模型上執行，或是在該 id 解析到
+的任何路徑上失敗。無論哪種結果，都不是開關暗示的那個結果。
+
+保留該列是刻意的設計。它持有真實的上游中繼資料，因此重新啟用該模型時會還原那份中繼資料，
+而不是合成的猜測值。當你需要該列徹底消失而不只是隱藏時，請設定 `nativeAlias` combo：只要
+它存在，已停用的裸原生列就會被完全排除於有效目錄之外。
+
+如果 Codex 的 `config.toml` pin 了一個此代理不提供的根層級 `model`——包括某個已停用的模型——
+每個新 session 都會從一個 opencodex 不提供服務的模型開始。`ocx doctor` 會在**Codex 預設模型
+曝光**下回報這個情況，視為警告而非失敗，並在完全無法判斷曝光集合時也會說明。
+
 ## 整合路徑
 
 `ocx init`、`ocx start` 和 `ocx sync` 會把共享的 Codex 設定與目錄接入代理；設定注入、目錄同步、
@@ -132,8 +151,8 @@ GPT-5.6，以便提供每個模型真實的身份和後設資料，而不是套�
 | Codex 登入（啟用帳號限定列且有合格選擇器） | 每個合格選擇器與受支援的原生模型各有一列 `<selector>/<native-openai-model>`；每列只使用其對應帳號，且裸原生列會從選擇器中隱藏。原生後設資料與 context 視窗保持不變。 |
 | OpenAI（API key） | 恰好八個帶名稱空間的列：`gpt-5.5`、`gpt-5.6`、Sol/Terra/Luna 與三個 `*-pro` 虛擬 id（全部八個都是 1,050,000 context；922,000 max input） |
 | OpenRouter | `openrouter/openai/gpt-5.6-sol`、`openrouter/openai/gpt-5.6-terra`、`openrouter/openai/gpt-5.6-luna`（922,000） |
-| Cursor | 靜態回退目錄包含 `cursor/gpt-5.6-sol`、`cursor/gpt-5.6-terra`、`cursor/gpt-5.6-luna`（1,000,000），以及 Grok 4.5/4.6 的一般與 Fast 項目（500,000）。4.6 還提供 `xhigh`；帳號的即時發現結果決定最終顯示哪些模型。 |
-| xAI | 以即時發現結果為準。回退目錄包含 `xai/grok-4.6`，預設模型仍為 `xai/grok-4.5`；兩者的 context window 均為 500,000。Grok 4.6 提供 `low` / `medium` / `high` / `xhigh`（上游預設值為 `high`），Grok 4.5 最高為 `high`。 |
+| Cursor | 靜態回退目錄包含 `cursor/gpt-5.6-sol`、`cursor/gpt-5.6-terra`、`cursor/gpt-5.6-luna`（1,000,000），以及 Grok 4.5/4.6/4.7 的一般與 Fast 項目（500,000）。4.6 和 4.7 還提供 `xhigh`；帳號的即時發現結果決定最終顯示哪些模型。 |
+| xAI | 以即時發現結果為準。回退目錄包含 `xai/grok-4.6` 與 `xai/grok-4.7`，預設模型仍為 `xai/grok-4.5`；三者的 context window 均為 500,000。Grok 4.6 與 4.7 提供 `low` / `medium` / `high` / `xhigh`（上游預設值為 `high`），Grok 4.5 最高為 `high`。 |
 
 固定的 GPT-5.6 條目會保留精確的上游 reasoning 階梯。Sol 和 Terra 從 `low` 到 `ultra`，Luna
 最高到 `max`。Sol 預設使用 `low`，Terra 和 Luna 預設使用 `medium`。`ultra` 是用戶端側的

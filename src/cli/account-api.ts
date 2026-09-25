@@ -33,6 +33,8 @@ export interface AccountRow {
   validationPending?: boolean;
   /** Codex pool selection order, higher used earlier. Absent where ordering does not apply. */
   priority?: number;
+  /** Null means the account inherits the global usage-switch threshold. */
+  autoSwitchThresholdOverride?: number | null;
   quota?: CodexQuotaDto | null;
   quotaRefresh?: CodexQuotaRefreshOutcome;
   quotaUnavailable?: boolean;
@@ -252,6 +254,7 @@ interface CodexAccountDto {
   selectionExcludedPlan?: string;
   health?: { reason?: string };
   priority?: number;
+  autoSwitchThresholdOverride?: number | null;
   quota?: CodexQuotaDto | null;
   quotaRefresh?: unknown;
   paused?: boolean;
@@ -322,6 +325,9 @@ export async function fetchCodexRows(
     } : {}),
     ...(a.health?.reason === "validation_pending" ? { validationPending: true } : {}),
     priority: typeof a.priority === "number" ? a.priority : 0,
+    autoSwitchThresholdOverride: typeof a.autoSwitchThresholdOverride === "number"
+      ? a.autoSwitchThresholdOverride
+      : null,
     paused: a.paused === true,
     ...(includeQuota ? {
       quota: projectQuota(a.quota),
@@ -370,9 +376,10 @@ async function fetchOAuthRows(
     email: a.email,
     active: a.active ?? a.id === activeId,
     needsReauth: a.needsReauth,
-    // Forward the server's answer verbatim, including `null`. Collapsing null to "absent" here
-    // would destroy the one distinction this field exists to make.
-    plan: a.plan ?? null,
+    // Forward the server's answer verbatim. An absent key means the proxy predates tier
+    // reporting while `null` means it checked and found no tier — collapsing either
+    // direction would destroy the one distinction this field exists to make.
+    ...(Object.hasOwn(a, "plan") ? { plan: a.plan } : {}),
     ...(a.quota !== undefined ? { quota: a.quota } : {}),
     ...(a.quotaUnavailable !== undefined ? { quotaUnavailable: a.quotaUnavailable } : {}),
     ...(a.quotaUnavailable === true && parseQuotaFailureCode(a.quotaFailure)

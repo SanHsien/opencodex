@@ -13,7 +13,7 @@ description: 從儀表板把 opencodex 連接到 OpenCode、Pi、OMP、Hermes、
 | Hermes | `~/.hermes/config.yaml` | YAML | 新 sessions | `OPENCODEX_HERMES_API_KEY` |
 | OpenClaw | `~/.openclaw/openclaw.json` | JSON5 | 立即，在執行中的 gateway 上 | `OPENCODEX_OPENCLAW_API_KEY` |
 | Kimi Code | `~/.kimi-code/config.toml` | TOML | 重新啟動時，或 `/reload` | loopback 佔位符 |
-| gjc | `~/.gjc/agent/models.yml` | YAML | 新 sessions，或當你開啟 `/model` 時 | `OPENCODEX_GAJAE_API_KEY` |
+| gjc | `~/.gjc/agent/models.yml` | YAML | 新 sessions，或當你開啟 `/model` 時 | non-secret loopback placeholder |
 | DeepSeek Harness (DSH) | `$DSH_HOME/settings.yaml`（預設 `~/.dsh/settings.yaml`） | YAML | 熱重載 | 非秘密的 loopback bearer 佔位符 |
 | MiniMax Code | `~/.minimax/config.yaml` | YAML | 新 sessions，或開啟模型選擇器後 | loopback 佔位符 |
 | Prime Agent | `~/.prime/agent/models.json` | JSON | 新 sessions | loopback 佔位符 |
@@ -25,6 +25,18 @@ description: 從儀表板把 opencodex 連接到 OpenCode、Pi、OMP、Hermes、
 
 產生的目錄只包含每個 provider 選擇中已啟用的模型。這適用於下載檔案，也適用於受管理整合，
 包括 Pi 與 Aside。管理端的模型清單仍會顯示完整名單，方便你啟用更多模型。
+
+若要使用 Gajae 內建預設集，請在 `~/.gjc/agent/config.yml` 中保留你的路由選擇：
+
+```yaml
+modelProfile:
+  proxyProvider: opencodex
+  proxyMode: always
+```
+
+保留你選擇的 `modelProfile.default`，讓純 `gjc` 啟動時套用它。受管理整合只擁有 `models.yml`
+中的 `providers.opencodex`；重新整理或停用該 provider 不會覆寫你的預設集選擇。變更匯出的模型
+選擇後，請重新整理該整合。
 
 受管理的 OpenCode 整合擁有兩個片段：`provider.opencodex`（opencode V1）與
 `providers.opencodex`（opencode V2）。只有 V2 區塊帶有逐模型的 reasoning-effort 變體，
@@ -122,7 +134,39 @@ opencodex 從自己的環境讀取這些變數。如果你的 gateway 以 profil
 
 停用只移除 opencodex 記錄為自己寫入的條目。如果你的檔案在我們寫入之後有變更，後續行為取決於我們自己的條目是否完好，以及檔案的格式。對於嚴格 JSON 設定檔（OpenCode、Pi），在我們的區塊**旁邊**進行的編輯——例如新增 MCP 伺服器或你自己的 provider——會顯示為**需要更新**：重新整理會在保留你的條目的前提下合併寫入，但格式可能會被正規化。例外情況是 JSON 無法精確重寫的內容——例如 `1e999` 這類非有限數字、重寫會被四捨五入的數字（極大的整數，或小到會塌縮成零的數字）、`-0`、同一個物件裡重複出現的鍵，或巢狀層數超過 1000 層——此時開關會鎖定，確保沒有任何值被悄悄改動或刪除。**OMP、DSH 與 Hermes** 同樣不受旁邊編輯影響，但原因不同：它們的 writer 只逐位元組修補自己的 `providers.opencodex` 範圍，檔案其餘部分從不會被重寫。至於其餘可以包含註解的格式（OpenClaw、Kimi Code、gjc、MiniMax Code、Raycast——以整份文件寫出的 YAML、JSON5 與 TOML），或當我們自己的條目被編輯過時，開關會鎖定，停用會拒絕執行，而不是猜測哪些編輯是你的。
 
-那個鎖定不再是死路。發生衝突的客戶端會在開關旁顯示 **Replace**，總覽卡片與客戶端自己的頁面上都會出現。它會用 opencodex 原本要寫入的區塊，取代目前持有我們設定的任何內容，而且會先詢問：對話框會指名檔案、說明會失去什麼，並指向讓這次操作可以復原的快照。開關本身仍維持鎖定，因為開關無法知道你想保留哪些編輯——只有你才知道。其餘的限制不會放寬：我們無法解析的檔案，或結構無法判讀的檔案，仍然會拒絕。
+## Hermes session affinity
+
+產生的 `providers.opencodex` 區塊為所有模型加入 `session_affinity_header: session-id`。
+這只是指名一個標頭；實際的動態對話識別碼由 Hermes 提供。OpenCodex 不會寫入共用的靜態識別碼，
+也不會改動 `api_mode` 來啟用親和性。
+
+請使用支援[per-provider request options](https://hermes-agent.nousresearch.com/docs/user-guide/configuring-models#per-provider-request-options)
+的 Hermes 版本。較舊版本可能會忽略或捨棄該選項；設定本身有效並不能證明 Hermes 真的送出了這個標頭。
+對話隔離、compaction lineage 與輔助／子請求都依循 Hermes 自身的親和性語意。此設定不保證特定的快取命中率。
+
+對於既有的受管整合，開啟 **Integrations → Hermes**，檢視 **Apply** 並確認更新。在此之前，
+它會顯示為**需要更新**，且隱含的 catalog 重新整理不會變更它，包括其模型清單。單純讀取此頁不會
+升級設定。Apply 之後，正常的 catalog 重新整理會恢復並保留此設定；**Replace** 也會包含它。
+
+如果你已經在受管區塊內精確加入 `session_affinity_header: session-id`，只要其他受管設定仍與
+所有權記錄相符，Apply 就能接納它。這是上述衝突規則的唯一例外：其他編輯、不同的標頭名稱，
+或沒有相符所有權記錄的區塊，仍需要衝突處理。無關的 YAML 設定與註解不受影響，既有的快照與
+Restore 流程同樣適用於這次升級。
+
+## 預覽並確認變更
+
+套用、取代、停用與回復現在都會先顯示預覽。對話框會明確列出哪些受管理的設定將會變更，
+包括範圍有限的變更路徑，以及每項變更是新增、更新或移除值。請先檢視計畫，再進行確認。
+
+當計畫顯示沒有變更時，表示受管理的用戶端文件已處於要求的狀態。對選取的 Aside 設定檔，
+即使受管理的文件沒有變更，確認後仍可能儲存該設定檔的同步偏好。
+
+如果檔案在你檢視後又有變更，寫入會因計畫過期而被拒絕。對話框會用更新後的計畫取代舊
+計畫，並要求你再次明確確認；它絕不會自動重試寫入。如果預覽暫時無法使用，請正常重新
+載入頁面，再重新開始該操作。
+
+Aside 會對一次選取的單一設定檔使用相同的預覽與確認流程。**同步所有設定檔**仍是獨立的
+批次操作，不會綁定到單一合併預覽。
 
 ## 誠實的預期
 
@@ -203,6 +247,27 @@ ocx mmx text repl --model openai/gpt-5.6-sol
 `--confirm-drift` 永遠不會被擅自假設。如果檔案在你正要回復的操作之後有變更，指令會拒絕並告訴你，因為覆蓋你較新的編輯是你的決定。
 
 客戶端細節是針對各專案自己的設定格式驗證過的；檢查了什麼、何時檢查，請見 `devlog/_fin/260802_client_toggle_api/002_client_toggle_matrix.md` 中的研究筆記。
+
+## ZCode 3.14 以後
+
+ZCode 3.14 把自訂供應商移到 `~/.zcode/v2/provider_config.json`，而本整合原本寫入的
+`~/.zcode/v2/config.json` 只剩下一次性匯入會讀取，而那次匯入只在新檔案不存在時執行。ZCode 首次啟動
+就會建立新檔案，因此只要曾經啟動過的安裝，匯入早已用掉，之後寫入 `config.json` 不會被任何東西讀到。
+
+在可行的情況下，opencodex 現在直接寫入 `provider_config.json`。啟用整合會把 `opencodex` 供應商規則
+加進該檔案，目錄重新整理會更新它，停用則精確移除 opencodex 放進去的內容。檔案中其他規則一律保持原樣，
+包含其他供應商為某個同樣出現在我們這裡的模型 ID 所保留的規則。帶有 `opencodex` ID 但不是 opencodex
+寫入的規則屬於衝突，而不是可以接管的東西：請在 ZCode 中處理，或使用明確的覆寫。
+
+仍有兩種情況會拒絕而不寫入。ZCode 搬移儲存位置之前由 opencodex 寫入的區塊，會讓整合留在
+`config.json`：請先在那裡停用，再重新啟用以寫入新的儲存檔。至於 `schemaVersion` 不是 opencodex
+曾觀察過的 `provider_config.json`，則只會被回報而不會合併：該檔案存放 ZCode 的所有供應商，對它斷言
+一種結構等於把靜默的無效果換成靜默的資料遺失。只要整合不是在寫那個檔案，狀態頁就會指出 ZCode 實際
+讀取的檔案。
+
+在第二種情況下，請在 ZCode 自己的設定中新增供應商：base URL 為 `http://127.0.0.1:10100/v1`
+（請依實際繫結調整連接埠）、任意非空白金鑰，以及 `ocx export --client zcode` 列出的模型 ID。不支援
+刪除 `provider_config.json` 來重新觸發 ZCode 的匯入：那會丟掉 ZCode 存放在其中的所有供應商。
 
 ## Aside profile controls
 
@@ -285,3 +350,37 @@ Undo 會還原**兩個檔案原本的位元組字串**，包括原本就不存�
 有日誌記錄的合併與回復能力。這個產生出來的整合不支援遠端准入連線；它需要無驗證的
 loopback 存取。
 </content>
+
+## GitHub Copilot App
+
+GitHub Copilot 桌面應用程式可以把 opencodex 當作相容 OpenAI 的模型供應商。這是手動的客戶端
+設定，沒有 Integrations 分頁開關，且與使用 Copilot 訂閱作為 opencodex 後端的上游
+`github-copilot` provider 是不同的東西。
+
+1. 啟動 opencodex 並確認它有回應：
+
+   ```bash
+   curl http://127.0.0.1:10100/healthz
+   curl http://127.0.0.1:10100/v1/models
+   ```
+
+2. 在 Copilot app 中開啟 **Settings → Model providers → Add provider**，填入：
+
+   | 欄位 | 值 |
+   |---|---|
+   | Name | 任意標籤，例如 `OpenCodex` |
+   | Base URL | `http://127.0.0.1:10100/v1`（依實際繫結調整連接埠） |
+   | API key | 在 loopback 上留白 |
+
+3. 從端點同步模型，或依 `provider/model` id 手動新增一個，然後選取它。
+
+此應用程式使用 `GET /v1/models` 進行探索、`POST /v1/chat/completions` 進行對話。這些對話會
+經過 opencodex 一般的模型路由，因此 provider 憑證、OAuth 帳號與 combo 都會照常套用。可接受
+的請求欄位列於[代理格式參考](/zh-tw/reference/proxy-formats/)。
+
+如果應用程式回報沒有模型，請確認 base URL 結尾是 `/v1` 而不是 `/v1/chat/completions`，並確認
+`/v1/models` 回傳的 `data` 陣列非空。當 opencodex 監聽非 loopback 位址時，請在應用程式的
+API key 欄位填入資料准入金鑰（見[遠端存取](/zh-tw/reference/configuration/server/#遠端存取)
+所述的 token，或儀表板產生的 `ocx_…` 金鑰）。應用程式會以 `Authorization: Bearer` 送出，
+`/v1/chat/completions` 會將其視為代理准入，絕不會轉發給上游；請見
+[認證矩陣](/zh-tw/reference/proxy-formats/#認證矩陣)。

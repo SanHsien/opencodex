@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync, unlinkSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { getConfigDir } from "../config";
-import { resolveAutoContext, type AutoContextMode } from "../claude/context-windows";
+import { claudeToolSearchEnv, resolveAutoContext, type AutoContextMode } from "../claude/context-windows";
 import { PROXY_MARKER } from "../claude/auth-detect";
 import { isProxyAdmissionSecret } from "./auth-cors";
 import type { OcxConfig } from "../types";
@@ -33,6 +33,7 @@ const MANAGED_SYSTEM_ENV_NAMES = new Set<string>([
   "DISABLE_COMPACT",
   "CLAUDE_CODE_AUTO_COMPACT_WINDOW",
   "CLAUDE_CODE_ALWAYS_ENABLE_EFFORT",
+  "ENABLE_TOOL_SEARCH",
 ]);
 
 interface SystemEnvTracking {
@@ -281,9 +282,12 @@ export async function injectSystemEnv(
     }
     // Lever keys (devlog 136 B6): user-wins — skip any key the user already set in the
     // launchd domain, and track ONLY the keys we actually injected so revert cannot
-    // delete a pre-existing user value (audit 139 #3).
+    // delete a pre-existing user value (audit 139 #3). A key we already track is ours
+    // (revertSystemEnv unsets it regardless of value), so it is refreshed, not skipped.
+    const producedLevers = new Set<string>();
     const injectLever = (name: string, value: string) => {
-      if (launchctlGetenv(name) !== undefined) return;
+      producedLevers.add(name);
+      if (launchctlGetenv(name) !== undefined && !injectedKeys.includes(name)) return;
       inject(name, value);
     };
     // Model slots (default + tier defaults + legacy small-fast) with [1m] auto-marking
@@ -292,7 +296,9 @@ export async function injectSystemEnv(
     // Auto-context: a user-owned launchd value drives the marking predicate so the
     // marker and threshold never separate (audit 021 #2); injectLever's user-wins
     // check below keeps that value untouched.
-    const userAutoCompact = launchctlGetenv("CLAUDE_CODE_AUTO_COMPACT_WINDOW");
+    const userAutoCompact = injectedKeys.includes("CLAUDE_CODE_AUTO_COMPACT_WINDOW")
+      ? undefined
+      : launchctlGetenv("CLAUDE_CODE_AUTO_COMPACT_WINDOW");
     const auto = resolveAutoContext(config.claudeCode, userAutoCompact);
     const { modelEnv, windows } = await computeEffectiveModelEnv(config, auto);
     for (const [name, value] of Object.entries(modelEnv)) {
@@ -302,12 +308,33 @@ export async function injectSystemEnv(
     const maxCtx = config.claudeCode?.maxContextTokens;
     if (typeof maxCtx === "number" && Number.isFinite(maxCtx) && maxCtx > 0) {
       injectLever("CLAUDE_CODE_MAX_CONTEXT_TOKENS", String(Math.floor(maxCtx)));
-      injectLever("DISABLE_COMPACT", "1");
     }
     // Auto-context (devlog 260712 020): user-wins lever, inert when maxContextTokens set.
     if (auto.enabled) injectLever("CLAUDE_CODE_AUTO_COMPACT_WINDOW", String(auto.compactWindow));
     if (config.claudeCode?.alwaysEnableEffort === true) {
       injectLever("CLAUDE_CODE_ALWAYS_ENABLE_EFFORT", "1");
+    }
+    // Tool-search deferral (#4838): same opt-in contract as `ocx claude`, so a machine
+    // whose Claude Code is launched from Dock/launchd gets the setting it configured
+    // instead of only terminal sessions. injectLever keeps a user-owned launchd value.
+    const toolSearch = claudeToolSearchEnv(config.claudeCode?.toolSearch);
+    if (toolSearch !== undefined) injectLever("ENABLE_TOOL_SEARCH", toolSearch);
+    // A lever injected on an earlier run that this config no longer produces (a cleared
+    // smallFastModel, a removed tier slot, or the DISABLE_COMPACT older releases paired with
+    // maxContextTokens) would otherwise stay in launchd until the proxy stops, and a
+    // same-port restart keeps the tracking record. Only tracked keys are touched, so a user-owned value is never removed.
+    for (const name of [...injectedKeys]) {
+      if ((SYSTEM_ENV_NAMES as readonly string[]).includes(name) || producedLevers.has(name)) continue;
+      // Older releases only ever injected DISABLE_COMPACT=1. Any other value was set by hand,
+      // so ownership is released without deleting it.
+      if (name === "DISABLE_COMPACT" && launchctlGetenv(name) !== "1") {
+        injectedKeys.splice(injectedKeys.indexOf(name), 1);
+        writeTracking(port, injectedKeys, tracked);
+        continue;
+      }
+      unsetLaunchctlEnv(name);
+      injectedKeys.splice(injectedKeys.indexOf(name), 1);
+      writeTracking(port, injectedKeys, tracked);
     }
 
     // Shell-hook env file: works for new shells in already-running Terminal.app.

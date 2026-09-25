@@ -38,7 +38,7 @@ Session 簽發在需要 data-plane 認證時停用，這包含遠端綁定。遠
 
 ## 常見錯誤
 
-下方所有端點列繼承這些邊界錯誤。「Notable errors」欄列出額外的路由專屬結果，而非重複此表。
+下方所有端點列繼承這些邊界錯誤。「主要錯誤」欄列出額外的路由專屬結果，而非重複此表。
 
 | 狀態 | 型別或代碼 | 意義 |
 | --- | --- | --- |
@@ -54,7 +54,7 @@ Session 簽發在需要 data-plane 認證時停用，這包含遠端綁定。遠
 
 ### 代理與客戶端設定
 
-| 方法與路徑 | 用途 | Notable errors |
+| 方法與路徑 | 用途 | 主要錯誤 |
 | --- | --- | --- |
 | `GET, PUT /api/v2` | 讀取或變更原生多代理 v2 模式與執行緒設定 | 400 無效設定；502 轉換或持久化失敗 |
 | `GET, PUT /api/injection-model` | 讀取或設定注入的子代理模型、effort、prompt 與 guidance 設定 | 400 無效模型、effort 或 body |
@@ -66,12 +66,16 @@ Session 簽發在需要 data-plane 認證時停用，這包含遠端綁定。遠
 | `POST /api/grok/apply` | 透過受管同步套用持久化的 Grok 設定 | 409 `grok_apply_busy`；400/500 套用失敗 |
 | `GET /api/grok/reset-coupons?accountId=...` | 讀取活躍或指定 xAI 帳號剩餘的 Grok 計費重置 token 與有效期間 | 400 缺失帳號；401 未認證；502 上游 gRPC-Web 錯誤 |
 | `POST /api/grok/reset-coupons/consume` | 兌換一個合格的 reset coupon。請求主體為 `{ accountId?, tokenId?, operationId? }`。選用的 `operationId`（UUIDv4）可讓兌換具備冪等性：重複相同 id 會重播持久化結果，而不會重複兌換。 | 400 無效的 JSON/UUID；401 未認證；409 `identity_mismatch`；502 上游錯誤；503 ledger 容量 |
+| `GET /api/anthropic/reset-grants?accountId=...` | 讀取單一 Anthropic OAuth 帳號的 Claude 用量額度重設機會：資格、每次重設的剩餘次數、有效期間及可清除的用量視窗，以及任何尚未確認但仍可重試的使用嘗試 | 400 找不到相符帳號；401 需要重新認證；502 上游無法使用 |
+| `POST /api/anthropic/reset-grants/consume` | 使用一次重設機會。請求主體為 `{ accountId, grantId, operationId }`；`operationId` 是傳送至上游作為請求 ID 的 UUIDv4，重複傳送即可重試同一次使用請求。需要儀表板工作階段。 | 400 無效的請求主體；401 需要重新認證；403 `session_required`；409 `grant_not_usable`、`in_flight`、`unresolved_prior_operation`、`unknown_outcome_expired`、`operation_identity_mismatch`；500 `journal_write_failed`；502 `unknown_outcome`；503 日誌忙碌、無法使用或已滿 |
 | `GET, PUT /api/claude-desktop` | 讀取或持久化 Claude Desktop 路由／原生設定檔 | 400 無效或不可用指派 |
 | `POST /api/claude-desktop/apply` | 將儲存的設定檔寫入 Claude Desktop 的受管設定 | 400/500 寫入失敗 |
 | `GET /api/claude-desktop/status` | 檢查已儲存 vs 已套用設定檔與 Desktop 健康 | 400 狀態讀取失敗 |
 | `GET, PUT /api/claude-code` | 讀取或更新 Claude Code 閘道、auth-mode、model-map、context、agent 與 sidecar 設定 | 400 無效欄位或結構 |
 
 儀表板從 **Providers > xAI Grok > Accounts** 驅動這兩條 coupon 路徑：每個已登入帳號列都帶有票券徽章，顯示剩餘的 reset coupon 數量，徽章會開啟對話框，列出有效期間並兌換最接近到期的 reset coupon。該對話框會送出由客戶端鑄造的 `operationId`，並在逾時後停止送出而不重試，因為日誌記錄仍為開啟的兌換會再次執行。`ocx account grok-reset-coupons` 仍是終端機等價指令。
+
+Claude 用量重設也可從 **Providers > Anthropic > Accounts** 以相同方式操作。每個已登入帳號列都有票券徽章，顯示剩餘重設次數；對話框會在第二次確認後使用一次重設機會。重設會補滿 5 小時與每週額度，但不會改變每週重設日。如果使用請求未收到回應，對話框會保留其 `operationId`，並在十分鐘內提供使用相同 ID 重試的選項；Claude Code 用戶端也以此方式復原。在此期間，系統會拒絕對同一重設機會發起新操作。重設機會只能透過儀表板使用：僅持有管理員權杖會收到 `403 session_required`。
 
 關於模型名冊與加密 worker-task 行為背後的概念，請見[子代理介面](/zh-tw/guides/sub-agent-surface/)。
 
@@ -81,6 +85,43 @@ Session 簽發在需要 data-plane 認證時停用，這包含遠端綁定。遠
 | --- | --- | --- |
 | `GET /api/client-integrations/journal?client=...` | 列出復原操作，也可限定為單一用戶端。每一項都包含由伺服器計算的 `deletable` 欄位。 | 400 用戶端無效 |
 | `DELETE /api/client-integrations/journal?opId=...` | 停用一筆較舊的復原操作，並在可能時刪除其快照。成功回應中的 `snapshotRemoved: false` 表示清理工作已保留，等待維護重試。 | 400 缺少 `opId`；404 操作不存在或已停用；409 該用戶端的最新操作 |
+
+## 預覽整合變更
+
+預覽只呈現變更會做什麼，而不會執行。這些路由不寫入任何內容：不留快照、不留歸屬紀錄、不留
+日誌列、不加鎖、不做維護與復原。
+
+| 方法與路徑 | 用途 | 主要錯誤 |
+| --- | --- | --- |
+| `POST /api/client-integrations/preview` | 為單一用戶端規劃 `apply`、`overwrite` 或 `disable`；請求內容為 `{ "clientId": "...", "operation": "..." }` | 400 用戶端或操作無效；400 `invalid_aside_profile_path`；409 `integration_preview_unavailable` |
+| `POST /api/client-integrations/restore/preview` | 規劃一次復原；請求內容為 `{ "opId": "...", "confirmDrift": false }` | 404 操作不存在；400 `invalid_aside_profile_path`；409 `integration_preview_unavailable` |
+| `POST /api/client-integrations/aside/profiles/{profileId}/preview` | 規劃單一 Aside 設定檔的變更；`restore` 需要 `opId` | 400 請求內容無效或未指定設定檔；404 設定檔或操作不存在；409 `integration_preview_unavailable` |
+
+計畫包含 `version`、`clientId`、`operation`、`state`、`foreignEdit`，由 `kind` 與 `path` 組成的
+`changes` 清單，不透明的 `fingerprint`，以及 `canApply` 與 `willChange`；`refusalReason` 與
+`profileId` 為選用。路徑要麼是受管理的結構路徑，要麼是 `$snapshot`、`$ownership`、`$journal`
+這三個固定標記；執行時才決定的位置會顯示為 `*`。不會回傳任何設定值、檔案位置或所選項目的名稱。
+
+`canApply` 為真而 `willChange` 為假，表示操作會成功，但受管理的用戶端文件不會有任何變動，例如
+重複套用已經套用過的內容。
+
+Aside 設定檔的變更在這種情況下仍會儲存一件事：確認之後，會先記錄該設定檔的同步偏好，之後才會動
+用戶端文件。因此關閉一個受管理區塊已經不存在的設定檔，只會儲存偏好，文件與其歷史維持不變。
+
+`integration_preview_unavailable` 表示目前沒有可用的模型清單：代理剛啟動是一種情況，因設定或
+供應方快取變動而捨棄原有清單也是一種情況。讀取 `GET /api/client-integrations` 會在探測成功
+且能確認設定時建立清單，因此這通常是解決方式，但並非必然建立。
+
+## 確認已預覽的變更
+
+變更路由接受與原有請求內容並列的 `operation` 與 `planFingerprint`。兩者要麼都送出，要麼都省略：
+只帶其中一個會被拒絕，`operation` 與所請求的變更不一致也會被拒絕。Aside 的綁定只針對單一設定
+檔，因為一個指紋無法描述多個各自獨立變動的檔案。
+
+伺服器在寫入前會重新規劃，若確認的內容已不再符合實際，會回傳 `409 integration_preview_stale`
+並附上重新計算的 `plan`。請依新計畫再做一次決定；請求不會自動重試。
+
+指紋只是樂觀檢查，不是授權。變更是否被允許，仍由管理 API 的驗證與歸屬規則決定。
 
 刪除操作會附加墓碑記錄，而不會重寫日誌。伺服器會保護每個用戶端的最新操作，
 以保留目前的復原點。對於 Aside，保護是逐 profile 進行的，日誌列包含 `profileId`。
@@ -149,7 +190,7 @@ Session 快照包含 `resumable`。只有在所選 coding-agent runtime 具備�
 
 ### 組合
 
-| 方法與路徑 | 用途 | Notable errors |
+| 方法與路徑 | 用途 | 主要錯誤 |
 | --- | --- | --- |
 | `GET /api/combos` | 列出正規化的組合及其公開模型 id | 目錄工作可回傳 `catalog_busy` |
 | `PUT /api/combos` | 建立、取代或重新命名一個組合 | 400 無效 id、目標、設定、重新命名或普通碰撞；409 Codex 帳號命名空間碰撞 |
@@ -157,9 +198,24 @@ Session 快照包含 `resumable`。只有在所選 coding-agent runtime 具備�
 
 關於目標策略、冷卻、別名與路由失敗，請見[組合](/zh-tw/guides/combos/)。
 
+### Codex 提示詞層
+
+| 方法與路徑 | 用途 | 主要錯誤 |
+| --- | --- | --- |
+| `GET /api/codex-prompt` | 讀取提示詞層快照：層、基礎變體、選擇與 drift 狀態 | — |
+| `GET /api/codex-prompt/text` | 透過 `codex debug prompt-input` 探測模型可見的提示詞文字 | Fail-soft：不可用的探測降級為本文中的狀態，而非 HTTP 錯誤 |
+| `PUT /api/codex-prompt/toggle` | 啟用或停用一個可切換的層 | 400 無效本文或未知層；409 `stale_revision`、`layer_not_toggleable` |
+| `PUT /api/codex-prompt/custom` | 取代自訂層集合 | 400 無效本文、`invalid_characters`、正規化 UTF-8 層超過 65,536 位元組時 `body_too_large`、超過 131,072 位元組時 `composed_too_large`；409 `stale_revision` |
+| `PUT /api/codex-prompt/base/select` | 選擇預設基礎提示詞或一個已儲存的變體 | 400 無效本文、與任何已儲存變體不符的 id 回傳 `unknown_layer`；409 `stale_revision`、目前基礎提示詞為外部時 `developer_instructions_not_owned` |
+| `PUT /api/codex-prompt/base` | 建立（省略 `id` 或 `id: null`）、編輯或刪除（`delete: true`）一個基礎變體。提供的 `id` 僅用於編輯，必須參考已儲存的變體。`body` 在測量或儲存前會被正規化（定位字元展開，CR/CRLF 摺疊為 LF） | 400 無效本文、`default` id 或與任何已儲存變體不符的 id 回傳 `unknown_layer`、正規化 UTF-8 本文超過 65,536 位元組時 `body_too_large`；409 `stale_revision` |
+| `POST /api/codex-prompt/adopt` | 將 `config.toml` 中的 `developer_instructions` 匯入為自訂層 | 400 無效本文、`invalid_characters`、`body_too_large`、`composed_too_large`；409 `config_unreadable`、`nothing_to_adopt`、`adopt_unsupported_form`、`stale_revision` |
+| `POST /api/codex-prompt/repair` | 修復 `config.toml` 與受管 projection 之間的 drift | 400 無效本文；409 `config_unreadable`、`nothing_to_repair`、`repair_unsupported`、`stale_revision` |
+
+有關層模型與每個層寫入的鍵，請見[Codex 提示詞層](/zh-tw/guides/codex-prompt/)。
+
 ### 設定、啟動、同步與更新
 
-| 方法與路徑 | 用途 | Notable errors |
+| 方法與路徑 | 用途 | 主要錯誤 |
 | --- | --- | --- |
 | `GET /api/config` | 回傳遮罩後、管理安全的設定 DTO | — |
 | `PUT /api/config` | 停用的全設定取代防護 | 405；請改用聚焦端點 |
@@ -169,22 +225,19 @@ Session 快照包含 `resumable`。只有在所選 coding-agent runtime 具備�
 | `GET, POST /api/windows-tray` | 讀取 Windows tray 狀態或安裝／啟動／停止／解除安裝它 | 400 不支援平台／動作；500 操作失敗 |
 | `GET /api/diagnostics/project-config` | 讀取快取的專案設定警告 | — |
 | `POST /api/sync` | 將目前模型目錄同步到 Codex | 500 同步失敗 |
-| `GET /api/update/check` | 檢查 `latest` 或 `preview` 更新頻道 | 400 無效 tag |
-| `POST /api/update/run` | 啟動更新工作，可選擇接著重啟 | 400 無效 body；工作專屬衝突／錯誤狀態 |
+| `GET /api/update/check` | 非同步檢查 `latest` 或 `preview` 套件頻道，成功時更新快取 | 400 無效 tag |
+| `POST /api/update/run` | 非同步檢查新版套件，再啟動更新工作，並可選擇重新啟動 | 400 無效 body；工作專屬衝突／錯誤狀態 |
 | `GET /api/update/status` | 依 id 輪詢更新工作 | 404 未知工作 |
 | `GET, PUT /api/sidecar-settings` | 讀取或更新網頁搜尋與視覺 sidecar 模型／backend 設定 | 400 無效結構、backend 或限制 |
 | `GET, PUT /api/shadow-call-settings` | 讀取或更新 shadow-call 攔截設定 | 400 無效結構或值 |
 
 ### 日誌、用量與儲存
 
-`GET /api/logs` 接受來自前一次回應、選用的不透明 `cursor`。回應封套保留 `logs`、`total`、
-`generatedAt` 與 `timeZone`，並加入 `cursor` 與 `reset`。沒有 cursor 時回傳完整的過濾視窗。
-有效且未變動的前綴只會回傳新增的列；編輯、逐出、查詢變更或重新啟動後，`reset: true` 會取代
-用戶端視窗。無效的 cursor 回傳 HTTP 400，附帶 `error.code: "invalid_cursor"`。認證方式不變。
-儀表板對較舊的伺服器會退回完整快照。這會為穩定視窗減少回應位元組數；伺服器端的投影仍受限於
-目前的視窗大小。
+當上游指出實際回應的模型時，請求日誌會保留 `servedModel`；當送往上游的模型與呈現給用戶端的模型不同時，
+也會保留 `wireModel`。兩者不同時，儀表板顯示 `wire → served`，提示文字則保留兩個值。若上游未提供
+回應模型的資訊，該資訊會保持缺漏，不會從請求的模型推測。
 
-| 方法與路徑 | 用途 | Notable errors |
+| 方法與路徑 | 用途 | 主要錯誤 |
 | --- | --- | --- |
 | `GET /api/logs` | 查詢過濾的記憶體內請求日誌 | — |
 | `GET, PUT /api/debug` | 讀取除錯旗標；設定、清除或重置擷取類別 | 400 無效或空更新 |
@@ -192,7 +245,8 @@ Session 快照包含 `resumable`。只有在所選 coding-agent runtime 具備�
 | `GET /api/debug/usage-logs` | 讀取有界的 usage-debug 項目 | — |
 | `GET /api/debug/injection-logs` | 讀取有界的 guidance-injection 除錯項目 | — |
 | `GET /api/claude/inbound-debug` | 讀取 Claude inbound 除錯狀態與項目 | — |
-| `GET /api/usage` | 把用量帳本掃描成可讀取列的精簡彙總，再遞增式地折入已驗證的新增內容；依預設或包含式的自訂視窗與用戶端介面摘要，並附帶以穩定、不含 PII 的日誌標籤區分的 Codex `accounts` 細分 | 400 無效的自訂邊界；若儲存無法讀取則回傳 `error: "read_failed"` 摘要 |
+| `GET /api/usage` | 依範圍與客戶端介面摘要用量 | 若儲存無法讀取則回傳 `error: "read_failed"` 摘要 |
+| `GET /api/metrics` | 回傳程序本機的 Prometheus 文字指標，涵蓋邏輯請求、實際傳送、復原種類、持續時間與 TTFT。標籤僅使用 protocol、result 與 recovery class 的封閉集合；絕不匯出請求或憑證識別碼。 | 啟動時 `metricsExport.enabled` 不為 true 則回傳 404；需要一般管理驗證，資料平面憑證不能存取 |
 | `GET /api/storage` | 依 bucket 掃描 Codex 儲存用量 | 掃描失敗時回傳 `error: "scan_failed"` payload |
 | `POST /api/storage/cleanup/preview` | 預覽已封存 session 清理並回傳綁定摘要 | 400 `invalid_json` 或 `invalid_percent` |
 | `POST /api/storage/cleanup` | 隔離或永久移除預覽的已封存集合 | 400 無效輸入；409 過時／忙碌／被參照狀態；500 檔案系統／資料庫失敗 |
@@ -284,7 +338,7 @@ provider 名稱。
 
 ### 模型與目錄
 
-| 方法與路徑 | 用途 | Notable errors |
+| 方法與路徑 | 用途 | 主要錯誤 |
 | --- | --- | --- |
 | `GET /api/catalog` | 回傳已安裝的 Codex 目錄文件。遠端用戶端應優先使用 data-plane 的 `GET /v1/catalog`，它仍需要一般的 data-plane 憑證，但不需要 admin token。 | 404 目錄未找到 |
 | `GET /api/models` | 回傳儀表板／CLI 模型列 | 收集飽和時 `catalog_busy` |
@@ -311,7 +365,7 @@ provider 名稱。
 
 ### OAuth 帳號、供應商金鑰與 data-plane 金鑰
 
-| 方法與路徑 | 用途 | Notable errors |
+| 方法與路徑 | 用途 | 主要錯誤 |
 | --- | --- | --- |
 | `GET /api/oauth/providers` | 列出有公開 OAuth 登入流程的供應商 | — |
 | `GET /api/key-providers` | 列出透過 API-key 登入設定的供應商 | — |
@@ -335,7 +389,7 @@ provider 名稱。
 
 ### 供應商
 
-| 方法與路徑 | 用途 | Notable errors |
+| 方法與路徑 | 用途 | 主要錯誤 |
 | --- | --- | --- |
 | `GET /api/providers` | 列出遮罩後的供應商設定與探索狀態 | — |
 | `POST /api/providers` | 新增或取代一個已驗證的供應商並可選擇設為預設 | 400 無效／危險目的地或設定；409 命名空間碰撞 |
@@ -359,11 +413,16 @@ OpenAI 也遵循此規則：開關不會選擇特殊的 922k 模式。生效中�
 
 ### 側邊欄與同意約束動作
 
-| 方法與路徑 | 用途 | Notable errors |
+| 方法與路徑 | 用途 | 主要錯誤 |
 | --- | --- | --- |
 | `GET /api/github/star` | 透過使用者的 `gh` session 讀取 repository 加星狀態 | 狀態專屬的固定結果代碼 |
 | `POST /api/github/star` | 僅從已認證的人類動作為 repository 加星 | 403 `agent_consent_required`，針對無儀表板 session 證據的 agent 驅動呼叫者 |
-| `GET /api/update/badge` | 讀取便宜的側邊欄更新徽章狀態 | — |
+| `GET /api/update/badge` | 直接讀取快取的套件更新徽章，不查詢登錄檔；快取缺失、頻道不符或已達 40 小時時回傳 `unknown: true`。`surface=desktop&session=<id>` 僅讀取該桌面應用程式工作階段。 | 400 無效 surface；桌面工作階段缺失或過期時回傳 `unknown: true` |
+| `POST /api/update/desktop-snapshot` | 桌面 shell 透過已繫結的代理用戶端發布 Tauri updater 的顯示狀態 | 帶有 `Origin` 標頭或並非原始 `admin-token` principal 時回傳 403；欄位無效時回傳 400；超過 1 KiB 時回傳 413 |
+
+桌面 snapshot 是暫時的顯示狀態，不是安裝要求。代理在記憶體中最多保留 32 個工作階段，並在最後一次 heartbeat 後 180 秒使其過期。未指定 surface=desktop 的一般瀏覽器仍讀取套件更新徽章。
+
+對符合條件的套件安裝，代理啟動後若快取缺失或超過 20 小時便檢查更新，之後每小時檢查快取是否過期。`OCX_DISABLE_UPDATE_CHECK=1` 僅停用自動檢查；明確的檢查及執行要求仍可使用。
 
 :::caution
 管理認證證明對代理的存取權；它不證明花費使用者身分的同意。agent 絕不能繞過 `agent_consent_required`。使用者必須選擇是否為 repository 加星。
@@ -371,7 +430,7 @@ OpenAI 也遵循此規則：開關不會選擇特殊的 922k 模式。生效中�
 
 ### 系統生命週期
 
-| 方法與路徑 | 用途 | Notable errors |
+| 方法與路徑 | 用途 | 主要錯誤 |
 | --- | --- | --- |
 | `GET /api/system/memory` | 回傳純量的 process、heap、串流、回應狀態、看門狗與活躍回合指標。回應狀態診斷包含溢寫狀態、連續失敗次數、固定且不洩漏隱私的失敗分類，以及最後一次失敗／成功的時間戳記。`spillLastWriteFailureOrigin` 是 `retry_returned_timeout`、`timeout_memo_refusal` 或 null；累計的 `spillAclRetryReturnedTimeouts` 與 `spillAclTimeoutMemoRefusals` 計算終止失敗的發布次數。process-local 語義見 [Windows 溢寫診斷](/zh-tw/troubleshooting/windows-memory/)。絕不回傳原始錯誤與路徑。 | — |
 | `POST /api/system/restart` | 在不移除客戶端注入的情況下開始感知排空的行程重啟 | 回傳 202；重複呼叫回報既有的排空 |
@@ -390,7 +449,7 @@ OpenAI 也遵循此規則：開關不會選擇特殊的 922k 模式。生效中�
 
 根管理分派器將每個 `/api/codex-auth/*` 請求委派給 Codex 帳號管理員。其路由為：
 
-| 方法與路徑 | 用途 | Notable errors |
+| 方法與路徑 | 用途 | 主要錯誤 |
 | --- | --- | --- |
 | `GET, POST, DELETE /api/codex-auth/accounts` | 列出／重新整理或刪除 Codex 帳號。POST 僅保留為已停用的相容 endpoint；成功的 DELETE 回應包含 `catalogRefreshPending`。 | POST 一律回傳 403 `manual_import_disabled`；DELETE 輸入無效時回傳 400 |
 | `PUT /api/codex-auth/accounts/alias` | 設定或清除帳號別名 | 400 無效帳號／別名 |
@@ -399,7 +458,7 @@ OpenAI 也遵循此規則：開關不會選擇特殊的 922k 模式。生效中�
 | 帶 `codexQuotaAutoRefresh: { id, window, enabled }` 的 `PUT /api/settings` | 為一個帳號啟用或停用 5 小時或每週的自動視窗啟用 | 400 無效 id/window/狀態；404 缺失帳號；409 視窗不可用 |
 | `POST /api/codex-auth/accounts/clear-cooldown` | 清除一個或所有帳號的 runtime 冷卻 | 400 無效 id |
 | `GET, PUT /api/codex-auth/active` | 讀取或選擇現用帳號 | 400 無效或缺失帳號；409 暫停／舊列衝突 |
-| `PUT /api/codex-auth/auto-switch` | 設定自動帳號切換的配額閾值 | 400 無效閾值 |
+| `PUT /api/codex-auth/auto-switch` | 使用不含 `id` 的 `{ threshold }` 設定全域閾值，或使用 `{ id, threshold }` 設定帳號覆寫值；`id: '__main__'` 指定 Codex Desktop 帳號。指定 `id` 時，`threshold: null` 刪除該帳號的覆寫值並恢復繼承全域閾值 | 400 ID/閾值無效；404 帳號不存在 |
 | `PUT, PATCH /api/codex-auth/pool-strategy` | 更新 Codex 帳號池選擇策略 | 400 無效策略／設定 |
 | `PUT /api/codex-auth/failover` | 設定帳號容錯移轉閾值 | 400 無效閾值 |
 | `GET /api/codex-auth/quota` | 依帳號讀取快取配額狀態 | — |
@@ -407,33 +466,8 @@ OpenAI 也遵循此規則：開關不會選擇特殊的 922k 模式。生效中�
 | `POST /api/codex-auth/reset-credits/consume` | 消耗一個合格的 reset credit。選用的 `operationId`（UUIDv4）可讓兌換具備冪等性：相同 id 會重播同一筆持久化結果，而不會再消耗一個 credit。 | 400 缺失帳號 id 或無效的 `operationId`；若該 id 屬於其他帳號則 409 `identity_mismatch`；上游狀態 passthrough；503 `server_busy`、`capacity` 或 `unavailable`；500 消耗失敗 |
 | `POST /api/codex-auth/login` | 啟動 Codex 登入或重新認證 | 400 無效請求；衝突／忙碌登入狀態 |
 | `POST /api/codex-auth/login/code` | 為 Codex 登入流程提交手動碼 | 400 無效流程／碼 |
-| `POST /api/codex-auth/login/cancel` | 取消 Codex 登入流程 | — |
-| `GET /api/codex-auth/login-status` | 輪詢流程或帳號登入狀態。已完成的新帳號流程只有在需要復原時，才會包含 `catalogRefreshPending: true`。 | 未知流程回報 `expired`；無活躍流程回報 `idle` |
-
-對於 reset-credit 的消耗，若同一個實體帳號有一個尚未完成的操作，而此時提交了
-另一個不同的 `operationId`，它會以別名的身分加入該操作。其重試會使用原始的上游請求 ID，
-並在同一個身分下記錄結果，因此之後用原始 ID 或已知別名發出的請求，會重播已儲存的結果，
-而不會再發出一次消耗請求。結算之後提交一個先前未見過的 ID，會開始一次新的明確兌換；重試
-既有動作的用戶端應保留它原本的 ID。
-
-確認完成一次手動 `reset` 後，OpenCodex 會檢查同一個帳號的最新用量，並可以立即協調它符合
-資格的、既有的共用 reset 衍生冷卻。已暫停的帳號、需要重新認證的帳號，以及已被進行中探測
-擁有的冷卻，都排除在這項復原之外；它們的冷卻會被保留。在 reset 之前就開始的用量、不完整或
-已耗盡的用量、帳號變更，以及更新的配額失敗，都不符合資格。較舊的 main-account 用量回應
-不能取代較新已發佈的觀測結果。若用量需要憑證重新整理，復原就需要那次重新整理已確認的
-lineage；外部替換的憑證，不會僅因屬於同一個帳號就符合資格。明確的 `Retry-After`、Reserve
-冷卻、暫停設定、pin 與已選定的帳號都會被保留。`already_redeemed` 與持久化重播不能證明是一次
-新的 reset，也不會獲得這項復原行為。
-
-在確認的 `reset` 或 `already_redeemed` 之後，失敗或忙碌的用量重新整理，不會把
-已完成的消耗變成錯誤：回應仍會是 HTTP 200，附帶其消耗 `code`，在沒有取得最新計數時省略
-`remaining`。這個回應確認的是消耗結果，而不是該帳號現在可路由。請重新整理用量以檢查
-可用性；不要為了重試一次失敗的用量重新整理而再消耗一個 credit。
-
-若新的帳號設定列已儲存，但憑證設定無法完成，OAuth 的 `login-status` 會回報
-`status: "error"`，附帶 `code: "codex_credential_persistence_failed"`、`accountId`、
-`needsReauth: true`，以及選用的 `catalogRefreshPending: true`；儲存錯誤的細節不會外露。
-該帳號列仍會保留：請先重新認證或刪除它，再重試建立帳號。
+| `POST /api/codex-auth/login/cancel` | 僅取消 `{ "flowId": "..." }` 指定的待處理 Codex 登入 | 400 流程 ID 缺少、未知或非待處理狀態 |
+| `GET /api/codex-auth/login-status` | 輪詢流程或帳號登入狀態 | 未知流程回報 `expired`；無活躍流程回報 `idle` |
 
 此委派家族下的設定寫入器或憑證重新整理鎖逾時回傳 HTTP 503 並附帶代碼 `CONFIG_MUTATION_LOCK_UNAVAILABLE`。客戶端應稍後重試，而非將該回應視為永久帳號失敗。
 

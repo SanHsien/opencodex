@@ -15,6 +15,11 @@ let useRealProgressStream = false;
 let fulfillCallCount = 0;
 
 const PREV_HOME = process.env.OPENCODEX_HOME;
+// `mock.restore()` does not undo `mock.module`: Bun keeps both overrides below for every
+// file that runs after this one in the same process. Keep the real modules to put back,
+// and restore only the ones captured: a setup that failed partway must not install an empty module.
+let realProgressStream: Record<string, unknown> | undefined;
+let realFulfill: Record<string, unknown> | undefined;
 let runWithImageBridgeProduction: typeof import("../../src/images/loop")["runWithImageBridge"];
 let clampImageMaxRounds: typeof import("../../src/images/loop")["clampImageMaxRounds"];
 let DEFAULT_MAX_ROUNDS: typeof import("../../src/images/loop")["DEFAULT_MAX_ROUNDS"];
@@ -28,6 +33,8 @@ let fulfillResult: ImageCallResult = {
 beforeAll(async () => {
   process.env.OPENCODEX_HOME = join(tmpdir(), "ocx-test-" + randomUUID());
   mock.restore();
+  realProgressStream = { ...(await import("../../src/web-search/progress-stream")) };
+  realFulfill = { ...(await import("../../src/images/fulfill")) };
   mock.module("../../src/web-search/progress-stream", () => ({
     parseStreamWithProgress: async function* (_resp: Response, parse: ProviderAdapter["parseStream"], opts: ParseStreamWithProgressOptions) {
       if (useRealProgressStream) yield* realParseStreamWithProgress(_resp, parse, opts);
@@ -58,7 +65,12 @@ function runWithImageBridge(
     },
   });
 }
-afterAll(() => { if (PREV_HOME === undefined) delete process.env.OPENCODEX_HOME; else process.env.OPENCODEX_HOME = PREV_HOME; mock.restore(); });
+afterAll(() => {
+  if (PREV_HOME === undefined) delete process.env.OPENCODEX_HOME; else process.env.OPENCODEX_HOME = PREV_HOME;
+  mock.restore();
+  if (realProgressStream) { const real = realProgressStream; mock.module("../../src/web-search/progress-stream", () => real); }
+  if (realFulfill) { const real = realFulfill; mock.module("../../src/images/fulfill", () => real); }
+});
 
 // --- Mock adapter: yields canned events per iteration from a queue ---
 let streamQueue: AdapterEvent[][] = [];
@@ -880,9 +892,13 @@ describe("runWithImageBridge", () => {
     let fetchCalls = 0;
     let rotations = 0;
     let activeAdapter: ProviderAdapter | undefined;
+    let retryState: Pick<OcxParsedRequest, "_kiroAuthContext" | "_providerContinuation"> | undefined;
     const makeRotatingAdapter = (label: string): ProviderAdapter => ({
       name: label,
-      buildRequest: async () => ({ url: "https://test/v1/chat", method: "POST", headers: {}, body: "{}" }),
+      buildRequest: async requestParsed => {
+        if (label === "after-rotate") retryState = requestParsed;
+        return { url: "https://test/v1/chat", method: "POST", headers: {}, body: "{}" };
+      },
       fetchResponse: async () => {
         fetchCalls++;
         if (fetchCalls === 1) return new Response("rate limited", { status: 429, headers: { "retry-after": "1" } });
@@ -897,13 +913,19 @@ describe("runWithImageBridge", () => {
     const firstAdapter = makeRotatingAdapter("before-rotate");
     const secondAdapter = makeRotatingAdapter("after-rotate");
     activeAdapter = firstAdapter;
+    const outerParsed = makeParsed();
+    outerParsed._kiroAuthContext = { apiRegion: "eu-west-1", profileArn: "account-a" };
+    outerParsed._providerContinuation = { kiro: { conversationId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" } };
     const response = await runWithImageBridge({
-      parsed: makeParsed(),
+      parsed: outerParsed,
       adapter: firstAdapter,
       plan,
-      on429: async () => {
+      on429: async (_retryAfter, _responseHeaders, retryParsed) => {
         rotations++;
         await Promise.resolve();
+        if (!retryParsed) throw new Error("the loop must pass the iteration request to on429");
+        retryParsed._kiroAuthContext = { apiRegion: "ap-southeast-2", profileArn: "account-b" };
+        delete retryParsed._providerContinuation;
         activeAdapter = secondAdapter;
         return secondAdapter;
       },
@@ -912,6 +934,8 @@ describe("runWithImageBridge", () => {
     expect(rotations).toBe(1);
     expect(fetchCalls).toBe(2);
     expect(activeAdapter).toBe(secondAdapter);
+    expect(retryState?._kiroAuthContext).toEqual({ apiRegion: "ap-southeast-2", profileArn: "account-b" });
+    expect(retryState?._providerContinuation).toBeUndefined();
     expect(sse).toContain("after rotate");
   });
 });

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { Window } from "happy-dom";
-import { act } from "react";
+import { act, useLayoutEffect } from "react";
 import type { Root } from "react-dom/client";
 import { clearClientResourceStoresForTests } from "../src/client-resource";
 import { useCodexAccountPool, type CodexAccountPoolController } from "../src/hooks/useCodexAccountPool";
@@ -91,6 +91,24 @@ beforeEach(() => {
         ));
         activePinnedAccountId = null;
         return { ok: true, json: async () => ({ ok: true, id: body.id, priority: stored }) } as unknown as Response;
+      }
+      if (path === "codex-auth/auto-switch") {
+        const body = JSON.parse(String(init?.body)) as { id: string; threshold: number | null };
+        accounts = accounts.map(account => (
+          typeof account === "object" && account !== null && "id" in account
+            && (account.id === body.id || (body.id === "__main__" && "isMain" in account && account.isMain === true))
+            ? { ...account, autoSwitchThresholdOverride: body.threshold }
+            : account
+        ));
+        return {
+          ok: true,
+          json: async () => ({
+            ok: true,
+            id: body.id,
+            autoSwitchThresholdOverride: body.threshold,
+            autoSwitchThreshold: body.threshold ?? threshold,
+          }),
+        } as unknown as Response;
       }
       if (path === "codex-auth/accounts/pause") {
         const gate = nextPauseResponseGate;
@@ -197,7 +215,8 @@ afterEach(async () => {
 async function mountController(enabled = true) {
   const seen: { current: CodexAccountPoolController | null } = { current: null };
   function Probe() {
-    seen.current = useCodexAccountPool("", enabled);
+    const controller = useCodexAccountPool("", enabled);
+    useLayoutEffect(() => { seen.current = controller; }, [controller]);
     return null;
   }
   // Lazy import: see the note on the Root type import above.
@@ -485,6 +504,26 @@ test("a confirmed selection-order save updates the row before the reload lands",
   expect(seen.current!.accounts.find(account => account.id === "a2")?.priority).toBe(2);
 });
 
+test("an account usage-threshold save updates the row and null restores inheritance", async () => {
+  accounts = [
+    { id: "a1", email: "main", isMain: true, paused: false, priority: 0, autoSwitchThresholdOverride: null, hasCredential: true, quota: null },
+    { id: "a2", email: "pool", isMain: false, paused: false, priority: 0, autoSwitchThresholdOverride: null, hasCredential: true, quota: null },
+  ];
+  const seen = await mountController();
+
+  await act(async () => {
+    expect(await seen.current!.setAccountAutoSwitchThreshold("a2", 60)).toEqual({ ok: true });
+  });
+  expect(calls).toContain("PUT codex-auth/auto-switch");
+  expect(seen.current!.accounts.find(account => account.id === "a2")?.autoSwitchThresholdOverride).toBe(60);
+  expect(seen.current!.autoSwitchUpdatingId).toBeNull();
+
+  await act(async () => {
+    expect(await seen.current!.setAccountAutoSwitchThreshold("a2", null)).toEqual({ ok: true });
+  });
+  expect(seen.current!.accounts.find(account => account.id === "a2")?.autoSwitchThresholdOverride).toBeNull();
+});
+
 test("an accepted selection-order write clears the pin before reconciliation lands", async () => {
   activePinnedAccountId = "a1";
   const seen = await mountController();
@@ -561,6 +600,29 @@ test("an accepted manual switch moves the pin before reconciliation lands", asyn
     releaseActive();
     await new Promise((resolve) => setTimeout(resolve, 30));
   });
+});
+
+test("a post-switch read accepts a newer server-side active account", async () => {
+  accounts = [
+    { id: "a1", email: "main", isMain: true, paused: false, priority: 0, hasCredential: true, quota: null },
+    { id: "a2", email: "selected", isMain: false, paused: false, priority: 0, hasCredential: true, quota: null },
+    { id: "a3", email: "failover", isMain: false, paused: false, priority: 0, hasCredential: true, quota: null },
+  ];
+  const seen = await mountController();
+
+  // The PUT accepts a2, but routing legitimately moves to a3 before the
+  // reconciliation read. That fresh response must retire the optimistic marker.
+  activeGetId = "a3";
+  await act(async () => {
+    expect(await seen.current!.switchAccount("a2")).toEqual({ ok: true, activeId: "a2" });
+    await new Promise((resolve) => setTimeout(resolve, 30));
+  });
+  // One mismatch may be the eventually-consistent response the optimistic marker
+  // exists to absorb.
+  expect(seen.current!.activeId).toBe("a2");
+
+  await act(async () => { await seen.current!.load(); });
+  expect(seen.current!.activeId).toBe("a3");
 });
 
 test("the main sentinel writes through to its distinct account row", async () => {
@@ -800,9 +862,11 @@ test("a first attempt that fails settles initialLoading instead of hanging on th
   Object.defineProperty(globalThis, "fetch", { configurable: true, value: failing });
 
   const seen: { current: CodexAccountPoolController | null } = { current: null };
+  // A fresh apiBase keeps this cold: the module-level last-good map is keyed by it.
+  const coldApiBase = `cold-${Date.now()}`;
   function Probe() {
-    // A fresh apiBase keeps this cold: the module-level last-good map is keyed by it.
-    seen.current = useCodexAccountPool(`cold-${Date.now()}`, true);
+    const controller = useCodexAccountPool(coldApiBase, true);
+    useLayoutEffect(() => { seen.current = controller; }, [controller]);
     return null;
   }
   const { createRoot } = await import("react-dom/client");

@@ -4,7 +4,8 @@ import { getConfigPath, mutatePersistedConfig, readConfigDiagnostics, sanitizeMo
 import { VISION_REASONING_EFFORTS, isVisionReasoningEffort } from "../reasoning-effort";
 import type { OcxConfig } from "../types";
 import { normalizeVisionReasoningForModel } from "../vision/reasoning";
-import type { ClientConnectionStatus } from "./connect";
+import type { ServiceApiTokenState } from "../lib/service-secrets";
+import { redactUrlForLog } from "../lib/redact";
 import { CliUsageError, printData, rejectArgs, runCliAction, takeFlag } from "./runtime-api";
 
 const USAGE = `Usage:
@@ -17,12 +18,13 @@ const USAGE = `Usage:
   ocx config import <path|-> --yes [--json]`;
 
 /**
- * Keys whose VALUE is a credential and must never be printed or exported.
+ * Keys whose VALUE is a credential and must never be printed by display commands.
+ * `config export` writes the raw config so an export can restore credentials; it does
+ * not call `redact`.
  *
- * `webhookUrl` is here because for Slack and Discord the URL itself is the authorization:
- * anyone holding it can post to the channel. It looks like configuration rather than a secret,
- * which is exactly why it needs to be named explicitly — none of the other patterns match it,
- * so `ocx config show` printed it and `config export` wrote it to disk in the clear.
+ * URL-valued credentials must be named explicitly: `webhookUrl` matches none of the
+ * other patterns, and a proxy URL's userinfo is handled by the `proxy` branch in
+ * `redact` rather than by masking the whole value.
  */
 const SECRET_KEYS = /^(apiKey|key|accessToken|refreshToken|idToken|token|password|clientSecret|webhookUrl)$/i;
 const BLOCKED_SEGMENTS = new Set(["__proto__", "prototype", "constructor"]);
@@ -38,9 +40,8 @@ const BLOCKED_SEGMENTS = new Set(["__proto__", "prototype", "constructor"]);
  * `client` block, which is the same defect in miniature: the presence of configuration is not
  * evidence that the connection works, and a machine whose data-plane token was revoked, rotated
  * away or deleted would have been labelled `connected: true` while it could not reach the hub at
- * all. `collectClientConnectionStatus` is the one reader that knows — it compares the token file's
- * fingerprint against the connection record — so the caller passes its answer in and this stays
- * pure and testable.
+ * all. The read-only projection compares the bounded token file's fingerprint against the
+ * connection record, and passes that answer in so this formatter stays pure and testable.
  *
  * Synthetic and NOT persisted, for two reasons. `clientConnectionSchema` is `.strict()`, so a
  * `client.note` field would not validate; and persisted prose drifts from the behaviour it
@@ -49,7 +50,7 @@ const BLOCKED_SEGMENTS = new Set(["__proto__", "prototype", "constructor"]);
  */
 export function remoteHubConfigNote(
   config: OcxConfig,
-  readConnection: () => Pick<ClientConnectionStatus, "state" | "reason" | "token">,
+  readConnection: () => RemoteHubConnectionObservation,
 ): { connected: boolean; origin: string; note: string } | null {
   if (config.runtimeRole !== "client" || !config.client) return null;
   // A thunk, so a standalone or hub install pays nothing: the guard above returns first and the
@@ -67,7 +68,50 @@ export function remoteHubConfigNote(
   return { connected, origin: config.client.serverUrl, note };
 }
 
+export type RemoteHubConnectionObservation = {
+  state: "disconnected" | "connected" | "invalid" | "mismatched";
+  reason?: string;
+  token: "owned" | "missing" | "changed" | "unsafe";
+};
+
+export function remoteHubConnectionFromTokenState(
+  config: Pick<OcxConfig, "client">,
+  tokenState: ServiceApiTokenState,
+): RemoteHubConnectionObservation {
+  const token = tokenState.kind === "absent"
+    ? "missing"
+    : tokenState.kind === "unsafe"
+      ? "unsafe"
+      : tokenState.fingerprint === config.client?.tokenFingerprint ? "owned" : "changed";
+  return { state: "connected", token };
+}
+
+async function readRemoteHubConfigNote(config: OcxConfig): Promise<ReturnType<typeof remoteHubConfigNote>> {
+  if (config.runtimeRole !== "client" || !config.client) return null;
+  // This display command needs only connection ownership, not lifecycle recovery, catalog
+  // readiness, or any write-capable connect machinery. Keep the read on the bounded token
+  // observer so a cold `config show` never imports the full connect command graph.
+  const { readServiceApiTokenState } = await import("../lib/service-secrets");
+  return remoteHubConfigNote(
+    config,
+    () => remoteHubConnectionFromTokenState(config, readServiceApiTokenState()),
+  );
+}
+
 function redact(value: unknown, key = ""): unknown {
+  if (key === "proxy" && typeof value === "string") {
+    // "direct" and credential-less proxy URLs carry no secret and stay readable; only a
+    // URL with userinfo is masked, and then only its credentials — host and port stay
+    // visible so the output still says WHERE traffic goes. A non-URL value that is not
+    // "direct" cannot be proven credential-free, so it is masked whole.
+    if (!value || value === "direct") return value;
+    try {
+      const parsed = new URL(value);
+      return parsed.username || parsed.password ? redactUrlForLog(value) : value;
+    } catch {
+      return "********";
+    }
+  }
   if (SECRET_KEYS.test(key) && typeof value === "string") return value ? "********" : value;
   // `client.priorCatalog` is the base64 catalog snapshot connect took before overwriting the
   // local one — up to 64 MB of it (src/config.ts). Printed in full it buried `runtimeRole` and
@@ -168,19 +212,7 @@ export async function handleConfigCommand(argv: string[]): Promise<number> {
       rejectArgs(args, USAGE);
       const diagnostics = readConfigDiagnostics();
       const redacted = redact(diagnostics.config);
-      // Imported here rather than at module scope: `./connect` pulls the whole client lifecycle
-      // in, and `ocx config get/set` has no use for it.
-      const { collectClientConnectionStatus } = await import("./connect");
-      // The readiness probe is declined explicitly. `collectClientConnectionStatus` observes the
-      // local Codex ladder for a connected client, and observing it spawns `codex debug models`
-      // under a 45s budget. `ocx config show` reads only `state`, `reason` and `token` from the
-      // result, so paying for a subprocess here would buy nothing and would quietly turn a
-      // read-only config dump into a runtime probe. Returning no ladder resolves readiness to
-      // `unverified`, which is the honest answer for a caller that never asked.
-      const note = remoteHubConfigNote(
-        diagnostics.config,
-        () => collectClientConnectionStatus(undefined, undefined, { supportedEfforts: () => null }),
-      );
+      const note = await readRemoteHubConfigNote(diagnostics.config);
       // First key, not last: it has to be read before the empty `providers` map that misled a
       // reader into concluding nothing was configured anywhere.
       const config = note && redacted && typeof redacted === "object" && !Array.isArray(redacted)
@@ -194,7 +226,7 @@ export async function handleConfigCommand(argv: string[]): Promise<number> {
       const path = args.shift();
       if (!path) throw new CliUsageError("config path is required", USAGE);
       rejectArgs(args, USAGE);
-      const value = redact(getPath(readConfigDiagnostics().config, path), path.split(".").at(-1));
+      const value = redact(getPath(readConfigDiagnostics().config, path), pathSegments(path).at(-1));
       if (wantsJson || typeof value === "object") console.log(JSON.stringify(value, null, 2));
       else console.log(String(value));
       return;
@@ -240,7 +272,7 @@ export async function handleConfigCommand(argv: string[]): Promise<number> {
           ? "config changed while applying this update; retry"
           : `config is ${outcome.reason}`);
       }
-      printData({ ok: true, path, value: redact(savedValue, path.split(".").at(-1)) }, wantsJson,
+      printData({ ok: true, path, value: redact(savedValue, pathSegments(path).at(-1)) }, wantsJson,
         [`${action === "unset" ? "Unset" : "Set"} ${path}.`]);
       return;
     }

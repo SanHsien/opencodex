@@ -20,19 +20,37 @@ Responses 表示是橋接的中心。原生相容的路由可跳過部分轉譯�
 
 ## Console 上傳拒絕
 
-一個來自規範 OpenCode Zen/Go 生成端點、逐字相符的 Console 或 Console Go `Invalid upload request.` HTTP 400，會在 800 毫秒後收到一次重試。代理會重用同一個序列化過的請求，並把這次復原記錄進 Logs。其他 400 錯誤、自訂目的地、取消動作，以及重複的上傳拒絕，仍維持失敗。這不會重試被過濾的模型回應或中斷的串流。
+規範 OpenCode Zen/Go 生成端點回傳的一模一樣的 Console 或 Console Go `Invalid upload request.`
+HTTP 400，會在 800 毫秒後獲得一次重試。代理重用相同的序列化請求，並在 Logs 中記錄這次復原。
+其他 400 錯誤、自訂目的地、取消動作與重複的上傳拒絕仍維持失敗。這不會重試被過濾的模型回應
+或中斷的串流。
 
-## 空白搜尋答案
+## 搜尋回答為空
 
-在託管搜尋之後，一次乾淨但空白的強制回答會再多一次回答嘗試，移除工具並保留既有結果。這可能會產生另一次模型請求。第二次空白回答會失敗；格式錯誤的呼叫，以及供應商拒絕或截斷的結果，都不會套用這次重試。
+hosted search 之後，若移除工具、保留既有結果重試一次仍得到乾淨但空的強制回答，會再嘗試一次
+回答。這可能招致另一次模型請求。第二次空回答即失敗；格式錯誤的呼叫，以及 provider 拒絕或
+截斷的結果，都不會套用這次重試。
 
-## Cursor context overflow
+## xAI policy refusals
 
-Cursor 第一次的裸 context overflow 會直接呈現給客戶端。之後帶有穩定客戶端執行緒的合格請求，在每個保留的 scope 內最多可以用三次對話 remint 來復原。這個記憶體內的額度會在閒置一小時、被驅逐或重新啟動後過期。沒有穩定執行緒的請求、獨立的輔助程式、工具結果續接、部分輸出，以及壓縮與配額錯誤，都不會使用這個復原機制。持續合格的 overflow 會讓既有額度維持生效，即使它已經用盡；它們不會為額度充值。這不會用來推斷一個任務是否正在取得進展。
+部分 xAI Chat Completions 拒絕不是以 HTTP 200 加 `finish_reason: content_filter` 回傳，而是以 HTTP 403 加上一句完全相符的拒絕語句（例如 `I can't help with that request.`）回傳。Codex 把 403 視為傳輸失敗，因此使用者回合不會被記錄，同一個請求會被重送。
+
+在非 combo 的 Responses 請求上，OpenCodex 會把這種在允許清單中的 403 改寫為 HTTP 200 的 Responses 內容，帶有 `status: "incomplete"` 與 `incomplete_details.reason: "content_filter"`。改寫同時作用於 openai-chat 轉接器路徑與 openai-responses 直通（grok-4.6 / grok-4.5 OAuth）。串流使用相同的 incomplete 邊界。空白的 403 本文仍是錯誤。訂閱、點數、權限與 `not allowed to use this model` 的 403 仍是錯誤。Combo failover 仍看到原始的 HTTP 403。
+
+## Cursor context 溢出
+
+Cursor 第一次裸的 context 溢出會直接呈現給用戶端。之後在同一個保留範圍內、帶有穩定客戶端
+執行緒的合格請求，最多可以透過三次對話 remint 復原。此記憶體內額度會在閒置一小時、被驅逐或
+重啟後過期。沒有穩定執行緒的請求、獨立的 helper、工具結果的續傳、部分輸出、compaction 與
+配額錯誤都不使用這個復原機制。持續合格的溢出會讓既有額度保持有效，即使已耗盡也不會補充；
+這不會推論任務是否有進展。
 
 ## Live sideband 連線失敗
 
-代理會在接受客戶端 WebSocket 之前，先完成上游即時旁帶的握手。上游拒絕會讓升級以 502 失敗；十秒的握手逾時回傳 504，客戶端取消則回傳 499。Bun 不會暴露確切的上游握手狀態，所以目前無法精確轉送一個上游的 404/410。連線成功時會依序保留最初的 session frame。這個握手政策與 Responses WebSocket 傳輸是分開的。
+代理會在接受用戶端 WebSocket 之前，先完成上游 live sideband 的 handshake。上游拒絕會讓升級
+以 502 失敗；十秒的 handshake 逾時回傳 504，用戶端取消回傳 499。Bun 不會暴露確切的上游
+handshake 狀態，因此目前無法精確轉發上游的 404/410。成功的連線會依序保留最初的 session
+frame。此 handshake 政策與 Responses WebSocket 傳輸是分開的。
 
 ## 端點概覽
 
@@ -552,13 +570,8 @@ Anthropic 來源的失敗以 Anthropic 的錯誤封裝渲染，因此該方言�
 
 某些 agent hook 在歷史上曾將明文控制文字放入 `encrypted_content` 插槽。為相容性，代理將該明文分離為 text 部分，同時保留任何結構有效的 Fernet run 不變。若 `agent_message` 在該修復期間失去所有加密部分，它成為普通使用者訊息。若目前的 v2 task 保持真正加密但所選路由目標無法讀取原生 ChatGPT 密文，opencodex 以 `unreadable_encrypted_agent_task` 失敗，而非發送不可讀的位元組給該供應商。關於 worker task 周圍的客戶端行為，請見[子代理介面](/zh-tw/guides/sub-agent-surface/)。
 
-歷史紀錄也會被處理，而且處理方式不同，因為遺失一則被重播的訊息不應該終結一段對話。一則混合了
-可讀文字與後端密文的重播 `agent_message`，無法被降級成一則公開訊息，所以一個路由過的 Responses
-目的地，原本會連同一個只有 ChatGPT backend 才會宣告的項目型別，一起收到那段密文。在派送之前，
-opencodex 會把那段密文換成 `[encrypted content omitted]`——與上游解密失敗後已經在使用的同一個
-標記——這樣該項目仍可被降級，可讀文字也維持完整。供應商永遠不會看到那段密文或那個私有項目，
-對話也能繼續。組合目標會被各自獨立修復，因為每一個目標都會收到自己那份請求的副本。規範的
-ChatGPT Codex backend 是例外，因為它正是鑄造出這些位元組、也能讀取它們的目的地；一個指向其他
-origin 的 `forward` 供應商則不是例外。被明確信任的 `allowEncryptedV2AgentTasks` 路由，以及轉譯
-後的 Chat 或 Anthropic wire 都不受影響，其他項目型別（例如 reasoning 與工具輸出 blob）也一樣，
-它們保留既有的解密失敗復原機制。
+### 在既有對話中切換供應商
+
+重放的推理項攜帶的 `encrypted_content` 只有產生它的供應商與憑證才能讀取。若 opencodex 知道該對話上一次由另一個供應商處理，它會在送出前移除這個 blob，並保留該項的摘要。若那個供應商還使用了不同的 endpoint 或憑證，該項的 `rs_…` id 也會被移除，因為它指向新目標查不到的項目。若 opencodex 無從得知，例如代理重新啟動之後，新目標會拒絕這個 blob：OpenAI 與 Azure OpenAI 回傳 `400 invalid_encrypted_content`。此時 opencodex 會去掉上一個供應商的推理狀態（blob 與 `rs_…` id）後只重送一次請求；保留 id 會導致 `Item with id 'rs_…' not found`。
+
+這項復原適用於所有使用 Responses 協定的 adapter，因此 `openai-responses` 與 `azure-openai` 的行為相同。復原成功後，該對話在同一目標上的後續輪次會在接下來五分鐘內於首次送出前移除這些狀態。重送計入請求的一般傳送預算。一般的 400 與 429 不會以這種方式重送，5xx 也不會，只有一個狹窄的例外：對於攜帶加密工具輸出的請求，回應本文恰好是該解密拒絕的 502 會得到同樣的一次重送。第二次拒絕會原樣回傳給客戶端。遇到這種情況，請在目標供應商上開始新的對話。

@@ -13,13 +13,17 @@ description: 安裝、啟動、停止、服務、診斷、同步與更新指令�
 
 ## 代理生命週期
 
-### `ocx start [--port <port>]`
+### `ocx start [--port <port>] [--socks5 [host:port] | --socks5-off]`
 
-啟動代理伺服器（偏好連接埠 `10100`）。若該連接埠被佔用，opencodex 會選擇並記錄另一個可用連接埠。它寫入 PID/runtime-port 狀態，並拒絕啟動第二個即時實例。啟動時它將每個供應商的模型同步到 Codex 目錄。關閉時它還原原生 Codex——除非它是作為受管服務啟動的（`OCX_SERVICE=1`）。
+啟動代理伺服器（偏好連接埠 `10100`）。它寫入 PID/runtime-port 狀態，並拒絕啟動第二個即時實例。偏好連接埠被佔用時，`start` 會探測佔用者，且無論結果如何都會停止：若回應的是 opencodex，它會直接拒絕啟動；否則會回報無法識別的佔用者。它絕不會自行將監聽位置移到其他連接埠，因為這會讓第一個代理繼續執行，並將 Codex 重新指向第二個代理。即使明確指定不同的 `--port`，共用同一個 `OPENCODEX_HOME` 時仍會拒絕啟動，因為僅觀察模式和啟用上限的模式都會寫入同一份支出日誌。獨立的同層實例必須使用不同的 `OPENCODEX_HOME`；`port: 0` 只讓作業系統指派連接埠，不會隔離狀態。啟動時它將每個供應商的模型同步到 Codex 目錄。關閉時它還原原生 Codex——除非它是作為受管服務啟動的（`OCX_SERVICE=1`）。
+
+`--socks5`（預設 `127.0.0.1:10808`）會將 SOCKS5 URL 儲存到 `config.proxy`，並透過真正的 SOCKS5 通道轉送對外 HTTP(S) 請求。`--socks5-off` 只會清除已儲存的 SOCKS5 代理，不會刪除 HTTP 代理。此值儲存在設定中，因此會在 `ocx update` 後保留。URL 可以包含使用者名稱和密碼，但啟動記錄會隱藏它們。
 
 ```bash
 ocx start
 ocx start --port 8080
+ocx start --port 10100 --socks5
+ocx start --socks5-off
 ```
 
 ### `ocx stop`
@@ -174,6 +178,20 @@ HTTP(S) origin 的就緒請求會被拒絕，而不是用猜測的方式回答�
 或 `unreachable`。離開碼為：就緒為 0；未就緒、pending、failed、逾時或 unreachable 為 1；無效
 引數為 64。
 
+### `ocx resolve [--json]`
+
+解析 shell 需要的執行期事實，而不必自己重新實作：設定所在目錄、有效連接埠，以及經過身分驗證的
+存活判定。`--json` 會輸出一份帶版本的文件（`schema: "ocx-resolve/1"`），內含 `cliVersion`、
+`configHome`、`port`（`effective`、`configured` 與 `source`），以及 `liveness`（`status`、`pid`、
+`port`、`source`，若正在運作的 proxy 有回報，還會有 `version`、`role` 與 `hostname`）。存活判定
+有三種答案：`live`、`absent-proven`（每個記錄下或設定中的端點都明確拒絕或回應了非 opencodex 的
+內容），以及未知——逾時的探測或不回應 `/healthz` 的監聽器會以 exit 1 結束，而不是視為不存在，
+因此只有 `absent-proven` 才能授權啟動新的執行個體。當有 proxy 回應時，連接埠就是實際監聽的埠，
+否則為設定的連接埠（預設 10100）。exit 0 代表可信的判定；exit 1 代表 CLI 無法解析——包括無效的
+`config.json`，這裡永遠不會被修復成預設值——呼叫者必須拒絕猜測；任何未知引數都會以 exit 64 結束。
+探測使用與 `ocx start` 相同、對所有權安全的探測預算，因為錯誤的「沒有東西在監聽」答案正是重複
+proxy 產生的原因。這個動作是唯讀的，且會略過 shim 自動復原的 preflight。
+
 ### `ocx doctor`
 
 預設報告包含原生寫入協調器的狀態與確切路徑，使用不可變的唯讀 SQLite 檢查取得。零位元組、空的
@@ -225,9 +243,13 @@ ocx sync
 與 `ocx sync` 不同，此指令不會探索已設定的供應商，也不會注入 Codex 設定。與 `ocx sync-cache`
 不同，它會先取代現用目錄，再重建快取。即使本機 Codex 整合的期望狀態是關閉的，它仍然可以運作。
 
-URL 必須是 HTTPS；為了本機測試，允許回送位址使用 HTTP。內嵌於 URL 中的憑證、查詢字串、片段、
-重新導向、過大的回應、格式錯誤的 JSON、重複或不安全的 slug，以及未知的 `input_modalities`，都
-會在任何本機寫入之前被拒絕。驗證是選用的，且只會以環境變數參照的方式讀取：
+URL 必須是 HTTPS；本機測試時允許 loopback HTTP。內嵌於 URL 的憑證、查詢字串、fragment、重新導向、
+過大的回應、格式錯誤的 JSON、重複或不安全的 slug，以及未知的 `input_modalities`，都會在任何本機
+寫入之前遭拒。
+
+如果 `HTTP_PROXY` 或 `http_proxy` 生效，且 `NO_PROXY` 或 `no_proxy` 中沒有相符的略過規則，回送 HTTP 要求會在加入驗證標頭或送出要求之前遭拒。`ALL_PROXY`/`all_proxy` 以及僅設定 `HTTPS_PROXY`/`https_proxy` 的情況不會觸發此 HTTP 限制；仍允許透過 HTTPS 取得目錄。拒絕訊息不會包含代理位址或驗證權杖。 非空的 `http_proxy` 和 `no_proxy` 分別優先於 `HTTP_PROXY` 和 `NO_PROXY`。若要設定與 Bun 相容的代理略過規則，請使用主機名稱、相符的 `host:port`、`[::1]` 等含方括號的 IPv6 位址或 `*`，不要使用 URL、路徑或 `*.` 前綴。
+
+驗證是選填的，且只透過環境變數參照讀取：
 
 ```bash
 export OPENCODEX_CATALOG_AUTH_TOKEN='...'
@@ -235,38 +257,37 @@ ocx catalog pull https://proxy.example.com/v1/catalog \
   --auth-env OPENCODEX_CATALOG_AUTH_TOKEN
 ```
 
-該值會以 Bearer token 的形式送出，但絕不會接受以 argv 值傳入。重新導向會被拒絕，因此授權資訊
-不會跨越 origin。目錄與快取的寫入使用共享的 Codex 目錄鎖與原子寫入器。擷取、驗證、取得鎖、目錄
-寫入或快取重建失敗時，會保留最後已知正常的檔案。完全相同的目錄位元組是一個不會改動 mtime、也
-絕不會觸碰任何程序的空操作。`--restart-codex`、`--restart-app-server-only`，以及已棄用的
-`--restart-desktop-app` 別名，在這裡的意義與它們在 `ocx sync` 和 `ocx sync-cache` 上相同，且
-只有在真正發生寫入之後才會套用。
+該值會以 Bearer token 送出，但絕不接受以 argv 值傳入。重新導向會遭拒，因此授權不會跨 origin 外流。
+目錄與快取在共用的 Codex 目錄鎖與 atomic writer 之下寫入。fetch、驗證、取得鎖、目錄寫入或快取重建
+任一失敗，都會保留 last-known-good 檔案。位元組完全相同時是保留 mtime 且不觸碰任何行程的無操作。
+`--restart-codex`、`--restart-app-server-only` 以及已棄用別名 `--restart-desktop-app`，在這裡的含義
+與 `ocx sync` / `ocx sync-cache` 相同，且僅在實際寫入之後才生效。
 
-URL 必須在主機根目錄下指名 `/v1/catalog`。此指令不支援在路徑前綴下提供該端點的反向 proxy。
+URL 必須指名主機根目錄下的 `/v1/catalog`；此指令不支援把端點放在路徑前綴之後的反向代理。
 
-此指令會下載完整目錄並在本機比對位元組，而不是發出 `ETag` / `If-None-Match` 條件式請求。完全
-相同的位元組會被視為完整的空操作，所以一個目錄本身正確、但 `models_cache.json` 缺失或過期的
-Codex home，不會被這個指令修復；請改用 `ocx sync-cache`。
+此指令會下載完整目錄並在本機比對位元組，而不是發出 `ETag` / `If-None-Match` 條件式請求。位元組
+相同會視為完全無操作，因此目錄本身正確、但 `models_cache.json` 缺失或過期的 Codex home，不會被
+此指令修復；請改用 `ocx sync-cache`。
 
-`--json` 會在 stdout 輸出一個穩定的信封。`schemaVersion`、`ok`、`status`、`catalogWritten`、
-`cacheSynced` 與 `codexRestarted` 一定會存在。`codexRestarted` 仍然只代表 app-server。
-`desktopAppRestarted` 只有在請求了桌面重啟時才會出現，且只有在重新啟動確實開始時才為 `true`；
-交接不等於成功。`status` 為 `updated`、`unchanged` 或 `failed`。成功的 pull 會加上
-`modelCount`；失敗則會加上 `code`，這是指令碼應該用來分支的欄位：
+`--json` 會在 stdout 印出一個穩定的信封。`schemaVersion`、`ok`、`status`、`catalogWritten`、
+`cacheSynced` 與 `codexRestarted` 永遠存在。`codexRestarted` 仍然只代表 app-server。
+`desktopAppRestarted` 只在請求了桌面重啟時才會出現，且只有在重新啟動真正開始時才為 `true`；
+交接不代表成功。`status` 是 `updated`、`unchanged` 或 `failed`。成功的 pull 會加上 `modelCount`；
+失敗則加上 `code`，這是腳本用來分支的欄位：
 
-| `code` | 意義 | 離開碼 |
+| `code` | 意義 | Exit |
 | --- | --- | --- |
 | `usage` | 引數不是有效的 `catalog pull` 呼叫 | 2 |
 | `auth_env_missing` | `--auth-env` 指名的變數未設定 | 1 |
 | `url_invalid`、`insecure_http_refused` | URL 在任何請求之前就被拒絕 | 1 |
-| `request_failed`、`redirect_refused`、`http_error` | 請求沒有產生可用的回應 | 1 |
+| `request_failed`、`redirect_refused`、`http_error` | 請求未能產生可用的回應 | 1 |
 | `body_too_large`、`body_invalid`、`catalog_invalid` | 回應在任何本機寫入之前就被拒絕 | 1 |
-| `write_failed`、`lock_database`、`unsafe_path` | 協調寫入未完成；檔案維持不變 | 1 |
+| `write_failed`、`lock_database`、`unsafe_path` | 協同寫入未完成；檔案未變更 | 1 |
 | `lock_busy` | 另一個寫入者持有 Codex 目錄鎖 | 3 |
-| `restart_incomplete` | 目錄與快取都已落地，但有一個 Codex app-server 在 `--restart-codex` 或 `--restart-app-server-only` 之後仍然存活 | 1 |
+| `restart_incomplete` | 目錄與快取已落地，但 Codex app-server 在 `--restart-codex` 或 `--restart-app-server-only` 之後仍存活 | 1 |
 
-`restart_incomplete` 是唯一會回報真正已寫入的失敗：`catalogWritten` 與 `cacheSynced` 仍為
-`true`，`ok` 為 `false`，因為一個存活下來的 app-server 仍會從記憶體中提供先前的目錄。
+`restart_incomplete` 是唯一會回報真實寫入的失敗：`catalogWritten` 與 `cacheSynced` 仍為 `true`、
+`ok` 為 `false`，因為存活的 app-server 仍在記憶體中提供舊目錄。
 
 ## 背景服務
 
@@ -301,10 +322,10 @@ proxy 比較新，請依照 [`ocx status`](#ocx-status---json) 底下的說明�
 
 | 子指令 | 動作 |
 | --- | --- |
-| 無 | 服務不存在時安裝並啟動；已存在時修復（repair）既有服務。正常的 Windows 工作排程器定義會沿用；過時的定義可能會重新註冊並需要提高權限。 |
+| 無 | 服務不存在時安裝並啟動；已存在時執行 `repair`。正常的 Windows 工作排程器定義會沿用；過時的定義可能會重新註冊並需要提高權限。 |
 | `install` | 建立並啟動服務。註冊它，在 Windows 上需要提高權限。 |
-| `repair` | 就地重新整理已安裝的服務，只有在有變動時才重新載入管理器——因此在 macOS 上，一個健康且未變動的工作會繼續執行，repair 不會造成中斷。正常的 Windows 工作排程器定義會沿用；過時的定義可能會重新註冊並需要提高權限。 |
-| `restart` | 同樣的重新整理，但一定會重新啟動。在 macOS 上，一個未變動、已載入的工作會被就地 kickstart。不是 `repair` 的別名。 |
+| `repair` | 就地重新整理已安裝的服務。在 macOS 上，僅在有變更時才重新載入 launchd，因此正常且未變更的工作會繼續執行，repair 不會造成中斷。在 Linux 和 Windows 上會重啟服務；正常的 Windows 工作排程器定義會沿用，過時的定義可能會重新註冊並需要提高權限。 |
+| `restart` | 執行相同的重新整理，並在所有平台上保證重啟。在 macOS 上，未變更且已載入的工作會就地 kickstart。不是 `repair` 的別名。 |
 | `start` | 啟動已安裝的服務。 |
 | `stop` | 停止服務並還原原生 Codex。 |
 | `status` | 回報服務與代理診斷及日誌路徑。 |
@@ -380,6 +401,46 @@ ocx service uninstall
 發布服務資產，並啟動排程工作。因此，取消或拒絕 UAC，或未能安全地宣告一個新的根目錄，都會讓
 現有的 proxy 與其 Codex 路由維持原狀。既有或衝突的排程器註冊會持續 fail closed，而不會被當成
 不安全的盡力回滾而刪除。
+
+### 執行期所有權
+
+OpenCodex 桌面應用程式可以從 CLI 安裝手中接管背景 proxy。接管發生時，它會把交接紀錄寫進共用的
+服務安裝狀態，正是這筆紀錄讓接管在重啟後仍然有效。你的服務註冊**會被保留，永不刪除**——這筆
+紀錄只是取代它的作用，而不是把它換掉。
+
+沒有所有權紀錄的狀態檔代表 CLI 安裝擁有這個執行期，這也是本功能推出之前所有安裝的狀態。在應用
+程式接管之前，對你來說一切不變。
+
+當執行期由其他東西擁有時，會**啟用**你的註冊的子指令改為拒絕：
+
+| 子指令 | 在外部擁有者下的行為 |
+| --- | --- |
+| `repair`、`restart` | 在改動任何東西之前先拒絕。註冊不會被重新啟用、重寫或重啟。 |
+| `start` | 基於相同理由拒絕，因此自動的 tray 啟動不會在應用程式的 proxy 旁再啟動第二個。 |
+| `stop`、`uninstall` | 不變。它們是停用動作，因此永不受此門檻限制。 |
+| `install` | 把執行期收回。註冊成功後會清除所有權紀錄，並回報原本的擁有者是誰。 |
+
+`ocx update` 的行為相同：當應用程式擁有執行期時，它既不會停止正在執行的 proxy，也不會重新整理
+服務，因為執行中的伺服器是應用程式自己內建的執行檔，重新整理反而會重新啟用被接管取代的啟動器。
+應用程式會更新自己的執行期。
+
+拒絕訊息會指名擁有者的安裝與同意世代，例如：
+
+```text
+Background service repair stopped: the desktop app owns the runtime (install <id>, consent generation 2).
+The service registration was left exactly as it is — not re-enabled, not rewritten and not restarted.
+Quit the desktop app and run 'ocx service install' to hand the runtime back to this CLI.
+```
+
+無法讀取或無法解析的紀錄，會產生內容相同、但第一行不同的拒絕訊息，因為無法讀取的宣告不等於
+沒有宣告——把它當成「沒有人擁有」，正是權限錯誤悄悄重新啟用你服務的方式。
+
+**任何情況下的復原方式都是 `ocx service install`。** 它刻意成為唯一永不受此門檻限制的動作，
+因此即使移除應用程式卻沒有把執行期交還，或狀態檔已損毀，你仍有辦法把服務收回：
+
+```bash
+ocx service install
+```
 
 ### `ocx codex-shim <install|status|uninstall|remove>`
 
@@ -467,6 +528,8 @@ systemd 的 `EnvironmentFile=` 使用。
 ### `ocx tray <install|start|stop|status|uninstall|remove> [--json] [--no-start]`
 
 安裝並控制 Windows 狀態列圖示。它在 Windows 登入時啟動並提供一鍵代理控制。`start` 與 `stop` 僅控制圖示；請用其選單控制代理。`--no-start` 適用於 `install`，並在不立即啟動它的情況下安裝 tray。
+已淘汰：OpenCodex 桌面應用程式在 Windows、macOS 與 Linux 提供系統匣；沒有桌面應用程式的安裝仍可使用 `ocx tray`。
+得知有較新的套件版本時，系統匣會在連線、警告或離線圖示上加上藍點，並顯示 **Update available**。系統匣約每分鐘檢查一次本機快取的徽章；結果過期或無法取得時會移除藍點。此選單項目會開啟儀表板，你可以在那裡開始套件更新。它不會自動安裝。
 
 ## 儀表板
 
@@ -480,6 +543,8 @@ hub 上開啟 `http://127.0.0.1:<管理埠>`——若代理未執行則自動啟
 `ocx update` 更新的是 OpenCodex 本身，而不是 Codex CLI。請使用[系統檢查指令](/zh-tw/reference/cli/agents/)，對已設定的 Codex CLI 候選項進行有界、唯讀的 provenance 檢查。`ocx system codex-cli-update check` 不會查詢 package registry，也不會安裝更新。
 
 ### `ocx update [--tag latest|preview]`
+
+當 OpenCodex 由 mise 安裝時，此命令會在停止代理或修改套件檔案之前以失敗狀態結束，並使用經過驗證的本機 mise 別名顯示 `mise upgrade <tool>`。更新檢查仍可使用，並會回報該安裝由外部管理。無法讀取或不一致的 mise 擁有權中繼資料也會阻止修改，且不會猜測工具名稱；`--tag preview` 絕不會變更 mise 中設定的選擇。
 
 從 npm 自我更新 opencodex。穩定安裝使用 `@latest`；預覽安裝停留在 `@preview`，除非你傳入 `--tag latest|preview`。它偵測原始碼 checkout 並告訴你改用
 `git pull && bun install`，且若你已是該 tag 的最新版本則為 no-op。在停止任何東西之前，npm 安裝

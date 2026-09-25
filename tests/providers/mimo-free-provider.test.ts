@@ -16,6 +16,8 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { removeTreeWithRetry } from "../helpers/remove-tree";
+import { createRequestExecutionBudget } from "../../src/lib/request-execution-budget";
+import { budgetOwner } from "../helpers/send-budget-owner";
 
 for (const phase of ["bootstrap", "chat", "401-replay"] as const) test.each([307, 308])(`MiMo ${phase} never follows %i`, async status => {
   const nativeFetch = globalThis.fetch;
@@ -268,16 +270,77 @@ describe("mimo-free JWT cache", () => {
     }
   });
 
-  test("bootstrap propagates the caller abort signal into fetch", async () => {
+  test("an already-aborted caller rejects without starting a bootstrap", async () => {
     const originalFetch = globalThis.fetch;
+    globalThis.fetch = mock(async () => new Response(JSON.stringify({ jwt: "x.y.z" }), { status: 200 })) as unknown as typeof fetch;
+    try {
+      await expect(getMimoJwt(AbortSignal.abort())).rejects.toThrow(/aborted/i);
+      expect((globalThis.fetch as ReturnType<typeof mock>).mock.calls.length).toBe(0);
+    } finally {
+      globalThis.fetch = originalFetch;
+      resetMimoJwtCache();
+    }
+  });
+
+  test("one waiter aborting does not cancel the bootstrap another waiter shares", async () => {
+    const fakeJwt = "h." + Buffer.from(JSON.stringify({ exp: Math.floor(Date.now() / 1000) + 3600 })).toString("base64") + ".s";
+    const originalFetch = globalThis.fetch;
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
     globalThis.fetch = mock(async (_url: string | URL | Request, init?: RequestInit) => {
-      if (init?.signal?.aborted) throw new DOMException("The operation was aborted.", "AbortError");
-      return new Response(JSON.stringify({ jwt: "x.y.z" }), { status: 200 });
+      // Behave like fetch: a signal abort rejects the in-flight request.
+      await new Promise<void>((resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(new DOMException("The operation was aborted.", "AbortError")), { once: true });
+        void gate.then(resolve);
+      });
+      return new Response(JSON.stringify({ jwt: fakeJwt }), { status: 200 });
     }) as unknown as typeof fetch;
     try {
-      const aborted = AbortSignal.abort();
-      await expect(getMimoJwt(aborted)).rejects.toThrow(/aborted/i);
+      const first = new AbortController();
+      const second = new AbortController();
+      const a = getMimoJwt(first.signal);
+      const b = getMimoJwt(second.signal);
+      first.abort();
+      await expect(a).rejects.toThrow(/aborted/i);
+      release();
+      expect(await b).toBe(fakeJwt);
+      expect(await getMimoJwt()).toBe(fakeJwt);
+      expect((globalThis.fetch as ReturnType<typeof mock>).mock.calls.length).toBe(1);
     } finally {
+      globalThis.fetch = originalFetch;
+      resetMimoJwtCache();
+    }
+  });
+
+  test("a bootstrap that fails after every waiter left is handled and the next call starts over", async () => {
+    const fakeJwt = "h." + Buffer.from(JSON.stringify({ exp: Math.floor(Date.now() / 1000) + 3600 })).toString("base64") + ".s";
+    const originalFetch = globalThis.fetch;
+    let fail!: () => void;
+    const gate = new Promise<void>(resolve => { fail = resolve; });
+    let calls = 0;
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => { unhandled.push(reason); };
+    process.on("unhandledRejection", onUnhandled);
+    globalThis.fetch = mock(async () => {
+      calls += 1;
+      if (calls === 1) {
+        await gate;
+        return new Response("down", { status: 503 });
+      }
+      return new Response(JSON.stringify({ jwt: fakeJwt }), { status: 200 });
+    }) as unknown as typeof fetch;
+    try {
+      const only = new AbortController();
+      const waiter = getMimoJwt(only.signal);
+      only.abort();
+      await expect(waiter).rejects.toThrow(/aborted/i);
+      fail();
+      await new Promise(resolve => setTimeout(resolve, 20));
+      expect(unhandled).toEqual([]);
+      expect(await getMimoJwt()).toBe(fakeJwt);
+      expect(calls).toBe(2);
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
       globalThis.fetch = originalFetch;
       resetMimoJwtCache();
     }
@@ -319,7 +382,8 @@ describe("mimo-free auth retry predicate", () => {
     return createMimoFreeAdapter(provider);
   }
 
-  test("401 retries exactly once with a fresh JWT after draining the first body", async () => {
+  test.each(["fallback", "supplied", "prepaid"] as const)("401 retry preserves inference admission and separate bootstrap (%s)", async mode => {
+    const supplied = mode !== "fallback";
     const fakeJwt = "h." + Buffer.from(JSON.stringify({ exp: Math.floor(Date.now() / 1000) + 3600 })).toString("base64") + ".s";
     const calls: string[] = [];
     const originalFetch = globalThis.fetch;
@@ -336,21 +400,42 @@ describe("mimo-free auth retry predicate", () => {
       }
       return new Response(JSON.stringify({ ok: true }), { status: 200 });
     }) as unknown as typeof fetch;
+    const budget = createRequestExecutionBudget();
+    const { owner, dispose } = budgetOwner(budget);
     try {
       const adapter = adapterForRetry();
+      let suppliedCalls = 0;
+      const executor = (async (input, init) => {
+        expect(String(input)).toBe(MIMO_CHAT_URL);
+        suppliedCalls += 1;
+        return globalThis.fetch(input, init);
+      }) as typeof fetch;
+      if (mode === "prepaid") {
+        budget.used = 3;
+        const hop = owner.reserveCredentialHop("auth-recovery", MIMO_CHAT_URL, true);
+        if (!hop.allowed || !hop.permit) throw new Error("Expected final prepaid send");
+        owner.pendingHopPermit = hop.permit;
+      }
+      const scope = mode === "prepaid" ? owner.adapterDispatchBudget : budget;
+      const observed: number[] = [];
       const res = await adapter.fetchResponse!(
         { url: MIMO_CHAT_URL, method: "POST", headers: { "Authorization": "Bearer stale" }, body: "{}" },
-        {} as never,
+        { ...(supplied ? { executor } : {}), sendBudget: scope, onPhysicalSend: send => observed.push(send.ordinal) },
       );
-      expect(res.status).toBe(200);
+      expect(suppliedCalls).toBe(supplied ? mode === "prepaid" ? 1 : 2 : 0);
+      expect(res.status).toBe(mode === "prepaid" ? 401 : 200);
+      expect(budget.used).toBe(mode === "prepaid" ? 4 : 2);
+      expect(observed).toEqual(mode === "prepaid" ? [1] : [1, 2]);
       // Sequence: first chat with stale token -> 401 -> bootstrap -> retry with fresh JWT.
       expect(calls[0]).toBe("chat:Bearer stale");
-      expect(calls[1]).toBe("bootstrap");
-      expect(calls[2]).toBe(`chat:Bearer ${fakeJwt}`);
-      expect(calls.length).toBe(3);
+      if (mode !== "prepaid") expect(calls[1]).toBe("bootstrap");
+      if (mode === "prepaid") expect(await res.text()).toBe("expired");
+      else expect(calls[2]).toBe(`chat:Bearer ${fakeJwt}`);
+      expect(calls.length).toBe(mode === "prepaid" ? 1 : 3);
     } finally {
       globalThis.fetch = originalFetch;
       resetMimoJwtCache();
+      dispose();
     }
   });
 
@@ -365,6 +450,35 @@ describe("mimo-free auth retry predicate", () => {
       );
       expect(res.status).toBe(403);
       expect((globalThis.fetch as ReturnType<typeof mock>).mock.calls.length).toBe(1);
+    } finally {
+      globalThis.fetch = originalFetch;
+      resetMimoJwtCache();
+    }
+  });
+
+  test("a rejected JWT refresh still releases the first 401 body", async () => {
+    // The drain belongs inside `beforeDispatch` so that a budget-refused replay can still hand
+    // the 401 back with a readable body. Within that block it has to come FIRST, because
+    // `getMimoJwt` issues its own bootstrap request and can reject -- and the 401 body would
+    // then never be released.
+    const originalFetch = globalThis.fetch;
+    let cancelled = false;
+    globalThis.fetch = mock(async (url: string | URL | Request) => {
+      if (String(url).includes("/bootstrap")) {
+        return new Response(JSON.stringify({ jwt: "x".repeat(64 * 1024 + 1) }), { status: 200 });
+      }
+      return new Response(new ReadableStream<Uint8Array>({
+        start(controller) { controller.enqueue(new TextEncoder().encode("expired")); },
+        cancel() { cancelled = true; },
+      }), { status: 401 });
+    }) as unknown as typeof fetch;
+    try {
+      const adapter = adapterForRetry();
+      await expect(adapter.fetchResponse!(
+        { url: MIMO_CHAT_URL, method: "POST", headers: { "Authorization": "Bearer stale" }, body: "{}" },
+        {} as never,
+      )).rejects.toThrow("MiMo bootstrap response too large");
+      expect(cancelled).toBe(true);
     } finally {
       globalThis.fetch = originalFetch;
       resetMimoJwtCache();
@@ -403,6 +517,37 @@ describe("mimo-free adapter request building", () => {
         wireValue: "high",
       });
     } finally {
+      globalThis.fetch = originalFetch;
+      resetMimoJwtCache();
+    }
+  });
+});
+
+describe("mimo-free request cancellation", () => {
+  beforeEach(() => {
+    resetMimoJwtCache();
+  });
+
+  test("buildRequest stops waiting for the first bootstrap when the request is aborted", async () => {
+    const originalFetch = globalThis.fetch;
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    globalThis.fetch = mock(async () => {
+      await gate;
+      return new Response(JSON.stringify({ jwt: "late.jwt.token" }), { status: 200 });
+    }) as unknown as typeof fetch;
+    try {
+      const adapter = createMimoFreeAdapter(providerConfigSeed(PROVIDER_REGISTRY.find(e => e.id === "mimo-free")!));
+      const controller = new AbortController();
+      const pending = adapter.buildRequest(minimalRequest(), { abortSignal: controller.signal });
+      const settled = pending.then(() => "resolved", () => "rejected");
+      controller.abort();
+      const outcome = await Promise.race([settled, new Promise(resolve => setTimeout(() => resolve("still waiting"), 50))]);
+      expect(outcome).toBe("rejected");
+      // Only the shared bootstrap ran; no inference request was built or sent.
+      expect((globalThis.fetch as ReturnType<typeof mock>).mock.calls.length).toBe(1);
+    } finally {
+      release();
       globalThis.fetch = originalFetch;
       resetMimoJwtCache();
     }

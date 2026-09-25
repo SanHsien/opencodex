@@ -15,10 +15,28 @@ import {
 import { clearResponseStateForTests, expandPreviousResponseInput } from "../../src/responses/state";
 import { handleResponses } from "../../src/server/responses";
 import type { OcxConfig } from "../../src/types";
+import { acquireOwnedSpendHome } from "../helpers/owned-spend-home";
 
 const originalFetch = globalThis.fetch;
-beforeEach(() => { clearResponseStateForTests(); });
+let releaseInheritedSpendHome: (() => void) | undefined;
+let previousCatalogStateOverride: string | undefined;
+// Taken per inherited-home dispatch because the pool retry row installs a different home. The
+// ??= keeps a second call inside one case idempotent rather than replacing the release callback
+// it would need; no row here calls it twice today, so this is defence, not a fixed regression.
+const takeInheritedSpendHome = (): void => { releaseInheritedSpendHome ??= acquireOwnedSpendHome(); };
+beforeEach(() => {
+  previousCatalogStateOverride = process.env.OPENCODEX_APP_SERVER_CATALOG_STATE_OVERRIDE;
+  // Response rewriting is independent of the host's running Codex processes. Without
+  // this fixture, V2 guidance enumerates real Windows processes and can outlive a case.
+  process.env.OPENCODEX_APP_SERVER_CATALOG_STATE_OVERRIDE = "fresh";
+  clearResponseStateForTests();
+});
 afterEach(() => {
+  if (previousCatalogStateOverride === undefined) delete process.env.OPENCODEX_APP_SERVER_CATALOG_STATE_OVERRIDE;
+  else process.env.OPENCODEX_APP_SERVER_CATALOG_STATE_OVERRIDE = previousCatalogStateOverride;
+  // Released first so a failed row cannot leak its writer lease into the next case.
+  releaseInheritedSpendHome?.();
+  releaseInheritedSpendHome = undefined;
   globalThis.fetch = originalFetch;
   clearResponseStateForTests();
 });
@@ -27,6 +45,7 @@ function config(
   enabled: boolean,
   snapshotRepair = false,
   streamMode?: "auto" | "legacy-tee" | "eager-relay",
+  stallTimeoutSec?: number,
 ): OcxConfig {
   return {
     defaultProvider: "native",
@@ -40,6 +59,7 @@ function config(
     },
     plaintextV2AgentMessages: enabled,
     ...(streamMode ? { streamMode } : {}),
+    ...(stallTimeoutSec ? { stallTimeoutSec } : {}),
   } as OcxConfig;
 }
 
@@ -89,12 +109,16 @@ async function withPoolHome<T>(run: () => Promise<T>): Promise<T> {
   const previousCodexHome = process.env.CODEX_HOME;
   process.env.OPENCODEX_HOME = home;
   process.env.CODEX_HOME = home;
+  // Taken after the pool case installs its home so its direct dispatch owns that journal.
+  const releaseSpendHome = acquireOwnedSpendHome();
   clearCodexUpstreamHealth();
   clearThreadAccountMap();
   clearAccountQuota();
   try {
     return await run();
   } finally {
+    // Released before removal or env restoration so the lease cannot outlive this home.
+    releaseSpendHome();
     clearCodexUpstreamHealth();
     clearThreadAccountMap();
     clearAccountQuota();
@@ -137,6 +161,7 @@ function overLimitResponsePayload(id = "resp-plaintext-v2-overflow") {
 
 describe("plaintext v2 agent messages at the Responses server boundary", () => {
   test.each(["json", "legacy-tee", "eager-relay"] as const)("null namespace restores before %s delivery and continuation storage", async mode => {
+    takeInheritedSpendHome();
     const id = `resp-null-namespace-${mode}`;
     const item = { ...completedResponsePayload(id).output[0]!, namespace: null };
     const payload = { id, status: "completed", output: [item] };
@@ -156,6 +181,7 @@ describe("plaintext v2 agent messages at the Responses server boundary", () => {
   });
 
   test("rewrites the canonical request and restores every SSE response snapshot", async () => {
+    takeInheritedSpendHome();
     const sentBodies: string[] = [];
     globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
       sentBodies.push(typeof init?.body === "string" ? init.body : "");
@@ -206,7 +232,33 @@ describe("plaintext v2 agent messages at the Responses server boundary", () => {
     expect(clientBody).toContain('"encrypted_function_args":[]');
   });
 
+  test("rewrites a Responses Lite default catalog and restores its delegated call", async () => {
+    takeInheritedSpendHome();
+    let sent: Record<string, any> | undefined;
+    globalThis.fetch = (async (_input: unknown, init?: RequestInit) => {
+      sent = JSON.parse(String(init?.body));
+      return new Response(JSON.stringify(completedResponsePayload()), {
+        status: 200, headers: { "content-type": "application/json" },
+      });
+    }) as typeof fetch;
+    const { tools, ...body } = await collaborationRequest().json() as Record<string, any>;
+    body.input.unshift({ type: "additional_tools", role: "developer", tools });
+    const request = new Request("http://localhost/v1/responses", {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+    });
+    const response = await handleResponses(request, config(true), { model: "", provider: "" });
+    expect(response.status).toBe(200);
+    expect(sent?.tools).toBeUndefined();
+    expect(sent?.input[0].tools[0].name).toBe(PLAINTEXT_V2_COLLABORATION_NAMESPACE);
+    expect(sent?.input[0].tools[0].tools[0].parameters.properties.message.encrypted).toBeUndefined();
+    const result = await response.json() as { output: Array<Record<string, unknown>> };
+    expect(result.output[0]!.namespace).toBe("collaboration");
+    expect(result.output[0]!.name).toBe("spawn_agent");
+    expect(result.output[0]!.encrypted_function_args).toEqual([]);
+  });
+
   test("restores the namespace in bounded JSON responses", async () => {
+    takeInheritedSpendHome();
     globalThis.fetch = (async () => new Response(JSON.stringify(completedResponsePayload()), {
       status: 200,
       headers: { "content-type": "application/json" },
@@ -224,7 +276,191 @@ describe("plaintext v2 agent messages at the Responses server boundary", () => {
     expect(clientBody).toContain('"encrypted_function_args":[]');
   });
 
+  test.each(["missing", "text/plain"] as const)(
+    "restores plaintext V2 calls from valid SSE with %s upstream content type",
+    async contentType => {
+      takeInheritedSpendHome();
+      const payload = completedResponsePayload(`resp-plaintext-v2-${contentType}`);
+      const wire = `event: response.completed\ndata: ${JSON.stringify({ type: "response.completed", response: payload })}\n\ndata: [DONE]\n\n`;
+      globalThis.fetch = (async () => new Response(new TextEncoder().encode(wire), {
+        status: 200,
+        ...(contentType === "missing" ? {} : { headers: { "content-type": contentType } }),
+      })) as typeof fetch;
+
+      const response = await handleResponses(collaborationRequest(), config(true), { model: "", provider: "" });
+      const clientBody = await response.text();
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-type")).toContain("text/event-stream");
+      expect(clientBody).toContain('"namespace":"collaboration"');
+      expect(clientBody).toContain('"name":"spawn_agent"');
+      expect(clientBody).not.toContain(PLAINTEXT_V2_COLLABORATION_NAMESPACE);
+      expect(clientBody).not.toContain('"name":"start_delegated_task"');
+      const replay = expandPreviousResponseInput({ previous_response_id: payload.id, input: [] }) as {
+        input: Array<Record<string, unknown>>;
+      };
+      expect(replay.input.find(value => value.type === "function_call"))
+        .toMatchObject({ namespace: "collaboration", name: "spawn_agent" });
+    },
+  );
+
+  test("bounds the headerless prefix probe when the upstream body produces no chunk", async () => {
+    takeInheritedSpendHome();
+    let cancels = 0;
+    globalThis.fetch = (async () => new Response(new ReadableStream<Uint8Array>({
+      pull: () => new Promise<void>(() => {}),
+      cancel: () => { cancels += 1; },
+    }), { status: 200 })) as typeof fetch;
+
+    const started = performance.now();
+    const response = await handleResponses(
+      collaborationRequest(),
+      config(true, false, undefined, 1),
+      { model: "", provider: "" },
+    );
+    const clientBody = await response.text();
+
+    expect(response.status).toBe(502);
+    expect(clientBody).toContain("unsupported content type");
+    expect(cancels).toBeGreaterThan(0);
+    expect(performance.now() - started).toBeLessThan(3_000);
+  });
+
+  test("fails closed when the headerless prefix probe reads a failed body", async () => {
+    takeInheritedSpendHome();
+    globalThis.fetch = (async () => new Response(new ReadableStream<Uint8Array>({
+      start(controller) { controller.error(new Error("upstream body read failed")); },
+    }), { status: 200 })) as typeof fetch;
+
+    const response = await handleResponses(
+      collaborationRequest(),
+      config(true, false, undefined, 1),
+      { model: "", provider: "" },
+    );
+    const clientBody = await response.text();
+
+    expect(response.status).toBe(502);
+    expect(clientBody).toContain("unsupported content type");
+  });
+
+  test("drops the prefix probe deadline once the body is recognized as SSE", async () => {
+    takeInheritedSpendHome();
+    const payload = completedResponsePayload("resp-plaintext-v2-slow-tail");
+    const item = payload.output[0]!;
+    const encoder = new TextEncoder();
+    // Chunk 1 classifies the body at once; every later chunk is a separate event, so the terminal
+    // is the last one and the tail lands after the probe's own one-second budget has passed.
+    const chunks = [
+      `event: response.output_item.added\ndata: ${JSON.stringify({
+        type: "response.output_item.added",
+        output_index: 0,
+        item,
+      })}\n\n`,
+      `event: response.function_call_arguments.done\ndata: ${JSON.stringify({
+        type: "response.function_call_arguments.done",
+        item_id: "fc-spawn",
+        namespace: PLAINTEXT_V2_COLLABORATION_NAMESPACE,
+        name: `${PLAINTEXT_V2_COLLABORATION_NAMESPACE}__start_delegated_task`,
+        arguments: JSON.stringify({ message: "plain assignment" }),
+        encrypted_function_args: [],
+      })}\n\n`,
+      `event: response.completed\ndata: ${JSON.stringify({
+        type: "response.completed",
+        response: payload,
+      })}\n\ndata: [DONE]\n\n`,
+    ];
+    const timers: Array<ReturnType<typeof setTimeout>> = [];
+    globalThis.fetch = (async () => new Response(new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoder.encode(chunks[0]!));
+        const later = (index: number): void => {
+          timers.push(setTimeout(() => {
+            controller.enqueue(encoder.encode(chunks[index]!));
+            if (index + 1 < chunks.length) later(index + 1);
+            else controller.close();
+          }, 700));
+        };
+        later(1);
+      },
+    }), { status: 200 })) as typeof fetch;
+
+    const started = performance.now();
+    try {
+      const response = await handleResponses(
+        collaborationRequest(),
+        config(true, false, undefined, 1),
+        { model: "", provider: "" },
+      );
+      const clientBody = await response.text();
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-type")).toContain("text/event-stream");
+      expect(clientBody).toContain("data: [DONE]");
+      expect(clientBody).toContain('"namespace":"collaboration"');
+      expect(clientBody).toContain('"name":"spawn_agent"');
+      expect(clientBody).not.toContain(PLAINTEXT_V2_COLLABORATION_NAMESPACE);
+      expect(performance.now() - started).toBeGreaterThan(1_000);
+    } finally {
+      for (const timer of timers) clearTimeout(timer);
+    }
+  });
+
+  test("fails closed when a headerless body drip-feeds bytes that never classify", async () => {
+    takeInheritedSpendHome();
+    const encoder = new TextEncoder();
+    const timers: Array<ReturnType<typeof setTimeout>> = [];
+    let cancelled = false;
+    globalThis.fetch = (async () => new Response(new ReadableStream<Uint8Array>({
+      start(controller) {
+        const tick = (): void => {
+          if (cancelled) return;
+          controller.enqueue(encoder.encode("x"));
+          timers.push(setTimeout(tick, 300));
+        };
+        timers.push(setTimeout(tick, 300));
+      },
+      cancel() { cancelled = true; },
+    }), { status: 200 })) as typeof fetch;
+
+    const started = performance.now();
+    try {
+      const response = await handleResponses(
+        collaborationRequest(),
+        config(true, false, undefined, 1),
+        { model: "", provider: "" },
+      );
+      const clientBody = await response.text();
+
+      expect(response.status).toBe(502);
+      expect(clientBody).toContain("unsupported content type");
+      expect(performance.now() - started).toBeLessThan(3_000);
+    } finally {
+      cancelled = true;
+      for (const timer of timers) clearTimeout(timer);
+    }
+  });
+
+  test("recognizes a headerless SSE event split across upstream chunks", async () => {
+    takeInheritedSpendHome();
+    const payload = completedResponsePayload("resp-plaintext-v2-split");
+    const wire = `event: response.completed\ndata: ${JSON.stringify({ type: "response.completed", response: payload })}\n\ndata: [DONE]\n\n`;
+    globalThis.fetch = (async () => new Response(new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(wire.slice(0, 12)));
+        controller.enqueue(new TextEncoder().encode(wire.slice(12)));
+        controller.close();
+      },
+    }), { status: 200 })) as typeof fetch;
+
+    const response = await handleResponses(collaborationRequest(), config(true), { model: "", provider: "" });
+    const clientBody = await response.text();
+    expect(response.status).toBe(200);
+    expect(clientBody).toContain('"name":"spawn_agent"');
+    expect(clientBody).not.toContain(PLAINTEXT_V2_COLLABORATION_NAMESPACE);
+  });
+
   test("rejects an unclassified successful response while restoration is required", async () => {
+    takeInheritedSpendHome();
     globalThis.fetch = (async () => new Response(
       JSON.stringify(completedResponsePayload()),
       { status: 200 },
@@ -244,6 +480,7 @@ describe("plaintext v2 agent messages at the Responses server boundary", () => {
   });
 
   test("restores aliases after SSE snapshot repair copies request tools and tool choice", async () => {
+    takeInheritedSpendHome();
     globalThis.fetch = (async () => {
       const response = completedResponsePayload("resp-snapshot-sse");
       return new Response(
@@ -279,6 +516,7 @@ describe("plaintext v2 agent messages at the Responses server boundary", () => {
   });
 
   test("restores aliases after bounded JSON snapshot repair", async () => {
+    takeInheritedSpendHome();
     globalThis.fetch = (async () => new Response(
       JSON.stringify(completedResponsePayload("resp-snapshot-json")),
       { status: 200, headers: { "content-type": "application/json" } },
@@ -304,6 +542,7 @@ describe("plaintext v2 agent messages at the Responses server boundary", () => {
   });
 
   test("keeps the marker and reserved namespace when the option is disabled", async () => {
+    takeInheritedSpendHome();
     const sentBodies: string[] = [];
     globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
       sentBodies.push(typeof init?.body === "string" ? init.body : "");
@@ -324,6 +563,7 @@ describe("plaintext v2 agent messages at the Responses server boundary", () => {
   });
 
   test("keeps the whole request unchanged when tool-search history conflicts with the alias", async () => {
+    takeInheritedSpendHome();
     const sentBodies: string[] = [];
     globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
       sentBodies.push(typeof init?.body === "string" ? init.body : "");
@@ -425,6 +665,7 @@ describe("plaintext v2 agent messages at the Responses server boundary", () => {
   });
 
   test("fails closed for over-limit streamed responses in both relay modes", async () => {
+    takeInheritedSpendHome();
     for (const streamMode of ["legacy-tee", "eager-relay"] as const) {
       globalThis.fetch = (async () => new Response(
         `event: response.completed\ndata: ${JSON.stringify({
@@ -451,6 +692,7 @@ describe("plaintext v2 agent messages at the Responses server boundary", () => {
   });
 
   test("rejects over-limit bounded JSON before HTTP or WebSocket reframing", async () => {
+    takeInheritedSpendHome();
     const fixtureId = "plaintext-v2-bounded-json-fixture";
     const fixtureModel = "fixture-model";
     const mutableRegistry = PROVIDER_REGISTRY as unknown as Array<Record<string, unknown>>;
@@ -503,6 +745,7 @@ describe("plaintext v2 agent messages at the Responses server boundary", () => {
   });
 
   test("rejects an over-limit JSON response and does not retain it for continuation", async () => {
+    takeInheritedSpendHome();
     const sentBodies: string[] = [];
     let requestIndex = 0;
     globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
@@ -540,12 +783,14 @@ describe("plaintext v2 agent messages at the Responses server boundary", () => {
     const secondBody = await second.text();
     expect({ status: second.status, body: secondBody, sends: sentBodies.length }).toEqual({
       status: 400,
-      body: expect.stringContaining("continuation state is unavailable or expired"),
+      // One message for every local replay failure, so which one occurred is not readable here.
+      body: expect.stringContaining("Continuation state is unavailable or corrupt"),
       sends: 1,
     });
   });
 
   test.each([undefined, "websocket"] as const)("stores the client namespace across an option change on %s", async inboundTransport => {
+    takeInheritedSpendHome();
     const sentBodies: string[] = [];
     let requestIndex = 0;
     globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
@@ -604,6 +849,7 @@ test("plaintext startup warning requires explicit opt-in and names retention", (
 for (const streamMode of ["legacy-tee", "eager-relay"] as const) {
   for (const refusal of ["malformed", "unknown-alias", "conflicting-binding"] as const) {
     test(`${streamMode} ${refusal} is refused without caching or retry`, async () => {
+      takeInheritedSpendHome();
       let sends = 0;
       const sent: string[] = [];
       globalThis.fetch = (async (_url: RequestInfo | URL, init?: RequestInit) => {
@@ -634,6 +880,7 @@ for (const streamMode of ["legacy-tee", "eager-relay"] as const) {
 }
 
 test("malformed bounded JSON is a single-attempt 502", async () => {
+  takeInheritedSpendHome();
   let sends = 0;
   globalThis.fetch = (async () => { sends += 1; return new Response("{malformed", { headers: { "content-type": "application/json" } }); }) as typeof fetch;
   const response = await handleResponses(collaborationRequest(), config(true), { model: "", provider: "" });
@@ -643,6 +890,7 @@ test("malformed bounded JSON is a single-attempt 502", async () => {
 });
 
 test("cross-coordinate namespace conflict cannot publish continuation", async () => {
+  takeInheritedSpendHome();
   let sends = 0;
   globalThis.fetch = (async () => {
     sends += 1;
@@ -662,6 +910,7 @@ test("cross-coordinate namespace conflict cannot publish continuation", async ()
 
 
 test("concurrent native requests do not share plaintext alias metadata", async () => {
+  takeInheritedSpendHome();
   const pending: Array<{ enabled: boolean; resolve: (value: Response) => void }> = [];
   let bothReady!: () => void;
   const ready = new Promise<void>(resolve => { bothReady = resolve; });

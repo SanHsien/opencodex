@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { INTERNAL_DEADLINE_MS, STORE_BUDGET_MS } from "../helpers/test-budget";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import * as atomicWrite from "../../src/config/atomic-write";
 import * as oauthStore from "../../src/oauth/store";
+import * as configOwnership from "../../src/lib/config-ownership";
 import { flushConfigDirHardeningForTests } from "../../src/config/paths";
 import {
   resetHardenedStateForTests,
@@ -36,6 +37,7 @@ import {
 } from "../../src/oauth/store";
 import type { OAuthCredentials } from "../../src/oauth/types";
 import { removeTreeWithRetry } from "../helpers/remove-tree";
+import { recordOwnedConfigPath, removeOwnedConfigState } from "../../src/lib/config-ownership";
 
 const TEST_DIR = join(import.meta.dir, ".tmp-oauth-store-multi-test");
 let previousOpencodexHome: string | undefined;
@@ -150,6 +152,239 @@ describe("multi-account auth store", () => {
     const raw = JSON.parse(readFileSync(authPath, "utf-8"));
     expect(Array.isArray(raw.xai.accounts)).toBe(true);
     expect(existsSync(`${authPath}.pre-multiauth`)).toBe(true);
+  });
+
+  test("uninstall removes a legacy recovery backup from an owned home", async () => {
+    const dir = join(TEST_DIR, "owned");
+    const path = join(dir, "auth.json");
+    process.env.OPENCODEX_HOME = dir;
+    try {
+      expect(recordOwnedConfigPath(dir, path)).toBe(true);
+      const original = JSON.stringify({ xai: cred({ email: "old@example.test" }) });
+      writeFileSync(path, original);
+      await saveCredential("xai", cred({ email: "old@example.test", access: "new-access" }));
+      expect(readFileSync(`${path}.pre-multiauth`, "utf8")).toBe(original);
+      await flushConfigDirHardeningForTests();
+      expect(removeOwnedConfigState(dir).status).toBe("removed");
+      expect(existsSync(`${path}.pre-multiauth`)).toBe(false);
+    } finally {
+      process.env.OPENCODEX_HOME = TEST_DIR;
+    }
+  });
+
+  test.each(["false", "throw"] as const)("recovery survives registration %s and warns without exposing credentials", async (failure) => {
+    const path = join(TEST_DIR, "auth.json");
+    const backup = `${path}.pre-multiauth`;
+    const original = JSON.stringify({ xai: cred({ email: "old@example.test" }) });
+    writeFileSync(path, original);
+    const register = configOwnership.recordOwnedConfigPath;
+    const registration = spyOn(configOwnership, "recordOwnedConfigPath").mockImplementation((dir, candidate) => {
+      if (candidate !== backup) return register(dir, candidate);
+      if (failure === "throw") throw new Error("private ownership failure fixture");
+      return false;
+    });
+    const warning = spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await saveCredential("xai", cred({ email: "old@example.test", access: "new-access" }));
+      expect(registration).toHaveBeenCalledWith(TEST_DIR, backup);
+      expect(readFileSync(backup, "utf8")).toBe(original);
+      expect(getCredential("xai")?.access).toBe("new-access");
+      expect(warning.mock.calls).toEqual([["[oauth] Recovery backup created, but uninstall ownership registration failed."]]);
+    } finally {
+      warning.mockRestore();
+      registration.mockRestore();
+    }
+  });
+
+  test("migration leaves a pre-existing unregistered backup unchanged and unclaimed", async () => {
+    const dir = join(TEST_DIR, "existing-backup");
+    const path = join(dir, "auth.json");
+    process.env.OPENCODEX_HOME = dir;
+    try {
+      expect(recordOwnedConfigPath(dir, path)).toBe(true);
+      writeFileSync(path, JSON.stringify({ xai: cred({ email: "old@example.test" }) }));
+      writeFileSync(`${path}.pre-multiauth`, "prior-recovery-fixture");
+      await saveCredential("xai", cred({ email: "old@example.test" }));
+      await flushConfigDirHardeningForTests();
+      expect(removeOwnedConfigState(dir).status).toBe("partial");
+      expect(readFileSync(`${path}.pre-multiauth`, "utf8")).toBe("prior-recovery-fixture");
+    } finally {
+      process.env.OPENCODEX_HOME = TEST_DIR;
+    }
+  });
+
+  test("logout migrates a legacy store without retaining its credential backup", async () => {
+    const authPath = join(TEST_DIR, "auth.json");
+    mkdirSync(TEST_DIR, { recursive: true, mode: 0o700 });
+    writeFileSync(authPath, JSON.stringify({
+      xai: { access: "legacy-access", refresh: "legacy-refresh", expires: Date.now() + 1000 },
+    }));
+
+    expect(await removeCredential("xai")).toBe("removed");
+
+    expect(JSON.parse(readFileSync(authPath, "utf-8"))).toEqual({});
+    expect(existsSync(`${authPath}.pre-multiauth`)).toBe(false);
+  });
+
+  test("account deletion removes an existing legacy credential backup", async () => {
+    const authPath = join(TEST_DIR, "auth.json");
+    mkdirSync(TEST_DIR, { recursive: true, mode: 0o700 });
+    const legacy = {
+      xai: { access: "legacy-access", refresh: "legacy-refresh", expires: Date.now() + 1000 },
+    };
+    writeFileSync(authPath, JSON.stringify(legacy));
+    writeFileSync(`${authPath}.pre-multiauth`, JSON.stringify(legacy));
+    const accountId = getAccountSet("xai")!.activeAccountId;
+
+    expect(await removeAccount("xai", accountId)).toBe(true);
+
+    expect(JSON.parse(readFileSync(authPath, "utf-8"))).toEqual({});
+    expect(existsSync(`${authPath}.pre-multiauth`)).toBe(false);
+  });
+
+  test("logout on a migrated store still removes a stale credential backup", async () => {
+    const authPath = join(TEST_DIR, "auth.json");
+    mkdirSync(TEST_DIR, { recursive: true, mode: 0o700 });
+    await saveCredential("xai", cred({ email: "a@example.test" }));
+    // A backup left over from an earlier migration holds copies of removed credentials.
+    writeFileSync(`${authPath}.pre-multiauth`, JSON.stringify({ xai: { access: "stale", refresh: "stale", expires: 1 } }));
+
+    expect(await removeCredential("xai")).toBe("removed");
+
+    expect(existsSync(`${authPath}.pre-multiauth`)).toBe(false);
+  });
+
+  test("a logout that removed nothing keeps the downgrade backup", async () => {
+    const authPath = join(TEST_DIR, "auth.json");
+    mkdirSync(TEST_DIR, { recursive: true, mode: 0o700 });
+    await saveCredential("xai", cred({ email: "a@example.test" }));
+    // The backup is a whole-store copy, so a no-op removal for one provider must
+    // not destroy downgrade recovery for every other provider in it.
+    writeFileSync(`${authPath}.pre-multiauth`, JSON.stringify({ xai: { access: "stale", refresh: "stale", expires: 1 } }));
+
+    expect(await removeCredential("anthropic")).toBe("not-found");
+
+    expect(existsSync(`${authPath}.pre-multiauth`)).toBe(true);
+  });
+
+  test("an account deletion that matched nothing keeps the downgrade backup", async () => {
+    const authPath = join(TEST_DIR, "auth.json");
+    mkdirSync(TEST_DIR, { recursive: true, mode: 0o700 });
+    await saveCredential("xai", cred({ email: "a@example.test" }));
+    writeFileSync(`${authPath}.pre-multiauth`, JSON.stringify({ xai: { access: "stale", refresh: "stale", expires: 1 } }));
+
+    expect(await removeAccount("xai", "no-such-account")).toBe(false);
+
+    expect(existsSync(`${authPath}.pre-multiauth`)).toBe(true);
+  });
+
+  test("provider deletion drops the downgrade backup; a no-op clear or a replacement keeps it", async () => {
+    const authPath = join(TEST_DIR, "auth.json");
+    const backup = `${authPath}.pre-multiauth`;
+    mkdirSync(TEST_DIR, { recursive: true, mode: 0o700 });
+    await saveCredential("xai", cred({ email: "a@example.test" }));
+    writeFileSync(backup, JSON.stringify({ xai: { access: "stale", refresh: "stale", expires: 1 } }));
+
+    await replaceProviderAccountSet("anthropic", null);
+    expect(existsSync(backup)).toBe(true);
+    await replaceProviderAccountSet("xai", getAccountSet("xai")!);
+    expect(existsSync(backup)).toBe(true);
+
+    // The management provider-delete route clears credentials this way.
+    await replaceProviderAccountSet("xai", null);
+    expect(getAccountSet("xai")).toBeNull();
+    expect(existsSync(backup)).toBe(false);
+  });
+
+  test("a backup that cannot be removed warns without failing the completed logout", async () => {
+    const authPath = join(TEST_DIR, "auth.json");
+    mkdirSync(TEST_DIR, { recursive: true, mode: 0o700 });
+    await saveCredential("xai", cred({ email: "a@example.test" }));
+    // A directory in the backup's place makes unlink fail with a non-ENOENT code on every OS.
+    mkdirSync(`${authPath}.pre-multiauth`);
+    const warning = spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      expect(await removeCredential("xai")).toBe("removed");
+      expect(getAccountSet("xai")).toBeNull();
+      expect(warning.mock.calls.some(call => String(call[0]).includes("could not remove deleted credentials from the legacy credential backup"))).toBe(true);
+    } finally {
+      warning.mockRestore();
+    }
+  });
+
+  test("logout keeps other providers' downgrade recovery in a legacy backup", async () => {
+    const authPath = join(TEST_DIR, "auth.json");
+    const backup = `${authPath}.pre-multiauth`;
+    mkdirSync(TEST_DIR, { recursive: true, mode: 0o700 });
+    writeFileSync(authPath, JSON.stringify({
+      xai: { access: "xai-access", refresh: "xai-refresh", expires: Date.now() + 1000 },
+      anthropic: { access: "anthropic-access", refresh: "anthropic-refresh", expires: Date.now() + 1000 },
+    }));
+
+    expect(await removeCredential("xai")).toBe("removed");
+
+    // An older loader cannot read the migrated auth.json, so the backup must still hold the
+    // provider the user kept, and must no longer hold the one the user removed.
+    const kept = JSON.parse(readFileSync(backup, "utf-8")) as Record<string, { refresh?: string }>;
+    expect(Object.keys(kept)).toEqual(["anthropic"]);
+    expect(kept.anthropic?.refresh).toBe("anthropic-refresh");
+    expect(readFileSync(backup, "utf-8")).not.toContain("xai-refresh");
+  });
+
+  test.skipIf(process.platform === "win32")("a symlinked backup is removed without touching its target", async () => {
+    const authPath = join(TEST_DIR, "auth.json");
+    const backup = `${authPath}.pre-multiauth`;
+    const target = join(TEST_DIR, "elsewhere.json");
+    mkdirSync(TEST_DIR, { recursive: true, mode: 0o700 });
+    await saveCredential("xai", cred({ email: "a@example.test" }));
+    const outside = JSON.stringify({ xai: { access: "x", refresh: "x", expires: 1 }, other: { access: "o", refresh: "o", expires: 1 } });
+    writeFileSync(target, outside);
+    symlinkSync(target, backup);
+
+    expect(await removeCredential("xai")).toBe("removed");
+
+    expect(() => lstatSync(backup)).toThrow();
+    expect(readFileSync(target, "utf-8")).toBe(outside);
+  });
+
+  test.skipIf(process.platform === "win32")("a dangling backup link is never written through", async () => {
+    const authPath = join(TEST_DIR, "auth.json");
+    const backup = `${authPath}.pre-multiauth`;
+    const missing = join(TEST_DIR, "not-yet-created.json");
+    mkdirSync(TEST_DIR, { recursive: true, mode: 0o700 });
+    writeFileSync(authPath, JSON.stringify({
+      xai: { access: "legacy-access", refresh: "legacy-refresh", expires: Date.now() + 1000 },
+    }));
+    symlinkSync(missing, backup);
+
+    expect(await removeCredential("xai")).toBe("removed");
+
+    expect(existsSync(missing)).toBe(false);
+    expect(() => lstatSync(backup)).toThrow();
+  });
+
+  test("scrubbing a backup this install never registered leaves it unclaimed", async () => {
+    const dir = join(TEST_DIR, "unclaimed-backup");
+    const path = join(dir, "auth.json");
+    const backup = `${path}.pre-multiauth`;
+    process.env.OPENCODEX_HOME = dir;
+    try {
+      expect(recordOwnedConfigPath(dir, path)).toBe(true);
+      await saveCredential("xai", cred({ email: "a@example.test" }));
+      writeFileSync(backup, JSON.stringify({
+        xai: { access: "stale", refresh: "stale", expires: 1 },
+        anthropic: { access: "kept", refresh: "kept", expires: 1 },
+      }));
+
+      expect(await removeCredential("xai")).toBe("removed");
+      expect(Object.keys(JSON.parse(readFileSync(backup, "utf8")))).toEqual(["anthropic"]);
+
+      await flushConfigDirHardeningForTests();
+      removeOwnedConfigState(dir);
+      expect(readFileSync(backup, "utf8")).toContain("kept");
+    } finally {
+      process.env.OPENCODEX_HOME = TEST_DIR;
+    }
   });
 
   test("legacy credential WITHOUT identity gets a deterministic account id across loads", async () => {

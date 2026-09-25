@@ -33,7 +33,12 @@ export type BoundedFileRefusal =
 
 export type BoundedFileRead =
   | { kind: "absent" }
-  | { kind: "refused"; reason: BoundedFileRefusal }
+  /**
+   * `code` is the errno code of a failed stat or open (`reason: "unreadable"` only), so a
+   * caller can still tell a transient lock (EBUSY, EACCES from a scanner on Windows) from
+   * a real failure.
+   */
+  | { kind: "refused"; reason: BoundedFileRefusal; code?: string }
   /** `stat` is the DESCRIPTOR's stat, so a mode check on it describes the bytes just read. */
   | { kind: "present"; bytes: Buffer; content: string; stat: Stats };
 
@@ -48,8 +53,9 @@ export function readBoundedRegularFile(path: string, maxBytes: number): BoundedF
   try {
     lexicalBefore = lstatSync(path);
   } catch (error) {
-    if (errorCode(error) === "ENOENT") return { kind: "absent" };
-    return { kind: "refused", reason: "unreadable" };
+    const code = errorCode(error);
+    if (code === "ENOENT") return { kind: "absent" };
+    return { kind: "refused", reason: "unreadable", ...(code ? { code } : {}) };
   }
   if (lexicalBefore.isSymbolicLink() || !lexicalBefore.isFile()) {
     return { kind: "refused", reason: "not-a-regular-file" };
@@ -59,8 +65,9 @@ export function readBoundedRegularFile(path: string, maxBytes: number): BoundedF
   try {
     fd = openSync(path, "r");
   } catch (error) {
-    if (errorCode(error) === "ENOENT") return { kind: "absent" };
-    return { kind: "refused", reason: "unreadable" };
+    const code = errorCode(error);
+    if (code === "ENOENT") return { kind: "absent" };
+    return { kind: "refused", reason: "unreadable", ...(code ? { code } : {}) };
   }
 
   try {

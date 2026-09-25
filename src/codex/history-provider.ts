@@ -692,7 +692,17 @@ function readBackupStrict(path: string, stateDbPath: string): StrictBackupRead {
   {
     const read = readBoundedRegularFile(path, MAX_HISTORY_MANIFEST_BYTES);
     if (read.kind !== "present") {
-      return { kind: "unknown", present: true, reason: "manifest-read" };
+      // A transient lock on the open (a scanner or indexer on Windows) must stay retryable,
+      // exactly as the unbounded readFileSync this replaced reported it.
+      const failureReason = read.kind === "refused" && read.code
+        ? classifyRecoverableHistoryError({ code: read.code })
+        : null;
+      return {
+        kind: "unknown",
+        present: true,
+        reason: "manifest-read",
+        ...(failureReason === "busy" || failureReason === "permission" ? { failureReason } : {}),
+      };
     }
     raw = read.content;
   }

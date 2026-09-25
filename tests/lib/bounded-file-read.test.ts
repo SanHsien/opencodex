@@ -9,7 +9,8 @@
  * driven from a single-threaded test without a race, so what is asserted here is the refusal
  * surface -- absent, symlink, over-limit, not-a-file -- plus that a plain read is byte-exact.
  */
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
+import * as fs from "node:fs";
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -72,5 +73,20 @@ describe("readBoundedRegularFile", () => {
     expect(readBoundedRegularFileText(path, 128)).toBe("x".repeat(128));
     expect(readBoundedRegularFileText(path, 127)).toBeNull();
     expect(readBoundedRegularFileText(join(dir, "nope"), 1024)).toBeNull();
+  });
+
+  test("an open that fails keeps its errno code so a transient lock stays recognisable", () => {
+    // A scanner holding the file on Windows surfaces as EBUSY/EACCES on the open. Callers that
+    // used to retry on those codes (the Codex history manifest) need the code, not a bare refusal.
+    const path = join(dir, "locked.json");
+    writeFileSync(path, "{}");
+    const open = spyOn(fs, "openSync").mockImplementation(() => {
+      throw Object.assign(new Error("EBUSY: resource busy or locked"), { code: "EBUSY" });
+    });
+    try {
+      expect(readBoundedRegularFile(path, 1024)).toEqual({ kind: "refused", reason: "unreadable", code: "EBUSY" });
+    } finally {
+      open.mockRestore();
+    }
   });
 });

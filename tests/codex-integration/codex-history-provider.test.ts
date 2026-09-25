@@ -2,7 +2,8 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
-import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
+import { afterEach, describe, expect, setDefaultTimeout, spyOn, test } from "bun:test";
+import * as fs from "node:fs";
 import { classifyRecoverableHistoryError, countPendingOpencodexHistory, historyBackupPathFor, isRecoverableHistoryError, legacyHistoryBackupPathFor, migrateHistoryToOpenai, resolveExistingHistoryBackupPath, restoreLegacyOpenaiHistory, restoredUserEventFor, setAfterNoopPendingCountForTests, setAfterStrictHistoryRolloutAppendForTests, setBeforeHistoryApplyTransactionForTests, setBeforeHistoryBackupConsumeForTests, setBeforeStrictHistoryRolloutAppendForTests, setHistoryDbBusyTimeoutForTests, snapshotCodexHistoryNoop, syncCodexHistoryProvider, withHistoryRetry } from "../../src/codex/history-provider";
 import { codexHistoryBackupId, legacyCodexHistoryBackupId, sameCodexHistoryPath } from "../../src/codex/history-manifest";
 import { INVALID_HISTORY_BACKUP_FIXTURES, validHistoryBackupFixture } from "../helpers/codex-history-manifest-fixtures";
@@ -1176,6 +1177,26 @@ describe("Codex history provider sync", () => {
     expect(syncCodexHistoryProvider("openai", fixture.dbPath, fixture.backupPath))
       .toMatchObject({ rows: 1, files: 1, failed: true, failureReason: "busy" });
     expect(existsSync(fixture.backupPath)).toBe(true);
+  });
+
+  test("a manifest open held by another process stays retryable instead of reading as corrupt", () => {
+    // The bounded descriptor read replaced readFileSync; a Windows scanner holding the manifest
+    // must still classify as busy/permission (retryable), not as an integrity failure.
+    const fixture = makeFixture();
+    syncCodexHistoryProvider("opencodex", fixture.dbPath, fixture.backupPath);
+    for (const [code, failureReason] of [["EBUSY", "busy"], ["EACCES", "permission"]] as const) {
+      const realOpen = fs.openSync;
+      const open = spyOn(fs, "openSync").mockImplementation(((path: fs.PathLike, ...rest: unknown[]) => {
+        if (String(path) === fixture.backupPath) throw Object.assign(new Error(`${code}: held`), { code });
+        return (realOpen as (...args: unknown[]) => number)(path, ...rest);
+      }) as typeof fs.openSync);
+      try {
+        expect(countPendingOpencodexHistory(fixture.dbPath, fixture.backupPath))
+          .toMatchObject({ failed: true, failureReason });
+      } finally {
+        open.mockRestore();
+      }
+    }
   });
 
   test("reports applied integrity progress for an unclassified finalization failure", () => {

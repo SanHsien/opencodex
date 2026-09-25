@@ -706,7 +706,8 @@ jobs:
   release-outcomes:
     name: release outcomes
     needs: [publish, attach-release]
-    if: ${{ always() && inputs.dry-run != true }}
+    # always() bypasses the skipped validate-dispatch chain, so the fork guard is restated here.
+    if: ${{ always() && github.repository == 'lidge-jun/opencodex' && inputs.dry-run != true }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:

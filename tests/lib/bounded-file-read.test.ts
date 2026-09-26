@@ -89,4 +89,18 @@ describe("readBoundedRegularFile", () => {
       open.mockRestore();
     }
   });
+
+  test("a read that fails after the open also keeps its errno code", () => {
+    // A byte-range lock can be taken between the open and the read; that surfaces from readSync.
+    const path = join(dir, "range-locked.json");
+    writeFileSync(path, "{}");
+    const read = spyOn(fs, "readSync").mockImplementation(() => {
+      throw Object.assign(new Error("EBUSY: resource busy or locked, read"), { code: "EBUSY" });
+    });
+    try {
+      expect(readBoundedRegularFile(path, 1024)).toEqual({ kind: "refused", reason: "unreadable", code: "EBUSY" });
+    } finally {
+      read.mockRestore();
+    }
+  });
 });

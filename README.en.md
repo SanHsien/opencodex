@@ -1,4 +1,4 @@
-> This is the [SanHsien/opencodex](https://github.com/SanHsien/opencodex) maintenance fork. Product behavior follows upstream v2.52.0; see [FORK.md](FORK.md) for maintenance policy.
+> This is the [SanHsien/opencodex](https://github.com/SanHsien/opencodex) maintenance fork. Product behavior follows the most recently synced upstream stable release (see [`tools/upstream_baseline.json`](tools/upstream_baseline.json) and [`docs/fork/UPSTREAM.md`](docs/fork/UPSTREAM.md)); see [FORK.md](FORK.md) for maintenance policy.
 
 <h3 align="center">make codex open!</h3>
 <p align="center"><b>Universal provider proxy for OpenAI Codex, Claude Code, Claude Desktop &amp; Grok Build</b><br>

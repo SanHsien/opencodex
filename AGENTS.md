@@ -2,7 +2,7 @@
 
 > **SanHsien 維護型 fork overlay。** `origin` 是 [`SanHsien/opencodex`](https://github.com/SanHsien/opencodex)，`upstream` 是 [`lidge-jun/opencodex`](https://github.com/lidge-jun/opencodex)。
 > 維護規則以 [`FORK.md`](FORK.md) 為準；不要推 `upstream`、不要在本 fork 發 npm、不要部署 `docs-site` 到 GitHub Pages。
-> 其餘產品行為與測試規則維持上游 v2.52.0。
+> 其餘產品行為與測試規則以最近一次同步的上游穩定版為準（見 `tools/upstream_baseline.json`）。
 
 Guidance for AI agents (and humans) working on or reviewing this repository.
 

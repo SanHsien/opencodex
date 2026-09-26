@@ -34,7 +34,7 @@ export type BoundedFileRefusal =
 export type BoundedFileRead =
   | { kind: "absent" }
   /**
-   * `code` is the errno code of a failed stat or open (`reason: "unreadable"` only), so a
+   * `code` is the errno code of a failed stat, open, or read (`reason: "unreadable"` only), so a
    * caller can still tell a transient lock (EBUSY, EACCES from a scanner on Windows) from
    * a real failure.
    */
@@ -101,8 +101,11 @@ export function readBoundedRegularFile(path: string, maxBytes: number): BoundedF
       return { kind: "refused", reason: "changed-while-reading" };
     }
     return { kind: "present", bytes: buffer, content: buffer.toString("utf8"), stat: after };
-  } catch {
-    return { kind: "refused", reason: "unreadable" };
+  } catch (error) {
+    // A byte-range lock taken after the open (EBUSY/EACCES on Windows) lands here, not on the
+    // open; keep its code so callers can still treat it as transient.
+    const code = errorCode(error);
+    return { kind: "refused", reason: "unreadable", ...(code ? { code } : {}) };
   } finally {
     closeSync(fd);
   }

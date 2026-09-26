@@ -1,5 +1,13 @@
 # 維護決策
 
+## 2026-09-26：一般 merge v2.66.0；exec-tool-result-normalize.ts 雙軌並存
+
+**決定**：把上游穩定版本 `v2.66.0`（`e70b3d86fb1201d7951dfeb25e09b7871c433047`）一般 merge 進本 fork，package development version 前推至 `2.67.0`。
+
+**src 逐檔判定**：`src/adapters/exec-tool-result-normalize.ts` 的空輸出偵測，fork 在 v2.65.0 之後已把原本的 ReDoS 正規表達式改寫成左到右字串解析（`isEmptyExecOutputWrapper`），upstream 這輪則保留原本正規表達式但加上 atomic-group 式的 pin（`(?=(X))\1`）修同一個 ReDoS 洞。兩者對 well-formed 輸入行為等價，且既有測試 `tests/adapters/exec-tool-result-normalize.test.ts` 直接對 `EMPTY_EXEC_OUTPUT_REGEX` 斷言（upstream 這輪新增的三組測試也是）。判定：保留 fork 的 `isEmptyExecOutputWrapper` 作為實際呼叫路徑（所有 caller 已使用這個名字），同時保留 `EMPTY_EXEC_OUTPUT_REGEX`（採 upstream 修好的版本）供既有測試與外部呼叫者使用，不刪除任一方的公開介面。
+
+**語系**：延續既有政策，非保留 locale（fr/ja/ko/ru/tr/zh-cn/de/vi）新增內容一併剃除，包含 upstream 這次新增的 `docs-site` 六語 `guides/remote-link.md`。`docs-site` 新增頁面 `guides/protocol-paths.md` 補上缺失的 zh-tw 翻譯（heading／fence 計數與英文源一致）。`docs-site/src/content/docs/zh-tw/reference/cli/providers-accounts.md` 合併時出現章節重複（`ocx account login/remove/add-key/reset-credits/grok-reset-coupons` 各兩份，因 upstream 把這些子指令的順序移到 `priority` 之前），已刪除舊序位的重複區塊，只保留內容較完整、順序與英文源一致的版本。
+
 ## 2026-08-28：最小移植 `#2557`，不提前重放 2.34
 
 **決定**：把上游 `v2.33.0` 的桌面 app 探針修正接到本線：`listPackageProcesses` 用換行串 PowerShell，失敗回 `process_probe_failed`，CLI 不再說「沒在跑」。不因此把整棵 `v2.34.0` merge 進來。

@@ -401,6 +401,57 @@ proxy 能連到你瀏覽器連不到的主機，包括雲端中繼資料端點�
 
 用 `ocx provider resets` 或 `GET /api/quota-resets` 讀取最近的偵測結果。
 
+## API surfaces（`apiSurfaces`）
+
+Responses（`/v1/responses`）與 Chat Completions（`/v1/chat/completions`）永遠會被服務。
+Messages API（`/v1/messages` 與 `/v1/messages/count_tokens`）可以單獨關閉。
+
+| 鍵 | 型別 | 預設值 | 說明 |
+| --- | --- | --- | --- |
+| `apiSurfaces.messages.enabled?` | `boolean` | 繼承 | `true` 會服務 Messages API，`false` 會讓兩條路由都以 403 拒絕。未設定時繼承 `claudeCode.enabled`，因此關閉 Claude 整合也會關閉 Messages。 |
+
+存在但格式錯誤的值（非物件的 `apiSurfaces` 或 `messages`，或非布林的 `enabled`）會關閉
+Messages API，而不是退回繼承值。兩條路由永遠一致。
+
+儀表板的 API 頁面會為每個 API 顯示一張卡片，說明設定來源（明確設定、從 Claude 設定繼承，
+或無效），以及 Messages 的切換開關。在那裡關閉 Messages 會在同一次儲存中同時寫入
+`apiSurfaces.messages.enabled: false` **與** `claudeCode.enabled: false`，因此比這個設定更
+舊、只讀取 `claudeCode.enabled` 的代理版本，在降級後仍會保持端點關閉。開啟它則只會寫入
+`apiSurfaces.messages.enabled: true`；較舊版本仍會遵循 `claudeCode.enabled`，可能仍保持
+Messages 關閉，這是安全的方向。
+
+## Protocol paths（`protocols`）
+
+Chat Completions 或 Messages 請求可能如何送達供應商。每個值預設維持這些鍵存在之前的行為；
+傳送模式、預覽與逐請求追蹤請見[協定路徑](/zh-tw/guides/protocol-paths/)。
+
+| 鍵 | 型別 | 預設值 | 說明 |
+| --- | --- | --- | --- |
+| `protocols.unrepresentable?` | `"legacy" \| "reject"` | `"legacy"` | `legacy` 會送出路徑會捨棄某功能的請求，並在追蹤紀錄中記下遺失。`reject` 會在送出前以 HTTP 400 拒絕，只指名功能鍵。 |
+| `protocols.rollout.nativeChatCombos?` | `boolean` | `false` | 讓組合中符合資格的 Chat 候選項以自己那份用戶端主體的副本以 native 方式送出。 |
+| `protocols.rollout.managedMessagesNative?` | `boolean` | `false` | 讓 Messages 以 native 方式直接送給以金鑰驗證的 Anthropic 供應商，而不經由內部 Responses 橋接。 |
+| `protocols.rollout.managedMessagesNativeOAuth?` | `boolean` | `false` | 為未納入帳號池的 `anthropic` OAuth 供應商於 `api.anthropic.com` 上啟用 native Messages。除非 `managedMessagesNative` 已開啟，否則視為關閉；納入帳號池的帳號集仍維持橋接。 |
+| `protocols.rollout.directEncoders?` | `boolean` | `false` | 對於非 Responses 上游，直接從適配器事件編碼 Chat 與 Messages 的回應。 |
+| `protocols.rollout.shadowPlan?` | `boolean` | `false` | 比較每個 Chat 或 Messages 請求的路徑與預覽所預測的方案，並在其日誌列標記不一致為
+`planMismatch`。不會多送出任何東西。 |
+
+格式錯誤的 `protocols` 區塊會被還原為這些預設值，因為每個預設值都是保守的那一個。只有
+`true` 會開啟某個開關。
+
+```json
+{
+  "protocols": {
+    "unrepresentable": "legacy",
+    "rollout": { "shadowPlan": true }
+  }
+}
+```
+
+`ocx api policy` 會顯示已解析的值，並透過執行中的代理變更它們
+（`--unrepresentable <legacy|reject>`、`--rollout <switch>=<on|off>`、`--messages <on|off>`
+對應 [`apiSurfaces`](#api-surfaces-apisurfaces)）。只有在給定設定旗標時才會寫入。儀表板的
+API 頁面與 `PATCH /api/protocols/settings` 使用相同的驗證。
+
 ## Claude Code（`claudeCode`）
 
 這些設定治理 `/v1/messages`、`/v1/messages/count_tokens`、`ocx claude` 啟動器與 Claude 儀表板頁面。

@@ -50,7 +50,7 @@ ocx claude
 | `CLAUDE_CODE_AUTO_COMPACT_WINDOW` | 自動上下文壓縮閾值（預設 `829800`）；僅在啟用自動上下文時注入 |
 | `ANTHROPIC_MODEL` | `claudeCode.model`（可選） |
 | `ANTHROPIC_DEFAULT_HAIKU_MODEL` | `claudeCode.tierModels.haiku ?? claudeCode.smallFastModel`（可選，也包括舊版 `ANTHROPIC_SMALL_FAST_MODEL`） |
-| `ANTHROPIC_DEFAULT_{OPUS,SONNET,FABLE}_MODEL` | `claudeCode.tierModels.*`（可選） |
+| `ANTHROPIC_DEFAULT_{OPUS,SONNET,FABLE}_MODEL` | `claudeCode.tierModels.*`（以訂閱方式啟動且未設定時為原生 `claude-opus-5-5[1m]` / `claude-sonnet-5[1m]` / `claude-fable-5-1[1m]`） |
 | `CLAUDE_CODE_ALWAYS_ENABLE_EFFORT` | 啟用 `alwaysEnableEffort` 時設為 `1`（條件注入） |
 | `ENABLE_TOOL_SEARCH` | 設定 `claudeCode.toolSearch` 時注入（條件注入，預設關閉） |
 | `CLAUDE_CODE_MAX_CONTEXT_TOKENS` | 設定 `maxContextTokens` 時使用的舊版上下文覆蓋項（條件注入） |
@@ -420,6 +420,8 @@ v1 別名按字面解碼（歷史上 model ID 中包含的兩字元序列 `~s` /
 `ANTHROPIC_SMALL_FAST_MODEL`。有效 Haiku 值為 `tierModels.haiku ?? smallFastModel`，並會
 提供給兩個 Haiku 變數。
 
+以訂閱模式啟動 `ocx claude` 時，Claude Code 自身的登入會把 `claude-sonnet-5` 這類裸 Claude ID 直接送給 Anthropic，因此無論其他供應商為同一 ID 列出什麼，這些 ID 的上下文視窗都取自供應商登錄表。未設定的 Opus、Sonnet 或 Fable 槽位會填入 Claude Code 為該別名解析出的原生 ID，並帶上 `[1m]` 標記，因為在閘道之後，Claude Code 會把不帶標記的 ID 按 200k 計算。上限低於 1M 的 `anthropic` 列或 `claudeCode.modelMap` 項目會讓對應 ID 保持無標記，Haiku 永遠不會被填入或標記。以代理驗證啟動或關閉 `nativePassthrough` 時，由路由器決定，只有路由列的視窗生效。系統環境和 shell 檔案會讓未設定的槽位保持為空，因為它們的值也會傳到經由 hub 的啟動。
+
 當 `tierModels.haiku` 和 `smallFastModel` 均未設定時，OpenCodex 會讓兩個輔助模型變數保持未設定；隨後 Claude Code 會選擇其原生輔助模型（目前為 Sonnet），並可能產生原生供應商費用。
 
 ## 名冊代理（injectAgents）
@@ -698,9 +700,28 @@ host，Claude Code 就會關閉 MCP 工具延遲載入。這項檢查依據的�
 { "claudeCode": { "toolSearch": true } }
 ```
 
+此選項預設關閉，因為它只在**原生 Anthropic 透傳**路由上才有效益。延遲載入是伺服端的最佳化，
+不是縮小請求：Claude Code 仍會送出每一個工具定義，是 Anthropic API 把延遲的 schema 排除在
+模型的 context 之外，並用 `tool_reference` block 回答 `tool_search` 這個伺服端工具。轉換
+（路由）後的模型永遠碰不到這套機制——opencodex 會捨棄 `tool_search` 工具並忽略
+`defer_loading`——所以供應商仍會收到每一個 schema，只是 Claude Code 不再計入它們，因此也不會
+再據此壓縮。設定 `claudeCode.compatibility: "enforce"` 時，同一個請求會直接以 400 拒絕，而不是
+這樣處理。當 `ocx claude` 路由到 Anthropic 模型時開啟它；第三方路由在支援轉換後延遲載入之前，
+請保持關閉。
+
+接受的值遵循 Claude Code 自己的解析器：`true`、`"auto"`、`"auto:N"`（N 至少為 100）與
+`"force"`。你自己匯出的值永遠優先於注入的值。
+
 **子代理派發到錯誤模型**——名冊代理（`ocx-*`）使用 `<!-- ocx-route: ... -->` 指令，
 而不是 Agent 工具的 `model` 引數。請確保指令與預期路由一致。傳入 `"haiku"` 作為模型佔位符。
 
 在 `config.json` 中設定 `claudeCode.stabilizePromptCache: true`，可在轉換路由上將系統指令末尾支援的 Claude 提示移到最後一則使用者訊息。預設值為 `false`。僅在用戶端允許這種角色變更時啟用。程式碼圍欄中的範例和不符合的文字會保留，Anthropic 原生轉送不變。沒有中繼資料時，快取鍵依穩定後的指令計算。此選項不會產生對話識別碼，也不保證上游快取命中。
 
 在所有轉換後的 Chat 路由上，時間線提醒都會保留在對話中的原有位置（排在尚待傳回的工具結果之後）。因此，新增提醒不會重寫開頭的系統提示，對話中途的指令也不會被移到它原本應跟隨的輪次之前。該位置攜帶哪個角色是另外決定的：除非提供者記錄了 `foldDeveloperRoleToSystem: false`，否則提醒以 `system` 傳送；該記錄表示上游接受 `developer` 角色，此時提醒在相同位置照原樣轉送。不接受該角色的上游會回應 `400 role 'developer' is not allowed`，該回合根本無法開始，所以未記錄的目的地採用摺疊。無論 `stabilizePromptCache` 是否啟用，此行為都會生效；Anthropic 原生轉送維持不變。快取重用仍需要穩定的工作階段識別碼和可用的上游快取。修改較早的指令或工具、壓縮對話也可能影響快取命中；僅保留提醒順序並不保證快取重用。
+
+### Intercept token recovery
+
+執行中已通過驗證的代理會針對每個新的 CONNECT 請求驗證目前的權杖。明確重新套用第一方模式會
+重新建立缺失的權杖，並重新整理自有的設定，不需要重啟代理；既有的通道不會被撤銷。無效、連結、
+超大或非權杖的檔案會被拒絕而不會被覆寫。遇到這類項目時請先檢查，只移除已確認過時的權杖檔案，
+再重新套用第一方模式；絕不要刪除其連結目標。

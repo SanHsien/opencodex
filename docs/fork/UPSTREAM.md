@@ -663,3 +663,96 @@ Vietnamese GUI catalog）直接刪除，沒有任何呼叫端引用。三個新 
 tree 整棵採用已涵蓋 v2.52.0 之後所有已 merge 的 commit，未合併/關閉的 PR 與新
 `platform` issue 留給下一次批次審查。
 
+## 2026-09-26：同步 v2.66.0 stable（87a78e5..e70b3d8）
+
+**決定**：把上游穩定版本 `v2.66.0`（`e70b3d86fb1201d7951dfeb25e09b7871c433047`，
+`v2.65.0..v2.66.0` 共 48 個 commit）以一般 merge 完整採用，`tools/upstream_baseline.json`
+的 `reviewed_through` 推進到同一 SHA、`reviewed_date` 為本次日期。fork package
+development version 由 `2.66.0` 前推至 `2.67.0`。
+
+**為什麼現在同步**：延續上游 stable 發版節奏；這 48 個 commit 帶了 PF-01..PF-12
+協定路徑分階段開關（`0f4c8d4a0`）、機器連結（`ocx link`，`e12919ed5`／`89aa88031`／
+`20c8922ba`／`2f641cc44`／`2858ac3b1`／`88b9da8c5`）與多項安全/穩健性修正
+（`929d4ff8e` cursor shell containment、`818256264` Claude 攔截代理驗證、
+`66241a113` proxy transport 上的 admin token 隔離等），整棵 stable tree 一起帶著採用。
+
+**衝突處理**：76 個 delete/delete 衝突（非保留 locale 的 docs-site、GUI i18n、
+`readme/i18n-manifest.json` 等）以 `git rm` 批次處理，做法與上次相同。本輪處理剩餘 7 個
+UU/AA 衝突：
+
+- `README.md`：全部採 `ours`（fork 的繁中版），沿用既有政策。
+- `docs-site/astro.config.mjs`：側邊欄 `items` 採 upstream 新順序與新條目（`Remote Link`、
+  `Protocol Paths`），`translations` 物件只留 `zh-TW` 鍵，其餘語言鍵剃除。
+- `docs-site/src/content/docs/zh-tw/guides/remote-hub.md`：採 `theirs`——upstream 這輪把
+  Remote Hub 的管理平面說明改寫（新增管理埠不對外發布、不用 Tailscale Funnel 的限制），並
+  加了指向新頁「遠端連結」（`zh-tw/guides/remote-link`）的連結；fork 舊翻譯已過時。
+- `docs-site/src/content/docs/zh-tw/reference/cli/lifecycle.md`：`ocx service` 一節
+  upstream 把 Linux／macOS 的啟動器路徑說明拆成兩段獨立段落（英文源已是這個結構），採
+  `theirs` 的拆分方式，但補回 fork 原有、theirs 沒帶到的 Windows 包裝程式驗證段落
+  （英文源該段落仍在，位置在 Linux／macOS 兩段之前）。
+- `docs-site/src/content/docs/zh-tw/reference/cli/providers-accounts.md`：4 處衝突，
+  皆因 upstream 把 `ocx account` 的 `login`／`remove`／`add-key`／`reset-credits`／
+  `grok-reset-coupons` 子指令說明從 `priority` 之後移到其之前，並補上新的 `alias`／
+  `history`／`pause`／`resume`／`pause-exhausted`／`strategy`／`sticky`／`clear-cooldown`／
+  `import`／`import-orca`／`main` 用法列。採 `theirs`；但這個大範圍搬移讓 3-way merge
+  在同一份檔案裡留下一組舊序位、內容較舊的重複區塊（`login`／`remove`／`add-key`／
+  `reset-credits`／`grok-reset-coupons` 各兩份），額外刪除了舊序位那份重複區塊，只保留
+  內容較完整（含裝置碼登入說明、`catalogRefreshPending` 欄位、reset-credit 復原細節）、
+  順序與英文源一致的那份。新增的 `zh-tw/guides/protocol-paths.md`（英文源新頁，upstream
+  未附 zh-tw 翻譯）補上最小翻譯，heading（8）與 fence（4）計數與英文源一致。
+- `gui/tests/locale-parity.test.ts`：兩處衝突皆採 `theirs`（`LOCALES.map(l => l.code)`
+  取代硬寫陣列、新增的 Cursor 分頁與 Aside 三事實測試），`DSH_VISIBLE_COPY` 依既有政策
+  剃除 upstream 新增的 `vi` 項目，只留 `en`／`zh-TW`。
+- `src/adapters/exec-tool-result-normalize.ts`：fork 在 v2.65.0 之後已把空輸出偵測改寫成
+  左到右字串解析（`isEmptyExecOutputWrapper`，避免正規表達式），upstream 這輪則保留原本
+  正規表達式並加上 atomic-group 式 pin（`(?=(X))\1`）修同一個 ReDoS 洞。兩者對合法輸入
+  行為等價；`tests/adapters/exec-tool-result-normalize.test.ts`（含 upstream 這輪新增的三組
+  測試）直接對 `EMPTY_EXEC_OUTPUT_REGEX` 斷言。判定：保留 `isEmptyExecOutputWrapper` 作為
+  唯一實際呼叫路徑（所有 caller 已用這個名字），同時保留 upstream 修好的
+  `EMPTY_EXEC_OUTPUT_REGEX` 匯出供既有測試與外部呼叫者使用，兩者並存、互不覆蓋。
+
+**新增非保留 locale 內容（隨 merge 自動新增，非衝突）**：upstream 新增機器連結指南時，
+`docs-site/src/content/docs/{fr,ja,ko,ru,tr,zh-cn}/guides/remote-link.md` 六個非保留
+locale 檔案在 merge 過程中乾淨新增（沒有對應舊檔可觸發 delete/delete 衝突），已個別
+`git rm` 移除。
+
+**src/ 逐檔決策**：`v2.65.0..v2.66.0` 之間，fork 在 `main` 上對這段區間也有修改的 src
+檔案只有 4 個（`src/adapters/exec-tool-result-normalize.ts`、`src/client/connect.ts`、
+`src/remote-control/workspace-hub.ts`、`src/server/responses/codex-ws-exchange.ts`）；
+除上述 `exec-tool-result-normalize.ts` 外，其餘 3 個檔案 upstream 改動的行與 fork 改動的行
+不重疊，`git merge` 全部自動合併，無需手動判定。
+
+**驗證**：`bun install`、`bun run typecheck`、`bun run structure:check`、
+`bun run privacy:scan`、`pwsh tools/dev_check.ps1` 全綠；詳細輸出見同輪
+IMPLEMENTATION REPORT。
+
+### Closed-unmerged PR（`#4415`–`#5851`，共 50 筆）
+
+| 分流 | PR | 結論 |
+| --- | --- | --- |
+| 已由 v2.66.0 stable 涵蓋（47） | `#5605 #5606 #5607 #5630`（bundle `#5672`）、`#5614 #5620 #5647`（`#5680`）、`#5621 #5622 #5628 #5665`（`#5678`）、`#5629 #5633 #5646 #5659`（`#5675`）、`#5667 #5668 #5669`（`#5676`）、`#5683 #5704 #5706 #5714`（`#5738`）、`#5693`（`#5739`）、`#5700`（`#5740`）、`#5703 #5713`（`#5743`）、`#5627 #5709 #5711 #5735`（`#5742`）、`#5715 #5716 #5717 #5736`（`#5741`）、`#5766`（由 `#5771` 取代）、`#5623`（由 `#5599` 取代）、`#5808`–`#5819` PF 系列（bundle `#5820`） | 關閉留言都寫明 maintainer bundle／squash SHA，逐一以 `git merge-base --is-ancestor <sha> upstream/main` 確認已是 v2.66.0 的祖先。不重放原 PR head。 |
+| defer | `#5795` | 維護者改以 Claude Agent SDK 重做，後續在 open PR `#5800`；等它進 stable 再審。 |
+| reject | `#5726` | draft、推測性的 Qoder tool bridge，無 landing，與本 fork 的 Windows／安全面無關；`#5270` 有 stable landing 時再看。 |
+| reject | `#5851` | `[WRONG BRANCH]`、`intake: hygiene-blocked`，同 `#3853` 前例。 |
+
+結論：**沒有需要另外 cherry-pick 的項目。**
+
+### Platform issue（`#4956 #4997 #5833 #5853`）
+
+| Issue | 決定 | 理由與重審條件 |
+| --- | --- | --- |
+| [`#4956`](https://github.com/lidge-jun/opencodex/issues/4956) | defer，Windows re-review required | Bun 子程序不再輸出且不結束；P1、open、尚無 stable 修正。標題點名 Windows CI（內文紀錄都是 macOS）。stable 修正時，或本 fork 的 Windows batch runner 出現無聲卡住的 batch 時重審。 |
+| [`#4997`](https://github.com/lidge-jun/opencodex/issues/4997) | 不適用 | macOS control lane 逾時；本 fork 用自己的 Windows fresh-process runner。 |
+| [`#5833`](https://github.com/lidge-jun/opencodex/issues/5833) | defer | 帳號池閒置 warmup 功能提案，無 stable landing；比照 `#3376`，不搶在上游產品決策前自行實作。 |
+| [`#5853`](https://github.com/lidge-jun/opencodex/issues/5853) | 不適用 | macOS 系統 proxy 偵測（`#1525` 第二段）；Windows 段已隨 stable 進來。 |
+
+### 上游分支（114 條，扣掉 `dev`／`main`／`preview`）
+
+4 條已是 `upstream/main` 的祖先；其餘 110 條逐一以 `gh api repos/lidge-jun/opencodex/commits/<sha>/pulls`、分支名搜尋 PR 與內容抽查比對：`feat/pf0N-*`（PF 子 PR，已由 `#5820` 落地）、`devin/*-p1-*`（`#5825` bundle 的逐 issue 工作）、`rebase/pr-NNNN`（maintainer 重放用副本）、`stack/*`／`codex/lane-*`／`codex/carry-*`（bundle 組裝用分支）、`takeover/desktop-claim-5459`（已關閉的 `#5459`）、`devin/…-claude-agent-sdk-process-owner`（屬 open PR `#5800`）。**沒有「帶獨有 commit 又不屬於任何 PR」的孤兒分支。** open PR（48 筆）依既有規則不逐筆評估。
+
+### 水位
+
+- stable tag / commit：`v2.66.0` / `e70b3d86fb1201d7951dfeb25e09b7871c433047`
+- PR：`#5851`
+- issue：`#5853`
+

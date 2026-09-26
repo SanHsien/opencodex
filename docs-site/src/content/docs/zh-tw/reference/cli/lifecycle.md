@@ -304,21 +304,11 @@ Windows 包裝程式在每次啟動嘗試前，都會驗證其內建的 Bun runt
 同一個缺失的執行檔。請重新安裝 opencodex，然後執行 `ocx service repair`，以還原後的套件路徑
 重新整理該工作。
 
-在 macOS 與 Linux 上，launchd plist 與 systemd unit 呼叫的是安裝當下在 `PATH` 上找到的第一個
-一般、可執行的 `ocx` 檔案，而不是已安裝套件目錄樹內的 Bun 與 CLI 路徑。像 **mise** 與 **asdf**
-這類版本管理工具會安裝到一個帶版本號的目錄，並在升級時刪除舊目錄，這過去會讓服務定義指向已經
-不存在的檔案——systemd 接著會不斷重啟迴圈，同時仍回報服務已安裝，而 launchd 則會持續服務舊的
-build，直到被手動重啟。shim 路徑能撐過升級，所以定義仍能解析。沒有 `ocx` launcher 的原始碼
-checkout 會維持先前直接的 Bun + CLI 形式。在 Bun 啟動前選定的、受信任的 `OPENCODEX_BUN_PATH`
-會透過 shim 保留下來；套件內建的 bundled Bun 路徑則會在升級後被刻意重新探索，而不是釘死在
-unit 裡。
+在 Linux 上，systemd unit 會呼叫安裝時於 `PATH` 中找到的第一個一般可執行 `ocx` 檔案，而非已安裝套件樹內的 Bun 與 CLI 路徑。**mise**、**asdf** 等版本管理器會安裝到帶版本的目錄，並在升級時刪除舊目錄；其穩定的 shim 讓 unit 持續可解析。沒有 `ocx` 啟動器的原始碼 checkout 保留直接的 Bun + CLI 形式。Bun 啟動前選定的可信 `OPENCODEX_BUN_PATH` 會透過 shim 保留；套件內附的 Bun 路徑會在升級後重新被發現。
 
-在這項變更之前安裝的定義，仍帶有舊的、含版本號的路徑，且無法自行遷移——一旦舊的執行檔被刪除，
-就沒有任何 opencodex 程式碼能執行來修好它。升級後請執行一次 `ocx service repair`；之後每次
-服務啟動都會遵循 launcher。一次外部升級不會取代一個正在執行的 proxy：當已安裝的 CLI 比執行中
-的 proxy 更新時，請執行 `ocx service restart`，讓新的 build 開始服務。在這種情況下光靠 `repair`
-是不夠的：定義本身沒有改變，而一次什麼都沒改變的 repair 也不會重新載入任何東西。若情況相反、
-proxy 比較新，請依照 [`ocx status`](#ocx-status---json) 底下的說明檢查 CLI 安裝與 `PATH`。
+在 macOS 上，launchd 改為使用安裝或修復時選定的套件內 Bun 與 CLI 路徑。這可防止可變的 PATH shim 在後續重啟時取得服務 API 權杖與已設定的代理環境。升級由版本管理器管理的安裝後，請在重新啟動服務前執行 `ocx service repair` 以更新這些路徑。
+
+在此變更之前安裝的定義仍帶有舊的帶版本路徑，且無法自行遷移——一旦舊執行檔被刪除，就不會有 opencodex 程式碼執行來修復它。升級後請執行一次 `ocx service repair`。之後 Linux 服務啟動會跟隨啟動器；macOS 的 repair 會將新的套件路徑寫入 launchd 定義。外部升級不會取代已在執行的代理：當已安裝的 CLI 比執行中的代理更新時，執行 `ocx service restart` 讓新組建提供服務。在 macOS 上，此情況下 `repair` 並不足夠：定義沒有改變，而不改變任何內容的 repair 不會重新載入任何內容。反之若代理較新，請依 [`ocx status`](#ocx-status---json) 的說明檢查 CLI 安裝與 `PATH`。
 
 | 子指令 | 動作 |
 | --- | --- |

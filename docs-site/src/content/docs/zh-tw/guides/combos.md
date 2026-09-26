@@ -168,6 +168,93 @@ ocx combo set balanced \
 
 此排序與傳送前的供應商排除，需要適用於目前單一 API 金鑰全部模型推論的最新限額資訊。OAuth／目前帳戶摘要、轉送呼叫者憑證的路由、多金鑰，以及憑證或目的地位址已變更的快照，在這項預先判斷中僅供顯示。透過 `Authorization`、`x-api-key` 或 `x-goog-api-key` 標頭覆寫憑證時也適用相同規則；僅供搜尋或 MCP 使用的時段不參與判斷。若所有符合條件的目標都沒有適用的重設時間，則依設定順序選擇。實際帳戶選擇與重試仍套用一般限制。
 
+### JEV：由決策引導的第一選擇
+
+`jev` 會請 [TypeSafe JEV](https://console.typesafe.ai) 為目前請求選擇第一個合格目標與相容的
+推理 effort。這是選擇加入的：新增 TypeSafe 憑證不會改變既有的模型、別名、預設值或 Combo 行為。
+只有在你建立一個策略為 `jev` 的 Combo 之後，才會出現由 JEV 支援的模型。
+
+最快的設定方式是：
+
+1. 開啟 **Providers**，新增 **TypeSafe JEV**，輸入 TypeSafe API key，並測試連線。
+2. 在該 provider 的 Overview 中選擇 **Create JEV Auto**。也可以在
+   **Models → Combos** 底下使用相同動作。
+3. 檢視預先填好的 Astra → Sol → Luna 目標。可在建立 Combo 前新增、移除、重新排序或替換它們。
+   目前合格的第一列會標記為 fail-open 目標，每個已知的推理階梯也會顯示在其所在列旁邊。
+
+此範本會建立 id 與別名皆為 `jev-auto` 的 Combo，使用 adaptive 推理能力，並維持為一般可編輯的
+Combo。它不會成為預設模型。其目標即完整的允許清單：JEV 永遠不會選出清單之外的
+provider/model 配對，而原始目標模型仍會出現在它們平常的選擇器分組中。
+
+無頭設定時，請明確儲存金鑰，或參照 TypeSafe 環境變數：
+
+```bash
+ocx provider add jev --api-key "${TYPESAFE_API_KEY}"
+```
+
+當 provider 沒有已儲存的金鑰時，決策客戶端也接受直接使用 `TYPESAFE_API_KEY`，以及
+`ocx provider add` 印出的標準 provider 衍生別名 `JEV_API_KEY`。
+
+```json
+{
+  "providers": {
+    "jev": {
+      "adapter": "jev-decision",
+      "baseUrl": "https://api.typesafe.ai/v1/systemone",
+      "authMode": "key",
+      "apiKey": "${TYPESAFE_API_KEY}",
+      "liveModels": false
+    }
+  },
+  "combos": {
+    "jev-auto": {
+      "alias": "jev-auto",
+      "strategy": "jev",
+      "reasoningEffortMode": "adaptive",
+      "targets": [
+        { "provider": "openai", "model": "gpt-6-astra" },
+        { "provider": "openai", "model": "gpt-5.6-sol" },
+        { "provider": "openai", "model": "gpt-5.6-luna" }
+      ]
+    }
+  }
+}
+```
+
+OpenCodex 會向固定的 `https://api.typesafe.ai/v1/systemone` 端點送出一個有邊界的決策請求，
+使用模型 `jev-latest`。只有目前合格的已設定目標才會被提供給它選擇。JEV 會一起選出目標與
+effort；effort 仍受該目標所公告的階梯限制。若選中的目標發生可重試的失敗，不會再次詢問
+JEV——既有的 Combo 冷卻與 fallback 迴圈會繼續嘗試剩餘已設定的目標。
+
+每次邏輯上的模型呼叫都各自決定，不會有整段對話的固定 pin。因此同一個 session 的連續輪次可能
+落在不同的目標上，而每次切換都會啟動一次全新（冷）的供應商 prompt cache，所以混用差異很大的
+目標可能反而比省下的還多花輸入 token。請把允許清單維持在你能接受互相輪替的目標範圍內。標記為
+`lastResort` 的目標，在 `cooldownWaitPolicy: "before-last-resort"` 下，只要還有任何一般目標
+可用就會被排除在 JEV 之外，只有在沒有其他目標可達時才會被提供。
+
+當金鑰缺失、沒有可用的安全任務／工具／圖像決策狀態、四秒的決策期限已到、服務發生重新導向或
+回傳錯誤，或回應格式錯誤或選了未列出的選項時，這個決策邊界會 fail open。在這些情況下，
+OpenCodex 會使用目前合格的第一個目標，並在該目標支援時偏好 `medium`。呼叫者取消的情況不同：
+它會取消這次決策與模型請求，而不是改派 fail-open 目標。
+
+決策狀態刻意設有邊界：最多 500 字元的目前使用者任務、240 字元的前一則 assistant 尾段、
+520 字元的最新工具輸出尾段、工具名稱，以及布林的圖像／工具訊號，可能會送給 TypeSafe。它不包含
+JEV 憑證、請求標頭、原始圖像位元組、工具引數、加密推理內容與完整對話歷史。如果你不希望
+TypeSafe 處理某些內容，請不要為它選擇 `jev-auto`。已識別的 OpenCodex 機器內容信封會從全部三個
+文字樣本中移除，但一般的 assistant 與工具輸出文字並非經過機密掃描，仍可能包含敏感內容。
+TypeSafe 聲明 Jev 不會用客戶請求進行訓練，但其條款並未為送出的狀態設定固定的保留期限，
+且只有企業方案才提供零資料保留（[模型](https://docs.typesafe.ai/models)、
+[法律條款](https://docs.typesafe.ai/legal)）。TypeSafe 也在文件中說明英文是 Jev 最準確的
+語言，因此非英文工作的決策請先自行檢查再依賴它。日誌只包含選中的目標／effort、粗略的決策
+關卡、延遲、可選的信心／機率，以及數值用量。自動化測試使用模擬的 TypeSafe 回應，加上一個
+無金鑰 fail-open 的煙霧測試；真正呼叫 TypeSafe 的決策需要維運方自行提供金鑰，不會被隱含執行。
+
+Combo 服務過請求之後，開啟 **Models → Combos → jev-auto → Stats** 即可檢視 JEV 的選擇，
+而不會取代一般的模型選擇器或 Usage 頁面。該分頁會把 TypeSafe 決策 token 與實際模型傳送回報
+的 token 分開呈現，並顯示決策關卡、fail-open 選擇、推理 effort、重試／fallback、快取
+token、延遲、信心，以及每個模型 7 天、30 天或全部可用歷史的總計。統計資料來自本機的
+只附加用量帳本；其中只包含上述有邊界的決策中繼資料，不含 prompt 或憑證。
+
 ## 目標失敗時會發生什麼
 
 Combo 失敗分為**跳轉**失敗與**終端**失敗。
@@ -381,7 +468,7 @@ Combo 儲存於頂層 `combos` 物件中，以 combo id 為 key：
 | --- | --- | --- | --- |
 | `targets` | 是 | — | 已設定 `{ provider, model, weight? }` 目標的非空有序陣列。重複的供應商/模型對會被拒絕。 |
 | `targets[].weight` | 否 | `1` | 1 到 10,000 的整數。由 `round-robin` 與 `random` 使用；`failover`、`least-used` 與 `reset-window` 忽略。 |
-| `strategy` | 否 | `"failover"` | 可用值為 `"failover"`、`"round-robin"`、`"random"`、`"least-used"`、`"reset-window"`。 |
+| `strategy` | 否 | `"failover"` | 可用值為 `"failover"`、`"round-robin"`、`"random"`、`"least-used"`、`"reset-window"`、`"jev"`。JEV 只決定第一個符合條件的目標與 effort；後續嘗試由一般 Combo fallback 處理。 |
 | `stickyLimit` | 否 | `1` | 僅適用於 `round-robin`：每次選擇的成功請求數，1 到 100 的整數。 |
 | `cooldownMs` | 否 | 未設定 → 上游退回值（請求速率 429 代碼 `1302`/`1305` 為 5 秒，否則為 60 秒） | 1 到 600000 的整數。設定時，會在沒有可用的上游 `Retry-After` 或 Codex reset 訊號時套用為每個目標的冷卻時間，包含請求速率 429；未設定時使用上游退回值。 |
 | `waitForCooldownMs` | 否 | `0` | 0 到 600000 的整數。回傳 `combo_unavailable` 之前，等待最早合格冷卻目標的最長時間；中止會取消等待。 |

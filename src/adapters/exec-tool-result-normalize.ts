@@ -20,7 +20,18 @@
  * `function_call_output` is parsed with `isError: false`. Cursor combines this set with
  * `isFailedEmptyExecWrapper` below for Computer Use, where a failed wrapper is separately marked
  * `isError`.
+ *
+ * `(?=(X))\1` pins each wildcard run to its maximal match — without it, adjacent `\n+`/`\s*`
+ * runs can repartition a newline block combinatorially (the ReDoS shape this had before).
  */
+/**
+ * Kept for direct regex-level tests (`tests/adapters/exec-tool-result-normalize.test.ts`) and any
+ * external caller still matching on it. `isEmptyExecOutputWrapper` below is the path this module
+ * and every adapter actually use; the two are equivalent on well-formed input, and both are pinned
+ * against the same ReDoS shape (adjacent `\n+`/`\s*` runs repartitioning a newline block).
+ */
+export const EMPTY_EXEC_OUTPUT_REGEX = /^(?:(?:Script completed|Command finished|Execution finished)(?=([^\n]*))\1(?=(\n+))\2)?(?:Wall time(?=([^\n]*))\3(?=(\n+))\4)?(?:Output:(?=(\s*))\5)?(?:<empty>)?(?=(\s*))\6$/;
+
 const EXEC_WRAPPER_HEADERS = ["Script completed", "Command finished", "Execution finished"] as const;
 
 /** Drop one `<prefix>...\n` line plus any blank lines after it, or report that it is not there. */

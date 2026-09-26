@@ -81,6 +81,7 @@ export default defineConfig({
           translations: { "zh-TW": "指南" },
           items: [
             { label: "Remote Hub Deployment", translations: { "zh-TW": "Remote Hub 部署" }, slug: "guides/remote-hub" },
+            { label: "Remote Link", translations: { "zh-TW": "遠端連結" }, slug: "guides/remote-link" },
             { label: "Response Inspection", translations: { "zh-TW": "回應檢查與大型回應" }, slug: "guides/response-inspection" },
             { label: "Remote Workspace", translations: { "zh-TW": "遠端工作區" }, slug: "guides/remote-workspace" },
             { label: "Providers", translations: { "zh-TW": "供應商" }, slug: "guides/providers" },
@@ -95,6 +96,7 @@ export default defineConfig({
             { label: "Desktop App", translations: { "zh-TW": "桌面 App" }, slug: "guides/desktop-app" },
             { label: "Model Ordering", translations: { "zh-TW": "模型排序" }, slug: "guides/model-ordering" },
             { label: "Combos", translations: { "zh-TW": "組合" }, slug: "guides/combos" },
+            { label: "Protocol Paths", translations: { "zh-TW": "協定路徑" }, slug: "guides/protocol-paths" },
             { label: "Claude Code", translations: { "zh-TW": "Claude Code" }, slug: "guides/claude-code" },
             { label: "Grok Build", translations: { "zh-TW": "Grok Build" }, slug: "guides/grok-build" },
             { label: "opencode", translations: { "zh-TW": "opencode" }, slug: "guides/opencode" },

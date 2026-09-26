@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
+import { LOCALES } from "../src/i18n/shared";
 
-const LOCALES = ["en", "zh-TW"] as const;
+const LOCALE_CODES = LOCALES.map(locale => locale.code);
 
 async function readDict(locale: string): Promise<Map<string, string>> {
   const src = await Bun.file(new URL(`../src/i18n/${locale}.ts`, import.meta.url)).text();
@@ -43,6 +44,11 @@ const ZH_TW_KEEP_ENGLISH: ReadonlySet<string> = new Set([
   "api.modelsEndpoint",
   "api.protocolChatCompletions",
   "api.protocolMessages",
+  // Short wire names on the Logs protocol path, and the IR acronym beside them.
+  "logs.protocol.wire.responses",
+  "logs.protocol.wire.chat",
+  "logs.protocol.wire.messages",
+  "logs.protocol.hop.ir",
   "api.protocolResponses",
   "api.responsesEndpoint",
   // Provider proper nouns (Taiwan keeps the English brand; "火山方舟" is Mainland usage)
@@ -207,14 +213,52 @@ test("zh-TW ships no untranslated English placeholders beyond the intentional al
 // complete parity guard, independent of the claude-desktop-locale file.
 test("every locale key set matches the English source", async () => {
   const en = [...(await readDict("en")).keys()].sort();
-  for (const locale of LOCALES.filter(l => l !== "en")) {
+  for (const locale of LOCALE_CODES.filter(l => l !== "en")) {
     const other = [...(await readDict(locale)).keys()].sort();
     expect(`${locale} key count: ${other.length}`).toBe(`${locale} key count: ${en.length}`);
     expect(other).toEqual(en);
   }
 });
 
-const DSH_VISIBLE_COPY: Record<(typeof LOCALES)[number], readonly [string, string, string]> = {
+/**
+ * The Cursor tab landed with six locales carrying English copies that key-set parity could
+ * not see. This guard is scoped to the Cursor keys in EVERY locale: a value equal to English
+ * is a placeholder unless it is a brand or a label Cursor itself renders in English.
+ */
+const CURSOR_KEEP_ENGLISH: ReadonlySet<string> = new Set([
+  "integrations.tab.cursor",
+  "integrations.cursor.title",
+  // Em-dash marker, identical in every locale.
+  "integrations.cursor.noControl",
+  "integrations.cursor.privateInference",
+  "integrations.cursor.baseUrl",
+  // "API Key" is the literal field name in Cursor's gateway form.
+  "integrations.cursor.apiKey",
+]);
+
+/** Per-locale cognates: English-identical values that are correct in that one locale only. */
+const CURSOR_KEEP_ENGLISH_BY_LOCALE: Record<string, ReadonlySet<string>> = {
+  // "Model" is the Turkish word too; the table header is a true cognate, not a placeholder.
+  tr: new Set(["integrations.cursor.colModel"]),
+};
+
+test("every locale translates the Cursor tab beyond the brand labels", async () => {
+  const en = await readDict("en");
+  for (const locale of LOCALE_CODES.filter(l => l !== "en")) {
+    const dict = await readDict(locale);
+    const stale: string[] = [];
+    for (const [key, value] of dict) {
+      if (!key.startsWith("integrations.cursor.") && !key.startsWith("integrations.detail.cursor")) continue;
+      if (CURSOR_KEEP_ENGLISH.has(key)) continue;
+      if (CURSOR_KEEP_ENGLISH_BY_LOCALE[locale]?.has(key)) continue;
+      if (value === en.get(key)) stale.push(key);
+    }
+    expect(`${locale} Cursor keys still English placeholders: ${stale.join(", ")}`)
+      .toBe(`${locale} Cursor keys still English placeholders: `);
+  }
+});
+
+const DSH_VISIBLE_COPY: Record<(typeof LOCALE_CODES)[number], readonly [string, string, string]> = {
   en: [
     "DeepSeek Harness (DSH)",
     "DSH",
@@ -228,11 +272,38 @@ const DSH_VISIBLE_COPY: Record<(typeof LOCALES)[number], readonly [string, strin
 };
 
 test("every locale carries the exact DSH label and ownership semantics", async () => {
-  for (const locale of LOCALES) {
+  for (const locale of LOCALE_CODES) {
     const dict = await readDict(locale);
     const expected = DSH_VISIBLE_COPY[locale];
     expect(dict.get("api.clientConfig.clientDsh")).toBe(expected[0]);
     expect(dict.get("integrations.tab.dsh")).toBe(expected[1]);
     expect(dict.get("integrations.semantics.dsh")).toBe(expected[2]);
+  }
+});
+
+/*
+ * Aside's ownership sentence carries three facts a user acts on, and each is
+ * wrong in a different way if a translation drops it: which key OpenCodex
+ * touches (`providers.opencodex`, so the rest of the file is untouched), where
+ * the file lives (`~/.aside/u/`, which is per-account and not the bare
+ * `~/.aside`), and that Aside rewrites the file while running, so a change does
+ * not take until the app is fully quit and reopened. A translator working from
+ * the English can render the prose naturally and still lose one.
+ *
+ * The identifiers are asserted rather than the sentence, unlike the DSH case
+ * above: pinning full translated strings freezes wording, and these three tokens
+ * are the part that must survive translation unchanged.
+ */
+test("every locale keeps the three facts Aside's ownership sentence carries", async () => {
+  for (const locale of LOCALE_CODES) {
+    const dict = await readDict(locale);
+    expect(dict.get("api.clientConfig.clientAside"), locale).toBe("Aside");
+    expect(dict.get("integrations.tab.aside"), locale).toBe("Aside");
+
+    const semantics = dict.get("integrations.semantics.aside") ?? "";
+    expect(semantics, `${locale} names the managed key`).toContain("providers.opencodex");
+    expect(semantics, `${locale} names the per-account root`).toContain("~/.aside/u/");
+    // Aside rewrites models.json as it runs, so a restart hint is not optional.
+    expect(semantics.length, `${locale} keeps the restart warning`).toBeGreaterThan(80);
   }
 });

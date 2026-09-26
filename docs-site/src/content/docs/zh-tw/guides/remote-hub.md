@@ -3,7 +3,9 @@ title: Remote Hub 部署
 description: 在 Linux、macOS 或 Docker 上執行單一連接埠的 opencodex hub，涵蓋迴路 companion 監聽器、服務自行發放的資料金鑰、ocx hub invite、僅限迴路的管理入口、Tailscale Serve 與無瀏覽器 OAuth。
 ---
 
-opencodex hub 把供應商憑證與用量狀態集中保存在一台主機上，讓通過驗證的用戶端從遠端使用它的資料平面。面向瀏覽器的管理平面是分開的：那是一個選用的監聽器，只繫結 `127.0.0.1`，提供儀表板與 `/api/*`，設計上要放在 Tailscale Serve 或其他由維運方自建的 HTTPS 前端後面。
+如需 SSH 機器連結，請參閱[遠端連結](/zh-tw/guides/remote-link/)。
+
+Remote Hub 把供應商憑證、模型目錄與用量記錄保存在一台主機上，已驗證的用戶端直接連到資料平面。管理平面彼此分離：選用的管理監聽器只綁定 `127.0.0.1`，僅提供儀表板與 `/api/*`。它不提供 `/v1/*`、`/healthz`、`/readyz` 或 WebSocket。不要直接發布 `10101`，也不要使用 Tailscale Funnel。
 
 資料平面是**一個連接埠**。遠端機器以自己的 per-client 金鑰連往 `hostname:port`；hub 自己的程序則透過迴路 companion 監聽器，不帶任何憑證連往 `127.0.0.1:<同一個連接埠>`。請從下方的「Linux systemd 或 macOS launchd」一節開始，再用 `ocx hub invite` 把現成指令交給第二台機器。
 

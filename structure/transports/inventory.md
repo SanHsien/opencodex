@@ -32,7 +32,7 @@ surface is listed here so a maintainer can find the owner without grepping:
 | Meta Muse Responses tool names | `src/responses/muse-tool-name-alias.ts`, `src/adapters/openai-responses.ts` | `api.meta.ai` only: function names over 64 characters or containing characters outside `[a-zA-Z0-9_-]` become collision-safe wire aliases and are restored before the client sees them. |
 | Google / Vertex / Antigravity | `src/adapters/google.ts`, `src/adapters/google-http.ts`, `src/adapters/google-wire-compiler.ts`, `src/adapters/google-tool-schema.ts`, `src/adapters/google-truncation.ts`, `src/adapters/google-errors.ts`, `src/adapters/google-antigravity-wire.ts`, `src/adapters/google-antigravity-replay.ts`, `src/adapters/google-wire-shape.ts` | Vertex and Antigravity install a Google-family `fetchResponse` and so own their retry policy, while AI Studio Gemini leaves it undefined and uses the default server fetch path. The Google-family wrapper reuses shared abort/deadline helpers, upstream error normalization, and policy-aware wire-body repair: strict initial schema loss sends nothing, while strict repair withholding returns the original 400 without a changed send. The final compiler produces the [content-free tool-schema loss contract](../providers/google.md#google-tool-schema-loss-reporting). `google-wire-shape.ts` remains diagnostic-only. |
 | Mimo Free | `src/adapters/mimo-free.ts` | Client identity and JWT handling are transport-local; the per-install client id lives in the opencodex state root. |
-| Anthropic image ingress | `src/adapters/anthropic-image-guard.ts`, `src/adapters/anthropic-image-normalize.ts`, `src/adapters/anthropic-image-codec.ts` | Oversized or unsupported images are normalized or rejected before reaching upstream. An image's ladder position is pinned to its own identity (content hash + media type) rather than recomputed from recency each request (#4532); appending a newer image therefore cannot demote and re-encode older images and bust Anthropic's prompt prefix cache. Unseen images still take the age-tier pyramid's first position, the total byte budget still binds, and a 413 `tierBias` retry still applies. Recorded positions only move down the ladder, so the store is monotonic. |
+| Anthropic image ingress | `src/adapters/anthropic-image-guard.ts`, `src/adapters/anthropic-image-normalize.ts`, `src/adapters/anthropic-image-codec.ts` | Oversized or unsupported images are normalized or rejected before reaching upstream. An image's ladder position is pinned to its own fixed-size digest of content and canonical media type rather than recomputed from recency each request (#4532); appending a newer image therefore cannot demote and re-encode older images and bust Anthropic's prompt prefix cache. Position bytes count toward the shared retained-memory budget but are pinned — the shared evictor clears normalization cache slots first and never drops a position mid-request; positions shrink only through the store's own entry-count cap at request end. Unseen images still take the age-tier pyramid's first position, the total byte budget still binds, and a 413 `tierBias` retry still applies. Recorded positions only move down the ladder, so the store is monotonic. |
 | Adapter execution support | `src/adapters/run-turn-queue.ts`, `src/adapters/tool-catalog-nudge.ts`, `src/adapters/identity.ts`, `src/adapters/image.ts`, `src/adapters/upstream-http-error.ts` | Shared machinery: turn ordering, tool-catalog nudging, client fingerprinting, image conversion, upstream error normalization. |
 | Cursor (beyond the sections above) | `src/adapters/cursor/live-transport.ts`, `src/adapters/cursor/http1-bidi.ts`, `src/adapters/cursor/live-models.ts`, `src/adapters/cursor/transport-retry.ts`, `src/adapters/cursor/mcp-manager.ts`, `src/adapters/cursor/thread-continuity.ts`, `src/adapters/cursor/checkpoint-store.ts` | Thread continuity is the point: a retry must not start a new Cursor thread, and a validated checkpoint must not rebuild the full root history. HTTP/2 remains the default; an explicit `http1.1`/`h1` pin maps the bidi run onto Cursor's `RunSSE` receive stream plus sequenced `BidiAppend` sends, and applies to live discovery too. |
 | Claude Messages | `src/server/claude-messages.ts` | Routed translation, a native Anthropic passthrough branch, and `count_tokens`. |
@@ -98,6 +98,16 @@ promises are observed, and a cancellation that never settles cannot extend the r
 After an attached read, cleanup removes the abort listener, cancels any inactivity timer, and
 attempts to release the reader lock. `tests/server/bounded-body.test.ts` covers these paths.
 
+Both bounded readers give abort and deadline callbacks one current-read settlement slot. The slot
+is cleared after every read; completed read results and transport chunks are not retained by
+reactions on shared pending promises. An interruption is latched across the gap between reads,
+and a pending read's late rejection remains observed after cancellation. The geometric payload
+buffer remains bounded by the byte cap independently of this constant-size wait bookkeeping.
+The focused tests check live-chunk collection with `WeakRef`/`Bun.gc` while a read is stalled,
+and bound per-promise reaction attachment independently of garbage-collector timing.
+
+> Decision record: [ADR-0101](../decisions/ADR-0101-bounded-response-ownership.md)
+
 `readBoundedResponseBody` accepts `reportUtf8Validity`: the body decodes with replacement
 characters instead of rejecting, and a result that reached EOF carries `utf8Valid`. Combined with
 `fatalUtf8`, a returned body is valid by construction and reports `true`. Timeout and oversized
@@ -126,6 +136,13 @@ transport budgets, so the 64 KiB login ceiling never caps Responses inference pa
 rejected body returns no credentials, an oversized, malformed, or aborted key response ends the
 login before credential persistence or dashboard convergence, leaving only the fixed size-limit or
 invalid-JSON message described above.
+
+`src/adapters/devin/cloud-direct/chat.ts` cancels a non-2xx `GetChatMessage` response body
+before throwing its status-only `CloudChatError`. The same error object is the cancellation
+reason. Cancellation is attempted once without draining, cloning, or waiting; a synchronous
+throw, rejection, or never-settling cancellation cannot replace or delay the status error.
+A bodyless error follows the same status path. `tests/providers/devin-hardening.test.ts`
+covers these cases with a synthetic executor, without provider credentials or network traffic.
 
 ## Per-provider egress coverage
 

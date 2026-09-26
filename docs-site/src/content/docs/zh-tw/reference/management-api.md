@@ -387,6 +387,29 @@ provider 名稱。
 
 憑證清單回應被刻意遮罩。OAuth access token 與完整的供應商 API 金鑰不回傳給儀表板客戶端。
 
+### Protocol paths
+
+| 方法與路徑 | 用途 | 主要錯誤 |
+| --- | --- | --- |
+| `GET /api/protocols` | 回傳協定合約版本、目前服務哪些 API、協定設定、目前的政策修訂版本，以及預覽能理解的請求功能 | — |
+| `GET /api/protocols?provider=<name>` | 同一份內容再加上 `provider`：`{ name, adapter, adapterSource, authMode, upstream, modelOverrides: [{ model, adapter, source }] }`——該供應商實際收到的線路格式與由誰決定（`hard-pin`、`operator`、`registry`、`provider-default`），最多列出 64 個線路格式不同的模型（超過時 `modelOverridesTruncated: true`）。不含憑證或 base URL | 400 空白、重複、超過 200 字元或含控制字元；404 找不到該名稱的供應商 |
+| `POST /api/protocols/plan` | 預覽某個請求會走的路徑：`{ "model": "...", "inbound": "responses" \| "chat" \| "messages", "features": [...] }` 會回傳每個候選路由的請求與回應路徑、傳送模式、忠實度、功能影響與原因 | 400 無效 JSON、未知欄位、model 超過 200 字元、未知的 inbound，或超過 24 個／未知的 features |
+| `PATCH /api/protocols/settings` | 變更協定設定：`{ "messagesEnabled"?: boolean, "unrepresentable"?: "legacy" \| "reject", "rollout"?: { ...boolean switches } }`。回傳內容與 `GET /api/protocols` 相同。關閉 Messages 會在同一次儲存中同時把 `claudeCode.enabled` 設為 `false`；開啟它則只寫入 `apiSurfaces.messages.enabled` | 400 無效 JSON、空白 body、未知欄位、型別錯誤，或帶 `rollout.managedMessagesNativeOAuth` 卻沒有 `rollout.managedMessagesNative`；409 設定忙碌中；500 儲存失敗（不會有任何變更） |
+
+預覽僅根據設定計算。它不會送出任何內容給任何供應商、不花費任何成本、不會推進組合輪換，也不會被
+記錄。儀表板的 API 頁面在 **Request path preview** 底下顯示相同的預覽。傳送模式 `native`
+描述的是請求如何傳送；它不是相容性驗證。
+
+`?provider=` 形式支援供應商設定頁的 **Upstream wire** 區塊。它回報 opencodex 送給該供應商的
+格式；不會開啟或關閉任何用戶端 API。要變更供應商層級的適配器，請照常儲存供應商設定
+（`PATCH /api/providers`）。
+
+`PATCH /api/protocols/settings` 是這裡唯一的寫入端點，也支援 API 頁面上的 Messages 切換開關。
+CLI 透過 `ocx api protocols`、`ocx api explain` 與 `ocx api policy` 驅動這些路由。分階段開關
+預設關閉（[協定路徑](/zh-tw/guides/protocol-paths/#rollout-switches)）；Messages 設定在升級與
+降級之間如何與 `claudeCode.enabled` 互動，請見
+[API surfaces](/zh-tw/reference/configuration/server/#api-surfaces-apisurfaces)。
+
 ### 供應商
 
 | 方法與路徑 | 用途 | 主要錯誤 |

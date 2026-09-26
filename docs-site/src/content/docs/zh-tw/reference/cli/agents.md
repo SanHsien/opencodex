@@ -176,6 +176,36 @@ ocx debug usage logs [-f|--follow]
 ocx access key create deployment
 ```
 
+### `ocx api <protocols|explain|policy> ...`
+
+檢查並設定請求在用戶端 API 與供應商線路之間如何傳送。詞彙說明見
+[協定路徑](/zh-tw/guides/protocol-paths/)。
+
+| 指令 | 路由 | 是否改變狀態 |
+| --- | --- | --- |
+| `ocx api protocols [--provider <name>] [--json]` | `GET /api/protocols` | 否 |
+| `ocx api explain --model <id> --inbound <responses\|chat\|messages> [--feature <key>]... [--json]` | `POST /api/protocols/plan` | 否 |
+| `ocx api policy [--json]` | `GET /api/protocols` | 否 |
+| `ocx api policy [--messages <on\|off>] [--unrepresentable <legacy\|reject>] [--rollout <switch>=<on\|off>]... [--json]` | `PATCH /api/protocols/settings` | 是 |
+
+- `protocols` 印出合約版本、每個用戶端 API 是否被服務與原因、無法表示的政策、每個分階段開關，
+  以及政策修訂版本。`--provider` 會加上該供應商實際收到的上游線路格式、由誰決定，以及在另一個
+  線路格式上的模型。
+- `explain` 預覽模型從某個用戶端 API 出發會走的路徑。`--feature` 可重複指定，也接受逗號分隔的
+  清單；`ocx api protocols --json` 會列出已知的功能鍵。預覽是從設定計算出來的：不會送出任何內容
+  給上游，不會推進組合輪換，輸入也不會被記錄。
+- `policy` 沒有設定旗標時只會讀取。帶上旗標時，會向執行中的代理送出單一變更，代理驗證後儲存
+  設定並回傳新政策。`--messages off` 也會關閉 Claude 整合，如同儀表板的切換開關。開關名稱與
+  組合會由代理驗證；例如除非在同一指令中 `managedMessagesNative` 已開啟或同時開啟，否則
+  `--rollout managedMessagesNativeOAuth=on` 會被拒絕。
+
+```bash
+ocx api explain --model combo/main --inbound chat --feature request.seed,request.tools
+ocx api policy --rollout shadowPlan=on
+```
+
+用法錯誤會在送出任何請求之前以 exit 2 結束。`--json` 會原樣印出管理 API 的回應內容。
+
 ## 客戶端整合
 
 ### `ocx integration <claude|grok> ...`

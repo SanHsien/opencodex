@@ -756,3 +756,83 @@ IMPLEMENTATION REPORT。
 - PR：`#5851`
 - issue：`#5853`
 
+## 2026-09-26（續）：同步 v2.67.0 stable（e70b3d8..4bc9229）
+
+**決定**：把上游穩定版本 `v2.67.0`（`4bc92294aa23a7edba75805095808d892efa72e2`，
+`e70b3d86f..4bc9229` 共 59 個 commit）以一般 merge 完整採用，`tools/upstream_baseline.json`
+的 `reviewed_through` 推進到同一 SHA、`reviewed_date` 為本次日期。fork package
+development version 由 `2.67.0` 前推至 `2.68.0`。
+
+**為什麼現在同步**：上游在 v2.66.0 同步作業進行中時就發了 v2.67.0；本 fork 對穩定
+tag 一律整棵採用，不拆取單一 commit，因此接續合併。
+
+**衝突處理**：26 個 delete/delete 衝突（非保留 locale）以 `git rm` 批次處理，做法與前兩輪相同：
+`docs-site/src/content/docs/{fr,ja,ko,ru,tr,zh-cn}/guides/claude-code.md`、
+`.../guides/web-dashboard.md`、`.../reference/cli/providers-accounts.md`、
+`.../reference/configuration/server.md`（6 語 × 4 頁 = 24），以及
+`gui/src/i18n/{de,fr,ja,ko,ru,tr,vi,zh}.ts`（8 檔，`zh-TW.ts` 不在其中，維持自動合併）。
+本輪未有新增的非保留 locale 檔案隨 merge 乾淨新增（已檢查 `git status` 無 fr/ja/ko/ru/tr/zh-cn/vi/de
+命名的新增項目）。剩餘 2 個 UU 內容衝突：
+
+- `docs-site/src/content/docs/zh-tw/guides/claude-code.md`：Desktop 第一方模式段落。pristine
+  `v2.67.0` 的 zh-tw 翻譯完全缺少「Desktop itself is not reconfigured」這段引言與其 `HTTPS_PROXY`/
+  `NODE_EXTRA_CA_CERTS` JSON 範例——對照英文源（`docs-site/src/content/docs/guides/claude-code.md`
+  第 171-183 行）確認這段仍存在且未變，是上游自身翻譯的既有缺口，非本輪新增。採 `ours`
+  的引言與 JSON 範例，接上 `theirs` 改寫過的結尾句（Code 分頁與子代理路由說明，對應英文源第 185
+  行的最新用詞）。`ours` 原本結尾多帶一句「CA 不會安裝到作業系統信任儲存區」，英文源現在完全沒有
+  這個宣稱（同一頁面全文搜尋 trust/CA 皆無對應段落），判定為過時內容，予以刪除而非移植。
+- `docs-site/src/content/docs/zh-tw/reference/cli/providers-accounts.md`：`ocx models` 的
+  `context` 與 `shadow` 兩個子指令表格列。`context` 列採 `ours`——pristine `v2.67.0` 的 zh-tw
+  仍是缺少 `--set-all`／`provider ... on --value` 的舊版翻譯，而 `--set-all` 早在 `e70b3d86f`
+  之前就已進入英文源，`ours` 的翻譯已經跟上、`theirs` 沒有。`shadow` 列採 `theirs`——這輪英文源
+  把預設 helper slug 從單一 `gpt-5.6-luna` 改成 `gpt-6-luna`、`gpt-5.6-luna` 兩個，並把
+  `gpt-5.4-mini` 標記為已退役，`theirs` 的翻譯已同步、`ours` 還是舊描述。
+
+另有一處不是衝突、而是 fork 自己補的翻譯：英文 `guides/remote-workspace.md` 本輪新增
+「RPC compatibility and timeouts」一節，上游沒有動 zh-tw 版，因此 fork 依英文源補上
+「## RPC 相容性與逾時」（v2、65 秒、1–120,000 ms），讓 `docs-zh-tw-parity` 維持綠燈。
+`zh-tw/guides/claude-code.md` 也因上游把「Claude Code CLI compatibility」改名為
+「Claude Code CLI first-party」，合併後留下舊標題的重複段落，已把 4 個要點移到新標題下、刪除舊標題。
+
+**src 逐檔決策**：`e70b3d86f..v2.67.0` 之間上游改動了 48 個 `src/` 檔案。fork 相對 v2.66.0
+有 22 個自己修改過的 `src/` 檔案（`git diff e70b3d86f 78ecab5d9 -- src`），兩個集合沒有交集，
+因此不需要逐檔判定或移植，全部由 `git merge` 自動採用上游版本。fork 的 src 差異在
+HEAD↔v2.66.0 與 index↔v2.67.0 之間逐位元組相同（審查時核對）。
+
+**驗證**：`bun run typecheck`、`structure:check`、`privacy:scan`、`tools\dev_check.ps1`、
+嚴格版 `check-upstream-updates.ts` 全綠；fork 關鍵測試 258 pass／0 fail。完整套件（fork runner，
+108 批）有 42 個測試檔失敗：38 個在本機既有的環境限定清單上（Codex inject／journal／
+transition-state 鎖、claude-desktop first-party、shim `driver.cmd`、symlink 等；上一輪已證實在
+pristine 上游有相同 pass/fail）。其餘 4 個逐檔在 pristine `v2.67.0` worktree 對照：
+`release-outcome-report`（fork 在 `release-outcomes` 加了官方 repo guard，測試預期值已同步修改）；
+`claude-desktop-remote-hub`、`claude-desktop-first-party`（第 14 批逾時的來源）兩邊 pass/fail 相同；
+`token-guardian` 單獨跑兩邊都全過（套件內偶發）；`issue-914-transport-attribution` 是測試留下的
+空 ACL 暫存資料夾造成 EPERM，清掉後 6/6 通過。
+
+### Closed-unmerged PR（`#5852`–`#5894`，共 10 筆）
+
+| 分流 | PR | 結論 |
+| --- | --- | --- |
+| defer 至 stable | `#5865 #5867 #5869 #5885 #5888 #5889 #5891 #5892` | 已由 maintainer 以 bundle `#5901`（`dd1e3279ab092527e163b6c28595bc076238bafe`）落在 `dev`，尚非 v2.67.0 的祖先。下一個 stable 隨完整產品樹採用，不重放原 PR head。 |
+| defer 至 stable | `#5894` | 502 用量耗盡的 combo 冷卻；由涵蓋結構化錯誤碼的 `#5874` 取代，隨 bundle `#5902`（`f09dd2aebe`）落在 `dev`，未進 v2.67.0。 |
+| reject | `#5883` | 作者撤回：`GET /healthz` 本來就不需驗證，401 來自作者自己的 LAN 反向代理。 |
+
+前一輪的 defer 重查：`#5795`（其後續 open PR `#5800` 仍未合併）維持 defer；`#5726` 維持 reject。
+
+### Platform issue
+
+| Issue | 決定 | 理由與重審條件 |
+| --- | --- | --- |
+| [`#5864`](https://github.com/lidge-jun/opencodex/issues/5864) | defer | Windows junction 型態的 `CODEX_HOME` 讀不到帳號；修正 `#5865` 在 `dev` bundle `#5901`，未進 v2.67.0。本機 `~/.codex` 是一般資料夾（非 junction），不受影響，所以不提前拆取。本機改用 junction，或下個 stable 時再審。 |
+| `#4956` `#5833` | defer（不變） | v2.67.0 仍無修正。 |
+
+### 分支
+
+115 條（前一輪 114）。新增的 `codex/bug-train-2` 屬 open PR `#5902`；`dev`／`preview`／`pr-assets` 移動屬正常。**沒有孤兒分支。** 採用清單：**無**。
+
+### 水位
+
+- stable tag / commit：`v2.67.0` / `4bc92294aa23a7edba75805095808d892efa72e2`
+- PR：`#5894`
+- issue：`#5864`
+

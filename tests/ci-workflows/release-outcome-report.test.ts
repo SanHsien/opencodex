@@ -43,7 +43,9 @@ describe("release outcome wiring", () => {
 
   test("a read-only job reports after publish and attach whatever their result", () => {
     expect(outcomes?.needs).toEqual(["publish", "attach-release"]);
-    expect(outcomes?.if).toBe("${{ always() && inputs.dry-run != true }}");
+    // Fork overlay: always() skips the validate-dispatch guard chain, so the official-repo guard
+    // is restated on this job (docs/fork/UPSTREAM.md, 2026-09-26).
+    expect(outcomes?.if).toBe("${{ always() && github.repository == 'lidge-jun/opencodex' && inputs.dry-run != true }}");
     expect(outcomes?.permissions).toEqual({ contents: "read" });
     expect(report?.run?.trim()).toBe("bash scripts/ci/release-outcome-report.sh");
     expect(report?.env).toMatchObject({

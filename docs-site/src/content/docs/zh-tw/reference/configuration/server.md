@@ -30,7 +30,7 @@ description: 監聽器、遠端存取、許可金鑰、逾時、儲存、sidecar
 | `codexClientCompaction?` | `boolean` | `false` | 在已驗證的回送綁定上選擇加入 Codex 用戶端壓縮。使用專屬的 `opencodex` 供應商身分並設定 `requires_openai_auth = true`，防止新的路由壓縮儲存 OpenCodeX 擁有的 `ocx1:` 狀態。兩者都啟用時，`codexDesktopAuthless` 優先，並維持 `requires_openai_auth = false`。V2 子代理路由不受影響。`ocx system settings --client-compaction on`。詳見 [Codex 整合](/zh-tw/guides/codex-integration/#client-side-compaction-opt-in)。 |
 | `resetCreditAutoRedeem?` | `{ enabled?: boolean; leadTimeMinutes?: number }` | 關閉 | 選擇加入：在主要 Codex 帳號最快到期的 reset credit 過期前 `leadTimeMinutes` 分鐘（1–60，預設 10）兌換它。每次嘗試都會先重新讀取上游的 credit 清單，若該 credit 已消失（例如已被手動兌換）則跳過；呼叫前會先把 `redeem_request_id` 記錄到 `$OPENCODEX_HOME/reset-credit-auto-redeem.json`，因此當機後重播的是同一個冪等請求，而不會消耗第二個 credit。共享這個設定目錄的多個伺服器會協調保留與結算，避免一個行程覆寫另一個行程的請求紀錄。日誌只帶有經雜湊的帳號金鑰。 |
 | `syncResumeHistory?` | `boolean` | `true` | 可逆的 Codex App 歷史相容性。原始中繼資料由 `ocx stop` / `ocx restore` 備份並還原。 |
-| `shadowCallIntercept?` | `{ enabled?: boolean; model?: string; sourceModels?: string[] }` | off | 將識別的 Codex helper/shadow call 重定向到所選模型，並保留為請求設定的 reasoning effort。預設來源前綴為 `gpt-5.6-luna`；0.144.x 及更舊的客戶端使用 `gpt-5.4-mini`，可透過 `sourceModels` 恢復。 |
+| `shadowCallIntercept?` | `{ enabled?: boolean; model?: string; sourceModels?: string[] }` | off | 將識別的 Codex helper/shadow call 重定向到所選模型，並保留為請求設定的 reasoning effort。預設來源前綴為 `gpt-6-luna`, `gpt-5.6-luna`；0.144.x 及更舊的客戶端使用 `gpt-5.4-mini`，可透過 `sourceModels` 恢復。 |
 | `webSearchSidecar?` | `OcxWebSearchSidecarConfig` | 可用時開啟 | 網頁搜尋 sidecar 選項。 |
 | `visionSidecar?` | `OcxVisionSidecarConfig` | 可用時開啟 | 圖片描述 sidecar 選項。 |
 | `images?` | `OcxImagesConfig` | 自動 OpenAI 選擇 | Codex `image_gen` 的獨立 Images 中繼選項。 |
@@ -528,12 +528,14 @@ Codex 使用小型 helper 模型處理如標題與 commit 訊息等任務。啟�
 攔截是以模型為基礎的：任何裸模型 id 符合 `sourceModels` 的請求都可能被重新導向，包括一般的
 `request_kind: "turn"` 請求。`x-codex-turn-metadata` 不會讓相符的請求豁免。
 
+攔截依模型判定：裸模型 ID 符合 `sourceModels` 的請求（包括一般的 `request_kind: "turn"` 請求）都可以被重定向。由 `x-openai-subagent: collab_spawn` 或 `x-codex-turn-metadata` JSON 標頭中的 `subagent_kind: "thread_spawn"` 標記為已產生子代理的請求不受攔截，因此明確產生的子代理會保留其模型。
+
 ```json
 {
   "shadowCallIntercept": {
     "enabled": true,
     "model": "gpt-5.5",
-    "sourceModels": ["gpt-5.6-luna"]
+    "sourceModels": ["gpt-6-luna", "gpt-5.6-luna"]
   }
 }
 ```

@@ -436,7 +436,7 @@ Preview 建置使用 `<OPENCODEX_HOME>/native-main-profiles`。該配置絕不�
 | `provider <name> <on\|off>` | `--json` | 在單次寫入中啟用或停用一個供應商的所有模型。 |
 | `selected <provider>` | `--set <id,id...>`, `--clear`, `--json` | 讀取或替換供應商模型允許清單。`--clear` 移除允許清單，使每個模型都被提供。 |
 | `context <status\|value <tokens> [--set-all]\|provider <name> on [--value <tokens>]\|provider <name> off\|all <on\|off>>` | `--json` | 讀取或設定 context-window 上限，全域或依供應商設定。`value <tokens> --set-all` 也會重新指向每個路由供應商（如同儀表板的切換開關）；不加此旗標時，該值只會成為預設值。`provider ... on --value <tokens>` 只為該供應商設定明確上限（`--value` 僅在搭配 `on` 時有效）。 |
-| `shadow <status\|set> [model\|-]` | `--enabled <on\|off>`, `--json` | 讀取或設定 Codex 背景 helper 呼叫的替換模型。`-` 清除模型。`status` 亦回報 `sourceModels`，即代理攔截的 helper slug（預設：`gpt-5.6-luna`；0.144.x 以前的用戶端使用 `gpt-5.4-mini`，可透過明確的 `sourceModels` 覆寫還原）。 |
+| `shadow <status\|set> [model\|-]` | `--enabled <on\|off>`, `--json` | 讀取或設定 Codex 背景 helper 呼叫的替換模型。`-` 清除模型。`status` 亦回報 `sourceModels`，即代理攔截的 helper slug（預設：`gpt-6-luna`, `gpt-5.6-luna`；0.144.x 以前的用戶端使用已退役的 `gpt-5.4-mini`，可透過 `sourceModels` 還原）。 |
 
 ```bash
 ocx models live --json                                  # Codex 目前實際可見的模型

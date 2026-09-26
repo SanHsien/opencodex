@@ -1,5 +1,19 @@
 # 維護決策
 
+## 2026-09-26（續）：一般 merge v2.67.0；src 交集為空、僅 2 個 zh-tw 內容衝突
+
+**決定**：把上游穩定版本 `v2.67.0`（`4bc92294aa23a7edba75805095808d892efa72e2`）一般 merge 進本
+fork，package development version 由 `2.67.0` 前推至 `2.68.0`。
+
+**src 逐檔判定**：`e70b3d86f..v2.67.0` 上游改了 48 個 `src/` 檔案。fork 相對 v2.66.0 有 22 個
+自己修改過的 `src/` 檔案（`git diff e70b3d86f 78ecab5d9 -- src`），兩個集合沒有交集，全部自動
+採用上游版本，不需逐檔判定；fork 的 src 差異在 v2.66.0 與 v2.67.0 兩次合併前後逐位元組相同。
+
+**語系**：延續既有政策，非保留 locale 的 26 個 delete/delete 衝突一併剃除；本輪沒有新增的
+非保留 locale 檔案。`docs-site/src/content/docs/zh-tw/guides/claude-code.md` 與
+`.../reference/cli/providers-accounts.md` 各有一處內容衝突，均以英文源逐句核對後判定
+（見 `docs/fork/UPSTREAM.md` 同日條目），不是單純套用 `ours` 或 `theirs`。
+
 ## 2026-09-26：一般 merge v2.66.0；exec-tool-result-normalize.ts 雙軌並存
 
 **決定**：把上游穩定版本 `v2.66.0`（`e70b3d86fb1201d7951dfeb25e09b7871c433047`）一般 merge 進本 fork，package development version 前推至 `2.67.0`。

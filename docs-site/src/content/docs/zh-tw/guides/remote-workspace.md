@@ -19,6 +19,14 @@ Executor 只需要 OpenCodex，不需要 Codex、Claude Code、Pi、ChatGPT 登�
 Remote Workspace 是須自行啟用的實驗基礎功能，尚未用於正式環境。Linux 提供檔案工具與有條件的 bubblewrap 指令執行。Windows 和 macOS 只提供檔案工具：其官方原生 helper 會拒絕探測與指令請求。Windows 指令須待經驗證的生命週期擁有者能在取消期間保有清理權限後才會支援。缺少指令支援時，絕不會回退到 Hub 執行。
 :::
 
+## RPC 相容性與逾時
+
+Remote Workspace 使用加密的 RPC v2。Hub 與每個 Executor 都必須支援 v2；RPC v1 的對端會直接
+拒絕連線，而不會回退成立即執行，因此請同時升級 Hub 與所有 Executor。
+
+逾時只會請求 Executor 取消操作，並不保證真的取消成功：授權可能已在傳輸中，或該操作可能已在
+執行。預設的 RPC 逾時為 65 秒，`timeoutMs` 接受 1 到 120,000 毫秒（含兩端）之間的值。
+
 ## 設定 Hub
 
 電腦 1 擁有所有程式碼代理的登入與模型工作階段。在該電腦安裝並登入要使用的代理，然後以 Hub 角色執行 OpenCodex：

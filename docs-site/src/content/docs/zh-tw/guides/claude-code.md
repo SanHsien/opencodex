@@ -130,7 +130,7 @@ Anthropic 可能認為這違反其條款並停用你的帳號。預設模式是�
 只有接受這項風險時才選擇第一方模式。
 :::
 
-Desktop 維持 claude.ai 登入，聊天、連接器和遠端控制仍可使用。OpenCodex 只在
+Desktop 本身不會被重新設定：它維持 claude.ai 登入，聊天、連接器和遠端控制仍可使用。OpenCodex 只在
 `~/.claude/settings.json`（支援 `CLAUDE_CONFIG_DIR`）的 `env` 中寫入 `HTTPS_PROXY`
 與 `NODE_EXTRA_CA_CERTS`。
 
@@ -142,17 +142,37 @@ Desktop 維持 claude.ai 登入，聊天、連接器和遠端控制仍可使用�
   }
 }
 ```
-Code 分頁啟動的 Claude Code、子代理及獨立的 `claude` CLI
-經過本機代理；其他 `api.anthropic.com` 路徑會轉送給 Anthropic。CA 不會安裝到作業系統
-信任儲存區，只有讀取 `NODE_EXTRA_CA_CERTS` 的 Node 程序會信任它。
+
+Desktop 第一方模式透過 OpenCodex 處理 Code 分頁及其子代理。獨立的 Claude Code CLI 有單獨開關。
+兩者讀取同一份 `settings.json` 代理與 CA 設定：只啟用其中一個時，另一個仍會經過本機代理，TLS
+在本機終止，但 Messages 請求會原樣轉送給 Anthropic。其他 Anthropic 路徑會原樣轉送，不相關的主機
+則維持盲通道。
 
 模式儲存在 `claudeCode.desktopMode`。先前明確套用第一方模式或在此版本之前套用的安裝
 會保留第一方模式；現有閘道安裝也維持不變。沒有明確設定時，依序檢查 OpenCodex 擁有的
 已選閘道項目、儲存的閘道指紋、`settings.json` 中屬於 OpenCodex 的第一方設定；
-都沒有時採用閘道。目錄同步和模型清單更新絕不會在已解析為第一方模式的安裝上
+都沒有時採用閘道。僅為 CLI 第一方模式寫入的環境變數，不能證明 Desktop 處於第一方模式。目錄同步和模型清單更新絕不會在已解析為第一方模式的安裝上
 寫入閘道設定檔。若 `claudeCode.intercept.enabled: false`，現有第一方安裝的套用操作
 會以 `intercept_disabled` 拒絕，新安裝則套用閘道。不會覆寫其他代理的設定。
 切換模式後請完全結束並重新開啟 Desktop。
+
+### Claude Code CLI 第一方模式
+
+在 Claude → Code 開啟 CLI 開關，或執行 `ocx claude config set --first-party on`；關閉時使用 `off`。若本機代理無法使用、CA 無法準備、設定無法讀取，或代理鍵由其他程式擁有，開啟要求會被拒絕。關閉仍可儲存。只有 Desktop 第一方模式開啟時，若要讓終端機完全原生直連，請在 shell 設定 `NO_PROXY='*'`。上述帳號風險也適用於 CLI。
+關閉 Claude 路由會保留由 OpenCodex 管理的代理設定。監聽器仍執行時，所有 Messages 請求原樣轉送；停止後，執行 OpenCodex 或關閉 Desktop/CLI 第一方模式前，直接執行 `claude` 無法連線。`ocx claude` 原生啟動只在有自有設定且未繼承外部 HTTPS 代理時設定 `NO_PROXY=*`。否則保留外部代理，並警告設定中的攔截仍生效；請關閉第一方模式或取消該設定。
+介面會區分設定無法讀取（unknown）、帶有 opencodex 權杖的代理 URL 卻搭配外部 CA（foreign：手動修正 HTTPS_PROXY / NODE_EXTRA_CA_CERTS），以及 Claude 路由已關閉但監聽器仍原樣轉送要求（disabled：重新啟動前關閉第一方模式以移除設定）。沒有監聽器時為 stopped；使用受管理的 CA 但連接埠或權杖不符時為 broken。第一方模式開啟但無法提供攔截服務時，stopped 和 broken 都顯示 routingOff：Claude 路由或攔截功能已關閉，或這台裝置是另一個 opencodex 中樞的用戶端；請在這台裝置上重新啟用攔截服務，或關閉第一方模式以移除設定。只有攔截服務可用時，stopped 才提示啟動 opencodex，broken 才提示執行 `ocx ensure` 或重新啟動。CLI 已開啟但沒有代理設定時為未套用；只開啟一個用戶端且代理正常時提示共享轉送；兩者皆關閉但代理設定仍在時提示殘留。
+unknown 表示 opencodex 無法確定設定是否仍指向自己的代理。外部 CA 搭配 127.0.0.1 上沒有權杖的代理時顯示 local：無法確認歸屬；若不再使用，請從 ~/.claude/settings.json 移除 HTTPS_PROXY。disabled 僅在設定與執行中的監聽器相符時出現；連接埠或權杖不相符時，即使路由關閉也顯示 broken。
+
+- 模型探索（`/model` → "From gateway"）不可用；Claude Code 只會對已設定的 gateway 查詢
+  `GET /v1/models`。請把內建的 Anthropic 模型 id 綁定到某個路由（上方的
+  `ocx claude desktop bind`）、使用 `modelMap`，或直接輸入別名。
+- `ANTHROPIC_SMALL_FAST_MODEL` 與 `CLAUDE_CODE_SUBAGENT_MODEL` 是 CLI 在送出請求前自行選擇的；
+  若 sidecar 或子代理需要使用對映後的 id，請自行在 `settings.json` 中設定它們。
+- `ocx claude` 與第一方可以並存：以 `ocx claude` 啟動的 session 會對 `ANTHROPIC_BASE_URL`
+  （loopback 上的純 HTTP）通訊，`HTTPS_PROXY` 不涵蓋它，因此該行程會直接連到 OpenCodex，
+  代理完全看不到它的流量。
+- Claude Code 會遵循文件化的 `HTTPS_PROXY`/`NODE_EXTRA_CA_CERTS`（供企業代理使用）；若某個
+  CLI 版本不再遵循，會停止路由，而不是讓登入失效。
 
 ### Picker 模式：在第一方 Code 分頁顯示 opencodex 模型
 
@@ -167,23 +187,6 @@ Picker 模式開啟期間，Claude Desktop 會透過 OpenCodex 存取網路。�
 儀表板的 **Claude → Desktop** 也有相同的切換開關。選取 Picker 設定檔後，請完全結束並重新開啟 Claude Desktop。
 
 Picker 模式屬於第一方模式，因此[第一方帳號風險](#第一方自行選擇)同樣適用。
-
-### Claude Code CLI 相容性
-
-同一份 `settings.json` 環境變數也驅動獨立的 `claude` CLI，因此第一方套用也涵蓋終端機 session、
-`claude -p` 與子代理，不需要 `ocx claude` 的 `ANTHROPIC_BASE_URL` / `ANTHROPIC_AUTH_TOKEN`
-shell 環境。與 `ocx claude` 的差異：
-
-- 模型探索（`/model` → "From gateway"）不可用；Claude Code 只會對已設定的 gateway 查詢
-  `GET /v1/models`。請把內建的 Anthropic 模型 id 綁定到某個路由（上方的
-  `ocx claude desktop bind`）、使用 `modelMap`，或直接輸入別名。
-- `ANTHROPIC_SMALL_FAST_MODEL` 與 `CLAUDE_CODE_SUBAGENT_MODEL` 是 CLI 在送出請求前自行選擇的；
-  若 sidecar 或子代理需要使用對映後的 id，請自行在 `settings.json` 中設定它們。
-- `ocx claude` 與第一方可以並存：以 `ocx claude` 啟動的 session 會對 `ANTHROPIC_BASE_URL`
-  （loopback 上的純 HTTP）通訊，`HTTPS_PROXY` 不涵蓋它，因此該行程會直接連到 OpenCodex，
-  代理完全看不到它的流量。
-- Claude Code 會遵循文件化的 `HTTPS_PROXY`/`NODE_EXTRA_CA_CERTS`（供企業代理使用）；若某個
-  CLI 版本不再遵循，會停止路由，而不是讓登入失效。
 
 ## Claude Desktop 設定檔
 

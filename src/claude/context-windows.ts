@@ -1,0 +1,291 @@
+/**
+ * Claude-surface context-window map + effective model-env computation
+ * (devlog/260712_cli_context_cache/010 B2, audit R2#1/R3#1/R3#4/R4#3).
+ *
+ * The map registers EVERY selector form a Claude Code model slot might store —
+ * bare native slug, provider/id, desktop3p alias, current ocx-claude-* alias and
+ * the legacy claude-ocx-* spelling a saved selector may still carry —
+ * with first-wins dedupe (mirrors the desktop3p registry collision policy).
+ * Values are authoritative context windows only (native override table /
+ * adapter-reported CatalogModel.contextWindow / the Anthropic registry for passthrough ids);
+ * nothing is guessed.
+ */
+import { aliasForNative, aliasForRoute, currentClaudeAliasSpelling, legacyAliasForNative, legacyAliasForRoute } from "./alias";
+import { desktop3pAlias } from "./desktop-3p";
+import { nativeOpenAiContextWindow, type CatalogModel, type NativeContextLimitsInput } from "../codex/catalog";
+import { ANTHROPIC_MODEL_CONTEXT_WINDOWS } from "../providers/registry/model-seeds";
+import type { OcxClaudeCodeConfig } from "../types";
+
+const ONE_MILLION = 1_000_000;
+
+/**
+ * The native id each Claude Code tier alias resolves to (2.1.282: `--model opus` sends
+ * `claude-opus-5-5`, `sonnet` sends `claude-sonnet-5`, `fable` sends `claude-fable-5-1`).
+ * Behind a gateway Claude Code accounts an unmarked id at 200k, so an unset tier slot is filled
+ * with this id when the map marks it (#5755). A marked alias cannot stand in: Claude Code sends
+ * `sonnet[1m]` upstream unresolved. Haiku has no entry; its 200k window never marks.
+ */
+const CLAUDE_CODE_NATIVE_TIERS = { opus: "claude-opus-5-5", sonnet: "claude-sonnet-5", fable: "claude-fable-5-1" } as const;
+
+/**
+ * Auto-context defaults (devlog 260712 020, user-approved).
+ *
+ * The compact window is the token count at which Claude Code starts compacting, and it is
+ * also the floor `shouldMarkOneMillion` uses — a model may only carry the marker if it can
+ * host this window. 350,000 was chosen when the widest native row advertised 372,000.
+ *
+ * It now matches the auto-compaction limit the Codex catalog ships for the same models
+ * (`nativeAutoCompactLimit`: 829,800 against the 922,000 native window). Leaving the two
+ * apart meant one model compacting at 350k under Claude Code and at 829,800 under Codex.
+ * The value stays clear of the measured 922,000 ceiling by ~92k, so compaction still has
+ * room to run before the upstream refuses.
+ */
+export const AUTO_COMPACT_WINDOW_DEFAULT = 829_800;
+export const AUTO_CONTEXT_FLOOR = 200_000;
+/** Binary-verified accepted range for CLAUDE_CODE_AUTO_COMPACT_WINDOW (2.1.207: pSo=1e5, yDs=1e6). */
+export const AUTO_COMPACT_WINDOW_MIN = 100_000;
+export const AUTO_COMPACT_WINDOW_MAX = ONE_MILLION;
+
+/** Case-insensitive [1m] marker helpers — the CLI matches /\[1m\]/i (audit 021 #7). */
+const ONE_M_MARKER_RE = /\[1m\]$/i;
+export function hasOneMillionMarker(value: string): boolean {
+  return ONE_M_MARKER_RE.test(value);
+}
+export function stripOneMillionMarker(value: string): string {
+  return value.replace(ONE_M_MARKER_RE, "");
+}
+
+export interface AutoContextMode {
+  enabled: boolean;
+  /** Effective CLAUDE_CODE_AUTO_COMPACT_WINDOW value (tokens). */
+  compactWindow: number;
+}
+
+export const AUTO_CONTEXT_OFF: AutoContextMode = { enabled: false, compactWindow: AUTO_COMPACT_WINDOW_DEFAULT };
+
+interface AutoContextConfigSlice {
+  autoContext?: boolean;
+  autoCompactWindow?: number;
+  maxContextTokens?: number;
+}
+
+function inAutoCompactRange(value: number): boolean {
+  return Number.isInteger(value) && value >= AUTO_COMPACT_WINDOW_MIN && value <= AUTO_COMPACT_WINDOW_MAX;
+}
+
+/**
+ * Resolve the auto-context mode from claudeCode config. Disabled when the user
+ * turned it off OR when maxContextTokens is set. That override injects only
+ * CLAUDE_CODE_MAX_CONTEXT_TOKENS: compact stays enabled (no DISABLE_COMPACT) and
+ * Claude Code compacts against that window for ocx-claude-* ids, so no
+ * CLAUDE_CODE_AUTO_COMPACT_WINDOW is injected beside it and [1m] auto-marking stays
+ * off. maxContextTokens accepts values outside the compact variable's 100k–1M
+ * range, so deriving that variable from it could only produce ignored values.
+ *
+ * `envOverride` is the raw CLAUDE_CODE_AUTO_COMPACT_WINDOW the USER already
+ * exported (user-wins injection keeps it): a valid value drives the marking
+ * predicate so marker and threshold never separate (audit 021 #2); an invalid
+ * value disables auto marking entirely (the CLI would ignore it, leaving marked
+ * sub-1M models without their safety net). Out-of-range CONFIG values fall back
+ * to AUTO_COMPACT_WINDOW_DEFAULT (the management API rejects them; this guards hand-edits).
+ */
+export function resolveAutoContext(claudeCode: AutoContextConfigSlice | undefined, envOverride?: string): AutoContextMode {
+  if (claudeCode?.autoContext === false) return AUTO_CONTEXT_OFF;
+  const maxCtx = claudeCode?.maxContextTokens;
+  if (typeof maxCtx === "number" && Number.isFinite(maxCtx) && maxCtx > 0) return AUTO_CONTEXT_OFF;
+  if (typeof envOverride === "string" && envOverride !== "") {
+    const parsed = Number(envOverride);
+    return inAutoCompactRange(parsed) ? { enabled: true, compactWindow: parsed } : AUTO_CONTEXT_OFF;
+  }
+  const raw = claudeCode?.autoCompactWindow;
+  const compactWindow = typeof raw === "number" && inAutoCompactRange(raw) ? raw : AUTO_COMPACT_WINDOW_DEFAULT;
+  return { enabled: true, compactWindow };
+}
+
+/**
+ * Config value -> ENABLE_TOOL_SEARCH wire value (#4838).
+ *
+ * Claude Code parses this variable itself and accepts more than a boolean:
+ * "true", "auto", "auto:N" (N is a percentage floor for non-deferred tools; its
+ * parser rejects anything under 100) and "force", which also overrides an
+ * OS-level managed-settings suppression. Passing a string through verbatim keeps
+ * that whole vocabulary reachable instead of flattening it to a boolean that
+ * would have to be re-expanded here later.
+ *
+ * `false`, absent and blank inject nothing rather than injecting "false". Every
+ * caller injects with user-wins semantics, so an operator's own export survives
+ * either way, and writing "false" would be the one path that could quietly
+ * disagree with it.
+ */
+export function claudeToolSearchEnv(value: boolean | string | undefined): string | undefined {
+  if (value === true) return "true";
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
+/**
+ * [1m]-marking predicate. Windows >= 1M always mark (CLI accounts exactly 1M).
+ * Auto-context additionally marks windows > 200k that can safely host the compact
+ * window — marking a model whose real window is BELOW the compact window would put
+ * the compaction safety net behind the real API limit (mid-session 400s).
+ */
+export function shouldMarkOneMillion(window: number | undefined, auto: AutoContextMode): boolean {
+  if (typeof window !== "number" || window <= 0) return false;
+  if (window >= ONE_MILLION) return true;
+  return auto.enabled && window > AUTO_CONTEXT_FLOOR && window >= auto.compactWindow;
+}
+
+/** Present when bare Claude ids take the native passthrough on this launch (#5755). */
+export interface NativeClaudePassthrough {
+  /** `claudeCode.modelMap`: a mapped id is routed, not passed through. */
+  modelMap?: Readonly<Record<string, string>>;
+}
+
+/**
+ * On a local subscription launch with `nativePassthrough` on, a bare `claude-*` id goes straight
+ * to Anthropic under Claude Code's own login and never reaches the router
+ * (server/claude-messages.ts `wantsNativePassthrough`). Undefined when the router decides:
+ * proxy auth, passthrough off, or a connected client, which authenticates with an admission token.
+ */
+export function nativeClaudePassthroughFor(
+  claudeCode: OcxClaudeCodeConfig | undefined,
+  markerMode: "proxy" | "subscription",
+): NativeClaudePassthrough | undefined {
+  return markerMode === "subscription" && claudeCode?.nativePassthrough !== false
+    ? { modelMap: claudeCode?.modelMap }
+    : undefined;
+}
+
+export function buildClaudeContextWindows(
+  nativeSlugs: readonly string[],
+  routedModels: readonly CatalogModel[],
+  // A configured providerContextCaps.openai has to reach the native rows here too. Without
+  // it the Claude surface keeps advertising the uncapped authoritative window while the
+  // Codex catalog advertises the capped one, and the two disagree about the same model.
+  nativeContextCap?: NativeContextLimitsInput,
+  nativeClaude?: NativeClaudePassthrough,
+): Record<string, number> {
+  const out: Record<string, number> = {};
+  const put = (key: string | null, value: number) => {
+    if (!key) return;
+    if (out[key] === undefined) out[key] = value; // first-wins (registry policy)
+  };
+  for (const slug of nativeSlugs) {
+    const window = nativeOpenAiContextWindow(slug, nativeContextCap);
+    if (typeof window !== "number" || window <= 0) continue;
+    put(slug, window);
+    put(desktop3pAlias("native", slug), window);
+    put(aliasForNative(slug), window);
+    put(legacyAliasForNative(slug), window);
+  }
+  // Passthrough ids never reach the router, so the registry speaks for them ahead of any routed
+  // row that shares the bare id (#5755). An anthropic row capped under 1M still keeps its id
+  // unmarked, and a modelMap entry routes its id elsewhere.
+  if (nativeClaude) {
+    const capped = new Set(routedModels.flatMap(m =>
+      m.provider === "anthropic" && typeof m.contextWindow === "number" && m.contextWindow < ONE_MILLION ? [m.id] : []));
+    for (const [id, window] of Object.entries(ANTHROPIC_MODEL_CONTEXT_WINDOWS)) {
+      if (window >= ONE_MILLION && !capped.has(id) && !nativeClaude.modelMap?.[id]) put(id, window);
+    }
+  }
+  // Anthropic passthrough guard (audit 021 #3): canonical claude ids ride the
+  // subscription passthrough — marking a sub-1M one would strap [1m]/1M-beta onto
+  // a model that cannot host it. Register anthropic rows only at >=1M.
+  const registrable = routedModels.filter(
+    m =>
+      typeof m.contextWindow === "number" &&
+      m.contextWindow > 0 &&
+      !(m.provider === "anthropic" && m.contextWindow < ONE_MILLION),
+  );
+  // Bare routed ids are registered only when unambiguous across providers (audit
+  // 021 #5) — natives are registered first, so a native slug always wins the bare
+  // key. Counted over the rows that can actually claim the key: a row this loop
+  // skips contributes no window, so letting it veto the bare key withholds an
+  // answer that was never in doubt.
+  const bareCounts = new Map<string, number>();
+  for (const m of registrable) bareCounts.set(m.id, (bareCounts.get(m.id) ?? 0) + 1);
+  for (const m of registrable) {
+    const window = m.contextWindow as number;
+    put(`${m.provider}/${m.id}`, window);
+    put(desktop3pAlias(m.provider, m.id), window);
+    put(aliasForRoute(m.provider, m.id), window);
+    put(legacyAliasForRoute(m.provider, m.id), window);
+    if (bareCounts.get(m.id) === 1) put(m.id, window);
+  }
+  return out;
+}
+
+/** Strip a trailing [1m] marker before map lookup (selector may already carry it). */
+function bareSelector(value: string): string {
+  return stripOneMillionMarker(value);
+}
+
+/**
+ * Apply the [1m] context-variant marker to a model selector when its authoritative
+ * window is >= 1M (Claude Code accounts exactly 1M for the marker; compaction stays
+ * alive) — or, in auto-context mode, when the window clears the marking predicate
+ * above. Already-marked selectors pass through; unknown selectors stay untouched.
+ */
+export function withOneMillionMarker(selector: string | undefined, windows: Record<string, number>, auto: AutoContextMode = AUTO_CONTEXT_OFF): string | undefined {
+  if (!selector) return selector;
+  if (hasOneMillionMarker(selector)) return selector;
+  const window = windows[bareSelector(selector)];
+  return shouldMarkOneMillion(window, auto) ? `${selector}[1m]` : selector;
+}
+
+export interface ClaudeTierModels {
+  opus?: string;
+  sonnet?: string;
+  haiku?: string;
+  fable?: string;
+}
+
+/**
+ * The exact env map Claude Code consumes for model slots (audit R4#4):
+ * ANTHROPIC_MODEL + the four tier defaults + the legacy small-fast alias.
+ * effective-haiku contract (audit R1#8): tierModels.haiku ?? smallFastModel, one
+ * value injected into BOTH haiku variables.
+ */
+export function effectiveModelEnv(
+  claudeCode: { model?: string; smallFastModel?: string; tierModels?: ClaudeTierModels; autoContext?: boolean; autoCompactWindow?: number; maxContextTokens?: number } | undefined,
+  windows: Record<string, number>,
+  autoOverride?: AutoContextMode,
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  const auto = autoOverride ?? resolveAutoContext(claudeCode);
+  // A slot still configured with a legacy claude-ocx selector is emitted in its current
+  // ocx-claude spelling. The route is identical, but Claude Code applies the context window
+  // (and keeps compact) only for ids that do not start with "claude-".
+  const set = (name: string, value: string | undefined) => {
+    const marked = withOneMillionMarker(value === undefined ? undefined : currentClaudeAliasSpelling(value), windows, auto);
+    if (marked) out[name] = marked;
+  };
+  // An unset tier slot is filled only when its native id marks; otherwise Claude Code keeps
+  // choosing, as before.
+  const tier = (configured: string | undefined, native: string) =>
+    configured ?? (shouldMarkOneMillion(windows[native], auto) ? native : undefined);
+  set("ANTHROPIC_MODEL", claudeCode?.model);
+  set("ANTHROPIC_DEFAULT_OPUS_MODEL", tier(claudeCode?.tierModels?.opus, CLAUDE_CODE_NATIVE_TIERS.opus));
+  set("ANTHROPIC_DEFAULT_SONNET_MODEL", tier(claudeCode?.tierModels?.sonnet, CLAUDE_CODE_NATIVE_TIERS.sonnet));
+  set("ANTHROPIC_DEFAULT_FABLE_MODEL", tier(claudeCode?.tierModels?.fable, CLAUDE_CODE_NATIVE_TIERS.fable));
+  const effectiveHaiku = claudeCode?.tierModels?.haiku ?? claudeCode?.smallFastModel;
+  set("ANTHROPIC_DEFAULT_HAIKU_MODEL", effectiveHaiku);
+  set("ANTHROPIC_SMALL_FAST_MODEL", effectiveHaiku);
+  return out;
+}
+
+/** Shared 3s bounded acquisition (audit R4#3) for context-window sources. */
+export async function boundedContextWindows(
+  acquire: () => Promise<Record<string, number>>,
+  timeoutMs = 3_000,
+): Promise<Record<string, number> | null> {
+  try {
+    return await Promise.race([
+      acquire(),
+      new Promise<null>(resolve => setTimeout(() => resolve(null), timeoutMs)),
+    ]);
+  } catch {
+    return null;
+  }
+}

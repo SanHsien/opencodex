@@ -1,0 +1,374 @@
+import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
+import type { CatalogModel } from "../../codex/catalog";
+import { catalogModelSlug, invalidateCodexModelsCache, nativeModelRows, uniqueCatalogModelsForPublicList } from "../../codex/catalog";
+import {
+  DEFAULT_SUBAGENT_MODELS,
+  codexAutoStartEnabled,
+  deleteConfigTopLevelKey,
+  hasOwnProvider,
+  isValidProviderName,
+  multiAgentGuidanceEnabled,
+  providerBaseUrlConfigError,
+  providerHeadersConfigError,
+  saveConfigPreservingClaudeCode,
+} from "../../config";
+import {
+  clearLoginState,
+  getLoginStatus,
+  isPublicOAuthProvider,
+  listOAuthProviders,
+  startLoginFlow,
+  submitManualLoginCode,
+  upsertOAuthProvider,
+} from "../../oauth";
+import { removeCredential } from "../../oauth/store";
+import { providerDestinationResolvedError } from "../../lib/destination-policy";
+import { enrichProviderFromCatalog, listKeyLoginProviders } from "../../oauth/key-providers";
+import { deriveProviderPresets } from "../../providers/derive";
+import { providerCodexAccountMode } from "../../providers/registry";
+import { routedSlug, slugEquals } from "../../providers/slug-codec";
+import { clearProviderQuotaCache, fetchProviderQuotaReports } from "../../providers/quota";
+import { isCanonicalOpenAiForwardProvider } from "../../providers/openai-tiers";
+import {
+  CODEX_ACCOUNT_NAMESPACE_COMBO_ALIAS_COLLISION_ERROR,
+  codexAccountNamespaceForModel,
+} from "../../codex/account-namespace-match";
+import { clearThreadAccountMap } from "../../codex/routing";
+import { primeCodexPoolQuotas } from "../../codex/auth-api";
+import { DEFAULT_PROVIDER_CONTEXT_CAP, globalContextCapValue, providerContextCap, providerContextCaps, setAllProviderContextCaps, setGlobalContextCapValue, setProviderContextCap } from "../../providers/context-cap";
+import { resolveCodexHomeDir } from "../../codex/home";
+import { readUsageEntries } from "../../usage/log";
+import { getUsageDebugLogEntries } from "../../usage/debug";
+import { parseRange, parseUsageSurface, summarizeUsage } from "../../usage/summary";
+import { stripCodexRuntimeProviderFields } from "../../codex/auth-context";
+import { getProviderRegistryEntry } from "../../providers/registry";
+import { getDebugLogEntries } from "../../lib/debug-log-buffer";
+import { getInjectionDebugLogEntries } from "../../lib/injection-debug-log";
+import {
+  clearDebugSettings,
+  clearDebugSetting,
+  getDebugSettings,
+  setDebugSettings,
+  type DebugFlag,
+} from "../../lib/debug-settings";
+import type { OcxClaudeCodeConfig, OcxComboConfig, OcxConfig, OcxCustomModel, OcxProviderConfig, OcxComboCooldownWaitPolicy } from "../../types";
+import { drainAndShutdown } from "../lifecycle";
+import { reconcileLiveStateStores } from "../../lib/state-store-registrations";
+import { filterRequestLogs, getRequestLogEntries, type RequestLogEntry } from "../request-log";
+import { estimateComboCost, estimateRequestCost, normalizeCostTokens, tokensPerSecond } from "../../usage/cost";
+import type { PersistedUsageAttempt } from "../../usage/log";
+import { isAllowedRequestOrigin, jsonResponse, providerManagementConfigError, publicProviderBaseUrl, safeConfigDTO } from "../auth-cors";
+import { applySystemEnvToggle } from "../system-env";
+
+import { isPlainRecord, parseDebugLogQuery, tokPerSecondResult, unavailableCostReason, costResult, requestLogDto, stripRegistryOnlyStaticHeaders, fetchAllModels } from "./shared";
+import type { MetricUnavailableReason, TokPerSecondResult, CostEstimateReason, CostResult, MetricSource } from "./shared";
+import type { ManagementContext } from "./context";
+import { readManagementJsonBody, rethrowManagementBodyTooLarge } from "./body";
+import { shadowCallTargetError } from "./shadow-call-validation";
+import { COMBO_DEFAULT_WAIT_FOR_COOLDOWN_MS } from "../../combos";
+
+
+/**
+ * Management wire shape: omit fields whose value is the default, so GET responses and
+ * persisted config stay sparse. A default echoed here would be written straight back by
+ * any client that round-trips GET into PUT, which is how an unset option ends up
+ * materialized in every user's config.json.
+ */
+function sparseComboConfig<T extends {
+  cooldownMs?: number;
+  waitForCooldownMs?: number;
+  cooldownWaitPolicy?: OcxComboCooldownWaitPolicy | null;
+  imageInput?: "auto" | "disabled";
+  reasoningEffortMode?: "strict" | "adaptive";
+  defaultEffortMode?: "fallback" | "force";
+}>(combo: T): Omit<T, "cooldownMs" | "waitForCooldownMs" | "cooldownWaitPolicy" | "imageInput" | "reasoningEffortMode" | "defaultEffortMode"> & {
+  cooldownMs?: number;
+  waitForCooldownMs?: number;
+  cooldownWaitPolicy?: OcxComboCooldownWaitPolicy;
+  imageInput?: "disabled";
+  reasoningEffortMode?: "adaptive";
+  defaultEffortMode?: "force";
+} {
+  const {
+    cooldownMs,
+    waitForCooldownMs,
+    cooldownWaitPolicy,
+    imageInput,
+    reasoningEffortMode,
+    defaultEffortMode,
+    ...rest
+  } = combo;
+  return {
+    ...rest,
+    ...(cooldownMs !== undefined ? { cooldownMs } : {}),
+    // #5691: the normalizer yields null for "unset"; persisting that would put a
+    // meaningless key in every stored combo. Only the opt-in value is written.
+    ...(cooldownWaitPolicy ? { cooldownWaitPolicy } : {}),
+    ...(waitForCooldownMs !== undefined && waitForCooldownMs !== COMBO_DEFAULT_WAIT_FOR_COOLDOWN_MS
+      ? { waitForCooldownMs }
+      : {}),
+    ...(imageInput === "disabled" ? { imageInput: "disabled" as const } : {}),
+    ...(reasoningEffortMode === "adaptive" ? { reasoningEffortMode: "adaptive" as const } : {}),
+    ...(defaultEffortMode === "force" ? { defaultEffortMode: "force" as const } : {}),
+  };
+}
+
+export async function handleComboRoutes(ctx: ManagementContext): Promise<Response | null> {
+  const { req, url, config, deps, convergeCodexCatalog, syncClaudeAgentDefsBestEffort } = ctx;
+
+  if (url.pathname === "/api/combos" && req.method === "GET") {
+    const { comboPublicModelId, getCombo, listComboIds } = await import("../../combos");
+    return jsonResponse({ combos: listComboIds(config).map(id => {
+      const combo = getCombo(config, id)!;
+      return {
+        id,
+        model: comboPublicModelId(id, combo),
+        ...sparseComboConfig(combo),
+      };
+    }) });
+  }
+
+  if (url.pathname === "/api/combos" && req.method === "PUT") {
+    let rawBody: unknown;
+    try { rawBody = await readManagementJsonBody(req); } catch (error) { rethrowManagementBodyTooLarge(error); return jsonResponse({ error: "invalid JSON body" }, 400); }
+    if (!isPlainRecord(rawBody)) {
+      return jsonResponse({ error: "request body must be an object" }, 400);
+    }
+    const body = rawBody;
+    if (typeof body.id !== "string" || !body.id.trim()) {
+      return jsonResponse({ error: "id is required and must be a string" }, 400);
+    }
+    const id = body.id.trim();
+    let renameFrom: string | undefined;
+    if (body.renameFrom !== undefined) {
+      if (typeof body.renameFrom !== "string" || !body.renameFrom.trim()) {
+        return jsonResponse({ error: "renameFrom must be a non-empty string" }, 400);
+      }
+      renameFrom = body.renameFrom.trim();
+      if (renameFrom === id) {
+        return jsonResponse({ error: "renameFrom must differ from id" }, 400);
+      }
+      if (!Object.hasOwn(config.combos ?? {}, renameFrom)) {
+        return jsonResponse({ error: `combo "${renameFrom}" does not exist` }, 400);
+      }
+      if (Object.hasOwn(config.combos ?? {}, id)) {
+        return jsonResponse({ error: `combo "${id}" already exists` }, 400);
+      }
+    }
+    const {
+      clearComboSelectionState,
+      clearComboTargetCooldowns,
+      comboConfigError,
+      comboDisabledModelId,
+      comboDisabledModelSelectors,
+      comboModelId,
+      comboPublicModelId,
+      normalizeComboConfig,
+    } = await import("../../combos");
+    const sourceId = renameFrom ?? id;
+    const previous = config.combos?.[sourceId];
+    if (!isPlainRecord(body.combo)) {
+      return jsonResponse({ error: "combo must be an object" }, 400);
+    }
+    const requestedCombo: Record<string, unknown> = body.combo;
+    const effectiveCombo = {
+      ...requestedCombo,
+      ...(!Object.hasOwn(requestedCombo, "cooldownMs") && previous?.cooldownMs !== undefined
+        ? { cooldownMs: previous.cooldownMs }
+        : {}),
+      ...(!Object.hasOwn(requestedCombo, "waitForCooldownMs") && previous?.waitForCooldownMs !== undefined
+        ? { waitForCooldownMs: previous.waitForCooldownMs }
+        : {}),
+      // Same reason as defaultEffortMode below: the dashboard does not expose the
+      // last-resort policy, so a GUI round-trip that omits it must not delete it (#5736).
+      ...(!Object.hasOwn(requestedCombo, "cooldownWaitPolicy") && previous?.cooldownWaitPolicy !== undefined
+        ? { cooldownWaitPolicy: previous.cooldownWaitPolicy }
+        : {}),
+      // #5687: an API or CLI client that omits these must not reset them. The dashboard
+      // sends both explicitly, so switching back to auto/strict there still replaces them.
+      ...(!Object.hasOwn(requestedCombo, "reasoningEffortMode") && previous?.reasoningEffortMode !== undefined
+        ? { reasoningEffortMode: previous.reasoningEffortMode }
+        : {}),
+      ...(!Object.hasOwn(requestedCombo, "imageInput") && previous?.imageInput !== undefined
+        ? { imageInput: previous.imageInput }
+        : {}),
+      // `lastResort` rides on each target, so a GUI that re-sends the target list without the
+      // flag would strip it. Carry it over per target, matched on provider+model.
+      ...(Array.isArray(requestedCombo.targets) && Array.isArray(previous?.targets)
+        ? {
+            targets: requestedCombo.targets.map(target => {
+              // A non-record entry stays as the client sent it so comboConfigError reports it.
+              // Reading `lastResort` off it here would throw in place of that structured 400.
+              if (!isPlainRecord(target)) return target;
+              if (Object.hasOwn(target, "lastResort")) return target;
+              const rawProvider = target.provider;
+              const rawModel = target.model;
+              if (typeof rawProvider !== "string" || typeof rawModel !== "string") return target;
+              // Identity is trimmed on both sides: the normalizer trims too, so a re-sent
+              // " b " must still match the stored "b" instead of losing the flag.
+              const provider = rawProvider.trim();
+              const model = rawModel.trim();
+              const before = previous.targets.find(
+                candidate => candidate.provider === provider && candidate.model === model,
+              );
+              return before?.lastResort ? { ...target, lastResort: true } : target;
+            }),
+          }
+        : {}),
+      // The dashboard does not expose this advanced CLI/API policy. Preserve it when
+      // a GUI round-trip omits the field instead of silently downgrading to fallback.
+      ...(!Object.hasOwn(requestedCombo, "defaultEffortMode") && previous?.defaultEffortMode !== undefined
+        ? { defaultEffortMode: previous.defaultEffortMode }
+        : {}),
+    };
+    const error = comboConfigError(id, effectiveCombo, config.providers, {
+      requireEnabledTarget: true,
+      combos: config.combos,
+      excludeComboId: sourceId,
+    });
+    if (error) return jsonResponse({ error }, 400);
+    const normalized = normalizeComboConfig(effectiveCombo as unknown as OcxComboConfig);
+    // Persist only non-default identity/capability fields so config stays sparse.
+    // Capability defaults (`imageInput`, `reasoningEffortMode`) go through the same
+    // helper the GET/PUT responses use, so the wire shape and the stored shape cannot drift.
+    const {
+      alias: normalizedAlias,
+      nativeAlias: normalizedNativeAlias,
+      displayName: normalizedDisplayName,
+      ...normalizedBase
+    } = sparseComboConfig(normalized);
+    const stored: OcxComboConfig = {
+      ...normalizedBase,
+      // The normalizer gives every target an explicit `lastResort: false`; persisting that
+      // would add a noise key to every target of every combo, including ones that never use
+      // the policy (#5736). Only the opt-in value is stored, matching how the combo-level
+      // policy is handled in sparseComboConfig.
+      targets: normalizedBase.targets.map(({ lastResort, ...target }) =>
+        lastResort ? { ...target, lastResort: true } : target,
+      ),
+      ...(normalizedAlias ? { alias: normalizedAlias } : {}),
+      ...(normalizedNativeAlias ? { nativeAlias: true } : {}),
+      ...(normalizedDisplayName ? { displayName: normalizedDisplayName } : {}),
+    };
+    const oldPublicModel = previous ? comboPublicModelId(sourceId, previous) : null;
+    const newPublicModel = comboPublicModelId(id, normalized);
+    const disabledIdentityChanged = previous !== undefined && (
+      renameFrom !== undefined
+      || oldPublicModel !== newPublicModel
+      || (previous.nativeAlias === true) !== normalized.nativeAlias
+    );
+    const oldDisabledSelectors = disabledIdentityChanged
+      ? new Set(comboDisabledModelSelectors(sourceId, previous))
+      : new Set<string>();
+    const newDisabledModel = comboDisabledModelId(id, normalized);
+    if (codexAccountNamespaceForModel(config.codexAccountNamespaces, newPublicModel)) {
+      return jsonResponse({ error: CODEX_ACCOUNT_NAMESPACE_COMBO_ALIAS_COLLISION_ERROR }, 409);
+    }
+    const nextCombos = { ...(config.combos ?? {}) };
+    if (renameFrom) delete nextCombos[renameFrom];
+    nextCombos[id] = stored;
+    let shouldSyncClaudeAgentDefs = false;
+    const migratedModels = new Map<string, string>();
+    if (oldPublicModel && oldPublicModel !== newPublicModel && previous?.nativeAlias !== true) {
+      migratedModels.set(oldPublicModel, newPublicModel);
+    }
+    if (renameFrom) {
+      // A bare native id is ambiguous after the alias changes. Preserve it as a native route,
+      // while the unambiguous canonical combo reference follows the renamed combo.
+      migratedModels.set(
+        comboModelId(renameFrom),
+        previous?.nativeAlias === true ? comboModelId(id) : newPublicModel,
+      );
+    }
+    const currentShadowTarget = config.shadowCallIntercept?.model;
+    const migratedShadowTarget = currentShadowTarget
+      ? migratedModels.get(currentShadowTarget)
+      : undefined;
+    if (migratedShadowTarget) {
+      const targetError = shadowCallTargetError({ ...config, combos: nextCombos }, migratedShadowTarget);
+      if (targetError) return jsonResponse({ error: targetError }, 400);
+    }
+    config.combos = nextCombos;
+    if (migratedModels.size > 0) {
+      const migrateReference = (model: string): string => migratedModels.get(model) ?? model;
+      const migrateAgentReference = (model: string): string => {
+        const migrated = migrateReference(model);
+        if (migrated !== model) shouldSyncClaudeAgentDefs = true;
+        return migrated;
+      };
+      if (config.subagentModels) {
+        config.subagentModels = [...new Set(config.subagentModels.map(migrateAgentReference))];
+      }
+      if (config.injectionModel && migratedModels.has(config.injectionModel)) {
+        config.injectionModel = migrateReference(config.injectionModel);
+      }
+      if (config.shadowCallIntercept?.model && migratedModels.has(config.shadowCallIntercept.model)) {
+        config.shadowCallIntercept = {
+          ...config.shadowCallIntercept,
+          model: migrateReference(config.shadowCallIntercept.model),
+        };
+      }
+      if (config.claudeCode) {
+        const claudeCode = { ...config.claudeCode };
+        for (const field of ["model", "smallFastModel"] as const) {
+          if (claudeCode[field]) claudeCode[field] = migrateAgentReference(claudeCode[field]);
+        }
+        if (claudeCode.tierModels) {
+          claudeCode.tierModels = Object.fromEntries(
+            Object.entries(claudeCode.tierModels).map(([tier, model]) => [tier, migrateAgentReference(model)]),
+          );
+        }
+        if (claudeCode.modelMap) {
+          claudeCode.modelMap = Object.fromEntries(
+            Object.entries(claudeCode.modelMap).map(([source, model]) => [source, migrateAgentReference(model)]),
+          );
+        }
+        if (claudeCode.intercept?.modelMap) {
+          claudeCode.intercept = {
+            ...claudeCode.intercept,
+            modelMap: Object.fromEntries(
+              Object.entries(claudeCode.intercept.modelMap).map(([pickerId, route]) => [pickerId, migrateAgentReference(route)]),
+            ),
+          };
+        }
+        config.claudeCode = claudeCode;
+      }
+    }
+    if (oldDisabledSelectors.size > 0 && config.disabledModels) {
+      config.disabledModels = [...new Set(config.disabledModels.map(model => (
+        oldDisabledSelectors.has(model) ? newDisabledModel : model
+      )))];
+    }
+    saveConfigPreservingClaudeCode(config);
+    reconcileLiveStateStores();
+    clearComboSelectionState(id);
+    clearComboTargetCooldowns(id);
+    if (renameFrom) {
+      clearComboSelectionState(renameFrom);
+      clearComboTargetCooldowns(renameFrom);
+    }
+    const catalogRefresh = await convergeCodexCatalog();
+    if (shouldSyncClaudeAgentDefs) await syncClaudeAgentDefsBestEffort();
+    // Wire shape matches persistence: omit default imageInput "auto".
+    return jsonResponse({ success: true, id, model: newPublicModel, combo: sparseComboConfig(stored), catalogRefresh });
+  }
+
+  if (url.pathname === "/api/combos" && req.method === "DELETE") {
+    const id = url.searchParams.get("id")?.trim();
+    if (!id) return jsonResponse({ error: "id query param is required" }, 400);
+    if (!Object.hasOwn(config.combos ?? {}, id)) {
+      return jsonResponse({ error: "unknown combo" }, 404);
+    }
+    const { clearComboSelectionState, clearComboTargetCooldowns } = await import("../../combos");
+    delete config.combos![id];
+    if (Object.keys(config.combos!).length === 0) deleteConfigTopLevelKey(config, "combos");
+    saveConfigPreservingClaudeCode(config);
+    reconcileLiveStateStores();
+    clearComboSelectionState(id);
+    clearComboTargetCooldowns(id);
+    const catalogRefresh = await convergeCodexCatalog();
+    return jsonResponse({ success: true, id, catalogRefresh });
+  }
+  return null;
+}

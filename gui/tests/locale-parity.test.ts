@@ -1,0 +1,309 @@
+import { expect, test } from "bun:test";
+import { LOCALES } from "../src/i18n/shared";
+
+const LOCALE_CODES = LOCALES.map(locale => locale.code);
+
+async function readDict(locale: string): Promise<Map<string, string>> {
+  const src = await Bun.file(new URL(`../src/i18n/${locale}.ts`, import.meta.url)).text();
+  const out = new Map<string, string>();
+  for (const m of src.matchAll(/^\s*"([^"]+)":\s*"((?:[^"\\]|\\.)*)"/gm)) {
+    out.set(m[1]!, m[2]!);
+  }
+  return out;
+}
+
+/**
+ * A value with no letters once its placeholders are removed has nothing to translate: an em
+ * dash, a currency template, a bare glyph. Matching English there is evidence of nothing, so
+ * it is derived from the value instead of growing the allowlist by one entry every time the
+ * UI gains another symbol.
+ */
+function carriesTranslatableWords(value: string): boolean {
+  return /\p{L}/u.test(value.replace(/\{[a-zA-Z0-9_]+\}/g, " "));
+}
+
+// When the English locale grows, `scripts/sync-locale-keys.mjs` seeds the new key into every
+// locale as an English placeholder so the build does not break. That is fine for de/ko/ja/zh/ru
+// (they each have a human owner who will translate later), but zh-TW is this PR's contribution
+// and the review specifically asked for a guard that makes a stale English placeholder fail
+// visibly as the English locale evolves. The existing key-set parity test in
+// claude-desktop-locale.test.ts catches a *missing* key; this test catches a *present but
+// untranslated* one.
+//
+// The allowlist below is the set of zh-TW keys whose value is intentionally identical to the
+// English source: protocol/endpoint names, provider proper nouns, brand names, model family
+// identifiers, short UI toggle states, units, and identifiers that Taiwan usage keeps in
+// English. Each entry was reviewed against ko/zh (which also keep many of these in English)
+// and ja (which translates some) — the decision is a localization choice, not a translation
+// gap. Anything *not* on this list that ships an English-identical value is treated as a stale
+// placeholder and fails the build.
+const ZH_TW_KEEP_ENGLISH: ReadonlySet<string> = new Set([
+  // API protocol/endpoint names
+  "api.chatCompletionsEndpoint",
+  "api.messagesEndpoint",
+  "api.modelsEndpoint",
+  "api.protocolChatCompletions",
+  "api.protocolMessages",
+  // Short wire names on the Logs protocol path, and the IR acronym beside them.
+  "logs.protocol.wire.responses",
+  "logs.protocol.wire.chat",
+  "logs.protocol.wire.messages",
+  "logs.protocol.hop.ir",
+  "api.protocolResponses",
+  "api.responsesEndpoint",
+  // Provider proper nouns (Taiwan keeps the English brand; "火山方舟" is Mainland usage)
+  "provider.name.volcengine",
+  "provider.name.volcengineAgentPlan",
+  "provider.name.volcengineCodingPlan",
+  // Backend/brand names
+  "dash.backendAnthropic",
+  "dash.backendOpenAI",
+  // Claude app labels
+  "claude.pageTitle",
+  // A literal Claude Desktop picker model id used as the input placeholder, not prose.
+  "claudeDesktop.firstParty.bindings.pickerPlaceholder",
+  "claude.tabCode",
+  "claude.tabDesktop",
+  // Claude Desktop model-family labels (proper nouns)
+  "claudeDesktop.effort.supported",
+  "claudeDesktop.family.fable",
+  "claudeDesktop.family.haiku",
+  "claudeDesktop.family.opus",
+  "claudeDesktop.family.sonnet",
+  "claudeDesktop.supports1m",
+  "claudeDesktop.title",
+  // Claude fast-mode toggle states (short ON/OFF/Auto labels kept in English)
+  "claude.fastAuto",
+  "claude.fastMode",
+  "claude.fastOff",
+  "claude.fastOn",
+  // Dash / logs short labels, units, and surface badges
+  "dash.col.baseUrl",
+  "dash.mem.arrayBuffers",
+  "dash.mem.external",
+  "dash.mem.jsHeapArena",
+  "logs.badge.claude",
+  "logs.badge.grok",
+  "logs.col.estimatedCost",
+  "logs.col.tokPerSec",
+  "logs.detail.ttft",
+  "logs.cost.approximate",
+  "logs.cost.lowerBound",
+  "logs.filter.surface.claude",
+  "logs.filter.surface.codex",
+  "logs.filter.surface.grok",
+  // Modal labels: transport headers, badges, URL field kept in English (zh/ko agree)
+  "modal.apiKeyTransportBearer",
+  "modal.badge.direct",
+  "modal.badge.oauth",
+  "modal.baseUrl",
+  "modal.baseUrlPlaceholder",
+  "modal.forwardCredentials",
+  // Nav labels (short product/surface names)
+  "nav.api",
+  "nav.claude",
+  "nav.grok",
+  // Other short identifiers, commands, and product names kept in English
+  "api.clientConfig.clientOpencode",
+  // Cline CLI is a product name, not untranslated interface copy.
+  "integrations.tab.cline",
+  "api.clientConfig.clientCline",
+  "api.clientConfig.clientPi",
+  "api.clientConfig.clientOmp",
+  "api.clientConfig.clientHermes",
+  "api.clientConfig.clientOpenclaw",
+  "api.clientConfig.clientKimi",
+  "api.clientConfig.clientGajae",
+  "api.clientConfig.clientDsh",
+  "codexAuth.codexApp",
+  "codexAuth.creditNextBadge",
+  "common.github",
+  // Windows PowerShell is a product name, not an untranslated prose placeholder.
+  "remote.pairingCommandWindows",
+  "grok.title",
+  // Integration tabs: client/product proper nouns kept in English
+  "integrations.tab.codex",
+  "integrations.tab.claude",
+  "integrations.tab.grok",
+  "integrations.tab.opencode",
+  "integrations.tab.pi",
+  "integrations.tab.omp",
+  "integrations.tab.hermes",
+  "integrations.tab.openclaw",
+  "integrations.tab.kimi",
+  "integrations.tab.gajae",
+  "integrations.tab.dsh",
+  "integrations.tab.mcode",
+  "integrations.tab.zcode",
+  "api.clientConfig.clientMcode",
+  "api.clientConfig.clientZcode",
+  "integrations.tab.prime",
+  "api.clientConfig.clientPrime",
+  "api.clientConfig.clientAside",
+  "integrations.tab.aside",
+  "integrations.tab.raycast",
+  "api.clientConfig.clientRaycast",
+  // "omo" is the product's own lowercase spelling, identical in every locale.
+  "integrations.tab.omo",
+  "api.clientConfig.clientOmo",
+  // Cline product name and CLI acronym are intentionally preserved.
+  "integrations.tab.cline",
+  "api.clientConfig.clientCline",
+  "integrations.codex.title",
+  "integrations.tab.cursor",
+  "integrations.cursor.title",
+  "integrations.cursor.noControl",
+  "codexSet.custom.navPosition",
+  "codexSet.layer.agents-md",
+  "codexSet.base.position",
+  // Provider proper nouns kept in English
+  "provider.name.commandCodeAuth",
+  "provider.name.commandCodeApi",
+  "provider.name.orcaRouterApi",
+  // Routing analytics identifiers and short labels
+  "routing.revision",
+  "routing.unavailable",
+  "routing.analyticsP50",
+  "routing.analyticsP95",
+  "routing.analyticsP99",
+  // Format template with placeholder only; other locales (zh/ja/ko) keep it identical to en
+  "models.shadowCallOriginal",
+  // A one-glyph marker plus the model id, sitting inside a narrow table column. The glyph is
+  // an icon-shaped affordance rather than a word, and its meaning is carried by the tooltip
+  // (`logs.badge.interceptedHelperTitle`), which IS translated. Localizing the glyph per
+  // locale would make the same badge unrecognizable across a screenshot or a bug report for
+  // no gain in comprehension.
+  "logs.badge.interceptedHelper",
+  "models.v2Mode_default",
+  "models.v2Mode_v1",
+  "models.v2Mode_v2",
+  "prov.accountId",
+  "pws.sort.az",
+  "pws.sort.za",
+  "startup.protection.shim",
+  "startup.shim",
+  "storage.card.home",
+  "storage.cleanup.preset",
+]);
+
+test("zh-TW ships no untranslated English placeholders beyond the intentional allowlist", async () => {
+  const en = await readDict("en");
+  const tw = await readDict("zh-TW");
+
+  const stale: string[] = [];
+  for (const [key, value] of tw) {
+    const enValue = en.get(key);
+    if (enValue === undefined) continue; // key-set parity is the other test's job
+    if (!value.trim()) continue; // blank-value is the other test's job
+    if (!carriesTranslatableWords(value)) continue; // a symbol is identical in every locale
+    if (value === enValue && !ZH_TW_KEEP_ENGLISH.has(key)) {
+      stale.push(key);
+    }
+  }
+
+  // A non-empty stale list means sync-locale-keys.mjs added a key and nobody translated it.
+  // Either translate it or, if English is the intended Taiwan rendering, add it to
+  // ZH_TW_KEEP_ENGLISH with a comment explaining why.
+  expect(
+    `zh-TW keys still English placeholders (translate or allowlist): ${stale.join(", ")}`,
+  ).toBe(`zh-TW keys still English placeholders (translate or allowlist): `);
+});
+
+// Cross-locale key-set parity is also asserted here so the zh-TW contribution carries its own
+// complete parity guard, independent of the claude-desktop-locale file.
+test("every locale key set matches the English source", async () => {
+  const en = [...(await readDict("en")).keys()].sort();
+  for (const locale of LOCALE_CODES.filter(l => l !== "en")) {
+    const other = [...(await readDict(locale)).keys()].sort();
+    expect(`${locale} key count: ${other.length}`).toBe(`${locale} key count: ${en.length}`);
+    expect(other).toEqual(en);
+  }
+});
+
+/**
+ * The Cursor tab landed with six locales carrying English copies that key-set parity could
+ * not see. This guard is scoped to the Cursor keys in EVERY locale: a value equal to English
+ * is a placeholder unless it is a brand or a label Cursor itself renders in English.
+ */
+const CURSOR_KEEP_ENGLISH: ReadonlySet<string> = new Set([
+  "integrations.tab.cursor",
+  "integrations.cursor.title",
+  // Em-dash marker, identical in every locale.
+  "integrations.cursor.noControl",
+  "integrations.cursor.privateInference",
+  "integrations.cursor.baseUrl",
+  // "API Key" is the literal field name in Cursor's gateway form.
+  "integrations.cursor.apiKey",
+]);
+
+/** Per-locale cognates: English-identical values that are correct in that one locale only. */
+const CURSOR_KEEP_ENGLISH_BY_LOCALE: Record<string, ReadonlySet<string>> = {
+  // "Model" is the Turkish word too; the table header is a true cognate, not a placeholder.
+  tr: new Set(["integrations.cursor.colModel"]),
+};
+
+test("every locale translates the Cursor tab beyond the brand labels", async () => {
+  const en = await readDict("en");
+  for (const locale of LOCALE_CODES.filter(l => l !== "en")) {
+    const dict = await readDict(locale);
+    const stale: string[] = [];
+    for (const [key, value] of dict) {
+      if (!key.startsWith("integrations.cursor.") && !key.startsWith("integrations.detail.cursor")) continue;
+      if (CURSOR_KEEP_ENGLISH.has(key)) continue;
+      if (CURSOR_KEEP_ENGLISH_BY_LOCALE[locale]?.has(key)) continue;
+      if (value === en.get(key)) stale.push(key);
+    }
+    expect(`${locale} Cursor keys still English placeholders: ${stale.join(", ")}`)
+      .toBe(`${locale} Cursor keys still English placeholders: `);
+  }
+});
+
+const DSH_VISIBLE_COPY: Record<(typeof LOCALE_CODES)[number], readonly [string, string, string]> = {
+  en: [
+    "DeepSeek Harness (DSH)",
+    "DSH",
+    "OpenCodex manages only llm-pi-ai.providers.opencodex in $DSH_HOME/settings.yaml. DSH hot reloads this provider; your default model and deepseek-official stay unchanged. Currently loopback-only; no real credential is written.",
+  ],
+  "zh-TW": [
+    "DeepSeek Harness (DSH)",
+    "DSH",
+    "OpenCodex 只管理 $DSH_HOME/settings.yaml 中的 llm-pi-ai.providers.opencodex。DSH 會熱重載該 provider；你的預設模型與 deepseek-official 維持不變。目前僅支援 loopback，且不會寫入真實憑證。",
+  ],
+};
+
+test("every locale carries the exact DSH label and ownership semantics", async () => {
+  for (const locale of LOCALE_CODES) {
+    const dict = await readDict(locale);
+    const expected = DSH_VISIBLE_COPY[locale];
+    expect(dict.get("api.clientConfig.clientDsh")).toBe(expected[0]);
+    expect(dict.get("integrations.tab.dsh")).toBe(expected[1]);
+    expect(dict.get("integrations.semantics.dsh")).toBe(expected[2]);
+  }
+});
+
+/*
+ * Aside's ownership sentence carries three facts a user acts on, and each is
+ * wrong in a different way if a translation drops it: which key OpenCodex
+ * touches (`providers.opencodex`, so the rest of the file is untouched), where
+ * the file lives (`~/.aside/u/`, which is per-account and not the bare
+ * `~/.aside`), and that Aside rewrites the file while running, so a change does
+ * not take until the app is fully quit and reopened. A translator working from
+ * the English can render the prose naturally and still lose one.
+ *
+ * The identifiers are asserted rather than the sentence, unlike the DSH case
+ * above: pinning full translated strings freezes wording, and these three tokens
+ * are the part that must survive translation unchanged.
+ */
+test("every locale keeps the three facts Aside's ownership sentence carries", async () => {
+  for (const locale of LOCALE_CODES) {
+    const dict = await readDict(locale);
+    expect(dict.get("api.clientConfig.clientAside"), locale).toBe("Aside");
+    expect(dict.get("integrations.tab.aside"), locale).toBe("Aside");
+
+    const semantics = dict.get("integrations.semantics.aside") ?? "";
+    expect(semantics, `${locale} names the managed key`).toContain("providers.opencodex");
+    expect(semantics, `${locale} names the per-account root`).toContain("~/.aside/u/");
+    // Aside rewrites models.json as it runs, so a restart hint is not optional.
+    expect(semantics.length, `${locale} keeps the restart warning`).toBeGreaterThan(80);
+  }
+});

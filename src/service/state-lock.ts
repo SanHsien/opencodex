@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import {
   closeSync,
   existsSync,
+  fstatSync,
   fsyncSync,
   lstatSync,
   mkdirSync,
@@ -102,9 +103,16 @@ function readLockSnapshot(lockPath: string): ServiceStateLockSnapshot | null {
   if (entries.length !== 1 || !parseOwnerFileName(entries[0]!)) return null;
   const ownerPath = join(lockPath, entries[0]!);
   try {
-    const ownerIdentity = lstatSync(ownerPath);
-    if (!ownerIdentity.isFile() || ownerIdentity.size > 4096) return null;
-    const value = JSON.parse(readFileSync(ownerPath, "utf8")) as Partial<ServiceStateLockRecord>;
+    const fd = openSync(ownerPath, "r");
+    let ownerIdentity: Stats;
+    let value: Partial<ServiceStateLockRecord>;
+    try {
+      ownerIdentity = fstatSync(fd);
+      if (!ownerIdentity.isFile() || ownerIdentity.size > 4096) return null;
+      value = JSON.parse(readFileSync(fd, "utf8")) as Partial<ServiceStateLockRecord>;
+    } finally {
+      closeSync(fd);
+    }
     if (value.version !== 1 || !Number.isSafeInteger(value.pid) || (value.pid ?? 0) <= 0
       || typeof value.processInstance !== "string" || value.processInstance.length === 0
       || typeof value.token !== "string" || value.token.length === 0

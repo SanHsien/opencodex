@@ -483,10 +483,15 @@ function scrubLegacyBackup(providers: readonly string[]): void {
 
 /** Provider entries of the backup; empty (so the file is removed) when unreadable or not a regular file. */
 function readLegacyBackupEntries(backup: string): Record<string, unknown> {
-  if (!lstatSync(backup).isFile()) return {};
   try {
-    const parsed: unknown = JSON.parse(readFileSync(backup, "utf-8"));
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? { ...(parsed as Record<string, unknown>) } : {};
+    const fd = openSync(backup, "r");
+    try {
+      if (!fstatSync(fd).isFile()) return {};
+      const parsed: unknown = JSON.parse(readFileSync(fd, "utf-8"));
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? { ...(parsed as Record<string, unknown>) } : {};
+    } finally {
+      closeSync(fd);
+    }
   } catch {
     return {};
   }

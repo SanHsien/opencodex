@@ -7,7 +7,7 @@ const isTray = window.location.hash.split("?")[0] === "#/tray";
 // Entry-point component is mounted here, never imported for fast refresh.
 // oxlint-disable-next-line react/only-export-components
 const Screen = lazy(() => isTray ? import("./pages/Tray") : import("./App"));
-if (isTray) installApiAuthFetch();
+installApiAuthFetch();
 import { LanguageProvider } from "./i18n/provider";
 import "./styles.css";
 import "./styles/usage-chart-accessibility.css";

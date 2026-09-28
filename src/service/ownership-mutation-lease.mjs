@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import {
   closeSync,
   existsSync,
+  fstatSync,
   fsyncSync,
   lstatSync,
   mkdirSync,
@@ -68,9 +69,16 @@ function readOwner(path) {
     const entries = readdirSync(path);
     if (entries.length !== 1) return null;
     const ownerPath = join(path, entries[0]);
-    const owner = lstatSync(ownerPath);
-    if (!owner.isFile() || owner.size > 4096) return null;
-    const record = JSON.parse(readFileSync(ownerPath, "utf8"));
+    const fd = openSync(ownerPath, "r");
+    let owner;
+    let record;
+    try {
+      owner = fstatSync(fd);
+      if (!owner.isFile() || owner.size > 4096) return null;
+      record = JSON.parse(readFileSync(fd, "utf8"));
+    } finally {
+      closeSync(fd);
+    }
     if (record?.version !== 1 || !Number.isSafeInteger(record.pid) || record.pid <= 0
       || typeof record.processInstance !== "string" || !record.processInstance
       || typeof record.token !== "string" || !record.token

@@ -62,11 +62,11 @@ function probeVersion(
   try {
     const windowsShim =
       deps.platform === "win32" && /\.(cmd|bat)$/i.test(executable);
-    if (windowsShim && [executable, ...args].some(part => /[&|<>^%!"()]/.test(part))) {
+    if (windowsShim && [executable, ...args].some(part => !/^[a-zA-Z0-9_\-.:\\/]+$/.test(part) || /[&|<>^%!"()]/.test(part))) {
       return { status: "unknown", reason: "the selected Windows command shim invocation cannot be probed safely" };
     }
     result = deps.spawn(
-      windowsShim ? (deps.env?.ComSpec ?? "cmd.exe") : executable,
+      windowsShim ? "cmd.exe" : executable,
       windowsShim ? ["/c", executable, ...args, "--version"] : [...args, "--version"],
       { timeout: VERSION_PROBE_TIMEOUT_MS, encoding: "utf8", stdio: "pipe", windowsHide: true },
     ) as SpawnSyncReturns<string>;

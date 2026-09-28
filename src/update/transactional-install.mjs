@@ -23,7 +23,7 @@
  */
 import { spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 
 /**
@@ -208,8 +208,15 @@ function readOwnedStageMarker(dir, pkgName) {
     // A symlink or junction is never ours to delete: removing through it reaches its target.
     if (!dirStat.isDirectory() || dirStat.isSymbolicLink()) return null;
     const markerPath = join(dir, UPDATE_OWNER_MARKER);
-    if (!lstatSync(markerPath).isFile()) return null;
-    const marker = JSON.parse(readFileSync(markerPath, "utf8"));
+    const fd = openSync(markerPath, "r");
+    let marker;
+    try {
+      const stat = fstatSync(fd);
+      if (!stat.isFile()) return null;
+      marker = JSON.parse(readFileSync(fd, "utf8"));
+    } finally {
+      closeSync(fd);
+    }
     if (marker?.schema !== 1 || marker.kind !== "staging" || marker.pkgName !== pkgName) return null;
     if (typeof marker.createdAt !== "number" || !Number.isFinite(marker.createdAt)) return null;
     return marker;

@@ -651,6 +651,16 @@ async function fetchZaiQuota(provider: string, config: OcxProviderConfig): Promi
   return keyReport(provider, "zai:quota-limit", legacy, config, apiKey, inferenceQuota);
 }
 
+function matchesHostname(urlStr: string | undefined | null, expectedHostname: string): boolean {
+  if (!urlStr) return false;
+  try {
+    const parsed = new URL(urlStr);
+    return parsed.hostname.toLowerCase() === expectedHostname.toLowerCase();
+  } catch {
+    return false;
+  }
+}
+
 /**
  * MiniMax Token Plan `GET /v1/token_plan/remains` — the subscription's
  * remaining quota as a countdown-time value (ms). The endpoint does not expose
@@ -664,7 +674,7 @@ async function fetchMinimaxQuota(provider: string, config: OcxProviderConfig): P
   if (!isCanonicalMinimaxBaseUrl(config.baseUrl)) return null;
   const apiKey = resolveProviderApiKey(config.apiKey)?.trim();
   if (!apiKey) return null;
-  const cnHost = normalizedBaseUrl(config.baseUrl)?.startsWith("https://api.minimaxi.com");
+  const cnHost = matchesHostname(normalizedBaseUrl(config.baseUrl), "api.minimaxi.com");
   const remainsUrl = cnHost ? "https://api.minimaxi.com/v1/token_plan/remains" : MINIMAX_REMAINS_URL;
   const response = await quotaFetch(provider, config, remainsUrl, {
     headers: { Accept: "application/json", Authorization: `Bearer ${apiKey}` },
@@ -708,7 +718,7 @@ async function fetchMoonshotQuota(provider: string, config: OcxProviderConfig): 
   if (!isCanonicalMoonshotBaseUrl(config.baseUrl)) return null;
   const apiKey = resolveProviderApiKey(config.apiKey)?.trim();
   if (!apiKey) return null;
-  const host = normalizedBaseUrl(config.baseUrl)?.startsWith("https://api.moonshot.cn") ? "https://api.moonshot.cn/v1" : MOONSHOT_BASE_URL;
+  const host = matchesHostname(normalizedBaseUrl(config.baseUrl), "api.moonshot.cn") ? "https://api.moonshot.cn/v1" : MOONSHOT_BASE_URL;
   const response = await quotaFetch(provider, config, `${host}/users/me/balance`, {
     headers: { Accept: "application/json", Authorization: `Bearer ${apiKey}` },
     redirect: "error",
@@ -732,7 +742,7 @@ async function fetchMoonshotQuota(provider: string, config: OcxProviderConfig): 
   // the international platform (api.moonshot.ai) bills in USD. Do not force
   // either side into the other unit — the number is correct, only the unit
   // must match the host.
-  const isChinaHost = host.startsWith("https://api.moonshot.cn");
+  const isChinaHost = matchesHostname(host, "api.moonshot.cn");
   const money = (n: number) => isChinaHost ? `¥${n.toFixed(2)}` : `$${n.toFixed(2)}`;
   const unit = isChinaHost ? "CNY" : "USD";
   const label = voucher !== undefined && cash !== undefined

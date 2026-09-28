@@ -1,4 +1,4 @@
-import { readFileSync, statSync } from "node:fs";
+import { closeSync, fstatSync, openSync, readFileSync } from "node:fs";
 import type { ResponseSpillRef } from "../spill-store";
 import type { StoredResponseState } from "../state";
 
@@ -28,16 +28,21 @@ export function collectReferencedSpillFileNames(
 export function snapshotReferencedSpillFileNames(path: string, maxBytes: number): Set<string> {
   const referenced = new Set<string>();
   try {
-    const stat = statSync(path);
-    if (!stat.isFile() || stat.size > maxBytes) return referenced;
-    const raw = JSON.parse(readFileSync(path, "utf-8")) as { version?: unknown; states?: unknown };
-    if ((raw.version !== 1 && raw.version !== 2) || !Array.isArray(raw.states)) return referenced;
-    for (const entry of raw.states) {
-      if (!Array.isArray(entry) || entry.length !== 2) continue;
-      const value = entry[1] as { kind?: unknown; spill?: { fileName?: unknown } };
-      if (value?.kind === "spill" && typeof value.spill?.fileName === "string") {
-        referenced.add(value.spill.fileName);
+    const fd = openSync(path, "r");
+    try {
+      const stat = fstatSync(fd);
+      if (!stat.isFile() || stat.size > maxBytes) return referenced;
+      const raw = JSON.parse(readFileSync(fd, "utf-8")) as { version?: unknown; states?: unknown };
+      if ((raw.version !== 1 && raw.version !== 2) || !Array.isArray(raw.states)) return referenced;
+      for (const entry of raw.states) {
+        if (!Array.isArray(entry) || entry.length !== 2) continue;
+        const value = entry[1] as { kind?: unknown; spill?: { fileName?: unknown } };
+        if (value?.kind === "spill" && typeof value.spill?.fileName === "string") {
+          referenced.add(value.spill.fileName);
+        }
       }
+    } finally {
+      closeSync(fd);
     }
   } catch {
     /* missing or corrupt snapshot: nothing is referenced */

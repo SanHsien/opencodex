@@ -713,8 +713,10 @@ export async function fetchProviderModelsWithAuth(
     }
     const { models, fallback, shouldLog } = failedDiscoveryFallback({ reason: "network" });
     if (shouldLog) {
+      const safeName = sanitizeLogMetadataString(name, 50) ?? "unknown";
+      const safeErrorName = sanitizeLogMetadataString(error instanceof Error ? error.name : "unknown", 50) ?? "unknown";
       console.warn(
-        `[opencodex] Provider model discovery for "${name}" threw ${error instanceof Error ? error.name : "unknown"} [urlClass=${urlClass}, fallback=${fallback}].`,
+        `[opencodex] Provider model discovery for "${safeName}" threw ${safeErrorName} [urlClass=${urlClass}, fallback=${fallback}].`,
       );
     }
     return observed(models, "degraded");

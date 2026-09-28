@@ -11,7 +11,7 @@
  */
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { readFileSync, lstatSync, unlinkSync } from "node:fs";
+import { closeSync, fstatSync, openSync, readFileSync, unlinkSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 const repoRoot = resolve(import.meta.dirname, "..");
@@ -41,15 +41,32 @@ function hookErrorCode(error: unknown): string {
   const code = (error as { code?: unknown }).code;
   return typeof code === "string" && /^E[A-Z0-9_]{1,15}$/.test(code) ? code : "unknown";
 }
+function readHookContent(hookPath: string): string | null {
+  try {
+    const fd = openSync(hookPath, "r");
+    try {
+      const stat = fstatSync(fd);
+      if (!stat.isFile()) return null;
+      return readFileSync(fd, "utf8").replace(/\r\n/g, "\n");
+    } finally {
+      closeSync(fd);
+    }
+  } catch (error) {
+    if (error && typeof error === "object" && (error as { code?: string }).code === "ENOENT") {
+      return null;
+    }
+    throw error;
+  }
+}
+
 // Every managed hook is attempted even when an earlier one fails: a surviving
 // shim keeps executing pulled code, so failures are collected and reported
 // with a nonzero exit after all removals ran.
 const failures: string[] = [];
 const failedHooks: string[] = [];
 try {
-  const prePushStat = lstatSync(prePushPath, { throwIfNoEntry: false });
-  if (prePushStat?.isFile()) {
-    const content = readFileSync(prePushPath, "utf8").replace(/\r\n/g, "\n");
+  const content = readHookContent(prePushPath);
+  if (content !== null) {
     if (createHash("sha256").update(content).digest("hex") === retiredPrePushSha256) {
       unlinkSync(prePushPath);
       console.log("Removed the retired repository-managed pre-push hook.");
@@ -72,9 +89,8 @@ try {
 const retiredPostMergeSha256 = "d9f4ae72e531658fb0494ff6d2a62366a5a0c29b7d3a890a68e6626760de0330";
 const postMergePath = join(hooksDir, "post-merge");
 try {
-  const postMergeStat = lstatSync(postMergePath, { throwIfNoEntry: false });
-  if (postMergeStat?.isFile()) {
-    const content = readFileSync(postMergePath, "utf8").replace(/\r\n/g, "\n");
+  const content = readHookContent(postMergePath);
+  if (content !== null) {
     if (createHash("sha256").update(content).digest("hex") === retiredPostMergeSha256) {
       unlinkSync(postMergePath);
       console.log("Removed the retired repository-managed post-merge hook.");

@@ -23,13 +23,11 @@ export function assertPlainLocalPath(path: string): string {
 
 export function readBoundedLocalFile(path: string, limit = MAX_AUTH_BYTES): string {
   assertPlainLocalPath(path);
-  const before = lstatSync(path);
-  if (!before.isFile() || before.size > limit) throw new Error("Invalid local credential file.");
   const fd = openSync(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0));
   try {
     const opened = fstatSync(fd);
-    if (!opened.isFile() || opened.size > limit || before.dev !== opened.dev || before.ino !== opened.ino) {
-      throw new Error("Local credential file changed.");
+    if (!opened.isFile() || opened.size > limit) {
+      throw new Error("Invalid local credential file.");
     }
     // The cap bounds the read, not the allocation: tiny registry files should not
     // allocate 32 MiB on each preview/recheck. One extra byte detects concurrent growth.

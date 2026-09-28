@@ -2,9 +2,12 @@ import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import {
   chmodSync,
+  closeSync,
   existsSync,
+  fstatSync,
   lstatSync,
   mkdtempSync,
+  openSync,
   readFileSync,
   rmSync,
 } from "node:fs";
@@ -234,11 +237,18 @@ export function setCodexShimProbeObservationMsForTests(value: number | null): vo
 
 function readProbeMetadata(path: string, maxBytes: number): string | null {
   try {
-    if (!existsSync(path)) return "";
-    const stat = lstatSync(path);
-    if (!stat.isFile() || stat.size > maxBytes) return null;
-    return readFileSync(path, "utf8").trim();
-  } catch {
+    const fd = openSync(path, "r");
+    try {
+      const stat = fstatSync(fd);
+      if (!stat.isFile() || stat.size > maxBytes) return null;
+      return readFileSync(fd, "utf8").trim();
+    } finally {
+      closeSync(fd);
+    }
+  } catch (error) {
+    if (error && typeof error === "object" && (error as { code?: string }).code === "ENOENT") {
+      return "";
+    }
     return null;
   }
 }

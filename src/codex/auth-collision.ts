@@ -54,13 +54,20 @@ export function readCodexTokensResult(
     const j = JSON.parse(raw) as {
       tokens?: { access_token?: string; account_id?: string; id_token?: string };
     };
-    if (!j?.tokens?.access_token) return { status: "invalid" };
+    const accessToken = j?.tokens?.access_token;
+    const accountId = j?.tokens?.account_id ?? "";
+    if (typeof accessToken !== "string" || !accessToken || !/^[\w\-.~+/=]+$/.test(accessToken)) {
+      return { status: "invalid" };
+    }
+    if (typeof accountId !== "string" || !/^[\w\-.:]*$/.test(accountId)) {
+      return { status: "invalid" };
+    }
     return {
       status: "ok",
       tokens: {
-        access_token: j.tokens.access_token,
-        account_id: j.tokens.account_id ?? "",
-        id_token: j.tokens.id_token,
+        access_token: accessToken,
+        account_id: accountId,
+        id_token: typeof j.tokens?.id_token === "string" && /^[\w\-.~+/=]+$/.test(j.tokens.id_token) ? j.tokens.id_token : undefined,
       },
     };
   } catch {

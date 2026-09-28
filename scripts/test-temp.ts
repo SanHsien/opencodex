@@ -1,8 +1,11 @@
 import { randomUUID } from "node:crypto";
 import {
+  closeSync,
   existsSync,
+  fstatSync,
   lstatSync,
   mkdirSync,
+  openSync,
   readFileSync,
   readdirSync,
   realpathSync,
@@ -108,11 +111,21 @@ function processIsAlive(pid: number): boolean {
 
 function parseOwner(path: string): TestTempOwner | null | undefined {
   const markerPath = join(path, TEST_TEMP_OWNER_FILE);
-  if (!existsSync(markerPath)) return undefined;
+  let fd: number;
   try {
-    const marker = lstatSync(markerPath);
-    if (!marker.isFile() || marker.isSymbolicLink()) return null;
-    const parsed = JSON.parse(readFileSync(markerPath, "utf8")) as Partial<TestTempOwner>;
+    fd = openSync(markerPath, "r");
+  } catch (error) {
+    if (error && typeof error === "object" && (error as { code?: string }).code === "ENOENT") {
+      return undefined;
+    }
+    return null;
+  }
+  try {
+    const marker = fstatSync(fd);
+    if (!marker.isFile()) return null;
+    const lexical = lstatSync(markerPath);
+    if (lexical.isSymbolicLink()) return null;
+    const parsed = JSON.parse(readFileSync(fd, "utf8")) as Partial<TestTempOwner>;
     if (
       parsed.schemaVersion !== TEST_TEMP_OWNER_VERSION
       || parsed.kind !== TEST_TEMP_OWNER_KIND
@@ -127,6 +140,8 @@ function parseOwner(path: string): TestTempOwner | null | undefined {
     return parsed as TestTempOwner;
   } catch {
     return null;
+  } finally {
+    closeSync(fd);
   }
 }
 

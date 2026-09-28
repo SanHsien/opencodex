@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { extname, join, resolve } from "node:path";
 
 export const THRESHOLD = 2000;
@@ -198,9 +198,15 @@ export function formatOffenders(rows: Evaluation[]): string {
 if (import.meta.main) {
   const repoRoot = resolve(import.meta.dir, "..");
   const baselinePath = join(repoRoot, BASELINE_REL);
-  const existed = existsSync(baselinePath);
+  let baselineRaw: string | null = null;
+  try {
+    baselineRaw = readFileSync(baselinePath, "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+  const existed = baselineRaw !== null;
   const baseline: Baseline = existed
-    ? loadBaseline(readFileSync(baselinePath, "utf8"))
+    ? loadBaseline(baselineRaw!)
     : { exempt: [...EXEMPT_PATHS], files: {} };
   const current = scanRepo(repoRoot);
   if (process.argv.includes("--update")) {

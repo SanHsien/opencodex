@@ -333,8 +333,10 @@ function xdotoolWindow(): string | undefined {
 }
 
 async function health(record: RuntimeRecord): Promise<HealthObservation | undefined> {
+  const port = Number(record.port);
+  if (!Number.isInteger(port) || port <= 0 || port > 65535) return undefined;
   try {
-    const response = await fetch(`http://127.0.0.1:${record.port}/healthz`, {
+    const response = await fetch(`http://127.0.0.1:${port}/healthz`, {
       signal: AbortSignal.timeout(1_000),
       cache: "no-store",
     });

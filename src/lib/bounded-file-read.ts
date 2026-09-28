@@ -1,4 +1,4 @@
-import { closeSync, fstatSync, lstatSync, openSync, readSync, type Stats } from "node:fs";
+import { closeSync, constants, fstatSync, lstatSync, openSync, readSync, type Stats } from "node:fs";
 
 /**
  * Read a small local file that has to be a plain file and has to stay one while it is read.
@@ -49,24 +49,15 @@ function errorCode(error: unknown): string | undefined {
 }
 
 export function readBoundedRegularFile(path: string, maxBytes: number): BoundedFileRead {
-  let lexicalBefore: Stats;
-  try {
-    lexicalBefore = lstatSync(path);
-  } catch (error) {
-    const code = errorCode(error);
-    if (code === "ENOENT") return { kind: "absent" };
-    return { kind: "refused", reason: "unreadable", ...(code ? { code } : {}) };
-  }
-  if (lexicalBefore.isSymbolicLink() || !lexicalBefore.isFile()) {
-    return { kind: "refused", reason: "not-a-regular-file" };
-  }
-
   let fd: number;
   try {
-    fd = openSync(path, "r");
+    fd = openSync(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
   } catch (error) {
     const code = errorCode(error);
     if (code === "ENOENT") return { kind: "absent" };
+    if (code === "ELOOP" || code === "EISDIR") {
+      return { kind: "refused", reason: "not-a-regular-file" };
+    }
     return { kind: "refused", reason: "unreadable", ...(code ? { code } : {}) };
   }
 
@@ -96,9 +87,9 @@ export function readBoundedRegularFile(path: string, maxBytes: number): BoundedF
     }
     if (before.dev !== after.dev || before.ino !== after.ino || before.size !== after.size
       || before.mtimeMs !== after.mtimeMs || before.ctimeMs !== after.ctimeMs
-      || lexicalBefore.dev !== before.dev || lexicalBefore.ino !== before.ino
-      || lexicalAfter.isSymbolicLink() || lexicalAfter.dev !== after.dev || lexicalAfter.ino !== after.ino) {
-      return { kind: "refused", reason: "changed-while-reading" };
+      || lexicalAfter.isSymbolicLink() || !lexicalAfter.isFile()
+      || lexicalAfter.dev !== after.dev || lexicalAfter.ino !== after.ino) {
+      return { kind: "refused", reason: lexicalAfter.isSymbolicLink() || !lexicalAfter.isFile() ? "not-a-regular-file" : "changed-while-reading" };
     }
     return { kind: "present", bytes: buffer, content: buffer.toString("utf8"), stat: after };
   } catch (error) {

@@ -1,4 +1,4 @@
-import { closeSync, fstatSync, lstatSync, openSync, readFileSync, unlinkSync } from "node:fs";
+import { closeSync, constants, fstatSync, lstatSync, openSync, readFileSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import {
   getConfigDir,
@@ -32,15 +32,31 @@ export function isLinkConnection(c: OcxClientConnectionConfig | undefined): bool
 
 const pendingConnectPath = (): string => join(getConfigDir(), "client-connect-pending");
 
+/**
+ * Read the pending marker through one descriptor. lstat refuses a symlink, hard link or FIFO
+ * before the open; the dev/ino match refuses a swap between lstat and open.
+ */
+function readPendingMarker(path: string, unsafeMessage: string): string {
+  const lexical = lstatSync(path);
+  if (!lexical.isFile() || lexical.nlink !== 1 || lexical.size !== 65) throw new Error(unsafeMessage);
+  const fd = openSync(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0));
+  try {
+    const opened = fstatSync(fd);
+    if (!opened.isFile() || opened.nlink !== 1 || opened.size !== 65
+      || opened.dev !== lexical.dev || opened.ino !== lexical.ino) {
+      throw new Error(unsafeMessage);
+    }
+    return readFileSync(fd, "utf8");
+  } finally {
+    closeSync(fd);
+  }
+}
+
 /** Validate pending ownership; an optional fingerprint restricts it to that exact key. */
 export function pendingClientConnectMayOwnToken(fingerprint?: string): boolean {
   const path = pendingConnectPath();
   try {
-    const marker = readFileSync(path, "utf8");
-    const stat = lstatSync(path);
-    if (!stat.isFile() || stat.nlink !== 1 || stat.size !== 65) {
-      throw new Error("pending client connection owner is unsafe");
-    }
+    const marker = readPendingMarker(path, "pending client connection owner is unsafe");
     if (!/^[a-f0-9]{64}\n$/.test(marker)) throw new Error("pending client connection owner is malformed");
     return fingerprint === undefined || marker === `${fingerprint}\n`;
   } catch (error) {
@@ -58,11 +74,8 @@ export function markClientConnectPending(fingerprint: string): void {
 /** Clear only the marker for this connect attempt while the client lifecycle lock is held. */
 export function clearClientConnectPending(fingerprint: string): void {
   const path = pendingConnectPath();
-  const marker = readFileSync(path, "utf8");
-  const stat = lstatSync(path);
-  if (!stat.isFile() || stat.nlink !== 1 || stat.size !== 65 || marker !== `${fingerprint}\n`) {
-    throw new Error("pending client connection owner changed");
-  }
+  const marker = readPendingMarker(path, "pending client connection owner changed");
+  if (marker !== `${fingerprint}\n`) throw new Error("pending client connection owner changed");
   unlinkSync(path);
 }
 

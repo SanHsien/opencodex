@@ -121,11 +121,12 @@ describe("service uninstall credential ownership", () => {
     expect(cleanup()).toBe("unverified");
     nodeFs.rmdirSync(markerPath);
     markClientConnectPending(token.fingerprint);
-    const original = nodeFs.readFileSync;
-    const read = spyOn(nodeFs, "readFileSync").mockImplementation(((path: any, ...args: any[]) => {
+    // The marker is read through one descriptor, so an unreadable marker fails at open.
+    const original = nodeFs.openSync;
+    const read = spyOn(nodeFs, "openSync").mockImplementation(((path: any, ...args: any[]) => {
       if (path === markerPath) throw Object.assign(new Error("fixture marker read failure"), { code: "EACCES" });
       return original(path, ...args);
-    }) as typeof nodeFs.readFileSync);
+    }) as typeof nodeFs.openSync);
     try { expect(cleanup()).toBe("unverified"); }
     finally { read.mockRestore(); }
     expect(readFileSync(token.path, "utf8")).toBe("ocx_unreadable_pending_key\n");

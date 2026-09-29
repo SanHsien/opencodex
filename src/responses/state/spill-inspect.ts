@@ -1,4 +1,4 @@
-import { closeSync, fstatSync, openSync, readFileSync } from "node:fs";
+import { closeSync, constants, fstatSync, openSync, readFileSync } from "node:fs";
 import type { ResponseSpillRef } from "../spill-store";
 import type { StoredResponseState } from "../state";
 
@@ -28,7 +28,8 @@ export function collectReferencedSpillFileNames(
 export function snapshotReferencedSpillFileNames(path: string, maxBytes: number): Set<string> {
   const referenced = new Set<string>();
   try {
-    const fd = openSync(path, "r");
+    // O_NONBLOCK: a FIFO at this path must not hang the store (the pre-open statSync refused it).
+    const fd = openSync(path, constants.O_RDONLY | (constants.O_NONBLOCK ?? 0));
     try {
       const stat = fstatSync(fd);
       if (!stat.isFile() || stat.size > maxBytes) return referenced;

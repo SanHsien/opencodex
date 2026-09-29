@@ -49,9 +49,23 @@ function errorCode(error: unknown): string | undefined {
 }
 
 export function readBoundedRegularFile(path: string, maxBytes: number): BoundedFileRead {
+  // The lexical lstat refuses a symlink or a FIFO before anything is opened; Windows has no
+  // O_NOFOLLOW, and opening a FIFO without O_NONBLOCK would block.
+  let lexicalBefore: Stats;
+  try {
+    lexicalBefore = lstatSync(path);
+  } catch (error) {
+    const code = errorCode(error);
+    if (code === "ENOENT") return { kind: "absent" };
+    return { kind: "refused", reason: "unreadable", ...(code ? { code } : {}) };
+  }
+  if (lexicalBefore.isSymbolicLink() || !lexicalBefore.isFile()) {
+    return { kind: "refused", reason: "not-a-regular-file" };
+  }
+
   let fd: number;
   try {
-    fd = openSync(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+    fd = openSync(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0));
   } catch (error) {
     const code = errorCode(error);
     if (code === "ENOENT") return { kind: "absent" };
@@ -64,6 +78,9 @@ export function readBoundedRegularFile(path: string, maxBytes: number): BoundedF
   try {
     const before = fstatSync(fd);
     if (!before.isFile()) return { kind: "refused", reason: "not-a-regular-file" };
+    if (before.dev !== lexicalBefore.dev || before.ino !== lexicalBefore.ino) {
+      return { kind: "refused", reason: "changed-while-reading" };
+    }
     if (before.size > maxBytes) return { kind: "refused", reason: "too-large" };
 
     const buffer = Buffer.allocUnsafe(before.size);

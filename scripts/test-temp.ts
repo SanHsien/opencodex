@@ -124,7 +124,7 @@ function parseOwner(path: string): TestTempOwner | null | undefined {
     const marker = fstatSync(fd);
     if (!marker.isFile()) return null;
     const lexical = lstatSync(markerPath);
-    if (lexical.isSymbolicLink()) return null;
+    if (lexical.isSymbolicLink() || lexical.dev !== marker.dev || lexical.ino !== marker.ino) return null;
     const parsed = JSON.parse(readFileSync(fd, "utf8")) as Partial<TestTempOwner>;
     if (
       parsed.schemaVersion !== TEST_TEMP_OWNER_VERSION

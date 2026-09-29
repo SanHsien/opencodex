@@ -69,12 +69,15 @@ function readOwner(path) {
     const entries = readdirSync(path);
     if (entries.length !== 1) return null;
     const ownerPath = join(path, entries[0]);
+    // lstat rejects a symlinked owner record; dev/ino rejects a swap before open.
+    const lexical = lstatSync(ownerPath);
+    if (!lexical.isFile() || lexical.size > 4096) return null;
     const fd = openSync(ownerPath, "r");
     let owner;
     let record;
     try {
       owner = fstatSync(fd);
-      if (!owner.isFile() || owner.size > 4096) return null;
+      if (!owner.isFile() || owner.size > 4096 || owner.dev !== lexical.dev || owner.ino !== lexical.ino) return null;
       record = JSON.parse(readFileSync(fd, "utf8"));
     } finally {
       closeSync(fd);

@@ -237,10 +237,13 @@ export function setCodexShimProbeObservationMsForTests(value: number | null): vo
 
 function readProbeMetadata(path: string, maxBytes: number): string | null {
   try {
+    // lstat keeps a symlinked metadata file unread; dev/ino rejects a swap before open.
+    const lexical = lstatSync(path);
+    if (!lexical.isFile() || lexical.size > maxBytes) return null;
     const fd = openSync(path, "r");
     try {
       const stat = fstatSync(fd);
-      if (!stat.isFile() || stat.size > maxBytes) return null;
+      if (!stat.isFile() || stat.size > maxBytes || stat.dev !== lexical.dev || stat.ino !== lexical.ino) return null;
       return readFileSync(fd, "utf8").trim();
     } finally {
       closeSync(fd);

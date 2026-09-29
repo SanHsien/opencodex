@@ -62,12 +62,18 @@ export function readCodexTokensResult(
     if (typeof accountId !== "string" || !/^[\w\-.:]*$/.test(accountId)) {
       return { status: "invalid" };
     }
+    // A present but malformed id_token makes the file invalid, like the other two fields;
+    // silently dropping it would let a corrupt auth.json pass as a healthy one.
+    const idToken = j.tokens?.id_token;
+    if (idToken !== undefined && (typeof idToken !== "string" || !/^[\w\-.~+/=]+$/.test(idToken))) {
+      return { status: "invalid" };
+    }
     return {
       status: "ok",
       tokens: {
         access_token: accessToken,
         account_id: accountId,
-        id_token: typeof j.tokens?.id_token === "string" && /^[\w\-.~+/=]+$/.test(j.tokens.id_token) ? j.tokens.id_token : undefined,
+        id_token: idToken,
       },
     };
   } catch {

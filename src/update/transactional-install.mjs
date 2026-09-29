@@ -208,11 +208,14 @@ function readOwnedStageMarker(dir, pkgName) {
     // A symlink or junction is never ours to delete: removing through it reaches its target.
     if (!dirStat.isDirectory() || dirStat.isSymbolicLink()) return null;
     const markerPath = join(dir, UPDATE_OWNER_MARKER);
+    // lstat rejects a symlinked marker; dev/ino rejects a swap before open.
+    const lexical = lstatSync(markerPath);
+    if (!lexical.isFile()) return null;
     const fd = openSync(markerPath, "r");
     let marker;
     try {
       const stat = fstatSync(fd);
-      if (!stat.isFile()) return null;
+      if (!stat.isFile() || stat.dev !== lexical.dev || stat.ino !== lexical.ino) return null;
       marker = JSON.parse(readFileSync(fd, "utf8"));
     } finally {
       closeSync(fd);

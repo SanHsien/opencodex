@@ -484,9 +484,14 @@ function scrubLegacyBackup(providers: readonly string[]): void {
 /** Provider entries of the backup; empty (so the file is removed) when unreadable or not a regular file. */
 function readLegacyBackupEntries(backup: string): Record<string, unknown> {
   try {
+    // lstat rejects a symlinked backup (its target is never read); the dev/ino check
+    // rejects a swap between lstat and open.
+    const lexical = lstatSync(backup);
+    if (!lexical.isFile()) return {};
     const fd = openSync(backup, "r");
     try {
-      if (!fstatSync(fd).isFile()) return {};
+      const opened = fstatSync(fd);
+      if (!opened.isFile() || opened.ino !== lexical.ino || opened.dev !== lexical.dev) return {};
       const parsed: unknown = JSON.parse(readFileSync(fd, "utf-8"));
       return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? { ...(parsed as Record<string, unknown>) } : {};
     } finally {

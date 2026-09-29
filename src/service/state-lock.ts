@@ -103,12 +103,16 @@ function readLockSnapshot(lockPath: string): ServiceStateLockSnapshot | null {
   if (entries.length !== 1 || !parseOwnerFileName(entries[0]!)) return null;
   const ownerPath = join(lockPath, entries[0]!);
   try {
+    // lstat rejects a symlinked owner record; dev/ino rejects a swap before open.
+    const lexical = lstatSync(ownerPath);
+    if (!lexical.isFile() || lexical.size > 4096) return null;
     const fd = openSync(ownerPath, "r");
     let ownerIdentity: Stats;
     let value: Partial<ServiceStateLockRecord>;
     try {
       ownerIdentity = fstatSync(fd);
-      if (!ownerIdentity.isFile() || ownerIdentity.size > 4096) return null;
+      if (!ownerIdentity.isFile() || ownerIdentity.size > 4096
+        || ownerIdentity.dev !== lexical.dev || ownerIdentity.ino !== lexical.ino) return null;
       value = JSON.parse(readFileSync(fd, "utf8")) as Partial<ServiceStateLockRecord>;
     } finally {
       closeSync(fd);

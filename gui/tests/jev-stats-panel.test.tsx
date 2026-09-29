@@ -155,8 +155,9 @@ test("JEV stats shows picks, model tokens and separately labelled decision token
   expect(requests.some(url => url.includes("range=7d"))).toBeTrue();
 });
 
-test("JEV stats renders the fail-open summary in Simplified Chinese", async () => {
-  localStorage.setItem("ocx-lang", "zh");
+// Fork policy: Chinese renders in Traditional Chinese, which keeps "Fail-open" as the technical term.
+test("JEV stats renders the fail-open summary in Traditional Chinese", async () => {
+  localStorage.setItem("ocx-lang", "zh-TW");
   Object.defineProperty(globalThis, "fetch", {
     configurable: true,
     value: async () => Response.json(response),
@@ -175,6 +176,5 @@ test("JEV stats renders the fail-open summary in Simplified Chinese", async () =
   });
   await flush();
 
-  expect(host.textContent).toContain("已应用 2 · 故障开放 1");
-  expect(host.textContent).not.toContain("Fail-open");
+  expect(host.textContent).toContain("已套用 2 · Fail-open 1");
 });

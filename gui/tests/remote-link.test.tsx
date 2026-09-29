@@ -257,7 +257,7 @@ test("readLinkJson preserves unknown server codes and status", async () => {
   expect(caught).toBeInstanceOf(LinkApiError);
   expect((caught as LinkApiError).code).toBe("future_code");
   expect((caught as LinkApiError).status).toBe(418);
-  expect(LOCALES).toHaveLength(10);
+  expect(LOCALES).toHaveLength(2); // fork policy: en + zh-TW
 });
 
 test("probe failure stays visible and Retry probes the failed alias", async () => {

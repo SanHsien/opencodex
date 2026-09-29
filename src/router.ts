@@ -168,7 +168,6 @@ export function knownModelIdsForProvider(
     }
     if (!cacheIdentityMaterial) return undefined;
     return createHash("sha256")
-      .update("model-cache-hash:")
       .update(routed.adapter === "devin"
         ? JSON.stringify([cacheIdentityMaterial, resolveDevinApiBaseUrl(destination)])
         : cacheIdentityMaterial)

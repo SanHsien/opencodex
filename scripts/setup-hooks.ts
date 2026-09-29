@@ -11,7 +11,7 @@
  */
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { closeSync, fstatSync, openSync, readFileSync, unlinkSync } from "node:fs";
+import { closeSync, fstatSync, lstatSync, openSync, readFileSync, unlinkSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 const repoRoot = resolve(import.meta.dirname, "..");
@@ -41,12 +41,17 @@ function hookErrorCode(error: unknown): string {
   const code = (error as { code?: unknown }).code;
   return typeof code === "string" && /^E[A-Z0-9_]{1,15}$/.test(code) ? code : "unknown";
 }
+// A symlinked hook belongs to the user and is never read or removed. lstat
+// rejects the link itself; the fstat identity check rejects a swap between
+// the two calls.
 function readHookContent(hookPath: string): string | null {
+  const linkStat = lstatSync(hookPath, { throwIfNoEntry: false });
+  if (!linkStat?.isFile()) return null;
   try {
     const fd = openSync(hookPath, "r");
     try {
       const stat = fstatSync(fd);
-      if (!stat.isFile()) return null;
+      if (!stat.isFile() || stat.ino !== linkStat.ino || stat.dev !== linkStat.dev) return null;
       return readFileSync(fd, "utf8").replace(/\r\n/g, "\n");
     } finally {
       closeSync(fd);

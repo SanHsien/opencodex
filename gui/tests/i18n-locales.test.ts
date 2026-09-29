@@ -22,9 +22,9 @@ describe("i18n locale contracts", () => {
     }
   });
 
-  test("Vietnamese locale is registered", () => {
-    expect(LOCALES.some(locale => locale.code === "vi")).toBe(true);
-    expect(DICTS.vi["lang.nativeName"]).toBe("Tiếng Việt");
+  // Fork policy (docs/fork/DECISIONS.md, 2026-08-22): the GUI ships English and Traditional Chinese only.
+  test("only English and Traditional Chinese are registered", () => {
+    expect(LOCALES.map(locale => locale.code).sort()).toEqual(["en", "zh-TW"]);
   });
 
   test("every locale has a catalog-backed display name", () => {

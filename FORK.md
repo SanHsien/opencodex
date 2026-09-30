@@ -33,7 +33,7 @@
 
 - `origin/main`：SanHsien 維護主線。產品基底為最近一次同步的上游穩定版（`tools/upstream_baseline.json` 的 `reviewed_through`，目前 `v2.67.0`）加上 fork overlay；此產品來源不會自行推進 `tools/upstream_baseline.json` 的審查水位。
 - `upstream/main`：上游發版線；`upstream/dev` 是上游 PR 整合線，需要時再 fetch。
-- 2026-09-06 replay 加上 ancestry-only bridge 已恢復共同上游祖先；後續從此祖先做一般、範圍受限的上游審查與整合，不再需要 orphan replay，且絕不推送上游。詳見 [`docs/fork/UPSTREAM.md`](docs/fork/UPSTREAM.md)。
+- 2026-09-27 壓縮歷史後，`origin/main` 與上游**沒有**共同祖先（2026-09-06 的 ancestry bridge 已隨壓縮消失），無法直接 merge。上游審查以 `tools/upstream_baseline.json` 的水位記錄；恢復祖先（以 tree-neutral `merge -s ours` 接回 v2.67.0）的提議與待採用項目見 [`docs/fork/UPSTREAM.md`](docs/fork/UPSTREAM.md) 與 [`docs/fork/DECISIONS.md`](docs/fork/DECISIONS.md)。絕不推送上游。
 - 本 fork 的一般修改**直接推 `origin/main`**，不開功能分支、不開維護 PR（維護者 2026-08-22 指示，與其他 repo 一致）。
   只有在需要他人審查、或改動風險高到值得先讓 CI 在 PR 上跑一輪時，才退回 branch → PR → CI → squash merge。
 - **合併任何 PR 前必須讀完整 diff**（`gh pr diff <編號>`），包含 Dependabot 開的。CI 綠燈證明的是

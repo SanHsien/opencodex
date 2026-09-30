@@ -1,5 +1,15 @@
 # 維護決策
 
+## 2026-09-30：v2.67.0..v2.74.0 只審不採（adoption pending）
+
+**決定**：395 commits／61 closed-unmerged PR／6 platform issue 分組判定完成，未採用任何 commit；水位推進到
+`v2.74.0`（`cae9b553e9b882dd13781a7f3ee6f68c0dcc8c4f`）、PR `#6316`、issue `#6314`。逐組結論見 `UPSTREAM.md` 同日條目。
+
+**理由**：`origin/main` 已壓成 root 歷史、與上游無共同祖先，整棵採用 stable 需先決定是否重建 ancestry bridge；
+安全邊界檔（link relay、OAuth、keyring、plugin ACL）與 fork 的 CWE-367 修正重疊，須逐檔比對並讓 focused tests 通過才可採用。
+
+**觸發條件**：維護者決定重建 ancestry bridge 並安排一次 stable 整合；或上游修正 Windows platform issue `#6288`／`#6290`。
+
 ## 2026-09-26（續）：一般 merge v2.67.0；src 交集為空、僅 2 個 zh-tw 內容衝突
 
 **決定**：把上游穩定版本 `v2.67.0`（`4bc92294aa23a7edba75805095808d892efa72e2`）一般 merge 進本

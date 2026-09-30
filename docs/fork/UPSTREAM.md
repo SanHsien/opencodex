@@ -836,3 +836,52 @@ pristine 上游有相同 pass/fail）。其餘 4 個逐檔在 pristine `v2.67.0`
 - PR：`#5894`
 - issue：`#5864`
 
+## 2026-09-30：分組審查 `v2.67.0..v2.74.0`（395 commits，全部 adoption pending）
+
+**決定**：`4bc9229..cae9b553e`（`v2.68.0`–`v2.74.0`，395 commits、1947 檔差異）只做分組判定，**不採用任何 commit**；
+`reviewed_through` 推進到 `cae9b553e9b882dd13781a7f3ee6f68c0dcc8c4f`（`v2.74.0`）僅代表已審。
+
+**為什麼不合併**：`git merge-base HEAD upstream/main` 為空——`origin/main` 已再次被壓成 5 個 commit 的 root 歷史
+（`87ddc1cd3`），2026-09-06 的 ancestry bridge 已不在，一般 merge 會變成全樹 unrelated-history 合併。
+本 fork 對穩定版一律整棵採用，不拆取單一 commit；本輪不具備「整棵採用並跑完整 Bun 分片」的驗收條件。
+採用前提：先由維護者決定是否重建 ancestry bridge（`merge -s ours` 接到 `v2.67.0` 的 `4bc92294a`，不改樹），
+之後才能以 `git merge v2.74.0` 增量處理；locale 檔會再出現與前幾輪相同的 delete/delete 衝突。
+
+### Commit 分組（395）
+
+| 組別 | 約數 | 判定 |
+| --- | --- | --- |
+| 版本／release／CI／devlog／Cargo 與依賴／macOS 簽章公證 | 約 45 | follow-upstream：本 fork 不發版；CI 與簽章屬官方 repo |
+| 文件與非保留 locale（fr／ja／ko／ru／tr／zh-cn／de／vi） | 約 80 | not-applicable：fork 只保留 en + zh-TW |
+| 測試穩定化（Windows 冷啟動、fixture、layout 登錄） | 約 22 | follow-upstream：隨對應產品碼一併採用 |
+| 新功能：Kiro／Devin／TokenLab／MiniMax／Sonnet 5.5／GPT-6.1 Sol 目錄、Droid／Kilo 匯出、memory phase 路由、JEV notes、Anthropic／OAuth 帳號 pause 與 per-model 路由、Codex 低額度保護、macOS 系統 proxy、desktop menu bar | 約 40 | follow-upstream：產品增量，非缺陷；無 fork 特有需求 |
+| 一般 provider／adapter／combo／catalog 修正（GLM、MiMo、CodeBuddy、Cursor、command-code、combo 冷卻十分鐘、quota window、Claude strict／picker） | 約 130 | adoption pending：整組隨 stable 採用，需 `bun run test` 分片驗證 |
+| Windows 相關修正（`21ccf35db` proxy ABOVE_NORMAL 優先度、`43b02ef7e` 與 `be218ba68` service manager／standalone wrapper 判定、`fa255e0d8` junction 型 `CODEX_HOME`（issue `#5864`）、`87bee294a` dashboard 探測不阻塞 proxy、`390b69f2c` Windows system proxy 檢查） | 約 10 | adoption pending：本機主線平台，優先切片；需 Windows service／codex 測試 |
+| 安全邊界（link relay 認證與憑證剝除 `e1c894367`／`5747a5c4b`／`d0157e0f5`／`33b1920cc`、OAuth 與 keyring、plugin ACL `e89de8f53`、picker CA `2948775b7`／`6d7af977a`、redaction、usage ledger fail-closed `32f4ea1de`） | 約 30 | adoption pending：本 fork 在 `e9de140d..e78ea34a9` 另有 CWE-367 lstat／FIFO 修正，涉及同一批檔案；採用前需逐檔比對並讓對應 focused tests 通過，不得無測試合併 |
+
+### Closed-unmerged PR（`#6058`–`#6316`，共 61 筆）
+
+| 分流 | PR | 結論 |
+| --- | --- | --- |
+| 已由 merge-train／carry commit 落在 `main` | 其中約 55 筆（例：`#6058→3cd78023c`、`#6064→159085ed6`、`#6109→ae88364b7`、`#6115→7618c83f9`、`#6260→f9bfca0d0`、`#6316→6c32c4da3`） | 隨 stable 採用一併處理，不重放原 PR head |
+| reject | `#6125` `#6253`（`[WRONG BRANCH]`）、`#6084`（`#6085` 重複） | 上游自己判定不合格或重複 |
+| defer／無內容 | `#6086`（clippy／MSRV）、`#6095` `#6206`（規劃文件）、`#6214`（Kiro 隱藏未發布模型） | 非缺陷或無 landing；`#6214` 待有 stable landing 再看 |
+
+### Platform issue（`#6135 #6196 #6288 #6290 #6291 #6314`）
+
+| Issue | 決定 | 理由與重審條件 |
+| --- | --- | --- |
+| `#6288` | defer | Windows `ocx update` 的 npm cache 預檢在 dangling junction 上 ENOTDIR；截至 `cae9b553e` 仍 OPEN、無修正 commit。fork 有 `src/update/npm-cache-preflight.mjs`。上游出修正或本機遇到 dangling `npm-cache` junction 時重審。 |
+| `#6290` | defer | Windows service wrapper 的 `%DATE%` 含括號（ko-KR）會中止；fork 的 `src/service/windows-taskxml.ts` 同樣使用 `[%DATE% %TIME%]`，本機 zh-TW 區域不受影響。上游出修正或改用其他 locale 時重審。 |
+| `#6135` `#6196` `#6291` `#6314` | defer | `#6135` Bun 記憶體用量待 needs-info；其餘三筆為 macOS 專屬。全部仍 OPEN、無修正。 |
+
+### 分支
+
+未逐條盤點（本輪不採用任何 commit，分支結論沿用前一輪）。採用清單：**無**。
+
+### 水位
+
+- stable tag / commit：`v2.74.0` / `cae9b553e9b882dd13781a7f3ee6f68c0dcc8c4f`
+- PR：`#6316`
+- issue：`#6314`
+

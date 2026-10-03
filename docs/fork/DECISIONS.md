@@ -1,5 +1,18 @@
 # 維護決策
 
+## 2026-10-03：v2.74.0..v2.76.0 只審不採（adoption pending；4 筆採用候選待決）
+
+**決定**：84 commits（80 非 merge）／163 個 PR（其中 20 closed-unmerged）／26 個 issue 分組判定完成，未移植任何 commit；水位推進到
+`v2.76.0`（`249462bf570555aad103957025eea96f7489c7eb`）、PR `#6507`、issue `#6504`。判定為 adopt 4／defer 53／skip 23，
+逐組結論與缺陷證據見 `UPSTREAM.md` 同日條目。
+
+**理由**：`git merge-base HEAD upstream/main` 仍為空，整棵採用 stable 的前提（ancestry bridge）與 2026-09-30 相同。
+上一輪的觸發條件（上游修正 `#6288`／`#6290`）已成立，故列出 4 筆採用候選：`f5e9fdaba`（redaction ReDoS，fork 實測 O(n²)）、
+`89db85ff0`（Windows manager 指令 timeout）、`09cd45daa`（npm cache root，`#6288`）、`8a3a7762f`（locale 日期括號，`#6290`；需手移植且應用 `dev` 上 `115fa0322` 的最終形）。
+另有 fork 自有項目：`ocx-*` agent 說明要求傳 `model: "haiku"`（`#6358`，上游 `not_planned`、無修正）。
+
+**觸發條件**：維護者決定移植上述候選或重建 ancestry bridge；啟用 policy routing 或 Anthropic 帳號池（`58a26f0c1`／`22c890c8d` 的缺陷在 fork 存在，目前本機設定未啟用）；上游修正 `#6491`（Windows 排程工作被停用後 `repair` 死胡同）。
+
 ## 2026-09-30：v2.67.0..v2.74.0 只審不採（adoption pending）
 
 **決定**：395 commits／61 closed-unmerged PR／6 platform issue 分組判定完成，未採用任何 commit；水位推進到

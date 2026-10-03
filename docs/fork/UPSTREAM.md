@@ -885,3 +885,120 @@ pristine 上游有相同 pass/fail）。其餘 4 個逐檔在 pristine `v2.67.0`
 - PR：`#6316`
 - issue：`#6314`
 
+## 2026-10-03：分組審查 `v2.74.0..v2.76.0`（84 commits，採用候選 4 筆待決、本輪不移植）
+
+**決定**：`cae9b553e..249462bf5`（`v2.75.0` `ef0297f86c4540c7d757c8595170d66f9c584aec`、`v2.76.0`
+`249462bf570555aad103957025eea96f7489c7eb`）共 84 commits（80 非 merge）、642 檔差異（`src/` 226 檔）。
+逐組判定完成，**本輪不移植任何 commit**；`reviewed_through` 推進到 `v2.76.0` 僅代表已審。
+
+| 判定 | 數量（80 非 merge commit） |
+| --- | --- |
+| adopt now（候選，待維護者決定是否手移植） | 4 |
+| defer（隨 stable 整棵採用，附重審條件） | 53 |
+| skip（非缺陷、macOS 專屬、fork 不發版等） | 23 |
+
+另有 1 項 fork 自有的 action item（不是上游 commit，見下「`ocx-*` agent 說明」）。
+
+**為什麼仍不合併**：`git merge-base HEAD upstream/main` 仍為空（exit 1），與 2026-09-30 條目同因；
+上一輪登記的觸發條件「上游修正 Windows `#6288`／`#6290`」本輪已成立（`09cd45daa`／`8a3a7762f`，兩 issue 均已 closed-completed），
+所以其中的 Windows 修正列為採用候選。其餘仍走整棵 stable 採用。
+
+### Commit 分組（80 非 merge）
+
+| 組別 | 數 | 判定 |
+| --- | --- | --- |
+| 版本／release／devlog／文件／structure 行數預算（`64294638a` `6c91540e8` `7ea77aaaf` `4f3182292`） | 4 | skip（follow-upstream）：fork 不發版；本段 `.github/` 0 檔變動，無 workflow guard 需核對 |
+| 純測試穩定化（`82a495519` `665e2bc15` `95f21f438`） | 3 | skip（follow-upstream）：隨對應產品碼一併採用 |
+| 新功能：OpenGateway、Zed Hosted AI、Antigravity TLS profile、JEV 決策方法、Claude 頁面與 CLI `/model` picker、LazyCodex 角色模型與委派建議、Codex 主帳號硬鎖門檻、macOS quota-gate shim | 12 | skip 11（產品增量，fork 無特有需求）；defer 1：`10428d012` 把「100% 切換帳號、花 ChatGPT credits 改 opt-in（`creditCodexAccountIds`）」做成預設行為變更，影響計費，整合 stable 時須確認預設值 |
+| Windows／service／update（`09cd45daa` `8a3a7762f` `89db85ff0` `21aed9fee` `cfde16743` `17d6e8498` `0f2ec7adb` `6d84e4468` `a9d5a80c2` `137164e3e`） | 10 | **adopt 3**（見下表）；defer 6；skip 1（`137164e3e` Tauri desktop 啟動預算，fork 不出 desktop） |
+| 安全邊界與有界化（`f5e9fdaba` `58a26f0c1` `6e5101115` `22c890c8d` `0f6026ddc` `742951354` `57fc9cc57` `b933aa292` `faf946e8b` `72e65439f` `4448e98a6` `328ce9581`） | 12 | **adopt 1**（`f5e9fdaba`）；defer 11（安全相關逐項見下） |
+| Claude／Anthropic：帳號池 429／403 failover 與 per-model 週額度、thinking 與 128K 輸出上限、rate-limit header 轉送、passthrough 失敗紀錄、picker snapshot 重建、intercept 隨需啟動 | 9 | defer（adoption pending）：整組依賴 v2.68–74 的 Claude 帳號池與 picker 重構，單挑會自行改寫 |
+| CLI 驗證／診斷（`fc0f24a57`、`af358141e`）與 GUI 文案（`933bd03cb` `8ad261e00` `50b3dd48d`） | 5 | defer（follow-upstream）：GUI 檔含 `zh-TW.ts` 與非保留 locale，整合時照既有 locale 政策處理 |
+| 一般 provider／adapter／combo／catalog／subagents 修正（Devin ×4、Kiro ×4、xAI ×3、models policy ×2、`09a86e1ab` pickerOrder、Antigravity 輪替、combo 429 冷卻、Eliza、`b0d275dc7` pool quota 證據、`2713b60e3` TOML） | 17 | defer（adoption pending）：整組隨 stable 採用，需 `bun run test` 分片驗證 |
+| responses／streaming 修正（`470758088` SSE CR、`a207452b3`、`5444d343e`、`0328373fb`）與 macOS 專屬（`7f6b5b738` `5ea63751d` `ff1ce7e8c` `0202cc68e`） | 8 | defer 4；skip 4（macOS 專屬，fork 為 Windows 線） |
+
+### 採用候選（adopt now）：缺陷已在 fork 程式碼中確認
+
+「乾淨套用」指 `git show <sha> -- src bin tests | git apply --check` 對本 fork `HEAD` 通過（只檢查、未套用）。
+
+| 優先 | 上游 commit | 缺陷證據（fork） | 影響檔案 | 大小與套用 |
+| --- | --- | --- | --- | --- |
+| 1 | `f5e9fdaba`（#6325）redaction 的 XML 屬性掃描有界化 | `src/lib/redact.ts:103-108` 的 XML 規則含 `(?=[^>]*?…)[\s\S]*`，對未閉合標籤是 O(n²)。實測 `redactSecretString("<a ".repeat(n))`：n=2000／4000／8000／16000 → 35／84／261／995 ms（每倍約 ×3–4）。這是 log 與上游錯誤本文的遮罩路徑，大型惡意或損壞本文會拖住事件迴圈。 | `src/lib/redact.ts`、`tests/lib/redact.test.ts`（另 `structure/transports/byte-accounting.md`） | src +54／−8、tests +65／−1；**乾淨套用**。fork 在此檔只改了 `sanitizeLogMetadataString`（:287–297），不重疊。 |
+| 2 | `89db85ff0`（#6403）Windows manager 指令加 timeout | `src/service/windows-scheduler.ts:50-55` `runFile` 的 `execFileSync` 無 timeout；`src/lib/winsw.ts:180-181`（`runWinsw`）、`:195`（`scQc`）、`:268`（`queryScmForService`）與 `uninstallWinswService` 的 `sc stop/delete` 同。Task Scheduler／SCM 卡住時 CLI 會永遠掛住。 | `src/service/windows-scheduler.ts`、`src/lib/winsw.ts`、`tests/windows/winsw-stop-hardening.test.ts`、`tests/windows/windows-scheduler-install-verification.test.ts` | src +28／−6、tests +34；**乾淨套用**。fork 沒有 v2.68–74 的 guarded stop，所以收益只有「不會無限掛住」，判定語意不變。 |
+| 3 | `09cd45daa`（#6395，closes #6288）npm cache root 檢查與 `--cache` 固定 | `src/update/npm-cache-preflight.mjs:165-167` `runNpmCachePreflight` 在 win32 直接回 `windows_skip`，dangling `npm-cache` junction 到 staged install 才以 ENOTDIR 失敗（此時 proxy 已停）；`src/update/transactional-install.mjs:446` 的 `install -g --prefix` 沒固定 `--cache`，會改變 npm globalconfig。 | `bin/ocx.mjs`、`src/update/npm-cache-preflight.{mjs,d.mts}`、`src/update/transactional-install.{mjs,d.mts}`、`tests/update/*` | 10 檔 +408／−41（src／bin 約 +190／−27）；**乾淨套用**，與 fork 在 `transactional-install.mjs` 的 lstat 修正（16 行）無衝突。只影響 npm-global 的 `ocx update` 路徑；本機服務 wrapper（`~/.opencodex/opencodex-service.cmd`，2026-09-26）指向 `%USERPROFILE%\opencodex\…`，該目錄目前不存在，本機是否走此路徑**未驗證**。 |
+| 4 | `8a3a7762f`（#6391，closes #6290）service wrapper 容忍含括號的 locale 日期 | `src/service/windows-taskxml.ts:102`、`:109`（兩個 `if not exist … (` 區塊內的 `echo [%DATE% %TIME%]`）與 `:134`（`for … do (` 區塊內）。ko-KR／ja-JP 的 `%DATE%` 含 `)` 會提早結束區塊，wrapper 每次啟動都中止。本機 zh-TW `%DATE%` 為 `2026/10/03 週六`，**不會觸發**，所以優先度最低。 | `src/service/windows-taskxml.ts`、`tests/windows/windows-service-wrappers.test.ts` | src +14／−10、tests +58；**不乾淨**（`windows-taskxml.ts:101` hunk 失敗）：fork 的 wrapper 仍是 v2.67 形狀，缺 v2.68–74 的 `WINDOWS_WRAPPER_STAY_OUT_EXIT_CODE`／`goto stopped`，需手移植「把含 `%DATE%` 的 echo 移到頂層 label」。**移植時請用 `dev` 上後續 `115fa0322`（#6455，尚未進 main）的最終形**：`:backup_restored` 輸出固定字串，不要把 `%%B` 經 `OCX_RESTORED_BACKUP` 帶進 echo（該 commit 正是修這個）。 |
+
+`21aed9fee`（#6441，wrapper 等待 npm Bun placeholder）疊在 `8a3a7762f` 的 label 結構上，且只對 npm 原地安裝有意義，判 defer；
+若手移植 `8a3a7762f`，可一併評估。
+
+### fork 自有 action item：`ocx-*` agent 說明（issue `#6358`，無上游修正）
+
+- **缺陷**：`src/claude/agents-inject.ts:305` 的 `NO_MODEL_ARG` 對每個 `ocx-*` agent 寫入「Pass model: "haiku" as a placeholder」。
+  當載入 `~/.claude/agents/ocx-*.md` 的 Claude Code session **沒有**經過 opencodex proxy（例如另一個 Claude Code／桌面 app session），
+  該 `model` 參數會覆寫 agent frontmatter 的 pin，subagent 靜默跑真正的 Haiku，回報標籤卻仍是 GPT-6.1 Sol。
+- **上游狀態**：`#6358` 於 2026-10-01 被 issue-template bot 以 `not_planned` 關閉，沒有修正 commit；
+  `upstream/main`（`v2.76.0`）`src/claude/agents-inject.ts:309` 仍是同一句。
+- **本機證據**：`~/.claude/agents/` 目前有 5 個 generated 檔（`ocx-gpt-6-1-sol`、`ocx-gpt-6-astra`、`ocx-gpt-6-luna`、`ocx-gpt-6-sol`、`ocx-self`），內文含該句，pin 為 `ocx-claude-native--…`／`claude-opus-5-5[1m]`。
+  是否真的發生過替換**未驗證**。
+- **建議**：fork 自行改文案（例如「請省略 `model` 參數；在 opencodex proxy 之外它會覆寫 pin」）並補測試，約 1–3 行；改完需重新產生已寫出的 agent 檔（屬 `~/.claude`，本輪未動）。
+  `#6504`（OPEN，`/compact` 在 `ocx-claude-native--gpt-6.1-sol` 上 502）同樣走 `ocx-*` 路徑，但尚無修正。
+- **命名／pin 變動**：本段 84 commits 對 `ocx-claude-native--` 前綴、`ocx-route` 標記、`generated-by: opencodex` 標記**零變動**（`git log -G` 查 `src/` 無結果）。
+
+### 安全相關項目（含 defer／skip 的理由）
+
+| commit | 內容 | 判定與理由 |
+| --- | --- | --- |
+| `58a26f0c1`（#6396，carry #6380） | policy fallback 的 redirect 可逃出原 eligible provider／model 集合 | defer，**高優先**。缺陷存在：`src/server/responses/policy-fallback.ts:188` 仍只以 `rankPolicyFallbackCandidates(initialTrace, tried)[0]` 選下一個，fork 缺 `policy-request-scope.ts`。不乾淨（`router.ts:89`、`core-options.ts:19` hunk 失敗），src 8 檔約 +190 行、tests +536。本機 `~/.opencodex/config.json` 無 policy／routing profile 字樣（只數 key 次數，0），實際暴露低。重審條件：啟用 policy routing，或整合 stable。 |
+| `22c890c8d`（#6371） | Anthropic vision／web-search helper 改走 per-model 帳號路由 | defer。缺陷存在：`src/vision/anthropic-describe.ts:160`、`src/web-search/anthropic-executor.ts:171` 仍 `getValidAccessToken(providerName)`。僅在 Anthropic 帳號池啟用時有差別（`isAnthropicAccountPoolEnabled`）；本機 config 無 `accountPool`。不乾淨，11 檔。 |
+| `0f6026ddc`（#6442）、`6256cb4f8`（#6376）、`de4b2e2a2`（#6373）、`459b4ec16`（#6372）、`a300b57c8`（#6443） | Claude 原生 metadata 綁定服務帳號、Kiro failover 後 continuation 重新綁定帳號、xAI Fast wire model 納入 allowlist、Antigravity 單次輪替、Claude 帳號池 429 | defer：皆為帳號池／授權邊界，與帳號池使用方式綁定，整組隨 stable；單挑會自行改寫。 |
+| `6e5101115`（#6375） | owner registry 發佈改 no-follow、owner-only | defer（fork 缺 `src/config/owner-registry.ts`，缺陷尚未進入 fork）。與 fork 的 CWE-367 修正同方向；整合時要保留 fork 的 lstat 語意並跑 `tests/config/owner-registry-acl.test.ts`。 |
+| `faf946e8b`（#6323） | command-code 專案 confinement 不再小寫化 Windows 路徑（`PROJECT` 可冒充專案目錄） | defer（fork 缺 `src/adapters/command-code-project-context.ts`，該檔隨 stable 才進來）。 |
+| `742951354`（#6369）、`57fc9cc57`（#6315）、`b933aa292`（#6319）、`72e65439f`（#6368） | Gemini schema 正規化線性化、Devin 簽章 payload 有界、Cursor installer manifest 有界、model metadata 拒絕未配對 surrogate | defer：有界化／輸入驗證；`742951354`、`b933aa292`、`72e65439f` 的目標檔在 fork 不存在，`57fc9cc57` patch 不乾淨。 |
+| `a9d5a80c2`（#6397，carry #6379） | census delegation 前驗證 service manager 身分 | defer：依賴 `src/config/serving-runtimes.ts` 的 v2.68–74 重構；本機單一服務，無多 runtime 委派情境。 |
+| `4448e98a6`（#6398）、`328ce9581`（#6414） | spend ledger 拒絕原因具名、macOS 同步資料夾警告 | defer：診斷與 macOS 專屬，不放寬任何安全檢查。 |
+| `6d84e4468`（#6402） | guarded stop 重新驗證穩定化 | defer。注意：fork 的 `src/service/managing-cli.ts:65-69`（CodeQL 修正）以字元白名單拒絕含空白的 shim 路徑，回 `unknown`（fail-closed），所以上游要修的「路徑含空白被 `cmd /c` 截斷」在 fork 不會發生；整合時不得為了套用該 commit 放寬這份白名單。 |
+
+與 fork 已修過的檔案交集（本段 84 commits 對 fork 改過的 `src/` 檔案）：`src/lib/redact.ts`（`f5e9fdaba` 乾淨）、`src/update/transactional-install.mjs`（`09cd45daa` 乾淨）、
+`src/service/windows-taskxml.ts`（`8a3a7762f` `21aed9fee`，fork 只改 `taskXmlWithoutCommentsAndCdata`，失敗原因是 wrapper 形狀而非該改動）、
+`src/service/managing-cli.ts`（`6d84e4468`，見上）、`src/router.ts`（`58a26f0c1`，fork 只改變數名）、`src/adapters/anthropic.ts`（`7b2deb805` 乾淨，僅 thinking 預算）、
+`src/codex/catalog/provider-models.ts`（`1c9227159` Zed，新功能）。沒有任何一筆會削弱 fork 的 symlink／lstat／FIFO／CWE-367 修正。
+GUI 方面，`gui/src/i18n/zh-TW.ts` 與 fork 改過的 `gui/tests/{i18n-locales,jev-stats-panel,remote-link}.test.tsx` 會在 `10428d012`、`06cc3815c`、`933bd03cb`、`03ed9a3b1` 等 commit 被觸及，整合 stable 時按既有 locale 政策逐檔處理。
+
+### Closed-unmerged PR（編號 > `#6316`；全部 163 筆中 99 merged、44 open、20 closed-unmerged）
+
+| 分流 | PR | 結論 |
+| --- | --- | --- |
+| 已由 carry commit 落在 `main`（隨 stable 處理，不重放 PR head） | `#6379→a9d5a80c2`、`#6380→58a26f0c1`、`#6439→470758088`、`#6429 #6431 #6432 #6433 #6434 #6435 #6437 #6438→fc0f24a57`、`#6422→10428d012`、`#6339→6f2f6ae9c`（經 #6341）、`#6348`（併入 `#6302`，落地為 `06cc3815c`） | 同上表對應 commit 的判定 |
+| superseded | `#6406`（`#6290` 的另一個修法，被 `8a3a7762f` 取代；維護者留言逐項核對過括號區塊內 `%VAR%` 展開） | 不另採 |
+| 已落在 `dev`、尚未進 `main` | `#6463`（`f5572a003`）、`#6470`（`a85a43755`）、`#6471`（`9d3e6e252`） | 等進 `main` 再看；不從 `dev` 單挑 |
+| 撤回／無 landing | `#6476`（作者撤回）、`#6421`（hygiene-blocked，無維護者回覆） | 無內容可採 |
+
+44 筆 open PR 全是提案（多數 base 在 `dev`，另有 3 筆疊在 `codex/cli-*` 分支：`#6498` `#6500` `#6503`），不採用。與 fork 已強化範圍重疊、值得之後追的：
+`#6460`（LazyCodex role mirror 讀取改 nonblocking descriptor、FIFO 回歸；與 fork 的 FIFO 修正同方向，該檔 `src/clients/omo-role-models.ts` 為 v2.75 新增）、
+`#6453`（chatgpt bundle 還原前驗證信任）、`#6479`（Windows desktop Start at Login 路徑加引號，對應 issue `#6473`，fork 不出 desktop）、`#6477`（Tailscale 位址下 `ocx update` 停機判定）。
+
+### Issue（編號 > `#6314`，共 26 筆：16 closed、10 open；`platform` 標籤 3 筆）
+
+| Issue | 決定 | 理由與重審條件 |
+| --- | --- | --- |
+| `#6288` `#6290`（上一輪登記為 defer） | 觸發成立 → 見採用候選 3、4 | 兩者 2026-10-01 closed-completed；同批 `#6291`（macOS，對應 `0202cc68e`）、`#6196`（macOS）也已 closed-completed，皆 skip |
+| `#6491`（Windows，closed `not_planned`） | defer | 排程工作被 `/Disable` 後 `ocx status` 報 stale、`ocx service repair` 回「not a recognized legacy OpenCodex definition」。**fork 有同一缺陷**：`src/service/windows-taskxml.ts:562`（`settings` 的 `Enabled` 必須為 `true`）與 `src/service/repair.ts:237`。上游被 template bot 關閉、無修正 commit。暫行解：`schtasks /Change /TN "\opencodex-proxy" /ENABLE`。重審條件：上游修正，或本機實際停用過排程工作。 |
+| `#6473`（Windows desktop，open） | defer | HKCU Run 未加引號；draft 修正 `#6479` 未合併，且 fork 不出 desktop。 |
+| `#6410`（macOS，closed） | skip | macOS `codex-restart` 跨 `CODEX_HOME`。 |
+| `#6314`（macOS，REOPENED）、`#6135`（Bun 記憶體，needs-info；上一輪登記的舊 issue 複查） | defer | 仍 OPEN；`#6314` 只有診斷強化 `4448e98a6`。 |
+| `#6358`（closed `not_planned`） | **fork action item** | 見上節。 |
+| `#6492`、`#6502`、`#6504`、`#6456`、`#6469`、`#6478`、`#6499`、`#6386`、`#6387` | defer | 全部 OPEN 的功能請求或 provider 相容性問題，無修正；`#6502` 為 Windows 上 `google-antigravity/claude-sonnet-5-5` 404（上游 `#6497` 在處理目錄），`#6492` 為 service lease 診斷。 |
+| 其餘 closed（`#6327 #6334 #6337 #6338 #6350 #6408 #6409 #6420 #6425 #6464 #6465 #6480 #6481`） | skip／follow-upstream | 功能請求、provider 目錄、template bot 關閉或已由對應 commit／`dev` 修正（例：`#6338`→`09a86e1ab`、`#6420`→`af358141e`）。`#6465` 的修正 `6ef255fd0`（#6466 carry）在 `dev`，尚未進 `main`。 |
+
+### 分支
+
+未逐條盤點（沿用前一輪結論）。本次 fetch 新出現 `upstream/codex/cli-ux-recovery`；`upstream/dev` 領先 `main` 81 個非 merge commit，
+其中與本 fork 相關、尚未進 `main` 者：`115fa0322`（Windows wrapper backup 名稱不進 cmd log，採用候選 4 的後續）、
+`0358e72c8`（#6453 bundle 信任驗證）、`1108236af`／`f54830340`（有界展開）、`2b01f50f1`（Scoop home 正規化）。下次 release 後再看。
+
+### 水位
+
+- stable tag / commit：`v2.76.0` / `249462bf570555aad103957025eea96f7489c7eb`
+- PR：`#6507`
+- issue：`#6504`
+

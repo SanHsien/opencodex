@@ -461,7 +461,7 @@ reviewers (Codex, CodeRabbit).
 
 ## Fork 維護規則
 
-- 這是保留上游歷史的 fork；不要移除 `upstream`、原作者或 MIT 授權標示。
+- 本 fork 刻意維持壓縮歷史，不帶入上游歷史（同步方式見 `FORK.md`）；不要移除 `upstream` remote、原作者或 MIT 授權標示。
 - `README.md` 以繁體中文為主；英文在 `README.en.md`。不要改寫成維護索引。
 - 不要把 fork-only 檔案送進上游。
 - 日常修改直接推 `origin/main`，不開功能分支、不開維護 PR；需要他人審查或高風險改動才走 PR。

@@ -31,9 +31,9 @@
 
 ## 分支與 remote
 
-- `origin/main`：SanHsien 維護主線。產品基底為最近一次同步的上游穩定版（`tools/upstream_baseline.json` 的 `reviewed_through`，目前 `v2.76.0`）加上 fork overlay；此產品來源不會自行推進 `tools/upstream_baseline.json` 的審查水位。
+- `origin/main`：SanHsien 維護主線。產品基底為最近一次同步的上游穩定版（`tools/upstream_baseline.json` 的 `integrated_tag`／`integrated_through`，目前 `v2.76.0`）加上 fork overlay；此產品來源不會自行推進 `tools/upstream_baseline.json` 的審查水位。
 - `upstream/main`：上游發版線；`upstream/dev` 是上游 PR 整合線，需要時再 fetch。
-- 2026-09-27 壓縮歷史後 `origin/main` 與上游一度沒有共同祖先；2026-10-03 起 stable 整合 `v2.76.0` 於 `sync/v2.76.0`（由 `v2.76.0` tag 長出，重放 overlay），經維護者審查後以 `main` 上的 bridge commit 接回，之後上游增量改走一般 merge。細節見 [`docs/fork/UPSTREAM.md`](docs/fork/UPSTREAM.md) 與 [`docs/fork/DECISIONS.md`](docs/fork/DECISIONS.md)。絕不推送上游。
+- 本 fork **刻意維持壓縮歷史**（2026-09-27 壓縮，2026-10-06 維護者確認），與上游沒有共同祖先，也不建立 ancestry bridge。上游更新一律以 tag 間的 diff（`git diff <integrated_tag> <新 tag>`）套到 `main`，以單一 parent 的 commit 提交，再推進 `integrated_through`／`integrated_tag`。2026-10-03 的 `v2.76.0` 整合即用此法。細節見 [`docs/fork/UPSTREAM.md`](docs/fork/UPSTREAM.md) 與 [`docs/fork/DECISIONS.md`](docs/fork/DECISIONS.md)。絕不推送上游。
 - 本 fork 的一般修改**直接推 `origin/main`**，不開功能分支、不開維護 PR（維護者 2026-08-22 指示，與其他 repo 一致）。
   只有在需要他人審查、或改動風險高到值得先讓 CI 在 PR 上跑一輪時，才退回 branch → PR → CI → squash merge。
 - **合併任何 PR 前必須讀完整 diff**（`gh pr diff <編號>`），包含 Dependabot 開的。CI 綠燈證明的是

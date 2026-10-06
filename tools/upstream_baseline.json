@@ -4,5 +4,7 @@
   "reviewed_through": "249462bf570555aad103957025eea96f7489c7eb",
   "reviewed_date": "2026-10-03",
   "reviewed_issue_through": 6504,
-  "reviewed_pr_through": 6507
+  "reviewed_pr_through": 6507,
+  "integrated_through": "249462bf570555aad103957025eea96f7489c7eb",
+  "integrated_tag": "v2.76.0"
 }

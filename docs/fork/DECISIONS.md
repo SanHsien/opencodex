@@ -1,11 +1,11 @@
 # 維護決策
 
-## 2026-10-03：stable 整合 v2.76.0（ancestry bridge）；4 筆採用候選已採用
+## 2026-10-03：stable 整合 v2.76.0（不帶入上游歷史）；4 筆採用候選已採用
 
 **決定**：在以 tag `v2.76.0`（`249462bf570555aad103957025eea96f7489c7eb`）為起點的分支 `sync/v2.76.0` 上重放 fork overlay
 （`git diff v2.67.0 main`：28 新增／193 修改／391 刪除），使 fork 產品程式碼回到「上游 v2.76.0 + overlay」。
-因為分支從 tag 長出來，`git merge-base HEAD upstream/main` 恢復為 `v2.76.0`，也就是 ancestry bridge 已建立；
-`main` 隨後只需 tree-neutral 的 bridge commit 接上這條線（由維護者審查後執行，本分支不動 `main`）。
+`main` 以**單一 parent 的 commit** 採用這個分支的 tree，**不建立 ancestry bridge、不把上游歷史帶進 fork**：
+本 fork 的壓縮歷史是維護者刻意的選擇（2026-10-06 確認）。已同步到哪一版記在 `tools/upstream_baseline.json` 的 `integrated_through`／`integrated_tag`。
 package development version 照慣例前推到 `2.77.0`（package.json、`desktop/src-tauri/Cargo.toml`、`Cargo.lock`、`tauri.conf.json`）。
 
 **重放分類**
@@ -59,7 +59,7 @@ Claude Code 的 Agent 工具 `model` 參數優先於 frontmatter 與 `CLAUDE_COD
 - `shim-probe.ts`／`state-lock.ts`／`ownership-mutation-lease.mjs`／`transactional-install.mjs`／`oauth/store.ts` 的 lstat→open→fstat 讀取改以 `O_RDONLY | O_NOFOLLOW | O_NONBLOCK`（未定義者補 0）開檔，避免 lstat 後被換成 FIFO 而阻塞。
 - `service/managing-cli.ts` 的 Windows shim 白名單加入 `~`（8.3 短檔名）；非 ASCII 的使用者 profile 路徑仍落到 "unknown"（fail closed）。
 
-**觸發條件**：維護者審查後在 `main` 建立 bridge commit；之後上游增量改走一般 merge。啟用 policy routing／Anthropic 帳號池（`58a26f0c1`／`22c890c8d`）與 `#6491` 仍如前一條記載。
+**之後的同步方式**：以 `integrated_tag` 為起點，`git diff <integrated_tag> <新 tag>` 套到 fork `main`（`git apply --3way`，衝突逐檔判定），驗證後推進 `integrated_through`／`integrated_tag`。`upstream` 只作本機參照，不推送、不 merge 上游歷史。啟用 policy routing／Anthropic 帳號池（`58a26f0c1`／`22c890c8d`）與 `#6491` 仍如前一條記載。
 
 ## 2026-10-03：v2.74.0..v2.76.0 只審不採（adoption pending；4 筆採用候選待決）
 

@@ -22,7 +22,7 @@ bun tools/check-upstream-updates.ts --strict
 
 1. 讀 commit 主旨與變更檔案。
 2. 判斷是否與 Windows gate、fork 文件、workflow guard 或測試衝突。
-3. 可直接同步的提交用 merge；只需要部分修正時 cherry-pick 或最小重做。
+3. 本 fork 刻意維持壓縮歷史、不帶入上游歷史（2026-10-06 確認），所以不 merge 上游：整版同步用 `git diff <integrated_tag> <新 tag>` 套到 `main`；只需要部分修正時 cherry-pick 或最小重做。同步完成後推進 `tools/upstream_baseline.json` 的 `integrated_through`／`integrated_tag`。
 4. 跑 `pwsh -NoProfile -File tools\dev_check.ps1`。產品檔有改再跑 `bun run typecheck` 與 `bun run test`。
 5. 在 `docs/fork/DECISIONS.md` 記錄採用／略過理由。
 6. 驗證完成後才把 baseline 推進到已審查的完整 40 字元 SHA。
@@ -92,7 +92,7 @@ git fetch upstream main --tags
 bun tools/check-upstream-updates.ts --strict
 ```
 
-報告會同時列出未審 commit、closed-unmerged PR 與水位之後的新 `platform` issue。處理完後推進相應水位，並把判斷寫進本檔。2026-09-06 的 ancestry-only bridge 已恢復共同祖先；後續採一般、範圍受限的上游審查與整合，不再重放 orphan history，且絕不推送上游。
+報告會同時列出未審 commit、closed-unmerged PR 與水位之後的新 `platform` issue。處理完後推進相應水位，並把判斷寫進本檔。（2026-10-06 更正：fork 維持壓縮歷史、與上游沒有共同祖先，同步一律以 tag 間的 diff 套用，不建立 ancestry bridge，且絕不推送上游。）
 
 ## 2026-08-23：重評「隨 release 進來」這個結論，並引用一支 dev 上的 Windows 修正
 

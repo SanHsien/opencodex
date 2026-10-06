@@ -87,6 +87,7 @@ import {
 import { sessionLaneIdFromRequest } from "../request-log-conversation";
 import { responseWithDeferredRequestLog } from "../relay";
 import { createRequestMetricsOwner } from "../request-metrics";
+import { cachedKiroQuotaMetricRows } from "../../providers/kiro-quota-metrics";
 import {
   corsHeaders,
   managementCorsHeaders,
@@ -169,6 +170,7 @@ import {
   createLocalAttestationProof,
 } from "../../lib/local-management-attestation";
 import { SYSTEM_RESTART_CAPABILITY_VERSION } from "../../lib/system-restart-contract";
+import { LOCAL_MANAGEMENT_NONCE_HEADER } from "../../lib/local-management-capability";
 import { LOCAL_PROVIDER_RELOAD_CAPABILITY_VERSION } from "../../lib/local-provider-reload-contract";
 import { LOCAL_ASIDE_SYNC_CAPABILITY_VERSION } from "../../lib/local-aside-sync-contract";
 import {
@@ -292,7 +294,8 @@ export function createServeOptions(ctx: ServeOptionsContext) {
     port,
   } = ctx;
   void port;
-  const requestMetrics = metricsExportEnabled(config) ? createRequestMetricsOwner() : undefined;
+  const requestMetrics = metricsExportEnabled(config)
+    ? createRequestMetricsOwner(Date.now() / 1000, cachedKiroQuotaMetricRows) : undefined;
   const requestMetricsLogContext = requestMetrics ? { requestMetricsRecorder: requestMetrics } : {};
   const requestManagementApiDeps: ManagementApiDeps = requestMetrics
     ? { ...managementApiDeps, requestMetrics: { snapshot: () => requestMetrics.snapshot() } }
@@ -695,6 +698,17 @@ export function createServeOptions(ctx: ServeOptionsContext) {
           trustedLoopback: trustedLoopbackForIngress(ingress, config.hostname ?? "127.0.0.1"),
           guiSessionIssuance: managementSessionIssuance(req, managementAuth),
         });
+        // A local read capability authenticates the request; sign its single-use nonce so the
+        // caller can tell this answer came from this process and not from whoever holds the port.
+        const readNonce = principal === "local-read-capability" ? req.headers.get(LOCAL_MANAGEMENT_NONCE_HEADER) : null;
+        const readProof = readNonce
+          ? createLocalAttestationProof(localAttestationSecret, readNonce, process.pid, localManagementAuth.port) : null;
+        if (mgmtResponse && readProof) {
+          const headers = new Headers(mgmtResponse.headers);
+          headers.set(LOCAL_ATTESTATION_PROOF_HEADER, readProof);
+          const signed = new Response(mgmtResponse.body, { status: mgmtResponse.status, statusText: mgmtResponse.statusText, headers });
+          return withManagementCors(signed, req, config);
+        }
         if (mgmtResponse) return withManagementCors(mgmtResponse, req, config);
         return withManagementCors(formatErrorResponse(404, "not_found", `Unknown endpoint: ${req.method} ${url.pathname}`), req, config);
       }
@@ -1398,7 +1412,7 @@ export function createServeOptions(ctx: ServeOptionsContext) {
         };
         return runAdmittedHttpTurn(req, policy, async turnAdmissionLease => {
           const response = await handleContextHistory(req, config, logCtx, contextEndpoint(url.pathname)!,
-            turnAdmissionLease, admission, () => resolveApiAuth(req, policy));
+            turnAdmissionLease, admission, () => resolveApiAuth(req, ingress === "hub-link" ? linkPolicy() : policy));
           addFinalRequestLog(requestId, start, logCtx, response.status,
             response.status === 499 ? { closeReason: "client_cancel" } : undefined);
           return withCors(response, req, policy);

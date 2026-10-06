@@ -10,6 +10,9 @@ Native steering follows [the shared WebSocket contract](../transports/streaming-
 Compatibility callers retain the public Responses ingress described by the
 [core module ownership](../transports/responses.md#core-module-ownership). This surface retains its existing behavior.
 
+Chat and Messages admission previews the [xAI OAuth Fast wire destination](../providers/xai-grok.md#grok-47-fast-lane-oauth)
+using the same policy as final Responses serialization. Native dispatch retains its own destination scope check.
+
 The configuration-only [plaintext V2 contract](../subagents.md#plaintext-v2-agent-messages)
 is scoped to canonical ChatGPT Responses forwarding; other source-area behavior described here is unchanged. Cursor's localized native-shell names follow the [routing-commentary guard contract](../providers/cursor.md#cursor-native-exec).
 
@@ -310,6 +313,20 @@ The [explicit model-capability contract](../config.md#explicit-per-model-capabil
 
 Provider-scoped approval reviewer settings are projected by the [catalog owner](../catalog.md#provider-scoped-approval-reviewer); this surface retains its existing routing, transport and account-selection behavior.
 
+## Claude message threads on translated routes
+
+Claude Code enables its message-threads beta only against first-party Anthropic, so it reaches
+OpenCodex through the first-party intercept. A threaded request carries a `thread` object; a
+`continue` sends only the messages after `previous_message_id` and may leave `system` and `tools`
+to the thread Anthropic stores. `src/server/claude-messages.ts` forwards the request unchanged on
+native passthrough. On the translated path, before compatibility analysis or inference, it
+answers any `thread` object with the 400 from `src/claude/message-threads.ts`, whose
+`error.details.error_code` is `thread_unsupported_request` and whose request-log error code is
+`claude_thread_unsupported`. A translated `count_tokens` request with a `thread` object gets the
+same 400, because counting the delta would undercount the conversation. Claude Code then resends the turn with the full conversation and keeps
+that model stateless for the session. Translating the delta instead would drop the task,
+instructions and earlier turns without an error.
+
 ## Shared inbound Chat image recognition
 
 `src/chat/image-parts.ts` owns which `messages[].content[]` shapes count as an image
@@ -413,3 +430,7 @@ Unicode pattern normalization uses [copy-on-write traversal](../transports/byte-
 Dashboard Fast-row persistence and client refresh follow the [Fast selector rows setting contract](../gui-and-management-api.md#fast-selector-rows-setting).
 
 The [compaction routing override](../transports/responses-failover.md#compaction-routing-overrides) requires original Responses ingress; translated Chat and Messages calls retain their own routing.
+
+Managed native Anthropic OAuth metadata follows [the native Messages binding contract](protocol-paths.md#managed-native-messages): the serving credential's provider UUID replaces only recognized account metadata, with each attempt rebuilt from the source.
+
+Managed native Messages retain a coherent observed CLI identity bundle only for first-party Anthropic; [native Messages](protocol-paths.md#managed-native-messages) owns its bounds and credential separation. Header identity never selects an account or authorizes a request.

@@ -668,6 +668,18 @@ describe("bun test argv", () => {
       .toBe(isolated);
   });
 
+  test("server admission fixtures finish in a dedicated process", () => {
+    const plan = fullSuitePlan();
+    const admission = "./tests/codex-integration/active-registry-admission.test.ts";
+    const lane = plan.find(candidate => candidate.label === "active-registry-admission.test.ts");
+    expect(lane?.args).toContain("--parallel=1");
+    expect(lane?.args).toContain(admission);
+    expect(lane?.retryOnFailure).toBeUndefined();
+    for (const batch of plan.filter(candidate => candidate.label.startsWith("full suite batch"))) {
+      expect(batch.args).not.toContain(admission);
+    }
+  });
+
   test("serial lanes override caller parallelism without changing fresh main batches", () => {
     const plan = fullSuitePlan(["--parallel=2", "--only-failures"]);
     expect(plan[0]?.args).toContain("--parallel=2");

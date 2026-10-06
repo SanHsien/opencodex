@@ -1,11 +1,12 @@
 import { describe, expect, test } from "bun:test";
+import { deriveDesktopStartup } from "../../src/service/desktop-startup";
 import { collectStartupHealth, deriveStartupHealth, formatStartupRoutingDetail, injectedRoutingRestartWarningLines, startupHealthSummary } from "../../src/codex/autostart-health";
 import { unusedProxyWarningLines } from "../../src/cli/status";
 import { classifyCodexRouting, hasInjectedCodexRouting } from "../../src/codex/inject";
 import { isCodexClientProcess, listCodexClientProcesses } from "../../src/codex/native-profile-processes";
 import { collectRoutingAdoption, deriveRoutingAdoption } from "../../src/codex/routing-adoption";
 import { handleManagementAPI } from "../../src/server/management-api";
-import { getCachedStartupHealth, getStartupHealthSnapshot, invalidateStartupHealthCache, markStartupHealthDiagnosticStale } from "../../src/server/startup-health-cache";
+import { getCachedStartupHealth, getStartupHealthSnapshot, invalidateStartupHealthCache, markStartupHealthDiagnosticStale, resetStartupHealthCacheForTests } from "../../src/server/startup-health-cache";
 import type { OcxConfig } from "../../src/types";
 
 const base = {
@@ -278,6 +279,40 @@ describe("Codex startup health", () => {
     releaseProbe(deriveStartupHealth({ ...base, routingKind: "native" }));
     await pendingProbe;
     invalidateStartupHealthCache();
+  });
+
+  test("invalidation keeps the last reading for the snapshot instead of a not-installed fallback", async () => {
+    // A settings PUT invalidates, then reads the snapshot. Answering with the synthetic
+    // fallback (serviceInstalled: false, at-risk) flashed a healthy service as at risk
+    // until the dedicated probe finished.
+    resetStartupHealthCacheForTests();
+    const healthy = {
+      ...base,
+      routingKind: "native" as const,
+      serviceInstalled: true,
+      serviceViable: true,
+      serviceEnabled: true,
+      serviceRunning: true,
+    };
+    const reading = await getCachedStartupHealth(
+      { codexAutoStart: true },
+      { probe: async () => deriveStartupHealth(healthy) },
+    );
+    expect(reading.diagnosticStale).toBe(false);
+    expect(reading.serviceInstalled).toBe(true);
+
+    invalidateStartupHealthCache();
+    let releaseProbe!: (value: ReturnType<typeof deriveStartupHealth>) => void;
+    const pendingProbe = new Promise<ReturnType<typeof deriveStartupHealth>>(resolve => {
+      releaseProbe = resolve;
+    });
+    const snapshot = getStartupHealthSnapshot({ codexAutoStart: true }, { probe: async () => pendingProbe });
+    expect(snapshot).toEqual(markStartupHealthDiagnosticStale(reading));
+    expect(snapshot.serviceInstalled).toBe(true);
+
+    releaseProbe(deriveStartupHealth(healthy));
+    await pendingProbe;
+    resetStartupHealthCacheForTests();
   });
 
   test("settings snapshot starts a probe without waiting for it", async () => {
@@ -640,5 +675,30 @@ describe("routing adoption (#4550)", () => {
         { pid: 4321, commandLine: "vim note.txt", executable: "vim" },
       ],
     })).toEqual({ status: "enumerated", processes: [{ pid: 4242, commandLine: "codex chat" }] });
+  });
+});
+
+describe("macOS desktop startup protection", () => {
+  const facts = { owned: true, loginEnabled: true, running: true };
+  test("credits verified desktop supervision without claiming a CLI service", () => {
+    const desktop = deriveDesktopStartup(facts);
+    const health = deriveStartupHealth({ ...base, platform: "darwin", desktop });
+    expect(health).toMatchObject({ protection: "desktop", rebootSafe: true, status: "protected", serviceInstalled: false });
+    expect(startupHealthSummary(health)).toContain("desktop app");
+  });
+  test("missing ownership, login registration or running supervisor never grants protection", () => {
+    for (const key of ["owned", "loginEnabled", "running"] as const) {
+      const desktop = deriveDesktopStartup({ ...facts, [key]: false });
+      expect(deriveStartupHealth({ ...base, platform: "darwin", desktop }).rebootSafe).toBe(false);
+    }
+  });
+  test("desktop evidence cannot protect another OS or an unrelated gateway", () => {
+    const desktop = deriveDesktopStartup(facts);
+    expect(deriveStartupHealth({ ...base, desktop }).status).toBe("at-risk");
+    expect(deriveStartupHealth({ ...base, platform: "darwin", routingKind: "custom-local", desktop }).status).toBe("at-risk");
+  });
+  test("a failed follow-up probe revokes the desktop protection claim", () => {
+    const health = deriveStartupHealth({ ...base, platform: "darwin", desktop: deriveDesktopStartup(facts) });
+    expect(markStartupHealthDiagnosticStale(health)).toMatchObject({ protection: "none", rebootSafe: false, diagnosticStale: true });
   });
 });

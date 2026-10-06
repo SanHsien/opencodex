@@ -145,6 +145,26 @@ Codex 會分層組裝提示詞：它自己的基礎指令、你的專案文件�
 
 變更會套用到新啟動的工作階段。已經執行的工作階段會繼續使用啟動時的提示詞設定。
 
+## 保持技能目錄穩定
+
+Proxy 預設 `skills.catalog_refresh: "per_session"`：一個對話收到的第一份 `<skills_instructions>` 目錄，會在該對話之後的請求中重複使用。
+這能避免技能探索與 `SKILL.md` 的編輯，在 session 進行中改變上游提示快取前綴的那一部分。帶有多個 `<skills_instructions>` 區塊的請求會原樣通過，
+被 proxy 拒絕的請求不會設定目錄。
+
+若要在每一回合都使用用戶端提供的目錄，請在 opencodex 的 `$OPENCODEX_HOME/config.json`（通常是 `~/.opencodex/config.json`）中設定下列內容，然後重新啟動 proxy：
+
+```json
+{
+  "skills": {
+    "catalog_refresh": "per_turn"
+  }
+}
+```
+
+支援的值是 `"per_session"`（預設）與 `"per_turn"`。這是 proxy 的設定，與 Codex 的 `skills.include_instructions` 開關無關。沒有可靠對話身分的請求會使用用戶端提供的目錄。
+快照保存在記憶體中，proxy 重新啟動後不會保留。它們在閒置四小時後過期，並可能在有界快取填滿時被逐出。大於 512 KiB 的初始目錄區塊會直接轉送而不快取。
+過期或被逐出之後，下一份收到的目錄會成為新的快照。儀表板的提示預覽仍然讀取目前的檔案；它不會顯示進行中對話所保留的快照。
+
 ## 此頁面讀取什麼，又不讀取什麼
 
 opencodex 只讀取一個設定檔——你的 `config.toml`。Codex 會從多個層解析設定，因此這裡的值

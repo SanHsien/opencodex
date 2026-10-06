@@ -60,6 +60,22 @@ const POLL: Duration = Duration::from_millis(250);
 /// diagnostic is the one on screen.
 const SETTLE_GRACE: Duration = Duration::from_secs(2);
 
+/// How long a child this app started may take to answer before a later run stops waiting on it.
+///
+/// The slowest start that still ends well is a hard-pinned port reclaim (60 seconds) plus the
+/// pinned prefer-retry (5 seconds). Past this, a child that neither answers nor has reported an
+/// exit is wedged, or its exit is held up by a grandchild that kept its output pipes open (the
+/// shell plugin reports an exit only once both pipes close), and waiting on it again would keep
+/// the port empty for good.
+pub const CHILD_START_GRACE: Duration = Duration::from_secs(90);
+
+/// Whether a run waits on the child this app already started instead of starting another; `age`
+/// is how long ago the tracked child was spawned, and nothing when the app tracks none. The caller
+/// also requires that the child has not reported an exit.
+pub fn waits_on_child(age: Option<Duration>) -> bool {
+    age.is_some_and(|age| age < CHILD_START_GRACE)
+}
+
 /// Where the launch came from.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LaunchOrigin {
@@ -72,6 +88,17 @@ pub enum LaunchOrigin {
 /// The argument the autostart registration passes back to us. Nothing else supplies it, so its
 /// presence is the launch origin.
 pub const AUTOSTART_FLAG: &str = "--autostart";
+
+/// Why a run was started.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Mode {
+    /// The app's own launch, or a person's retry. It may ask to take a listening runtime over.
+    Launch,
+    /// The supervisor bringing a runtime back (`supervisor.rs`). Nobody is looking at this run, so
+    /// it never shows the window or a prompt: a runtime that answers is attached as a guest. Every
+    /// other gate is the launch's own — only a proven absence starts a runtime.
+    Recover,
+}
 
 impl LaunchOrigin {
     pub fn from_args(mut args: impl Iterator<Item = String>) -> Self {
@@ -234,6 +261,10 @@ pub struct ConsentPrompt {
     pub home: String,
     pub owner: String,
     pub blocked: Option<String>,
+    /// The version-skew warning when the listening runtime and the bundled CLI differ;
+    /// the panel renders it so an upgrade, or a downgrade the proxy-newer rule did not
+    /// already keep unoffered, is a decision made with the versions visible.
+    pub version_note: Option<String>,
 }
 
 impl Progress {
@@ -365,6 +396,11 @@ pub struct Startup {
     /// before `live`, and never held across an await.
     reporting: Mutex<()>,
     running: AtomicBool,
+    /// Whether the run in flight is a [`Mode::Recover`] run.
+    recovering: AtomicBool,
+    /// Set when the run failed because a listener this app cannot use holds the port. The
+    /// supervisor reads it when the run ends: another attempt would only find the same listener.
+    held: Mutex<Option<crate::supervisor::Held>>,
     /// Whether this window has already left the bundled bootstrap surface.
     ///
     /// Explicit open actions can arrive repeatedly from the tray, the single-instance hook, and
@@ -397,6 +433,8 @@ impl Startup {
             }),
             reporting: Mutex::new(()),
             running: AtomicBool::new(false),
+            recovering: AtomicBool::new(false),
+            held: Mutex::new(None),
             dashboard_loaded: AtomicBool::new(false),
             dashboard_requested: AtomicBool::new(false),
             generation: AtomicU64::new(0),
@@ -425,6 +463,37 @@ impl Startup {
     /// The whole state of the run so far, which is what the page asks for when it loads.
     pub fn latest(&self) -> Progress {
         self.live().latest.clone()
+    }
+
+    /// Whether a run is in flight.
+    pub fn is_running(&self) -> bool {
+        self.running.load(Ordering::Acquire)
+    }
+
+    /// Whether the last run reported Ready.
+    pub fn is_ready(&self) -> bool {
+        self.live().latest.phase == Phase::Ready.id()
+    }
+
+    fn mode(&self) -> Mode {
+        if self.recovering.load(Ordering::Acquire) {
+            Mode::Recover
+        } else {
+            Mode::Launch
+        }
+    }
+
+    fn held_slot(&self) -> MutexGuard<'_, Option<crate::supervisor::Held>> {
+        self.held.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Record that this run found the port held by a listener it cannot use.
+    fn note_held(&self, pid: Option<u32>) {
+        *self.held_slot() = Some(crate::supervisor::Held { pid });
+    }
+
+    fn take_held(&self) -> Option<crate::supervisor::Held> {
+        self.held_slot().take()
     }
 
     /// The user's answer to a pending takeover prompt. Nothing pending is a no-op: a retry
@@ -457,10 +526,14 @@ impl Startup {
     /// Consume the decision and publish the extended ceiling in the same critical section, so
     /// the guard's next expiry check sees either a pending/answered prompt or the new deadline,
     /// never the gap between them.
-    fn resolve_consent(&self, deadline: Instant) {
+    fn resolve_consent(&self, mut deadline: Instant, approved: bool) -> Instant {
+        if approved && cfg!(target_os = "windows") {
+            deadline += Duration::from_secs(60);
+        }
         let mut live = self.live();
         live.deadline = deadline;
         live.consent = ConsentState::Idle;
+        deadline
     }
 
     fn set_deadline(&self, deadline: Instant) {
@@ -474,6 +547,7 @@ impl Startup {
         live.consent = ConsentState::Idle;
         live.reported.clear();
         live.latest = Progress::new(Phase::NotStarted, 0);
+        *self.held_slot() = None;
         self.dashboard_loaded.store(false, Ordering::SeqCst);
         self.dashboard_requested.store(false, Ordering::SeqCst);
     }
@@ -600,16 +674,26 @@ impl Default for Startup {
 
 /// Run the sequence, unless it is already running. This is also the retry.
 pub fn begin(app: &AppHandle) {
+    begin_with(app, Mode::Launch);
+}
+
+/// Run the sequence for `mode`, unless one is already running. Returns whether this call started
+/// a run. The run reports how it ended to the supervisor, which is what follows up a failed
+/// recovery.
+pub fn begin_with(app: &AppHandle, mode: Mode) -> bool {
     let Some(startup) = app.try_state::<Startup>() else {
-        return;
+        return false;
     };
     if startup
         .running
         .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
         .is_err()
     {
-        return;
+        return false;
     }
+    startup
+        .recovering
+        .store(mode == Mode::Recover, Ordering::Release);
     startup.restart();
     let generation = startup.generation.fetch_add(1, Ordering::AcqRel) + 1;
     let started = Instant::now();
@@ -668,10 +752,26 @@ pub fn begin(app: &AppHandle) {
             generation,
             "the startup sequence ended without reporting a result".to_owned(),
         );
+        // Read before the flag drops, so a retry that starts at once cannot answer for this run.
+        let mut outcome = None;
+        let mut held = None;
         if let Some(startup) = app.try_state::<Startup>() {
+            outcome = Some(startup.latest());
+            held = startup.take_held();
             startup.running.store(false, Ordering::Release);
         }
+        let ready = outcome
+            .as_ref()
+            .is_some_and(|progress| progress.phase == Phase::Ready.id());
+        let detail = outcome.and_then(|progress| progress.detail);
+        let ended = match (ready, held) {
+            (true, _) => crate::supervisor::RunOutcome::Ready,
+            (false, Some(held)) => crate::supervisor::RunOutcome::Held(held),
+            (false, None) => crate::supervisor::RunOutcome::Failed,
+        };
+        crate::supervisor::run_finished(&app, mode, ended, detail.as_deref());
     });
+    true
 }
 
 /// Report a terminal state for a run that did not report one itself.
@@ -783,7 +883,10 @@ async fn run(app: &AppHandle, started: Instant) {
                 Some(install_id) => ownership::consent(&answer.ownership, install_id),
                 None => ownership::Consent::Refuse,
             };
-            match attach_plan(consent, &answer.takeover) {
+            let mode = app
+                .try_state::<Startup>()
+                .map_or(Mode::Launch, |startup| startup.mode());
+            match attach_plan(consent, answer, mode) {
                 AttachPlan::Guest(detail) => {
                     attach_as_guest(
                         app,
@@ -824,6 +927,7 @@ async fn run(app: &AppHandle, started: Instant) {
                         home: target.home.display().to_string(),
                         owner: ownership::owner_label(&answer.ownership),
                         blocked: None,
+                        version_note: consent_version_note(answer),
                     });
                     emit(app, progress, None);
                     // The user may take any time; the budget exists to bound the machinery, not
@@ -833,7 +937,7 @@ async fn run(app: &AppHandle, started: Instant) {
                     deadline += asked.elapsed();
                     // The extension and the clear are one critical section: the guard sees
                     // either a prompt still pending or the moved ceiling, never the gap.
-                    startup.resolve_consent(deadline);
+                    deadline = startup.resolve_consent(deadline, approved);
                     if !approved {
                         attach_as_guest(
                             app,
@@ -844,8 +948,13 @@ async fn run(app: &AppHandle, started: Instant) {
                             &proxy,
                             endpoint,
                             deadline,
-                            "a runtime was already listening and taking it over was declined, so this app is a guest on it"
-                                .to_owned(),
+                            format!(
+                                "a runtime was already listening and taking it over was declined, so this app is a guest on it{}",
+                                answer
+                                    .skew_warning()
+                                    .map(|warning| format!(" ({warning})"))
+                                    .unwrap_or_default()
+                            ),
                         )
                         .await;
                         return;
@@ -869,9 +978,31 @@ async fn run(app: &AppHandle, started: Instant) {
                 }
             }
         }
+        // A Child's client runtime. It is never taken over, so there is nothing to ask: attach to
+        // it, and `bind` makes that ownership when it is the child this app started.
+        resolve::LiveVerdict::Client => {
+            attach_as_guest(
+                app,
+                started,
+                &target,
+                &registration,
+                &watch,
+                &proxy,
+                endpoint,
+                deadline,
+                "a Child's client runtime is listening; it serves Codex through its Home and the Child's dashboard, so this app attached to it and asked nothing"
+                    .to_owned(),
+            )
+            .await;
+            return;
+        }
         // Something holds the port and this app cannot manage it. That is not an absence, so it
-        // does not authorise starting a second runtime beside it either.
+        // does not authorise starting a second runtime beside it either. Another attempt would
+        // find the same listener, which the supervisor is told so it waits for a change instead.
         resolve::LiveVerdict::Unusable(reason) => {
+            if let Some(startup) = app.try_state::<Startup>() {
+                startup.note_held(answer.liveness.pid);
+            }
             fail(
                 app,
                 started,
@@ -900,12 +1031,13 @@ async fn run(app: &AppHandle, started: Instant) {
         return;
     }
 
-    // A retry must not leave a second proxy behind. A child that has not reported an exit is still
-    // out there, whatever the last run concluded, so the retry waits on that one rather than
-    // starting another and racing it for the port.
+    // A retry or a recovery must not leave a second proxy behind. A child that has not reported an
+    // exit is still out there, whatever the last run concluded, so the run waits on that one rather
+    // than starting another and racing it for the port. This reads the child the app tracks, not
+    // the ownership confirmation: `attach` above has just reset that, which left the wait dead.
     let owns_live_child = app
         .try_state::<AppState>()
-        .is_some_and(|state| state.owns_runtime())
+        .is_some_and(|state| waits_on_child(state.child_age()))
         && watch.exit().is_none();
     if owns_live_child {
         report(
@@ -995,21 +1127,71 @@ enum AttachPlan {
     Ask,
 }
 
-fn attach_plan(consent: ownership::Consent, takeover: &resolve::Takeover) -> AttachPlan {
+fn attach_plan(consent: ownership::Consent, answer: &resolve::Resolved, mode: Mode) -> AttachPlan {
+    // The wire warning is the same sentence the CLI prints; it is appended verbatim so
+    // this surface and `ocx status` never describe the same mismatch differently.
+    let skew_note = || {
+        answer
+            .skew_warning()
+            .map(|warning| format!(" ({warning})"))
+            .unwrap_or_default()
+    };
     match consent {
-        ownership::Consent::Held => AttachPlan::Guest(
-            "a runtime was already listening and this installation already owns it".to_owned(),
-        ),
-        ownership::Consent::Refuse => AttachPlan::Guest(
-            "a runtime was already listening; its recorded owner could not be read, so this app is a guest on it and asked nothing".to_owned(),
-        ),
-        ownership::Consent::AskFirstTime | ownership::Consent::AskAgain => match takeover {
+        ownership::Consent::Held => AttachPlan::Guest(format!(
+            "a runtime was already listening and this installation already owns it{}",
+            skew_note()
+        )),
+        ownership::Consent::Refuse => AttachPlan::Guest(format!(
+            "a runtime was already listening; its recorded owner could not be read, so this app is a guest on it and asked nothing{}",
+            skew_note()
+        )),
+        ownership::Consent::AskFirstTime | ownership::Consent::AskAgain => match &answer.takeover {
             resolve::Takeover::Blocked { reason, detail } => AttachPlan::Guest(format!(
-                "a runtime was already listening, but taking it over is not available ({reason}: {detail}), so this app is a guest on it"
+                "a runtime was already listening, but taking it over is not available ({reason}: {detail}), so this app is a guest on it{}",
+                skew_note()
             )),
+            // A supported takeover still goes unoffered when the listening runtime is
+            // NEWER than the bundled one: approving it would stop the newer runtime and
+            // start the older bundle, a downgrade nobody asked for. Guest keeps serving
+            // and the note says why no prompt appeared.
+            resolve::Takeover::Supported { .. }
+                if answer.runtime_relation() == resolve::VersionRelation::ProxyNewer =>
+            {
+                AttachPlan::Guest(format!(
+                    "a runtime was already listening and runs a newer OpenCodex than this app bundles ({}, this app {}), so taking it over would downgrade it; this app is a guest on it and asked nothing{}",
+                    answer
+                        .liveness
+                        .version
+                        .as_deref()
+                        .unwrap_or("an unknown version"),
+                    answer.cli_version,
+                    skew_note()
+                ))
+            }
+            // A recovery runs with nobody watching; a prompt would surface a window the person
+            // never asked for, over a runtime that is serving. It stays a guest instead.
+            resolve::Takeover::Supported { .. } if mode == Mode::Recover => AttachPlan::Guest(
+                format!(
+                    "a runtime was already listening when this app came back for its own, so the recovery attached as a guest and asked nothing{}",
+                    skew_note()
+                ),
+            ),
             resolve::Takeover::Supported { .. } => AttachPlan::Ask,
         },
     }
+}
+
+/// What the consent panel shows about versions. The skew warning comes first; when the
+/// versions could not be compared at all (fake, empty or unorderable version strings) the
+/// panel still gets one honest line instead of silently asking for a takeover.
+fn consent_version_note(answer: &resolve::Resolved) -> Option<String> {
+    answer.skew_warning().map(str::to_owned).or_else(|| {
+        matches!(
+            answer.runtime_relation(),
+            resolve::VersionRelation::Unknown | resolve::VersionRelation::Incomparable,
+        )
+        .then(|| "the listening runtime's version could not be compared".to_owned())
+    })
 }
 
 /// Report, bind and finish as a guest on the runtime that answered.
@@ -1431,6 +1613,12 @@ fn finish(app: &AppHandle, started: Instant, endpoint: ProxyEndpoint) {
         let requested = startup
             .as_ref()
             .is_some_and(|startup| startup.dashboard_requested());
+        let mode = startup
+            .as_ref()
+            .map_or(Mode::Launch, |startup| startup.mode());
+        if keeps_update_page(mode, crate::window::shows_update_page(&window)) {
+            return;
+        }
         if loads_dashboard_on_ready(LaunchOrigin::detect(), visible, requested) {
             match startup {
                 Some(startup) => {
@@ -1490,6 +1678,15 @@ fn return_ready_dashboard(
 
 fn loads_dashboard_on_ready(origin: LaunchOrigin, window_visible: bool, requested: bool) -> bool {
     origin == LaunchOrigin::User || window_visible || requested
+}
+
+/// Whether a Ready run leaves the update page on screen instead of loading the dashboard.
+///
+/// A recovery nobody asked to watch lands wherever the window is. When that is the update page —
+/// a failed install brings the runtime back from there — the page is showing why the install
+/// failed, and its own button returns to the dashboard.
+fn keeps_update_page(mode: Mode, on_update_page: bool) -> bool {
+    mode == Mode::Recover && on_update_page
 }
 
 /// Perform this run's single dashboard navigation through `navigate`.
@@ -1620,14 +1817,17 @@ fn elapsed(started: Instant) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::{
-        approval_still_current, attach_plan, claim_after_silence, loads_dashboard_on_ready,
-        navigate_once, return_ready_dashboard, shows_window, stop_after_approval, unavailable,
-        AttachPlan, ConsentState, Expiry, LaunchOrigin, Phase, Progress, Startup, AUTOSTART_FLAG,
+        approval_still_current, attach_plan, claim_after_silence, consent_version_note,
+        keeps_update_page, loads_dashboard_on_ready, navigate_once, return_ready_dashboard,
+        shows_window, stop_after_approval, unavailable, waits_on_child, AttachPlan, ConsentState,
+        Expiry, LaunchOrigin, Mode, Phase, Progress, Startup, AUTOSTART_FLAG, CHILD_START_GRACE,
         DEADLINE, PHASES, POLL,
     };
     use crate::claim::ClaimResult;
     use crate::ownership::{Claim, Consent, Owner, Recorded};
-    use crate::resolve::{Liveness, Port, Resolution, Resolved, Status, Takeover};
+    use crate::resolve::{
+        Liveness, Port, Resolution, Resolved, Status, Takeover, VersionRelation, VersionSkew,
+    };
     use crate::runtime_stop::{self, StopResult};
     use crate::tray_availability::TrayAvailability;
     use std::cell::Cell;
@@ -1649,7 +1849,7 @@ mod tests {
         }
     }
 
-    fn approved_answer() -> Resolved {
+    fn answer_for(takeover: Takeover) -> Resolved {
         Resolved {
             schema: "ocx-resolve/1".to_owned(),
             cli_version: "2.61.0".to_owned(),
@@ -1674,8 +1874,26 @@ mod tests {
                 },
                 revision: 7,
             },
-            takeover: supported(),
+            takeover,
+            version_skew: None,
         }
+    }
+
+    fn approved_answer() -> Resolved {
+        answer_for(supported())
+    }
+
+    fn skewed_answer(relation: VersionRelation, warning: &str) -> Resolved {
+        let mut answer = approved_answer();
+        answer.liveness.version = Some("2.62.0".to_owned());
+        answer.version_skew = Some(VersionSkew {
+            cli_version: "2.61.0".to_owned(),
+            proxy_version: Some("2.62.0".to_owned()),
+            skewed: true,
+            relation,
+            warning: Some(warning.to_owned()),
+        });
+        answer
     }
 
     #[test]
@@ -1810,23 +2028,159 @@ mod tests {
     fn an_ask_only_arises_when_the_takeover_can_be_taken() {
         // Held and Refuse never ask, whatever the CLI reported about compatibility.
         assert!(matches!(
-            attach_plan(Consent::Held, &supported()),
+            attach_plan(Consent::Held, &answer_for(supported()), Mode::Launch),
             AttachPlan::Guest(_)
         ));
         assert!(matches!(
-            attach_plan(Consent::Refuse, &supported()),
+            attach_plan(Consent::Refuse, &answer_for(supported()), Mode::Launch),
             AttachPlan::Guest(_)
         ));
         assert!(matches!(
-            attach_plan(Consent::AskFirstTime, &supported()),
+            attach_plan(
+                Consent::AskFirstTime,
+                &answer_for(supported()),
+                Mode::Launch
+            ),
             AttachPlan::Ask
         ));
-        match attach_plan(Consent::AskAgain, &blocked()) {
+        match attach_plan(Consent::AskAgain, &answer_for(blocked()), Mode::Launch) {
             AttachPlan::Guest(detail) => {
                 assert!(detail.contains("managing-cli-unsupported: path uses 2.59.0"))
             }
             AttachPlan::Ask => panic!("a blocked takeover is not an offer"),
         }
+    }
+
+    #[test]
+    fn a_newer_runtime_is_never_offered_a_downgrade() {
+        // A takeover replaces what listens with the bundled runtime; offering it against a
+        // NEWER listener is an approval prompt for a downgrade.
+        for consent in [Consent::AskFirstTime, Consent::AskAgain] {
+            match attach_plan(
+                consent,
+                &skewed_answer(VersionRelation::ProxyNewer, "skew"),
+                Mode::Launch,
+            ) {
+                AttachPlan::Guest(detail) => {
+                    assert!(detail.contains("newer OpenCodex"));
+                    assert!(detail.contains("downgrade"));
+                    assert!(detail.contains("2.62.0"));
+                    assert!(detail.contains(" (skew)"));
+                }
+                AttachPlan::Ask => panic!("a newer runtime must not be offered a downgrade"),
+            }
+        }
+        // Recover mode already stays a guest; the proxy-newer rule keeps it so.
+        match attach_plan(
+            Consent::AskFirstTime,
+            &skewed_answer(VersionRelation::ProxyNewer, "skew"),
+            Mode::Recover,
+        ) {
+            AttachPlan::Guest(detail) => {
+                assert!(detail.contains("downgrade"));
+                assert!(detail.contains(" (skew)"));
+            }
+            AttachPlan::Ask => panic!("a recovery must not prompt"),
+        }
+    }
+
+    #[test]
+    fn the_consent_note_reports_an_uncomparable_version() {
+        // A fake or missing version yields no skew warning, but the consent panel must not
+        // ask for a takeover with the version row silently empty.
+        let mut answer = approved_answer();
+        answer.version_skew = Some(VersionSkew {
+            cli_version: "2.61.0".to_owned(),
+            proxy_version: None,
+            skewed: false,
+            relation: VersionRelation::Incomparable,
+            warning: None,
+        });
+        assert_eq!(
+            consent_version_note(&answer).as_deref(),
+            Some("the listening runtime's version could not be compared")
+        );
+        // A comparable version without a warning needs no extra line.
+        answer.version_skew = Some(VersionSkew {
+            cli_version: "2.61.0".to_owned(),
+            proxy_version: Some("2.61.0".to_owned()),
+            skewed: false,
+            relation: VersionRelation::Match,
+            warning: None,
+        });
+        assert_eq!(consent_version_note(&answer), None);
+        // A real warning always wins over the fallback.
+        let warned = skewed_answer(VersionRelation::CliNewer, "CLI 2.61.0 does not match");
+        assert_eq!(
+            consent_version_note(&warned).as_deref(),
+            Some("CLI 2.61.0 does not match")
+        );
+    }
+
+    #[test]
+    fn an_older_runtime_still_asks_with_the_skew_visible() {
+        // The same supported takeover stays offerable when it upgrades the listener; the
+        // warning is what the consent panel shows.
+        let answer = skewed_answer(VersionRelation::CliNewer, "CLI 2.61.0 does not match");
+        assert!(matches!(
+            attach_plan(Consent::AskFirstTime, &answer, Mode::Launch),
+            AttachPlan::Ask
+        ));
+        assert_eq!(answer.skew_warning(), Some("CLI 2.61.0 does not match"));
+    }
+
+    #[test]
+    fn guest_details_carry_the_skew_warning() {
+        // Held and Refuse stay guests either way, but the phase detail must name the
+        // mismatch instead of hiding it in the proxy's own log.
+        let answer = skewed_answer(
+            VersionRelation::ProxyNewer,
+            "CLI 2.61.0 does not match the running proxy 2.62.0",
+        );
+        match attach_plan(Consent::Held, &answer, Mode::Launch) {
+            AttachPlan::Guest(detail) => {
+                assert!(detail.contains("does not match the running proxy"))
+            }
+            AttachPlan::Ask => panic!("held consent never asks"),
+        }
+        match attach_plan(
+            Consent::AskAgain,
+            &{
+                let mut blocked_answer = skewed_answer(
+                    VersionRelation::ProxyNewer,
+                    "CLI 2.61.0 does not match the running proxy 2.62.0",
+                );
+                blocked_answer.takeover = blocked();
+                blocked_answer
+            },
+            Mode::Launch,
+        ) {
+            AttachPlan::Guest(detail) => {
+                assert!(detail.contains("managing-cli-unsupported"));
+                assert!(detail.contains("does not match the running proxy"));
+            }
+            AttachPlan::Ask => panic!("a blocked takeover is not an offer"),
+        }
+    }
+
+    #[test]
+    fn a_recovery_never_asks_and_attaches_as_a_guest() {
+        // Nobody is looking at a recovery: a prompt would show a window nobody asked for.
+        for consent in [Consent::AskFirstTime, Consent::AskAgain] {
+            match attach_plan(consent, &answer_for(supported()), Mode::Recover) {
+                AttachPlan::Guest(detail) => assert!(detail.contains("guest")),
+                AttachPlan::Ask => panic!("a recovery must not prompt"),
+            }
+            // A launch still asks.
+            assert!(matches!(
+                attach_plan(consent, &answer_for(supported()), Mode::Launch),
+                AttachPlan::Ask
+            ));
+        }
+        let startup = Startup::new();
+        assert_eq!(startup.mode(), Mode::Launch);
+        startup.recovering.store(true, Ordering::SeqCst);
+        assert_eq!(startup.mode(), Mode::Recover);
     }
 
     #[test]
@@ -1925,6 +2279,27 @@ mod tests {
             false,
             true
         ));
+    }
+
+    #[test]
+    fn a_recovery_leaves_the_update_page_where_it_is() {
+        // A failed install brings the runtime back while the page shows why the install failed.
+        assert!(keeps_update_page(Mode::Recover, true));
+        // Anywhere else a recovery reloads the dashboard, and a launch always moves on.
+        assert!(!keeps_update_page(Mode::Recover, false));
+        assert!(!keeps_update_page(Mode::Launch, true));
+        assert!(!keeps_update_page(Mode::Launch, false));
+    }
+
+    #[test]
+    fn a_run_waits_on_a_child_still_starting_and_not_on_one_that_never_will() {
+        // The app tracks no child: nothing to wait on.
+        assert!(!waits_on_child(None));
+        // A child spawned moments ago, or one still inside the slowest good start, is waited on.
+        assert!(waits_on_child(Some(Duration::ZERO)));
+        assert!(waits_on_child(Some(Duration::from_secs(65))));
+        // Past the grace it is wedged, or its exit event is held up: a start goes ahead.
+        assert!(!waits_on_child(Some(CHILD_START_GRACE)));
     }
 
     #[test]
@@ -2111,10 +2486,33 @@ mod tests {
             Expiry::Blocked
         ));
         // Once the run publishes the moved ceiling the guard waits on it instead of firing.
-        startup.resolve_consent(tokio::time::Instant::now() + Duration::from_secs(60));
+        startup.resolve_consent(tokio::time::Instant::now() + Duration::from_secs(60), false);
         assert!(matches!(
             startup.expire_run(tokio::time::Instant::now(), 1, "expired".to_owned()),
             Expiry::Waiting(_)
+        ));
+    }
+
+    #[test]
+    fn approved_windows_takeover_has_one_bounded_extended_deadline() {
+        let startup = Startup::new();
+        startup.generation.store(1, Ordering::SeqCst);
+        let deadline = Instant::now() - Duration::from_secs(5);
+        assert_eq!(startup.resolve_consent(deadline, false), deadline);
+        let extended = startup.resolve_consent(deadline, true);
+        if cfg!(target_os = "windows") {
+            assert_eq!(extended - deadline, Duration::from_secs(60));
+            assert!(matches!(
+                startup.expire_run(deadline - DEADLINE, 1, "expired".to_owned()),
+                Expiry::Waiting(_)
+            ));
+        } else {
+            assert_eq!(extended, deadline);
+        }
+        startup.resolve_consent(Instant::now() - Duration::from_secs(95), true);
+        assert!(matches!(
+            startup.expire_run(deadline - DEADLINE, 1, "expired".to_owned()),
+            Expiry::Fired(_)
         ));
     }
 

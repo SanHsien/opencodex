@@ -168,23 +168,27 @@ ocx combo set balanced \
 
 此排序與傳送前的供應商排除，需要適用於目前單一 API 金鑰全部模型推論的最新限額資訊。OAuth／目前帳戶摘要、轉送呼叫者憑證的路由、多金鑰，以及憑證或目的地位址已變更的快照，在這項預先判斷中僅供顯示。透過 `Authorization`、`x-api-key` 或 `x-goog-api-key` 標頭覆寫憑證時也適用相同規則；僅供搜尋或 MCP 使用的時段不參與判斷。若所有符合條件的目標都沒有適用的重設時間，則依設定順序選擇。實際帳戶選擇與重試仍套用一般限制。
 
-### JEV：由決策引導的第一選擇
+### 決策方法
 
-`jev` 會請 [TypeSafe JEV](https://console.typesafe.ai) 為目前請求選擇第一個合格目標與相容的
-推理 effort。這是選擇加入的：新增 TypeSafe 憑證不會改變既有的模型、別名、預設值或 Combo 行為。
-只有在你建立一個策略為 `jev` 的 Combo 之後，才會出現由 JEV 支援的模型。
+`strategy: "jev"` 會請決策後端為目前請求選擇第一個合格目標與相容的推理 effort。這是選擇加入的：建立一個 JEV Combo 並選擇該 Combo 才會使用它。新增決策憑證不會改變既有的模型、別名或預設值。
+
+| 方法 | Combo 選擇方式 | 統計中回報的後端 |
+| --- | --- | --- |
+| TypeSafe（預設） | 兩個選擇器都省略，或設定 `decisionProvider: "jev"`。 | `typesafe` |
+| System One 相容伺服器 | 把 `decisionProvider` 設為除 `jev` 以外、已設定的 `jev-decision` 列 id。 | `systemone` |
+| opencodex 模型 | 把 `decisionModel` 設為一般的 opencodex 路由，例如 `ollama/qwen3:4b`。 | `model` |
+
+`decisionProvider` 與 `decisionModel` 互斥。後端由這些欄位推導；沒有儲存的 `backend` 設定。每種方法都使用相同的合格目標與 effort 允許清單、有界的決策狀態、逾時、取消與 fail-open 政策。
+
+#### TypeSafe 預設
 
 最快的設定方式是：
 
 1. 開啟 **Providers**，新增 **TypeSafe JEV**，輸入 TypeSafe API key，並測試連線。
-2. 在該 provider 的 Overview 中選擇 **Create JEV Auto**。也可以在
-   **Models → Combos** 底下使用相同動作。
-3. 檢視預先填好的 Astra → Sol → Luna 目標。可在建立 Combo 前新增、移除、重新排序或替換它們。
-   目前合格的第一列會標記為 fail-open 目標，每個已知的推理階梯也會顯示在其所在列旁邊。
+2. 在該 provider 的 Overview 中選擇 **Create JEV Auto**。也可以在 **Models → Combos** 底下使用相同動作。
+3. 檢視預先填好的 Astra → Sol → Luna 目標。可在建立 Combo 前新增、移除、重新排序或替換它們。目前合格的第一列會標記為 fail-open 目標，每個已知的推理階梯也會顯示在其所在列旁邊。
 
-此範本會建立 id 與別名皆為 `jev-auto` 的 Combo，使用 adaptive 推理能力，並維持為一般可編輯的
-Combo。它不會成為預設模型。其目標即完整的允許清單：JEV 永遠不會選出清單之外的
-provider/model 配對，而原始目標模型仍會出現在它們平常的選擇器分組中。
+此範本會建立 id 與別名皆為 `jev-auto` 的 Combo，使用 adaptive 推理能力，並維持為一般可編輯的 Combo。它不會成為預設模型。其目標即完整的允許清單：JEV 永遠不會選出清單之外的 provider/model 配對，而原始目標模型仍會出現在它們平常的選擇器分組中。
 
 無頭設定時，請明確儲存金鑰，或參照 TypeSafe 環境變數：
 
@@ -192,8 +196,7 @@ provider/model 配對，而原始目標模型仍會出現在它們平常的選�
 ocx provider add jev --api-key "${TYPESAFE_API_KEY}"
 ```
 
-當 provider 沒有已儲存的金鑰時，決策客戶端也接受直接使用 `TYPESAFE_API_KEY`，以及
-`ocx provider add` 印出的標準 provider 衍生別名 `JEV_API_KEY`。
+當 provider 沒有已儲存的金鑰時，決策客戶端也接受直接使用 `TYPESAFE_API_KEY`，以及 `ocx provider add` 印出的標準 provider 衍生別名 `JEV_API_KEY`。
 
 ```json
 {
@@ -221,39 +224,128 @@ ocx provider add jev --api-key "${TYPESAFE_API_KEY}"
 }
 ```
 
-OpenCodex 會向固定的 `https://api.typesafe.ai/v1/systemone` 端點送出一個有邊界的決策請求，
-使用模型 `jev-latest`。只有目前合格的已設定目標才會被提供給它選擇。JEV 會一起選出目標與
-effort；effort 仍受該目標所公告的階梯限制。若選中的目標發生可重試的失敗，不會再次詢問
-JEV——既有的 Combo 冷卻與 fallback 迴圈會繼續嘗試剩餘已設定的目標。
+使用預設方法時，OpenCodex 會向固定的 `https://api.typesafe.ai/v1/systemone` 端點送出一個有邊界的決策請求，使用模型 `jev-latest`。只有目前合格的已設定目標才會被提供給它選擇。JEV 會一起選出目標與 effort；effort 仍受該目標所公告的階梯限制。若選中的目標發生可重試的失敗，不會再次詢問 JEV——既有的 Combo 冷卻與 fallback 迴圈會繼續嘗試剩餘已設定的目標。
 
-每次邏輯上的模型呼叫都各自決定，不會有整段對話的固定 pin。因此同一個 session 的連續輪次可能
-落在不同的目標上，而每次切換都會啟動一次全新（冷）的供應商 prompt cache，所以混用差異很大的
-目標可能反而比省下的還多花輸入 token。請把允許清單維持在你能接受互相輪替的目標範圍內。標記為
-`lastResort` 的目標，在 `cooldownWaitPolicy: "before-last-resort"` 下，只要還有任何一般目標
-可用就會被排除在 JEV 之外，只有在沒有其他目標可達時才會被提供。
+#### System One 相容伺服器
 
-當金鑰缺失、沒有可用的安全任務／工具／圖像決策狀態、四秒的決策期限已到、服務發生重新導向或
-回傳錯誤，或回應格式錯誤或選了未列出的選項時，這個決策邊界會 fail open。在這些情況下，
-OpenCodex 會使用目前合格的第一個目標，並在該目標支援時偏好 `medium`。呼叫者取消的情況不同：
-它會取消這次決策與模型請求，而不是改派 fail-open 目標。
+JEV Combo 可以詢問實作 System One 線路契約的託管或自架伺服器。例如，支援 System One 的 Ollama 伺服器可以在 `POST /v1/systemone` 提供 `tev1`，不需要 API 金鑰。新增一個 `adapter: "jev-decision"` 的 provider 列，其 `baseUrl` 是**完整的**決策端點，然後在 Combo 的 `decisionProvider` 中指名它：
 
-決策狀態刻意設有邊界：最多 500 字元的目前使用者任務、240 字元的前一則 assistant 尾段、
-520 字元的最新工具輸出尾段、工具名稱，以及布林的圖像／工具訊號，可能會送給 TypeSafe。它不包含
-JEV 憑證、請求標頭、原始圖像位元組、工具引數、加密推理內容與完整對話歷史。如果你不希望
-TypeSafe 處理某些內容，請不要為它選擇 `jev-auto`。已識別的 OpenCodex 機器內容信封會從全部三個
-文字樣本中移除，但一般的 assistant 與工具輸出文字並非經過機密掃描，仍可能包含敏感內容。
-TypeSafe 聲明 Jev 不會用客戶請求進行訓練，但其條款並未為送出的狀態設定固定的保留期限，
-且只有企業方案才提供零資料保留（[模型](https://docs.typesafe.ai/models)、
-[法律條款](https://docs.typesafe.ai/legal)）。TypeSafe 也在文件中說明英文是 Jev 最準確的
-語言，因此非英文工作的決策請先自行檢查再依賴它。日誌只包含選中的目標／effort、粗略的決策
-關卡、延遲、可選的信心／機率，以及數值用量。自動化測試使用模擬的 TypeSafe 回應，加上一個
-無金鑰 fail-open 的煙霧測試；真正呼叫 TypeSafe 的決策需要維運方自行提供金鑰，不會被隱含執行。
+```json
+{
+  "providers": {
+    "ollama-tev1": {
+      "adapter": "jev-decision",
+      "baseUrl": "http://127.0.0.1:11434/v1/systemone",
+      "allowPrivateNetwork": true,
+      "defaultModel": "tev1:4b",
+      "liveModels": false
+    }
+  },
+  "combos": {
+    "jev-local": {
+      "strategy": "jev",
+      "decisionProvider": "ollama-tev1",
+      "decisionTimeoutMs": 60000,
+      "reasoningEffortMode": "adaptive",
+      "targets": [
+        { "provider": "openai", "model": "gpt-6-astra" },
+        { "provider": "openai", "model": "gpt-5.6-sol" },
+        { "provider": "openai", "model": "gpt-5.6-luna" }
+      ]
+    }
+  }
+}
+```
 
-Combo 服務過請求之後，開啟 **Models → Combos → jev-auto → Stats** 即可檢視 JEV 的選擇，
-而不會取代一般的模型選擇器或 Usage 頁面。該分頁會把 TypeSafe 決策 token 與實際模型傳送回報
-的 token 分開呈現，並顯示決策關卡、fail-open 選擇、推理 effort、重試／fallback、快取
-token、延遲、信心，以及每個模型 7 天、30 天或全部可用歷史的總計。統計資料來自本機的
-只附加用量帳本；其中只包含上述有邊界的決策中繼資料，不含 prompt 或憑證。
+- 該列的 `baseUrl` 必須是完整的決策端點，且路徑必須以 `/systemone` 結尾。決策模型是 `defaultModel`，否則是 `models` 的第一個項目；兩者都沒有的列會被視為不可用，並在不送出請求的情況下 fail open（`jev-latest` 是 TypeSafe 的模型，絕不會送到自架主機）。該列只是決策服務：它絕不會被發布為可路由的模型，也不能成為 Combo 目標。
+- Loopback 或區域網路端點需要在該列上明確設定 `allowPrivateNetwork: true`。純 `http:` 請使用字面的 loopback、RFC 1918 或 IPv6 ULA 位址；每個解析出的位址都必須留在允許的集合內，且不可套用任何對外 proxy（請把該主機加入 `NO_PROXY`）。其他所有目的地都必須使用 HTTPS。重新導向仍然 fail open。
+- 只有該列自己的 `apiKey` 會被送出，而且只在有設定時；沒有金鑰的列不會送出 `Authorization` 標頭。`apiKey` 參照 `${TYPESAFE_API_KEY}`／`${JEV_API_KEY}` 或另一個 provider 的 keychain 項目的列，會被視為不可用而拒絕，所以 `TYPESAFE_API_KEY`、`JEV_API_KEY` 與 `jev` 列的金鑰絕不會被送到自架端點。`jev` 這個 id 本身（明確或省略）永遠代表 TypeSafe 端點與模型 `jev-latest`。
+- 自架服務會把每個目標／effort 選項當成純描述字串收到（例如 `Target openai/gpt-5.6-sol (provider openai, model gpt-5.6-sol) with low reasoning effort.`），因為 Ollama 只接受字串或 `null` 的選項描述。TypeSafe 仍然收到結構化的選項物件。
+- OpenCodex 會向 System One 相容的列提供 2–26 個選項。每個目標對每個被提供的推理 effort 貢獻一個選項；可用各目標的 `reasoningEfforts` 縮減它們。少於 2 個或多於 26 個選項會在不送出請求的情況下 fail open。
+- 冷模型載入可能需要數十秒，而被中止的決策請求會讓 Ollama 放棄載入。請預先暖機模型並讓它常駐（`OLLAMA_KEEP_ALIVE=-1` 或 `keep_alive`），並在服務比四秒慢時調高 `decisionTimeoutMs`（1000–120000 ms，預設 4000）。每個逾時或錯誤仍會 fail open 到第一個合格目標。
+
+provider 的 **Test connection** 會向它的端點送出一個有界的探測決策。System One provider（包括無金鑰的列）上的 **Create JEV Auto** 會把該列預先填為決策 provider。已停用的列、不以 `/systemone` 結尾的端點，以及沒有模型的列，會連同原因一起顯示，且不能被選取。
+
+[Laya MLX](https://github.com/mizorewww/laya-mlx) 在 Apple Silicon 上執行型別化的決策。要搭配這個方法使用，請透過 System One 相容的 HTTP wrapper 公開它，再像上面的 `ollama-tev1` 那樣設定一個列，使用 wrapper 完整的 `/systemone` URL，並把它接受的模型 id 設為 `defaultModel`。單靠 MLX Python runtime 並不是 HTTP 決策端點。對於 loopback 的 HTTP wrapper，請保留 `allowPrivateNetwork: true` 並使用它字面的 loopback 位址。
+
+作為託管的例子，有貢獻者在 [#6185](https://github.com/lidge-jun/opencodex/pull/6185) 回報下面這個 Zen System One 端點可用。請手動把它設定成一般的列；這不是 OpenCodex 的 registry preset，也不保證目前可用：
+
+```json
+{
+  "providers": {
+    "zen-decision": {
+      "adapter": "jev-decision",
+      "baseUrl": "https://opencode.ai/zen/v1/systemone",
+      "defaultModel": "jev-1.13-free",
+      "apiKey": "${ZEN_DECISION_API_KEY}",
+      "liveModels": false
+    }
+  },
+  "combos": {
+    "jev-zen": {
+      "strategy": "jev",
+      "decisionProvider": "zen-decision",
+      "targets": [
+        { "provider": "openai", "model": "gpt-6-astra" },
+        { "provider": "openai", "model": "gpt-5.6-luna" }
+      ]
+    }
+  }
+}
+```
+
+若該端點需要驗證，請使用它自己的金鑰；只有在端點接受無金鑰呼叫時才省略 `apiKey`。絕不要為它重複使用 `TYPESAFE_API_KEY` 或 `JEV_API_KEY`。
+
+#### opencodex 模型
+
+一般的 chat 或 Responses 模型也能在不實作 `/systemone` 的情況下做出同樣的路由選擇。請照常設定它的推論 provider，並把 `decisionModel` 設為它的路由：
+
+```json
+{
+  "combos": {
+    "jev-chat": {
+      "strategy": "jev",
+      "decisionModel": "ollama/qwen3:4b",
+      "decisionTimeoutMs": 60000,
+      "targets": [
+        { "provider": "openai", "model": "gpt-6-astra" },
+        { "provider": "openai", "model": "gpt-5.6-luna" }
+      ]
+    }
+  }
+}
+```
+
+其他例子有 `deepseek/deepseek-v4-flash`、`openai/gpt-5.6-luna`，或已設定的 Zen 推論模型 `opencode-zen/<model>`。這些是一般的路由字串，不是決策服務的 preset；該 provider 與模型必須在你的安裝上可用。對於 `openai/gpt-5.6-luna`，請設定內部呼叫可以使用的憑證，例如已儲存的 Codex pool 登入。呼叫者自有的 ChatGPT forward 登入並不足夠。
+
+模型會收到固定的路由器指示與一個 JSON prompt：
+
+```json
+{
+  "state": { "user_task": "Review the requested change" },
+  "options": { "<key>": "Target description and allowed reasoning effort" }
+}
+```
+
+`state` 是下面所述的有界證據；`options` 把產生出的選項鍵對應到純描述。回覆契約是 `{"choice":"<key>"}`，且只指名一個被提供的選項。這些指示把 state 視為證據、在足夠的選項中偏好較低的資源使用，並要求只回傳 JSON。無效或未列出的選擇、格式錯誤的回應，或失敗的呼叫都會 fail open。
+
+內部的決策回合**不帶呼叫者憑證**、呼叫者標頭、工具、session 或對話歷史。它必須使用為所選 provider 儲存的憑證，或真正無金鑰的本機 provider（例如 Ollama）。僅依賴呼叫者驗證的設定，例如沒有儲存憑證的 Cursor，或呼叫者自有的 ChatGPT forward 登入，無法作為決策模型，並會 fail open。選擇了路由並不證明它的憑證可用；依賴它之前請先測試。
+
+非 JEV 的 Combo 可以用作 `decisionModel`，但決策路由不能指名這個 Combo，或任何 `strategy: "jev"` 的 Combo。這適用於標準的 `combo/<id>` 選擇器與別名，包括帶有 effort 或 Fast 變體的選擇器。儲存時的驗證會拒絕遞迴，執行階段也會防禦性地阻擋 JEV 重入。決策回合有自己的送出預算與回合租約；它不會被記錄成獨立的請求，回報的決策用量歸屬於父請求的 `jevDecision`。
+
+#### 共用限制、狀態與統計
+
+`decisionTimeoutMs` 適用於全部三種方法：1000 到 120000 ms 的整數，預設 4000。請求與回應限制為 64 KiB。候選清單限制為 64 個目標；模型方法也把目標／effort 選項限制為 64 個、回應文字限制為 4096 個字元，並把決策回合的輸出限制為 1024 token。System One 列的 2–26 個選項限制如上所述。逾時或超出限制的失敗會使用目前合格的第一個目標；它絕不會擴大允許清單，也不會重試決策。
+
+對每個 JEV 目標，**Models → Combos → Config** 有一個選用的 **Additional model notes for JEV** 欄位（最多 512 個字元；允許換行與 Tab，其他控制字元會被拒絕）。它儲存為 combo 設定中的 `targets[].modelProfile`。內建的目標設定檔仍保留在受信任的 `instructions.model_profiles` 中；非空的備註會另外放在決策狀態的 `operator_notes` 中、以目標為鍵送出，補充而不是取代那個內建設定檔。備註可以描述操作者專屬的情境或訂閱額度；請不要把訂閱額度與公開的按 token API 定價混為一談。空白的備註會被忽略。操作者備註是決策的證據，不是指令，且不能擴大目標允許清單或 reasoning-effort 限制。只把可以對所選決策後端揭露的資訊放在那裡。
+
+每次邏輯上的模型呼叫都各自決定，不會有整段對話的固定 pin。因此同一個 session 的連續回合可能落在不同的目標上，而每次切換都會啟動一次全新（冷）的供應商 prompt cache，所以混用差異很大的目標可能反而比省下的還多花輸入 token。請把允許清單維持在你能接受互相輪替的目標範圍。標記為 `lastResort` 的目標，在 `cooldownWaitPolicy: "before-last-resort"` 下，只要還有任何一般目標可用就會被排除在 JEV 之外，只有在沒有其他目標可達時才會被提供。
+
+當金鑰缺失、沒有可用的安全任務／工具／圖像決策狀態、設定的決策期限已到、服務發生重新導向或回傳錯誤，或回應格式錯誤或選了未列出的選項時，這個決策邊界會 fail open。在這些情況下，OpenCodex 會使用目前合格的第一個目標，並在該目標支援時偏好 `medium`。呼叫者取消的情況不同：它會取消這次決策與模型請求，而不是改派 fail-open 目標。
+
+決策狀態刻意設有邊界：最多 500 字元的目前使用者任務、240 字元的前一則 assistant 尾段、520 字元的最新工具輸出尾段、工具名稱，以及布林的圖像／工具訊號，可能會送給所選的決策後端。它不包含憑證、請求標頭、原始圖像位元組、工具引數、加密推理內容與完整對話歷史。請只對你願意送給該後端的內容使用決策方法。已識別的 OpenCodex 機器內容信封會從全部三個文字樣本中移除，但一般的 assistant 與工具輸出文字並非經過機密掃描，仍可能包含敏感內容。TypeSafe 聲明 Jev 不會用客戶請求進行訓練，但其條款並未為送出的狀態設定固定的保留期限，且只有企業方案才提供零資料保留（[模型](https://docs.typesafe.ai/models)、[法律條款](https://docs.typesafe.ai/legal)）。TypeSafe 也在文件中說明英文是 Jev 最準確的語言，因此非英文工作的決策請先自行檢查再依賴它。日誌只包含選中的目標／effort、粗略關卡、延遲、可選的信心／機率，以及數值用量。自動化測試使用模擬的 TypeSafe 回應，加上無金鑰 fail-open 的煙霧測試；真正呼叫 TypeSafe 的決策需要維運方自行提供金鑰，不會被隱含地執行。
+
+Combo 服務過請求之後，開啟 **Models → Combos → jev-auto → Stats** 即可檢視 JEV 的選擇，而不會取代一般的模型選擇器或 Usage 頁面。該分頁會把後端回報的決策 token 與實際模型傳送回報的 token 分開呈現，並顯示決策關卡、fail-open 選擇、推理 effort、重試／fallback、快取 token、延遲、信心，以及每個模型 7 天、30 天或全部可用歷史的總計。統計資料來自本機的只附加用量帳本；其中只包含上述有邊界的決策中繼資料，不含 prompt 或憑證。後端列顯示 `typesafe`、`systemone` 與 `model` 的決策次數、已套用次數與平均延遲；沒有後端欄位的舊記錄會歸為 `unknown`。
 
 ## 目標失敗時會發生什麼
 
@@ -269,7 +361,7 @@ Combo 失敗分為**跳轉**失敗與**終端**失敗。
 | 由行程內轉接器（`runTurn`）執行的 Responses 回合中，目前請求未宣告的第一個工具呼叫（在任何輸出與不可重播的副作用之前） | 讓該目標進入冷卻，並以相同的工具目錄跳轉到下一個目標。出現可見輸出或不可重播的副作用之後，拒絕即為最終結果。Chat Completions 與 Anthropic Messages 請求不受影響。 |
 | 任何其他未分類錯誤 | 停止並回傳錯誤。 |
 
-跳轉的目標預設進入 60 秒冷卻。若上游回應包含有效的 `Retry-After` 值，opencodex 改用它。接受數字秒與 HTTP-date 值。明確的上游 `Retry-After` 最長為 24 小時；重設推導、設定與預設冷卻最長為 10 分鐘。
+跳轉的目標在沒有設定 `cooldownMs` 時使用上游回退冷卻：請求速率限制代碼 `1302`/`1305` 為 5 秒，用量額度耗盡（不論 HTTP 狀態，包括 502）或憑證/計費失敗為 10 分鐘，其他情況為 60 秒。若上游回應包含有效的 `Retry-After` 值，opencodex 改用它；Codex 重設標頭與設定的 `cooldownMs` 優先於這些回退值。接受數字秒與 HTTP-date 值。明確的上游 `Retry-After` 最長為 24 小時；重設推導、設定與回退冷卻最長為 10 分鐘。
 
 ### 最後手段目標
 
@@ -487,7 +579,7 @@ Combo id 未知。回應為 HTTP 404 並帶 type `invalid_request_error`。執�
 
 ### 為什麼我得到 `combo_unavailable`？
 
-每個目標目前都不合格：例如其供應商已停用、冷卻中、已為此請求嘗試過，或加密 v2 任務排除它。檢查目標供應商狀態與近期上游錯誤。對於冷卻，等待 60 秒預設或上游 `Retry-After` 期間（明確的上游 `Retry-After` 最長 24 小時，其他冷卻最長 10 分鐘），然後重試。
+每個目標目前都不合格：例如其供應商已停用、冷卻中、已為此請求嘗試過，或加密 v2 任務排除它。檢查目標供應商狀態與近期上游錯誤。對於冷卻，先遵循觀察到的 `Retry-After` 值，再依序遵循 Codex 重設標頭與設定的 `cooldownMs`；兩者皆無則套用上游回退值（請求速率代碼 `1302`/`1305` 為 5 秒，用量額度耗盡——不論 HTTP 狀態——或憑證/計費失敗為 10 分鐘，其他情況為 60 秒）。明確的 `Retry-After` 最長 24 小時，其他冷卻最長 10 分鐘，然後重試。
 
 ### 為什麼我的別名被拒絕？
 

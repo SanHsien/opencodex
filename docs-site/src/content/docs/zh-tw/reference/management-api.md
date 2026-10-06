@@ -245,8 +245,8 @@ Session 快照包含 `resumable`。只有在所選 coding-agent runtime 具備�
 | `GET /api/debug/usage-logs` | 讀取有界的 usage-debug 項目 | — |
 | `GET /api/debug/injection-logs` | 讀取有界的 guidance-injection 除錯項目 | — |
 | `GET /api/claude/inbound-debug` | 讀取 Claude inbound 除錯狀態與項目 | — |
-| `GET /api/usage` | 依範圍與客戶端介面摘要用量 | 若儲存無法讀取則回傳 `error: "read_failed"` 摘要 |
-| `GET /api/metrics` | 回傳程序本機的 Prometheus 文字指標，涵蓋邏輯請求、實際傳送、復原種類、持續時間與 TTFT。標籤僅使用 protocol、result 與 recovery class 的封閉集合；絕不匯出請求或憑證識別碼。 | 啟動時 `metricsExport.enabled` 不為 true 則回傳 404；需要一般管理驗證，資料平面憑證不能存取 |
+| `GET /api/usage` | 依範圍與客戶端介面摘要用量 | 若儲存無法讀取則回傳 500 `{ "error": "read_failed" }` |
+| `GET /api/metrics` | 回傳程序本機的 Prometheus 文字指標，涵蓋邏輯請求、實際傳送、復原種類、持續時間與 TTFT。請求指標使用封閉標籤集合；Kiro 指標僅增加有上限的不透明帳號標籤；絕不匯出請求或憑證識別碼。 四個 Kiro 配額指標 `opencodex_kiro_quota_{used_credits,limit_credits,used_percent,seconds_to_reset}` 只讀取快取，最多使用 32 個不透明帳號標籤；擷取時不發起網路請求。 | 啟動時 `metricsExport.enabled` 不為 true 則回傳 404；需要一般管理驗證，資料平面憑證不能存取 |
 | `GET /api/storage` | 依 bucket 掃描 Codex 儲存用量 | 掃描失敗時回傳 `error: "scan_failed"` payload |
 | `POST /api/storage/cleanup/preview` | 預覽已封存 session 清理並回傳綁定摘要 | 400 `invalid_json` 或 `invalid_percent` |
 | `POST /api/storage/cleanup` | 隔離或永久移除預覽的已封存集合 | 400 無效輸入；409 過時／忙碌／被參照狀態；500 檔案系統／資料庫失敗 |
@@ -374,8 +374,10 @@ provider 名稱。
 | `POST /api/oauth/login/cancel` | 取消公開進行中的 OAuth 流程 | 400 未知供應商 |
 | `GET /api/oauth/status` | 輪詢一個供應商的 OAuth 流程 | 400 未知供應商 |
 | `POST /api/oauth/logout` | 移除所選的供應商憑證 | 400 未知供應商；`oauth_mutation_busy` |
-| `GET, DELETE /api/oauth/accounts` | 列出遮罩帳號或移除一個帳號 | 400 無效供應商/id；404 帳號缺失；`oauth_mutation_busy` |
-| `PUT /api/oauth/accounts/active` | 選擇現用 OAuth 帳號 | 400 無效供應商／帳號；`oauth_mutation_busy` |
+| `GET /api/oauth/accounts` | 列出遮罩帳號；Anthropic 與通用 OAuth 帳號列也會提供 `paused` 狀態。Kiro 列包含自動選取狀態 `autoSelectable`，排除時還包含封閉集合的 `skipReason`。唯一的有效帳號仍可傳送請求，配額查詢仍為選用。 | 400 無效供應商 |
+| `DELETE /api/oauth/accounts` | 移除一個帳號 | 400 無效供應商/id；404 帳號缺失；`oauth_mutation_busy` |
+| `PUT /api/oauth/accounts/active` | 選擇現用 OAuth 帳號 | 400 無效供應商／帳號；404 帳號缺失；409 帳號已暫停；`oauth_mutation_busy` |
+| `PUT /api/oauth/accounts/pause` | 暫停或恢復一個 Anthropic 或通用 OAuth 帳號。Body `{ provider, accountId, paused }`；若暫停現用帳號，且有可用帳號，會切換至下一個。暫停會持久儲存且不受帳號池開關影響，恢復保留健康狀態與憑證。 | 400 不支援的供應商或無效 body；404 帳號缺失；`oauth_mutation_busy` |
 | `GET, PUT, PATCH /api/pool/settings` | 讀取或更新任何種類（codex、anthropic、generic）的池政策；三種種類都以相同鍵回答，並在 `supported` 中宣告該種類支援哪些鍵 | 400 未知供應商、該種類不支援的欄位，或無效值 |
 | `GET, PUT, PATCH /api/oauth/accounts/pool` | Anthropic 與 generic OAuth 供應商的舊版逐池政策；已被 `/api/pool/settings` 取代，為既有用戶端保留 | 400 codex 或 api-key 供應商，或無效政策 |
 | `POST /api/oauth/accounts/clear-cooldown` | 清除一個 OAuth 帳號的 runtime 冷卻 | 400 無效供應商／帳號 |
@@ -506,3 +508,13 @@ OpenAI 也遵循此規則：開關不會選擇特殊的 922k 模式。生效中�
 ## 遠端工作階段與資料金鑰輪替
 
 `POST /api/keys/rotate {id}` 開始十分鐘重疊期，且只回傳一次新金鑰。`POST /api/keys/rotate/commit {id,rotationId}` 提交，`DELETE /api/keys/rotate {id,rotationId}` 中止。全部都需要管理驗證，資料金鑰不能呼叫。`POST /api/session/logout` 需要目前的 `gui-session`、相符的 Origin 與 CSRF。Admin token 會收到 403，永遠不能建立使用者同意工作階段。
+
+## Anthropic 帳戶用量門檻
+
+`PUT /api/oauth/accounts/auto-switch`
+
+僅 Anthropic OAuth。`{ provider: "anthropic", accountId, threshold }`：整數 0–100 或 null 繼承；缺少欄位無效。重啟後保留，隨帳戶刪除。
+
+DTO 包含 `autoSwitchThresholdOverride`（整數/null）、`autoSwitchThreshold`（集區預設值）、`effectiveAutoSwitchThreshold`。0 只停用依用量切換；暫停和 429 復原不變。
+
+HTTP: 400 invalid/unsupported; 404 missing account; `oauth_mutation_busy` on lock contention.

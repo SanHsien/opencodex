@@ -13,6 +13,20 @@ description: 預設供應商選擇、模型解析順序、combo 別名、目標�
 | `combos?` | `Record<string, OcxComboConfig>` | `{}` | 由有序 provider/model 目標建構的虛擬 `combo/<id>` 模型。 |
 | `routingProfiles?` | `Record<string, OcxRoutingProfileConfig>` | `{}` | 以硬性能力需求與確定性計分，在明確的候選允許清單中選擇的虛擬 `policy/<id>` 模型。 |
 
+### Codex Pool 低額度保護
+
+`codexPool.lowQuotaProtection` 只適用於已儲存的 Codex Pool 帳號。Desktop／主帳號保有它獨立的 98% 硬鎖定。選用的結構如下：
+
+```json
+{"codexPool":{"lowQuotaProtection":{"enabled":true,"threshold":80,"actions":{"pause":true,"notify":true},"windows":{"short":true,"weekly":true}}}}
+```
+
+缺少或 `enabled: false` 會停用它。`threshold` 是從 1 到 100（含）的有限百分比。啟用的政策需要至少一個為 true 的動作與一個為 true 的視窗。被選取的 5 小時或週視窗在 `usage >= threshold` 時觸發；任一被選取的視窗就足夠。只有全新且被接受的觀測才符合資格：沒有額外的輪詢，而僅點數、快取、已過期、月、僅自訂視窗，以及超出範圍的原始用量觀測，在這個政策中都會被忽略。顯示用的長條仍可能夾限無效的上游百分比。這個政策獨立於主動的帳號切換。
+
+使用 `pause` 時，帳號會在下一個請求之前在記憶體中離開 Pool 選擇。伺服器會在觀測回合之後合併一次設定儲存，並在有限的時間內重試失敗的儲存。正常關閉會短暫等待待處理的儲存。已經在執行、但逾時的儲存會維持 `pending`，直到它實際成功或失敗；排隊中的儲存會被取消。失敗的儲存可在事件歷史中看到。在成功儲存之前重新啟動，無法保留暫停。進行中的請求保有它們已擷取的帳號。手動恢復會在該帳號目前所有偏高的視窗上抑制再次暫停，直到出現低於門檻的讀數或新的重設邊界重新武裝某個視窗。重設絕不會自動恢復帳號。
+
+使用 `notify` 時，伺服器會寫入含視窗與百分比、但不含帳號 id 的本機記錄行，並記錄一個有界的事件。經過認證的 `GET /api/codex-auth/low-quota-events` 只公開該伺服器自己的事件，包括帳號 id、視窗、用量百分比、已知的重設時間、時間戳記與狀態。預設狀態是 `logged`：警示只到達記錄與事件歷史。沒有桌面或 OS 通知。每個帳號／視窗在每個伺服器本機的週期內只記錄一次。如果注入的通知接收端失敗，它的失敗會被記錄，之後符合資格的觀測可以重試；只有成功的接收端才會標記為 `delivered`。
+
 ## 模型解析順序
 
 opencodex 依此順序解析請求的模型：
@@ -31,7 +45,7 @@ opencodex 依此順序解析請求的模型：
 
 ### 封鎖模型重新導向
 
-`blockedModelRedirects` 是選用的頂層 `Record<string, string>`，用於精確替換已解析的模型 id，預設不設定。它在上述解析順序後執行：符合時會保留已選取的供應商與帳號路由，僅替換上游模型 id，並記錄路由原因 `blocked-model-redirect`。省略此鍵時，路由維持不變。
+`blockedModelRedirects` 是預設未設定的可選完全比對替換表。裸模型鍵在供應商、帳戶及別名解析後生效。目標未明確指定另一個已設定供應商時，即使值包含 `/`，也只替換一次上游模型 ID，並保留已選供應商和帳戶。只有明確指定另一個已設定供應商的目標才會跨供應商重新路由；此時 `<來源供應商>/<解析後模型>` 鍵優先於裸鍵。鏈式重新導向最多五跳並偵測循環。固定帳戶選擇器不能跨供應商。目標使用自己的憑證和配額，路由原因記為 `blocked-model-redirect`。
 
 ```json
 {
@@ -80,6 +94,37 @@ Codex Auth 頁面將此 picker 行為作為選擇加入功能暴露。停用它�
 ```
 
 關於策略行為、可重試失敗、冷卻、加密 v2 任務限制與管理指令，請見[組合](/zh-tw/guides/combos/)。
+
+### 自架決策模型（例如 Ollama tev1）
+
+`decisionProvider` 可以把 JEV Combo 指向自架的、與 Jev-API 相容的決策模型，例如 Ollama 的 `tev1`（Ollama 0.35+、`POST /v1/systemone`、不需要 API 金鑰）：
+
+```json
+{
+  "providers": {
+    "ollama-tev1": {
+      "adapter": "jev-decision",
+      "baseUrl": "http://127.0.0.1:11434/v1/systemone",
+      "allowPrivateNetwork": true,
+      "defaultModel": "tev1:4b",
+      "liveModels": false
+    }
+  },
+  "combos": {
+    "jev-local": {
+      "strategy": "jev",
+      "decisionProvider": "ollama-tev1",
+      "decisionTimeoutMs": 60000,
+      "targets": [
+        { "provider": "openai", "model": "gpt-5.6-sol" },
+        { "provider": "openai", "model": "gpt-5.6-luna" }
+      ]
+    }
+  }
+}
+```
+
+該列的 `baseUrl` 是完整的決策端點，且必須以 `/systemone` 結尾；它的模型是 `defaultModel`，否則是 `models[0]`（兩者都沒有的列會 fail open 而不送出請求）。Loopback 需要該列自己明確的 `allowPrivateNetwork: true`，而純 `http:` 只接受 `localhost`，或不經 proxy 連到的 loopback／RFC 1918／ULA 位址字面值。只有該列自己的 `apiKey` 會被送出——未設定時就不送——而參照 TypeSafe 環境變數或另一個供應商 keychain 項目的金鑰會被拒絕，所以 TypeSafe 憑證絕不會到達它。選項會以描述字串送出，這是 Ollama 所要求的。`tev1` 是以 2–24 個選項訓練的，所以請讓目標 × effort 的組合保持在 24 個以內（少於 2 或多於 26 個會 fail open 而不送出請求）；它的有效上下文約 2k token，OpenCodex 會把任務文字截到 500 個字元。請讓模型常駐（`OLLAMA_KEEP_ALIVE=-1`），並為較慢的服務調高 `decisionTimeoutMs`；請見 [System One 相容伺服器](/zh-tw/guides/combos/#system-one-相容伺服器)。在儀表板中，請在 **Models → Combos** 下 JEV Combo 的 **Decision method** 區段選擇 **System One-compatible server**，再挑選該列並設定 **Decision timeout (ms)**。
 
 ## 路由政策設定檔（`config.routingProfiles`）
 

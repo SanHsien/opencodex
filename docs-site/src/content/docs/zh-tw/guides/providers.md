@@ -209,6 +209,16 @@ Vertex 或 Cloud Code Assist 修復會輸出同樣不含內容的 `google-tool-s
 
 終端 Nous refresh 失敗後，執行 `ocx login nous` 重新認證。
 
+### Zed Hosted AI（實驗性）
+
+:::caution[非官方——風險自負]
+Zed 並未提供或認可這個橋接。它在 Zed 編輯器之外重用你 Zed 帳號的託管模型權益，這可能超出 Zed 的服務條款。Zed 可能對帳號限速、限制或停權。登入前請先檢視 Zed 目前的條款；在你自己新增它並執行 `ocx login zed` 之前，這個供應商會保持關閉，而儀表板在開始登入前會要求你確認這項風險。
+:::
+
+執行 `ocx login zed`，並在瀏覽器中完成 Zed 原生 app 的登入。OpenCodex 會啟動 loopback callback，把 RSA 公鑰交給 Zed，並在 callback 回傳帳號身分與加密的存取 token 時，把對應的私鑰保留在本機。儲存的帳號 id 與 token 會在每個請求中成對使用；OpenCodex 會先把該憑證換成 Zed 短效的 LLM token，再呼叫 `https://cloud.zed.dev/completions`。
+
+Zed 的即時模型清單是帳號範圍的顯示中繼資料。所選的模型 id 會原樣轉送，橋接會從即時列或模型名稱推斷託管後端家族；模型探索不是白名單。Zed 的存取 token 沒有刷新端點，所以當 Zed 撤銷它時，請再次執行 `ocx login zed`。
+
 對 canonical Kimi Coding Plan preset（`kimi` 帳號登入與 `kimi-code` API key），opencodex 只會把 caller
 提供且穩定的 `prompt_cache_key` 轉送到 Chat Completions 請求，絕不自行產生。Kimi 文件指出，穩定的
 session／task key 有助提升 Code Plan cache hit rate；沒有 key 的請求仍保持 keyless。若已 opt-in 的上游
@@ -340,6 +350,12 @@ Reauthenticate。Codex pool 帳號不是那些 provider 之一，但 `ocx login 
 重新認證，儀表板的 Codex account pool 也做同一件事。
 相關命令請參見 CLI 參考的 [`ocx status` / `ocx doctor`](/zh-tw/reference/cli/)。
 
+### Kiro 請求點數
+
+在啟用工具的回合中，opencodex 會扣住 Kiro 的一般文字，直到完成被驗證。如果 Kiro 以純文字而不是它私有的最終答案工具結束，仍會執行一次有界的重試，而且只有產生的最終答案會被顯示。伴隨真實工具呼叫的進度仍然可見。正常的私有最終答案不需要完成重試。
+
+當 Kiro 發出點數計量時，請求記錄會把回報的花費保存為 `usage.providerCredits`，包括持久化的用量帳本。這些是 Kiro 點數；token 數仍可能是估計值，而點數值不會取代 USD 成本估計。完成後備請求會加總它們回報的點數。缺少該值代表 Kiro 沒有回報點數用量；明確的零代表它回報沒有花費。
+
 ### Kiro credential 匯入
 
 Kiro 登入預期存在 Kiro CLI。Unix 可用 `curl -fsSL https://cli.kiro.dev/install | bash` 安裝；Windows
@@ -377,7 +393,7 @@ database 並移除目前的 WAL、SHM 與 journal sidecar，再發布先前的 s
 
 ## 3. API 金鑰目錄
 
-opencodex 內建 99 個 preset：82 個 key-based、13 個 OAuth、3 個 local，以及 1 個預設 ChatGPT-forward
+opencodex 內建 102 個 preset：84 個 key-based、14 個 OAuth、3 個 local，以及 1 個預設 ChatGPT-forward
 preset。儀表板的 **Add provider** picker 會開啟 key provider 的 dashboard、驗證金鑰並儲存；驗證方式
 依 provider 而異。主要條目如下。
 
@@ -455,10 +471,19 @@ token；preset 會把該列釘選在 Add provider picker 的頂端附近並標�
 | Xiaomi MiMo | `https://api.xiaomimimo.com/anthropic` |
 | Xiaomi MiMo (OpenAI Chat) | `https://api.xiaomimimo.com/v1` |
 | Kilo | `https://api.kilo.ai/api/gateway` |
+| OpenGateway | `https://apis.opengateway.ai/v1` |
 | GitLab Duo | `https://cloud.gitlab.com/ai/v1/proxy/openai/v1` |
 | Cloudflare AI Gateway | `https://gateway.ai.cloudflare.com/v1/{account-id}/{gateway}/anthropic` |
 | …以及更多 | opencode zen、Vercel AI Gateway、Venice、NanoGPT、Synthetic、Qianfan、Alibaba、Parallel、ZenMux、LiteLLM |
 
+**OpenGateway** 是 Sionic AI 營運的 OpenAI 相容閘道，base URL 為
+`https://apis.opengateway.ai/v1`。公開目錄包含約 80 個活躍模型（2026-10-02 確認）。
+preset 透過公開 `GET /v1/models` 自動更新清單，只保留活躍的 Chat Completions 模型（以及僅支援 Responses、並固定走 Responses 的 `openai/o3-pro`）。
+Sionic 提供的 `deepseek/deepseek-v4.1-flash-ultrafast` 與
+`z-ai/glm-5.3-flash-ultrafast` 排在最前。請在
+[OpenGateway 控制台](https://opengateway.ai/api-keys)建立金鑰，再執行
+`ocx provider add opengateway` 或在控制台選擇 **OpenGateway**。Chat 請求使用設定的
+Bearer 金鑰；公開模型清單無法驗證金鑰有效性。
 **OpenCode Go** 的路由需要穩定的 session identifier。OpenCodex 會從 Codex thread／session header 推導
 它的 Go session header；當沒有 Codex header 時，則改用 client 的 `x-opencode-session` header。這適用於
 直接的 Chat Completions 請求，以及橋接到 Responses 的請求。即使是帶 `ocx_` 前綴的 inbound 值，也會被

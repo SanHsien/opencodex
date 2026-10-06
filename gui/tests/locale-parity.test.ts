@@ -6,7 +6,10 @@ const LOCALE_CODES = LOCALES.map(locale => locale.code);
 async function readDict(locale: string): Promise<Map<string, string>> {
   const src = await Bun.file(new URL(`../src/i18n/${locale}.ts`, import.meta.url)).text();
   const out = new Map<string, string>();
-  for (const m of src.matchAll(/^\s*"([^"]+)":\s*"((?:[^"\\]|\\.)*)"/gm)) {
+  // NOT anchored to the line start: these catalogs pack several entries onto one line, and a
+  // `^\s*`-anchored pattern silently reads only the first of them. That made this parity check
+  // report a phantom missing key while the catalogs were in fact identical.
+  for (const m of src.matchAll(/"([^"]+)":\s*"((?:[^"\\]|\\.)*)"/g)) {
     out.set(m[1]!, m[2]!);
   }
   return out;
@@ -38,6 +41,8 @@ function carriesTranslatableWords(value: string): boolean {
 // gap. Anything *not* on this list that ships an English-identical value is treated as a stale
 // placeholder and fails the build.
 const ZH_TW_KEEP_ENGLISH: ReadonlySet<string> = new Set([
+  // A bare em dash: the "no Reasoning control" marker is a symbol, not copy.
+  "integrations.cursor.noControl",
   // API protocol/endpoint names
   "api.chatCompletionsEndpoint",
   "api.messagesEndpoint",
@@ -53,6 +58,17 @@ const ZH_TW_KEEP_ENGLISH: ReadonlySet<string> = new Set([
   "api.responsesEndpoint",
   // Provider proper nouns (Taiwan keeps the English brand; "火山方舟" is Mainland usage)
   "provider.name.volcengine",
+  // JEV decision method named after the TypeSafe product.
+  "cws.jev.backend.typesafe",
+  // A literal filename, not prose: AGENTS.md is the file Codex reads from the
+  // working directory, and Taiwan renders it the same way every other locale does.
+  "codexSet.layer.agents-md",
+  // "{position} / {total}" is punctuation and two placeholders, identical in
+  // every locale that ships it - there are no words to render in Chinese.
+  "codexSet.custom.navPosition",
+  // "{position} / {total}" - a numeric position, identical in every language for the
+  // same reason navPosition above is.
+  "codexSet.base.position",
   "provider.name.volcengineAgentPlan",
   "provider.name.volcengineCodingPlan",
   // Backend/brand names
@@ -87,8 +103,6 @@ const ZH_TW_KEEP_ENGLISH: ReadonlySet<string> = new Set([
   "logs.col.estimatedCost",
   "logs.col.tokPerSec",
   "logs.detail.ttft",
-  "logs.cost.approximate",
-  "logs.cost.lowerBound",
   "logs.filter.surface.claude",
   "logs.filter.surface.codex",
   "logs.filter.surface.grok",
@@ -107,7 +121,9 @@ const ZH_TW_KEEP_ENGLISH: ReadonlySet<string> = new Set([
   "api.clientConfig.clientOpencode",
   // Cline CLI is a product name, not untranslated interface copy.
   "integrations.tab.cline",
+  "integrations.tab.droid",
   "api.clientConfig.clientCline",
+  "api.clientConfig.clientDroid",
   "api.clientConfig.clientPi",
   "api.clientConfig.clientOmp",
   "api.clientConfig.clientHermes",
@@ -139,8 +155,8 @@ const ZH_TW_KEEP_ENGLISH: ReadonlySet<string> = new Set([
   "api.clientConfig.clientZcode",
   "integrations.tab.prime",
   "api.clientConfig.clientPrime",
-  "api.clientConfig.clientAside",
   "integrations.tab.aside",
+  "api.clientConfig.clientAside",
   "integrations.tab.raycast",
   "api.clientConfig.clientRaycast",
   // "omo" is the product's own lowercase spelling, identical in every locale.
@@ -148,14 +164,12 @@ const ZH_TW_KEEP_ENGLISH: ReadonlySet<string> = new Set([
   "api.clientConfig.clientOmo",
   // Cline product name and CLI acronym are intentionally preserved.
   "integrations.tab.cline",
+  "integrations.tab.droid",
   "api.clientConfig.clientCline",
+  "integrations.tab.kilo",
+  "api.clientConfig.clientKilo",
+  "api.clientConfig.clientDroid",
   "integrations.codex.title",
-  "integrations.tab.cursor",
-  "integrations.cursor.title",
-  "integrations.cursor.noControl",
-  "codexSet.custom.navPosition",
-  "codexSet.layer.agents-md",
-  "codexSet.base.position",
   // Provider proper nouns kept in English
   "provider.name.commandCodeAuth",
   "provider.name.commandCodeApi",
@@ -184,6 +198,15 @@ const ZH_TW_KEEP_ENGLISH: ReadonlySet<string> = new Set([
   "startup.shim",
   "storage.card.home",
   "storage.cleanup.preset",
+  // Cursor product names and UI labels Cursor itself renders in English
+  "integrations.tab.cursor",
+  "integrations.cursor.title",
+  "integrations.cursor.privateInference",
+  "integrations.cursor.baseUrl",
+  // Cost cells are a fixed `$0.1401` / `≥$0.1401` in every locale (the column header is the
+  // untranslated `~$`); the templates are pure placeholders on purpose.
+  "logs.cost.approximate",
+  "logs.cost.lowerBound",
 ]);
 
 test("zh-TW ships no untranslated English placeholders beyond the intentional allowlist", async () => {

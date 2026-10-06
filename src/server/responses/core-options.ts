@@ -1,5 +1,7 @@
 import type { NativeResponseControl } from "./native-response-control";
-import type { OcxUsage, OcxProviderContinuationState, OcxConfig } from "../../types";
+import type { AdapterEvent, OcxUsage, OcxProviderContinuationState, OcxConfig } from "../../types";
+import type { RouteResult } from "../../router";
+import type { SingleUseDispatchPermit } from "../../lib/request-execution-budget";
 import type { CodexAuthPolicyConfig, CodexAuthContext } from "../../codex/auth-context";
 import type { AdmissionLease } from "../../lib/admission";
 import type { DataPlaneAdmission } from "../auth-cors";
@@ -16,12 +18,16 @@ import type { TranslatorBudget } from "../../lib/translator-budget";
 import type { TransientSendBudget } from "../../lib/upstream-retry";
 import type { RequestLogContext } from "../request-log";
 import type { UpstreamHostAdmissionLease } from "../../codex/upstream-host-health";
+import type { AccountLease } from "../../oauth/kiro-account-load";
+import type { PolicyRequestScope } from "./policy-request-scope";
 
 export interface ConsumedComboFailure {
   response: Response;
   classificationText: string;
   /** Structured upstream `error.code` when present in the failure body. */
   upstreamCode?: string;
+  /** Complete structured provider type, retained for conservative recovery classification. */
+  upstreamType?: string;
   /** Valid numeric/date value used only for cooldown calculation. */
   retryAfter?: string;
   /** Upstream Codex quota-window reset timestamps used for combo cooldowns. */
@@ -52,6 +58,20 @@ export interface ClientEncoderOption {
 }
 
 export interface HandleResponsesOptions {
+  /** Internal request-owned policy authorization; never read from client headers or body. */
+  policyRequestScope?: PolicyRequestScope;
+  /** Internal concrete selector chosen from the original policy evaluation. */
+  policyFallbackCandidate?: { provider: string; model: string };
+  /** Internal routed-compaction recovery: one logical request, one emergency target. */
+  compactionRecoveryAttempted?: boolean;
+  compactionRecoveryPermit?: SingleUseDispatchPermit;
+  compactionRecoveryKind?: "compaction-v1" | "compaction-v2";
+  onCompactionRecoveryRoute?: (route: RouteResult) => void;
+  onCompactionRecoveryAdapterEvent?: (event: AdapterEvent) => void;
+  /** Physical-send reports already delivered to the shared used setter, including booking settlement. */
+  onCompactionRecoverySendsReported?: (count: number) => void;
+  /** Private holder for the Kiro serving-account lease. */
+  accountLoad?: { lease: AccountLease | null; cancelled: boolean };
   /** Internal Claude replay identity; consumed only by the final canonical Go transport. */
   claudeGoAffinity?: { sessionLane?: string };
   /** Validated Claude metadata identity; projected only into final canonical attempt headers. */
@@ -59,6 +79,11 @@ export interface HandleResponsesOptions {
   /** Original live policy owner; separate from caller-specific routing/sidecar snapshots. */
   codexAuthPolicy?: CodexAuthPolicyConfig;
   turnAdmissionLease?: AdmissionLease;
+  /**
+   * A JEV decision-model call issued by a combo. It never carries caller credentials, is never
+   * rewritten by memory or shadow-call routing, and may not dispatch into a JEV combo.
+   */
+  internalDecisionCall?: boolean;
   /**
    * How the caller proved data-plane admission (#1686).
    *
@@ -130,6 +155,8 @@ export interface HandleResponsesOptions {
   comboAttempt?: boolean;
   /** Internal handoff: this combo was selected by shadow-call interception. */
   shadowCallIntercepted?: boolean;
+  /** Internal handoff: the memory phase this turn belongs to, so combo children keep its routing. */
+  memoryModelPhase?: "extract" | "consolidation";
   compactionRoutingOverride?: CompactionRoutingOverride | null;
   /** Internal combo handoff for one parent-validated continuation snapshot. */
   comboReplaySnapshot?: {

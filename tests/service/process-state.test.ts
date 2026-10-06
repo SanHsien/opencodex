@@ -21,6 +21,7 @@ import {
   writePid,
   writeRuntimePort,
 } from "../../src/config/process-state";
+import { markSiblingStart, resetSiblingStartForTests, siblingRuntimeField } from "../../src/codex/sibling-start";
 import { setTrustedWindowsSystemDirectoryResolverForTests } from "../../src/lib/windows-elevation";
 import { removeTreeWithRetry } from "../helpers/remove-tree";
 import { repoPath } from "../helpers/repo-root";
@@ -113,6 +114,28 @@ describe("proxy process-state ownership", () => {
     expect(isOcxCommandLine("not-ocx.exe start")).toBe(false);
     expect(isOcxCommandLine("myocx.exe")).toBe(false);
     expect(isOcxCommandLine("ocx.exes start")).toBe(false);
+  });
+
+  test("a transient Windows command-line probe failure is retried once", () => {
+    const trustedSystem32 = join(testDir, "trusted", "System32");
+    const trustedWmic = join(trustedSystem32, "wbem", "WMIC.exe");
+    const trustedPowerShell = join(trustedSystem32, "WindowsPowerShell", "v1.0", "powershell.exe");
+    const calls: string[] = [];
+    mkdirSync(dirname(trustedPowerShell), { recursive: true });
+    writeFileSync(trustedPowerShell, "", { mode: 0o755 });
+    setProcessCommandLinePlatformForTests("win32");
+    setTrustedWindowsSystemDirectoryResolverForTests(() => trustedSystem32);
+    // WMIC absent, the first CIM read times out, the retry answers — an unchanged
+    // process must not read as foreign because one probe flaked.
+    setProcessCommandLineExecForTests(executable => {
+      calls.push(executable);
+      if (executable === trustedPowerShell && calls.filter(entry => entry === trustedPowerShell).length === 2) {
+        return "C:\\tools\\ocx.exe start\n";
+      }
+      throw new Error("probe unavailable");
+    });
+    expect(isLikelyOcxProcess(4242)).toBe(true);
+    expect(calls).toEqual([trustedWmic, trustedPowerShell, trustedPowerShell]);
   });
 
   test("the ownership probe distinguishes a real owner from a reused PID", () => {
@@ -261,5 +284,27 @@ describe("proxy process-state ownership", () => {
       "utf-8",
     );
     expect(readRuntimePort()).toBeNull();
+  });
+
+  test("a sibling record carries the live owner's port; every other record keeps its bytes", () => {
+    // Absent means "not a sibling", and the writer must not add the key: a non-sibling record is
+    // byte-identical to the one written before the field existed.
+    writeRuntimePort({ pid: 1234, port: 58195, hostname: "127.0.0.1", ...siblingRuntimeField() });
+    expect(readFileSync(getRuntimePortPath(), "utf-8"))
+      .toBe(`${JSON.stringify({ pid: 1234, port: 58195, hostname: "127.0.0.1" }, null, 2)}\n`);
+    expect(readRuntimePort()?.siblingOfPort).toBeUndefined();
+
+    markSiblingStart(10100);
+    try {
+      writeRuntimePort({ pid: 1234, port: 10199, hostname: "127.0.0.1", ...siblingRuntimeField() });
+    } finally {
+      resetSiblingStartForTests();
+    }
+    expect(readRuntimePort()).toEqual({ pid: 1234, port: 10199, hostname: "127.0.0.1", siblingOfPort: 10100 });
+
+    for (const siblingOfPort of [0, 70000, 1.5, "10100", null]) {
+      writeFileSync(getRuntimePortPath(), JSON.stringify({ pid: 1234, port: 10199, siblingOfPort }), "utf-8");
+      expect(readRuntimePort()).toBeNull();
+    }
   });
 });

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { INTERNAL_DEADLINE_MS, STORE_BUDGET_MS } from "../helpers/test-budget";
-import { existsSync, lstatSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as atomicWrite from "../../src/config/atomic-write";
 import * as oauthStore from "../../src/oauth/store";
@@ -28,9 +29,11 @@ import {
   reconcileOAuthReauthState,
   removeAccount,
   removeCredential,
+  resetOAuthReauthReconcileStateForTests,
   replaceProviderAccountSet,
   saveAccountCredential,
   saveCredential,
+  setAccountPaused,
   setAccountAlias,
   setActiveAccount,
   upsertCredentialByIdentity,
@@ -39,7 +42,7 @@ import type { OAuthCredentials } from "../../src/oauth/types";
 import { removeTreeWithRetry } from "../helpers/remove-tree";
 import { recordOwnedConfigPath, removeOwnedConfigState } from "../../src/lib/config-ownership";
 
-const TEST_DIR = join(import.meta.dir, ".tmp-oauth-store-multi-test");
+let TEST_DIR: string;
 let previousOpencodexHome: string | undefined;
 const ICACLS_OK = { success: true, exitCode: 0, timedOut: false, stdout: "" };
 
@@ -48,6 +51,7 @@ async function cleanupOAuthStoreFixture(): Promise<void> {
   setIcaclsRunnerForTests(null);
   setAsyncIcaclsRunnerForTests(null);
   resetHardenedStateForTests();
+  resetOAuthReauthReconcileStateForTests();
   if (previousOpencodexHome === undefined) delete process.env.OPENCODEX_HOME;
   else process.env.OPENCODEX_HOME = previousOpencodexHome;
   if (existsSync(TEST_DIR)) removeTreeWithRetry(TEST_DIR);
@@ -74,8 +78,7 @@ async function selectionAccounts() {
 describe("multi-account auth store", () => {
   beforeEach(() => {
     previousOpencodexHome = process.env.OPENCODEX_HOME;
-    if (existsSync(TEST_DIR)) removeTreeWithRetry(TEST_DIR);
-    mkdirSync(TEST_DIR, { recursive: true });
+    TEST_DIR = mkdtempSync(join(tmpdir(), "ocx-oauth-store-multi-"));
     process.env.OPENCODEX_HOME = TEST_DIR;
     resetHardenedStateForTests();
     setIcaclsRunnerForTests(() => ICACLS_OK);
@@ -83,6 +86,44 @@ describe("multi-account auth store", () => {
   });
 
   afterEach(cleanupOAuthStoreFixture);
+
+  test("each login write rotates loginId even when account id is reused", async () => {
+    const first = await oauthStore.saveCredentialWithReceipt("kiro", cred());
+    const account = getAccountSet("kiro")!.accounts[0]!;
+    expect(account.loginId).toMatch(SELECTION_UUID);
+    const second = await oauthStore.saveCredentialWithReceipt("kiro", cred({ access: "second", refresh: "second" }));
+    expect(second!.accountId).toBe(first!.accountId);
+    expect(getAccountSet("kiro")!.accounts[0]!.loginId).not.toBe(account.loginId);
+  });
+
+  test("normalizeAuthStore keeps a valid loginId and drops an invalid one", async () => {
+    await saveCredential("kiro", cred());
+    const path = join(TEST_DIR, "auth.json");
+    const file = JSON.parse(readFileSync(path, "utf8"));
+    const valid = getAccountSet("kiro")!.accounts[0]!.loginId;
+    expect(valid).toMatch(SELECTION_UUID);
+    expect(getAccountSet("kiro")!.accounts[0]!.loginId).toBe(valid);
+    file.kiro.accounts[0].loginId = "invalid";
+    writeFileSync(path, JSON.stringify(file));
+    expect(getAccountSet("kiro")!.accounts[0]!.loginId).toBeUndefined();
+  });
+
+  test("refresh writers preserve loginId", async () => {
+    await saveCredential("kiro", cred());
+    const first = getAccountSet("kiro")!.accounts[0]!;
+    await saveAccountCredential("kiro", first.id, cred({ access: "refreshed" }));
+    expect(getAccountSet("kiro")!.accounts[0]!.loginId).toBe(first.loginId);
+    await mergeAccountCredential("kiro", first.id, cred({ access: "merged" }));
+    expect(getAccountSet("kiro")!.accounts[0]!.loginId).toBe(first.loginId);
+  });
+
+  test("replaceProviderAccountSet preserves loginId", async () => {
+    await saveCredential("kiro", cred());
+    const set = getAccountSet("kiro")!;
+    const loginId = set.accounts[0]!.loginId;
+    await replaceProviderAccountSet("kiro", set);
+    expect(getAccountSet("kiro")!.accounts[0]!.loginId).toBe(loginId);
+  });
 
   test("fixture cleanup waits for a held config-directory ACL flight before restoring home or deleting files", async () => {
     let release!: () => void;
@@ -585,12 +626,78 @@ describe("multi-account auth store", () => {
     expect(getAccountSet("xai")).toBeNull();
   });
 
+  test("removing the active account skips paused survivors when promoting", async () => {
+    await saveCredential("xai", cred({ accountId: "acct-a", access: "access-a" }));
+    await saveCredential("xai", cred({ accountId: "acct-b", access: "access-b" }));
+    await saveCredential("xai", cred({ accountId: "acct-c", access: "access-c" }));
+    const before = getAccountSet("xai")!;
+    const activeId = before.activeAccountId;
+    const survivors = before.accounts.filter(account => account.id !== activeId);
+    expect(survivors).toHaveLength(2);
+    await setAccountPaused("xai", survivors[0]!.id, true);
+
+    expect(await removeAccount("xai", activeId)).toBe(true);
+
+    const after = getAccountSet("xai")!;
+    expect(after.activeAccountId).toBe(survivors[1]!.id);
+    expect(after.accounts.find(account => account.id === after.activeAccountId)?.paused).not.toBe(true);
+  });
+
+  test("removing the active account retains a first survivor if every survivor is unusable", async () => {
+    await saveCredential("xai", cred({ accountId: "acct-a", access: "access-a" }));
+    await saveCredential("xai", cred({ accountId: "acct-b", access: "access-b" }));
+    const before = getAccountSet("xai")!;
+    const activeId = before.activeAccountId;
+    const survivorId = before.accounts.find(account => account.id !== activeId)!.id;
+    await setAccountPaused("xai", survivorId, true);
+
+    expect(await removeAccount("xai", activeId)).toBe(true);
+
+    expect(getAccountSet("xai")?.activeAccountId).toBe(survivorId);
+  });
+
   test("removeCredential removes only the active account", async () => {
     await saveCredential("anthropic", cred({ email: "a@example.com", accountId: "acct-a", access: "access-a" }));
     await saveCredential("anthropic", cred({ email: "b@example.com", accountId: "acct-b", access: "access-b" }));
     await removeCredential("anthropic"); // active is b
     expect(listAccounts("anthropic").length).toBe(1);
     expect(getCredential("anthropic")?.access).toBe("access-a");
+  });
+
+  test("removeCredential promotes the first usable survivor", async () => {
+    await saveCredential("xai", cred({ accountId: "logout-a", access: "access-a" }));
+    await saveCredential("xai", cred({ accountId: "logout-b", access: "access-b" }));
+    await saveCredential("xai", cred({ accountId: "logout-c", access: "access-c" }));
+    await saveCredential("xai", cred({ accountId: "logout-active", access: "access-active" }));
+    const before = getAccountSet("xai")!;
+    const survivors = before.accounts.filter(account => account.id !== before.activeAccountId);
+    await setAccountPaused("xai", survivors[0]!.id, true);
+    await markAccountNeedsReauth("xai", survivors[1]!.id, true);
+
+    expect(await removeCredential("xai")).toBe("removed");
+
+    const after = getAccountSet("xai")!;
+    expect(after.activeAccountId).toBe(survivors[2]!.id);
+    const survivor = after.accounts.find(account => account.id === after.activeAccountId);
+    expect(survivor?.paused).not.toBe(true);
+    expect(survivor?.needsReauth).not.toBe(true);
+  });
+
+  test("reauthenticating the only other account takes over from a paused active account", async () => {
+    await saveCredential("xai", cred({ accountId: "held-a", access: "access-a" }));
+    await saveCredential("xai", cred({ accountId: "stale-b", access: "access-b" }));
+    const set = getAccountSet("xai")!;
+    const activeId = set.activeAccountId;
+    const otherId = set.accounts.find(account => account.id !== activeId)!.id;
+    await markAccountNeedsReauth("xai", otherId, true);
+    // No usable fallback: the paused account stays selected.
+    await setAccountPaused("xai", activeId, true);
+    expect(getAccountSet("xai")!.activeAccountId).toBe(activeId);
+
+    await saveAccountCredential("xai", otherId, cred({ accountId: "stale-b", access: "access-b2" }));
+    const after = getAccountSet("xai")!;
+    expect(after.activeAccountId).toBe(otherId);
+    expect(after.accounts.find(account => account.id === activeId)?.paused).toBe(true);
   });
 
   test("needsReauth flag persists and clears on fresh save", async () => {
@@ -615,6 +722,33 @@ describe("multi-account auth store", () => {
     const set = getAccountSet("xai")!;
     expect(set.accounts.length).toBe(1);
     expect(set.activeAccountId).toBe("ok"); // dangling active healed
+  });
+
+  test("resuming an account repairs a dangling active pointer to a usable account", async () => {
+    const { idA, idB } = await selectionAccounts();
+    await setAccountPaused("xai", idA, true);
+    await setAccountPaused("xai", idB, true);
+    await mutateStore(store => { store.xai!.activeAccountId = "missing-account"; });
+
+    await setAccountPaused("xai", idB, false);
+
+    expect(getAccountSet("xai")?.activeAccountId).toBe(idB);
+    expect(getAccountSet("xai")?.accounts.find(account => account.id === idB)?.paused).toBeUndefined();
+  });
+
+  test("re-authenticating a paused account does not select it", async () => {
+    const { idA, idB } = await selectionAccounts();
+    await markAccountNeedsReauth("xai", idB, true);
+    await setAccountPaused("xai", idB, true);
+
+    await saveCredential("xai", cred({ accountId: "selection-b", access: "fresh-b" }));
+
+    const set = getAccountSet("xai")!;
+    const account = set.accounts.find(candidate => candidate.id === idB)!;
+    expect(set.activeAccountId).toBe(idA);
+    expect(account.credential.access).toBe("fresh-b");
+    expect(account.needsReauth).toBeUndefined();
+    expect(account.paused).toBe(true);
   });
 
   test("selection revision rejects an automatic promotion after manual A-B-A", async () => {

@@ -83,9 +83,13 @@ function buildResponseJSONWithBudget(
   modelId: string,
   options?: {
     hideThinkingSummary?: boolean;
+    /** Provider policy: suppress raw content-channel reasoning, keep provider-authored summaries. */
+    hideRawReasoning?: boolean;
     toolNsMap?: Map<string, { namespace: string; name: string; freeform?: true }>;
     /** Request-visible tool names. Required for client calls when enforcement is explicitly enabled. */
     declaredToolNames?: ReadonlySet<string>;
+    /** Bare custom declarations; unlike freeformToolNames, excludes foreign namespace children. */
+    bareCustomToolNames?: ReadonlySet<string>;
     /** See `bridgeToResponsesSSE`: enforcement is separate from normalization (#4735). */
     enforceDeclaredToolNames?: boolean;
     /** Declared parameter schema per tool name; repairs integral-float integer args (#1611). */
@@ -100,6 +104,13 @@ function buildResponseJSONWithBudget(
     translatorBudget?: TranslatorBudget;
     /** Conversation identity for the reasoning replay cache (issue #950). */
     replayCacheScope?: OcxReasoningReplayScopeRef;
+    /**
+     * Fold-only callers whose body never reaches the client (direct client encoders): hidden raw
+     * reasoning is still handed to the replay cache, but no client-bound `ocxr1` envelope is
+     * materialized. Encoding reserves roughly ten times the text against the translator budget,
+     * so a block that fit live delivery could otherwise overflow here and lose the cache write.
+     */
+    omitHiddenReasoningEnvelope?: boolean;
   },
 ): Record<string, unknown> {
   const responseId = `resp_${uuid()}`;
@@ -282,7 +293,12 @@ function buildResponseJSONWithBudget(
     const rawText = joinChunks(currentRawReasoning);
     if (!rawText) return;
     rawReasoningForNextToolCall = rawText;
-    if (options?.hideThinkingSummary === true) {
+    if (options?.hideThinkingSummary === true || options?.hideRawReasoning === true) {
+      if (options?.omitHiddenReasoningEnvelope === true) {
+        budget?.releaseRetained(currentRawReasoning.bytes, { kind: "reasoning" });
+        currentRawReasoning = emptyChunks();
+        return;
+      }
       // Same contract as the streaming path: no visible reasoning, txt-only envelope round-trip.
       pushOutput({
         type: "reasoning", id: `rs_${uuid()}`, summary: [],
@@ -451,7 +467,7 @@ function buildResponseJSONWithBudget(
           rememberReasoningForCall(e.id, rawReasoningForNextToolCall, replayCacheScope);
         }
         flushToolCall();
-        const effectiveName = normalizeDeclaredToolName(e.name, options?.declaredToolNames);
+        const effectiveName = normalizeDeclaredToolName(e.name, options?.declaredToolNames, undefined, options?.bareCustomToolNames);
         if (
           (options?.enforceDeclaredToolNames === true || options?.declaredToolNames != null)
           && options?.enforceDeclaredToolNames !== false

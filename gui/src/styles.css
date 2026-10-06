@@ -87,9 +87,10 @@
   --radius-round: 50%;
   --radius-pill: 999px;
 
-  /* Keep product fonts first, then system UI fonts before Korean fallbacks that also cover Latin. */
-  --font-ui: "OpenAI Sans", "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, system-ui, "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", sans-serif;
-  --font-code: ui-monospace, "SFMono-Regular", "Cascadia Code", "JetBrains Mono", "Noto Sans Mono CJK KR", Menlo, Consolas, monospace;
+  /* Keep product fonts first, then system UI fonts before CJK fallbacks that also cover Latin. */
+  --font-ui: "OpenAI Sans", "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, system-ui, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", sans-serif;
+  --font-sans: var(--font-ui);
+  --font-code: ui-monospace, "SFMono-Regular", "Cascadia Code", "JetBrains Mono", "Noto Sans Mono CJK SC", "Noto Sans Mono CJK KR", "Noto Sans Mono CJK JP", Menlo, Consolas, monospace;
   --font: var(--font-ui);
   --mono: var(--font-code);
 
@@ -119,18 +120,11 @@
   --control-lg: 40px;
   --control-touch: 44px;
 
-  --icon-sm: 14px;
-  --icon-md: 16px;
-  --icon-lg: 20px;
-
-  --motion-fast: 120ms;
-  --motion-normal: 180ms;
+  --icon-sm: 14px; --icon-md: 16px; --icon-lg: 20px;
+  --motion-fast: 120ms; --motion-normal: 180ms;
 
   /* stacking: sticky chrome < overlay hosts < popovers/drawers < modals */
-  --z-sticky: 20;
-  --z-overlay: 30;
-  --z-popover: 40;
-  --z-modal: 50;
+  --z-sticky: 20; --z-overlay: 30; --z-popover: 40; --z-modal: 50;
 
   --shadow: 0 1px 2px light-dark(rgba(16, 24, 40, 0.06), rgba(0, 0, 0, 0.5)), 0 10px 28px light-dark(rgba(16, 24, 40, 0.07), rgba(0, 0, 0, 0.30));
   --shadow-sm: 0 1px 2px light-dark(rgba(16, 24, 40, 0.06), rgba(0, 0, 0, 0.4));
@@ -142,18 +136,22 @@
   --toggle-off-bg: light-dark(#d4d4d4, #4a4a4a);
   --toggle-on-bg: light-dark(#0d0d0d, #4ecb9d);
   --toggle-dot-color: light-dark(#ffffff, #0d0d0d);
+
+  /* glass material tokens: rail/nav layer only — content cards stay opaque */
+  --glass-rail:  light-dark(rgba(249, 249, 249, 0.66), rgba(23, 23, 23, 0.62));
+  --glass-panel: light-dark(rgba(255, 255, 255, 0.78), rgba(38, 38, 38, 0.82));
+  --glass-blur:  saturate(1.6) blur(22px);
 }
 
 /* explicit user choice pins the scheme; "system" removes the attribute and falls back to the OS */
 :root[data-theme="light"] { color-scheme: light; }
 :root[data-theme="dark"]  { color-scheme: dark; }
 
-/* glass material tokens: rail/nav layer only — content cards stay opaque */
-:root {
-  --glass-rail:  light-dark(rgba(249, 249, 249, 0.66), rgba(23, 23, 23, 0.62));
-  --glass-panel: light-dark(rgba(255, 255, 255, 0.78), rgba(38, 38, 38, 0.82));
-  --glass-blur:  saturate(1.6) blur(22px);
-}
+/* language-aware font stacks: prioritize native system sans-serif per locale */
+:root:lang(zh), :root:lang(zh-CN), [lang="zh"], [lang="zh-CN"] { --font-ui: "OpenAI Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "WenQuanYi Micro Hei", "Noto Sans SC", system-ui, sans-serif; --font-code: ui-monospace, "SFMono-Regular", "Cascadia Code", "JetBrains Mono", "Noto Sans Mono CJK SC", Menlo, Consolas, monospace; }
+:root:lang(zh-TW), :root:lang(zh-HK), [lang="zh-TW"], [lang="zh-HK"] { --font-ui: "OpenAI Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang TC", "Microsoft JhengHei", "Noto Sans TC", system-ui, sans-serif; --font-code: ui-monospace, "SFMono-Regular", "Cascadia Code", "JetBrains Mono", "Noto Sans Mono CJK TC", Menlo, Consolas, monospace; }
+:root:lang(ja), [lang="ja"] { --font-ui: "OpenAI Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Hiragino Kaku Gothic ProN", "Yu Gothic UI", Meiryo, "Noto Sans JP", system-ui, sans-serif; --font-code: ui-monospace, "SFMono-Regular", "Cascadia Code", "JetBrains Mono", "Noto Sans Mono CJK JP", Menlo, Consolas, monospace; }
+:root:lang(ko), [lang="ko"] { --font-ui: "OpenAI Sans", "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, system-ui, "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", sans-serif; --font-code: ui-monospace, "SFMono-Regular", "Cascadia Code", "JetBrains Mono", "Noto Sans Mono CJK KR", Menlo, Consolas, monospace; }
 
 * { box-sizing: border-box; }
 
@@ -170,6 +168,7 @@ body {
   font-size: var(--text-body);
   line-height: var(--leading-body);
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
 }
 
@@ -1913,23 +1912,21 @@ dialog.modal-overlay::backdrop {
 }
 
 /*
- * Claude account-pool card — the same inset `.account-pool-strategy-card` above already
- * fixes, on the card that still had it. `.card` has no padding, so each child brings its
- * own 16px: `.card-row`, `.card-sub` and `.setting-row` do, the warning box and the
- * threshold field do not, so those two rendered flush against the card border.
- *
- * The warning takes margin, not padding: it is a bordered box, so its own padding insets
- * the text and leaves the border itself on the card edge. The field takes padding — the
- * `.input` inside is full-width, so the field owns the inset for the whole group.
+ * Claude account-pool card. `.card` has no padding, so each child brings its own 16px inset.
+ * The conditions notice is quiet helper text, not a tinted alert box: it takes the inset as
+ * margin (padding zeroed) so the measure applies to the text. The field takes padding because
+ * the full-width `.input` inside it needs the inset for the whole group.
  */
 .anthropic-pool-card { margin-top: 12px; }
 .anthropic-pool-card__notice {
-  margin: 10px 16px 0;
-  padding: 10px 16px;
-  border: 1px solid var(--border, #c9a227);
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--warn, #c9a227) 12%, transparent);
+  margin: 2px 16px 0;
+  padding: 0;
+  max-width: var(--prose-measure);
+  text-wrap: pretty;
 }
+.anthropic-pool-card__details { margin: 8px 16px 12px; font-size: var(--text-label); line-height: var(--leading-body); color: var(--muted); }
+.anthropic-pool-card__details > summary { cursor: pointer; width: fit-content; color: var(--text); }
+.anthropic-pool-card__details > p { margin: 6px 0 0; max-width: var(--prose-measure); text-wrap: pretty; }
 .anthropic-pool-card__field {
   display: block;
   margin-top: 12px;
@@ -2798,7 +2795,7 @@ button.prov-account-row.active { cursor: default; }
 }
 .claude-desktop-toolbar {
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;
   margin-bottom: 12px;
 }
 .claude-tabs button {

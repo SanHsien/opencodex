@@ -4,7 +4,7 @@ import { dirname, isAbsolute, join } from "node:path";
 import { inspectCodexShimBackingForCommand } from "../codex/shim";
 import { findExecutableOnPath } from "./workspace-executable";
 import { resolveCodexHomeDir } from "../codex/home";
-import { readBoundedRegularFile } from "../lib/bounded-file-read";
+import { readBoundedCodexConfig } from "../codex/inject/bounded-config-reader";
 
 function isNativeExecutable(path: string): boolean {
   let descriptor: number | null = null;
@@ -98,13 +98,16 @@ export function codexRemotePermissionProfileCompatibility(
   const configPath = join(codexHome, "config.toml");
   try {
     // One open: the type and size bound describe the descriptor these bytes came from, not
-    // whatever the name resolved to when a separate statSync looked at it.
-    const read = readBoundedRegularFile(configPath, 4 * 1024 * 1024);
-    if (read.kind === "absent") return { compatible: true };
-    if (read.kind === "refused") {
+    // whatever the name resolved to when a separate statSync looked at it. A symlinked
+    // config.toml is read through, as Codex does; the reader's 1 MiB bound applies.
+    let content: string | null;
+    try {
+      content = readBoundedCodexConfig(configPath);
+    } catch {
       return { compatible: false, reason: "Codex config cannot be safely inspected for Remote Workspace permissions." };
     }
-    const config = Bun.TOML.parse(read.content) as Record<string, unknown>;
+    if (content === null) return { compatible: true };
+    const config = Bun.TOML.parse(content) as Record<string, unknown>;
     if (typeof config.sandbox_mode === "string" || config.sandbox_workspace_write !== undefined) {
       return {
         compatible: false,

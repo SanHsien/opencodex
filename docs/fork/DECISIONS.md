@@ -1,5 +1,66 @@
 # 維護決策
 
+## 2026-10-03：stable 整合 v2.76.0（ancestry bridge）；4 筆採用候選已採用
+
+**決定**：在以 tag `v2.76.0`（`249462bf570555aad103957025eea96f7489c7eb`）為起點的分支 `sync/v2.76.0` 上重放 fork overlay
+（`git diff v2.67.0 main`：28 新增／193 修改／391 刪除），使 fork 產品程式碼回到「上游 v2.76.0 + overlay」。
+因為分支從 tag 長出來，`git merge-base HEAD upstream/main` 恢復為 `v2.76.0`，也就是 ancestry bridge 已建立；
+`main` 隨後只需 tree-neutral 的 bridge commit 接上這條線（由維護者審查後執行，本分支不動 `main`）。
+package development version 照慣例前推到 `2.77.0`（package.json、`desktop/src-tauri/Cargo.toml`、`Cargo.lock`、`tauri.conf.json`）。
+
+**重放分類**
+
+| 類別 | 筆數 | 處理 |
+| --- | --- | --- |
+| a. 語系政策 | 391 刪除 | 全數剃除（上游在 v2.67.0 後新增的非保留 locale 檔也一併處理）；`astro.config.mjs` 以腳本對 v2.76.0 檔做同一組轉換（只留 `zh-TW` 翻譯），並驗證同一腳本對 v2.67.0 檔產生與舊 fork 檔逐位元組相同 |
+| b. fork 新增檔 | 28 | 原樣帶入，上游沒有動這些路徑 |
+| c. fork 修改、上游未動 | 128 | 直接採 fork 版 |
+| c. 兩邊都動 | 65 | 40 個 3-way 自動合併、25 個手動解（見下） |
+| d. 安全邊界檔 | 見下節 | 逐檔判定 |
+| e. workflow 隔離 | 1 | 上游新增 `codex-queue-helpers.yml`，加官方 repo-only guard；其餘 guard 沿用 |
+| f. 版本 | 4 檔 | `2.77.0` |
+
+**手動解的衝突檔**：`README.md`（取 fork zh-TW 版，補上游新增的 OpenGateway preset）、`README.en.md`（同上）、`package.json`／`Cargo.toml`／`Cargo.lock`／`tauri.conf.json`（版本 2.77.0；serde／serde_json 與 Cargo.lock 取上游較新者）、
+`docs-site/astro.config.mjs`、11 個 zh-tw 文件（`guides/claude-code`、`integrations`、`pi`、`providers`；`reference/adapters`、`cli/agents`、`configuration/{agents,providers,server}`、`management-api`、`proxy-formats`，逐段對照 v2.76.0 英文源決定採哪邊或兩邊併存）、
+`gui/tests/locale-parity.test.ts`（以上游 v2.76.0 為底、剃除非保留 locale 的 DSH 文案區塊）、`gui/tests/remote-link.test.tsx`（`LOCALES` 長度斷言維持 fork 的 2）、`tests/adapters/anthropic/anthropic-pool-toggle-copy.test.ts`、
+`tests/gui/oauth-tos-warning.test.ts`（locale 清單只留 en／zh-TW）、`tests/ci-workflows/test-runner.test.ts`（採上游新測試，改用 fork 的 `fullSuitePlan` 夾具）。
+
+**安全邊界逐檔判定**（四筆 fork 安全 commit：`e9de140d8`／`6ff58ac72`／`c9fc69bed`／`e78ea34a9`）
+
+| 檔案 | 判定 | 理由 |
+| --- | --- | --- |
+| `src/adapters/anthropic.ts` | 採上游 | 上游已用 `indexOf` 掃 `{…}` placeholder，修的是同一個 ReDoS，fork patch 丟棄 |
+| `src/providers/quota/vendor-probes-key.ts` | 合併 | 採上游 MiniMax endpoint 重寫；fork 的精確主機比對（`matchesHostname`）重新套在 minimax-cn／Moonshot |
+| `src/service/managing-cli.ts` | 合併 | 採上游的逐段加引號 `cmd /c` 與一次重試；保留 fork 對 Windows shim 不安全 argv 的白名單拒絕（改為允許空白，因上游引號處理已涵蓋） |
+| `src/oauth/store.ts` | 合併 | 上游新增大量帳號欄位；fork 的 lstat＋fstat dev/ino 備份讀取保留 |
+| `src/codex/shim-probe.ts` | 合併 | 上游只改 `BUN_BE_BUN` 環境；fork 的 fd 讀取保留 |
+| `src/update/transactional-install.mjs` | 合併 | 上游加 `--cache` pin（#6288）；fork 的 marker fd 讀取保留 |
+| `src/router.ts` | 合併 | 上游加 blocked-model redirect；fork 的快取身分變數改名保留 |
+| `src/codex/catalog/provider-models.ts` | 合併 | 上游新增 Kiro／CodeBuddy 探索；fork 的精確 host 比對與 log 清理保留 |
+| `src/client/connect.ts` | 合併 | 上游新增 sibling／abort signal；fork 的 `readBoundedRegularFile` 單次 open 保留 |
+| `src/lib/redact.ts` | 合併 | 採上游 `f5e9fdaba` 的 XML 掃描重寫；fork 的換行 barrier 保留 |
+| `src/service/windows-taskxml.ts` | 合併 | 上游重寫 wrapper（#6290／#6455）；fork 的左到右 comment／CDATA 剝除保留 |
+| `src/client/state.ts`、`src/codex/auth-collision.ts`、`src/codex/orca-auth-source.ts`、`src/lib/bounded-file-read.ts`、`src/responses/state/spill-inspect.ts`、`src/service/ownership-mutation-lease.mjs`、`src/service/state-lock.ts`、`src/claude/intercept/proxy-auth.ts`、`scripts/test-temp.ts`、`scripts/setup-hooks.ts`、`scripts/file-size-ratchet.ts`、`desktop/scripts/linux-packaged-e2e.ts`、`gui/src/main.tsx`、`tests/service/service-secrets.test.ts` | 保留 fork 修正 | 上游沒有動這些檔，fork 修正原樣保留 |
+| `src/adapters/cursor/catalog.ts` | 合併 | 上游只加 Sonnet 5.5 條目；fork 的 `-thinking-<level>` 後綴比對（ReDoS）保留 |
+
+**4 筆採用候選**：`f5e9fdaba`（redaction ReDoS）、`89db85ff0`（Windows manager 指令 timeout）、`09cd45daa`（npm cache root，#6288）、`8a3a7762f`（locale 日期括號，#6290）
+皆已含在 `v2.76.0`，**已採用**。`8a3a7762f` 的最終形在 `dev` 的 `115fa0322`（#6455，不在 `v2.76.0`）：
+自 `upstream/dev` 選擇性採用（cherry-pick，保留原作者），含其測試與 `tests/fixtures/windows-standalone-pre-placeholder.cmd`。
+
+**fork 專屬修正**：`src/claude/agents-inject.ts` 的 `NO_MODEL_ARG` 不再要求 dispatcher 傳 `model: "haiku"` 佔位符，改為「省略 `model` 參數」。
+Claude Code 的 Agent 工具 `model` 參數優先於 frontmatter 與 `CLAUDE_CODE_SUBAGENT_MODEL`，呼叫沒有經過 proxy 時佔位值會真的讓子代理跑在 Haiku（上游 #6358 以 `not_planned` 關閉）。
+`tests/claude-integration/claude-agents-inject.test.ts` 與兩份 `guides/claude-code.md` 同步；`~/.claude/agents/ocx-*.md` 需另行重新產生。
+
+**Fork 的 workflow guard**：新增的 `codex-queue-helpers.yml` 只在官方 repo 跑；其餘沿用 2026-08-22 的清單。
+
+**審查後修正（fix-first 四項）**
+- `context-compat.ts`／`legacy-config-keys.ts`／`workspace-codex-sandbox.ts` 改用 `readBoundedCodexConfig`：與上游一致讀穿 symlink 的 `config.toml`（dotfile manager），上限改為該 reader 的 1 MiB，缺檔／過大／不可讀的行為不變（sandbox 檢查仍 fail closed）；`readBoundedRegularFile` 保留給 opencodex 自有 state 檔。
+- `claude/intercept/proxy-auth.ts` 的 `readPinnedToken` 還原 open 前 `lstatSync`＋`assertOwnedNode` 與 open 後 dev/ino 比對（Windows 的 NOFOLLOW 為 0），保留 fork 的 `ensurePrivateDirectory` 重構。
+- `shim-probe.ts`／`state-lock.ts`／`ownership-mutation-lease.mjs`／`transactional-install.mjs`／`oauth/store.ts` 的 lstat→open→fstat 讀取改以 `O_RDONLY | O_NOFOLLOW | O_NONBLOCK`（未定義者補 0）開檔，避免 lstat 後被換成 FIFO 而阻塞。
+- `service/managing-cli.ts` 的 Windows shim 白名單加入 `~`（8.3 短檔名）；非 ASCII 的使用者 profile 路徑仍落到 "unknown"（fail closed）。
+
+**觸發條件**：維護者審查後在 `main` 建立 bridge commit；之後上游增量改走一般 merge。啟用 policy routing／Anthropic 帳號池（`58a26f0c1`／`22c890c8d`）與 `#6491` 仍如前一條記載。
+
 ## 2026-10-03：v2.74.0..v2.76.0 只審不採（adoption pending；4 筆採用候選待決）
 
 **決定**：84 commits（80 非 merge）／163 個 PR（其中 20 closed-unmerged）／26 個 issue 分組判定完成，未移植任何 commit；水位推進到

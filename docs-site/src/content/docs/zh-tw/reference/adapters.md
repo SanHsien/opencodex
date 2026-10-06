@@ -192,6 +192,7 @@ provider 的快取。
 - **Extended thinking 計算：** Anthropic 要求 `max_tokens > thinking.budget_tokens`。adapter 把
   reasoning effort 對映成 budget（minimal 1024 … max 32000），再計算留有輸出餘量的安全
   `max_tokens`；啟用 thinking 後會**移除 `temperature`/`top_p`**，因為 Anthropic 禁止此組合。
+- **自適應 thinking 顯示：** 自適應 thinking 模型（Opus 4.7+、Sonnet 5、Fable）會收到 `thinking.display: "summarized"`，因此長時間思考會以 reasoning 增量送達 Chat 與 Responses 用戶端，而不是數分鐘的 heartbeat。隱藏推理摘要的請求（`reasoning.summary: "none"`）維持供應商預設值。
 - **結構化輸出：** 帶有 `type: "json_schema"` 的 Responses `text.format` 與 Chat Completions
   `response_format` 請求會變成 Anthropic 的 `output_config.format`。該格式會合併進既有的
   adaptive-thinking 輸出設定，並保留相容的 `output_config.effort`。路由過的 Anthropic
@@ -201,6 +202,11 @@ provider 的快取。
   相鄰的 `$defs`，讓本機參照維持可解析。OpenAI envelope 欄位如 schema `name`、envelope
   `description` 與 `strict` 不屬於 Anthropic wire 格式的一部分。沒有 schema 的 JSON object
   模式在 Anthropic 沒有對應，不會被轉換。
+  反方向上，轉換後的 Anthropic 輸出 schema 會保留呼叫者原本的 schema。`strict: true` 要求根為物件且不含根層級聯集，
+  並要求巢狀屬性、陣列項目、聯集與定義中的物件都是完整封閉的物件：`properties` 必須是物件、
+  `additionalProperties` 必須為 `false`，`required` 必須恰好列出所有屬性名稱。不完整的物件、未知的 schema
+  關鍵字，以及超出 OpenAI 文件所列 strict 子集的值，會明確使用 `strict: false`；分類器採用允許清單，而不是逐一追蹤
+  每個不支援的限制。proxy 不會為了取得 strict 模式而憑空新增必填欄位、封閉開放物件，或捨棄呼叫者的 schema。
 - 始終傳送 `anthropic-version: 2023-06-01`。流式輸出 `content_block_delta`（`text_delta`、
   `thinking_delta`、相容的 `reasoning_delta`、`input_json_delta`）。SSE 解碼器會跨 fetch
   chunk 保留事件狀態，並接受沒有結尾換行的終止 `message_stop`。
@@ -409,6 +415,16 @@ bridge。若自訂的 freeform 工具使用其中任一名稱，請為它加上�
 effort 時，帶後綴的模型 id 會被保留。這適用於共用 adapter 下的每一個 Devin 帳號，無論
 credential 是由哪條登入路徑鑄造的；其他模型家族維持既有的後綴優先權。
 
+## `zed`
+
+**目標：** `cloud.zed.dev` 上 Zed Hosted AI 的 `POST /completions` 端點。
+**認證：** Zed 原生 app 的帳號身分加上存取 token，換成短效的 LLM token。
+
+- 使用原生 RSA callback 登入（`ocx login zed`），並把回傳的 `user_id` 與存取 token 配對，用於帳號範圍的使用者與組織查詢。
+- 把既有的 Anthropic Messages、Google Gemini、OpenAI Responses 與 xAI Chat 建構器包在 Zed 的供應商封套內，再把 Zed 的 NDJSON/SSE 事件解開還原為 `AdapterEvent`。
+- 抓取有界的、帳號範圍的即時模型清單，用於顯示與供應商家族推斷；該清單不是模型白名單，所以呼叫者提供的模型 id 仍會被轉送。
+- 實驗性、非官方，且未獲 Zed 認可。使用它可能違反 Zed 的服務條款，並可能讓 Zed 帳號被限制或停權；這項風險由使用者自行承擔。
+
 ## `azure-openai`（別名：`azure`）
 
 **目標：** **Azure OpenAI**。封裝 `openai-responses`，因此同樣是 `passthrough: true`。
@@ -441,3 +457,7 @@ credential 是由哪條登入路徑鑄造的；其他模型家族維持既有的
 既有行為。這項修復會在獨立的 provider `responsesSnapshotRepair` 選項之前執行，且不會
 啟用那項更廣泛的生命週期修復。既有的 tool-search、custom-tool、function-completion 與
 未宣告工具的處理順序維持不變。
+
+### DeepSeek 與 Claude Code Artifact
+
+對於官方的 DeepSeek Chat Completions 端點，opencodex 會放寬 Claude Code 內建 `Artifact` 工具 schema 中的 regex 與 `anyOf` 限制，以避免 schema 驗證的 HTTP 400 錯誤。這個工具會省略 strict 模式。僅定義在 `anyOf` 內的欄位不再受該聯集約束；工具必須自行驗證它的輸入。其他工具與供應商維持既有行為。

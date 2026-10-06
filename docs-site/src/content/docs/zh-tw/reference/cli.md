@@ -103,3 +103,19 @@ ocx capabilities --route /api/logs
 執行儀表板更新任務。它們是實作細節，不是穩定的使用者面向命令。儀表板會記錄 worker
 PID、恢復 worker 已死但仍在進行中的任務、把超過十分鐘且沒有 PID 的舊 active 記錄
 視為過期，並保護執行中的 worker 免受並行更新影響。
+
+## 能力引數驗證
+
+`ocx capabilities` 會以結束碼 64 拒絕未知的引數、重複的旗標與空白的 `--route` 值。有效的路由若沒有宣告任何能力，會以結束碼 4 結束。
+
+## 整數選項值
+
+像 `--limit` 這類整數選項，必須是落在 JavaScript 安全整數範圍內的十進位整數。接受 `1_000` 與 `1,000` 這類數字分隔符。空值、十六進位、指數表示法與小數，會在送出請求之前被拒絕。
+
+## Windows JSON 設定檔
+
+`ocx config validate <file>` 與 `ocx config import <file> --yes` 接受有或沒有開頭 BOM 的 UTF-8 JSON，包括 stdin（`-`）。這支援來自 Windows PowerShell 與編輯器的 UTF-8 匯出檔。不接受 UTF-16 輸入。
+
+## 預設別名列表
+
+`ocx alias --json` 等同於 `ocx alias list --json`。輸出旗標可以放在明確的別名動作之前或之後。

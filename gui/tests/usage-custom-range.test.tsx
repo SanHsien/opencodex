@@ -10,7 +10,7 @@ import Usage from "../src/pages/Usage";
 
 const globals = ["document", "window", "navigator", "localStorage", "sessionStorage", "ResizeObserver", "IS_REACT_ACT_ENVIRONMENT"] as const;
 const originalFetch = globalThis.fetch;
-let previousGlobals: Record<(typeof globals)[number], unknown>;
+let previousGlobals: Record<(typeof globals)[number], PropertyDescriptor | undefined>;
 let testWindow: Window;
 let root: Root | undefined;
 let container: HTMLElement;
@@ -20,7 +20,7 @@ type RequestGate = { url: string; resolve: (response: Response) => void };
 let requests: RequestGate[];
 
 beforeEach(() => {
-  previousGlobals = Object.fromEntries(globals.map(key => [key, Reflect.get(globalThis, key)])) as typeof previousGlobals;
+  previousGlobals = Object.fromEntries(globals.map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)])) as typeof previousGlobals;
   clearClientResourceStoresForTests();
   testWindow = new Window({ url: "http://localhost/" });
   testWindow.localStorage.setItem("ocx-lang", "en");
@@ -47,7 +47,11 @@ afterEach(async () => {
   globalThis.fetch = originalFetch;
   clearClientResourceStoresForTests();
   testWindow.close();
-  for (const key of globals) Object.defineProperty(globalThis, key, { configurable: true, value: previousGlobals[key] });
+  for (const key of globals) {
+    const descriptor = previousGlobals[key];
+    if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+    else Reflect.deleteProperty(globalThis, key);
+  }
 });
 
 async function mount(connected = false) {
@@ -162,6 +166,23 @@ test("Usage model table renders cache breakdown and marks unavailable telemetry"
 async function respond(index: number, marker: string, date?: string) {
   await act(async () => { requests[index].resolve(Response.json(report(requests[index], marker, date))); });
 }
+
+test("a stale connected report identifies ledger read failure instead of a hub outage", async () => {
+  await mount(true);
+  await respond(0, "last-readable-marker");
+  await act(async () => { root!.unmount(); });
+  root = undefined;
+  clearClientResourceStoresForTests();
+
+  await mount(true);
+  await act(async () => {
+    requests[1]!.resolve(Response.json({ error: "read_failed" }, { status: 500 }));
+  });
+
+  expect(container.textContent).toContain("last-readable-marker");
+  expect(container.textContent).toContain(en["usage.loadError"]);
+  expect(container.textContent).not.toContain(en["usage.hubOffline"]);
+});
 
 test("incomplete usage notice survives held cache and remains visible with no readable rows", async () => {
   await mount();

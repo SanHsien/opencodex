@@ -71,6 +71,11 @@ host and port over a LAN IP or an alias.
 
 ## Dashboard layout
 
+Responses first-output timing includes streamed function arguments and custom-tool input, as well
+as text and reasoning. A tool-only turn can therefore have a first-output time even without prose.
+Empty deltas and tool-start notifications do not start this timer. It measures the proxy's first
+observed output, not the start of hidden model reasoning or exact model decoding throughput.
+
 Overview uses matching status cards and full-width settings rows. On wide screens, labels share
 one column and model/effort controls share another. On narrower screens, controls move below their
 labels in the same reading order. Long version labels are shortened visually; hover the version
@@ -87,9 +92,12 @@ is visible) and never forces an upstream refresh.
   provider-named window or prepaid credits.
 - A chip turns amber at 70% used and red at 90% used.
 - Hover or keyboard-focus a chip to see every reported window with its reset time and the time the
-  reading was taken. On a touch screen, the first tap shows those details.
+  reading was taken. The details stay open as the pointer moves from the chip into the popover,
+  including across the small visual gap. On a touch screen, the first tap shows those details.
 - Click a chip (or tap it a second time) to open that provider's Accounts tab in Providers, where
-  its accounts or API keys are managed.
+  its accounts or API keys are managed. The popover's **Open account management** link opens the
+  same tab; keyboard users can Tab from the chip to this link and press Enter. Escape closes the
+  popover and returns focus to the chip when focus was inside the popover.
 - The bar always stays on one line. When the chips do not fit, scroll it sideways or use the « and
   » buttons at either end.
 - Providers that report no quota window are left out. The bar is hidden when no provider reports one.
@@ -108,14 +116,14 @@ is visible) and never forces an upstream refresh.
 | **Windows tray** | Install a per-user login tray for one-click proxy start, stop, restart, dashboard access, and status. The tray is a controller, not a proxy restart service. |
 | **Codex autostart** | Allow an already-installed Codex launcher shim to run `ocx ensure`. This toggle does not install a shim or background service. |
 | **Providers** | Add, edit, set the default (enabled providers only), enable/disable, and remove providers; manage OAuth account pools and API-key pools where supported. Removing the current default switches to the first remaining enabled provider when one exists; otherwise deletion is refused and the current default is kept. Provider Settings can disable live model discovery for endpoints with missing, slow, or oversized `/models` catalogs. For Claude (Anthropic) OAuth pools, each logged-in account shows its own 5-hour and weekly rate-limit bars (usage is per credential); a failed probe keeps the last-known bars and marks them unavailable until the next successful refresh. The Provider Overview shown when no provider is selected carries a **Refresh all quotas** control that forces one server-side re-read of every configured provider; a provider whose upstream probe fails keeps its last-good row, so the status line reports that the check completed rather than claiming every value is fresh, and each row's own age stays the per-provider freshness signal. |
-| **Add provider** | One search above the tabs reaches all four at once — Accounts, Free, Local, Paid. While a query is live the results are grouped by tab with a count each, and the selected tab stays put rather than jumping. Press ArrowDown in the search box to focus the first available result action, skipping disabled buttons; if no action is available, focus stays in the search box. Local runtimes (Ollama, vLLM, LM Studio, LiteLLM) have their own tab, and a long provider note clamps to two lines with the full text one click away. |
+| **Add provider** | One search above the tabs reaches all four at once — Accounts, Free, Local, Paid. While a query is live the results are grouped by tab with a count each, and the selected tab stays put rather than jumping. Press ArrowDown in the search box to focus the first available result action, skipping disabled buttons; if no action is available, focus stays in the search box. Local runtimes (Ollama, vLLM, LM Studio, LiteLLM) have their own tab, and a long provider note clamps to two lines with the full text one click away. Claude Code CLI (subscription) sits under Paid with a Subscription CLI badge, and selecting it warns that it bills the signed-in Claude subscription through `claude -p` and never uses an API key (use `anthropic-apikey` for key billing). |
 | **Codex Auth** | Add ChatGPT/Codex pool accounts, select the next-session account, refresh 5h / weekly / 30d quotas, enable or disable quota auto-switch, set its 1–100% threshold, and configure transient-failure failover. |
 | **Subagents** | Feature up to five bare native or namespaced routed models in the `spawn_agent` override list. |
 | **Models** | Toggle native GPT and routed models, set provider allowlists and context caps, choose v1/base/v2, and configure the v2 thread limit. The page distinguishes a catalog saved on the hub, a catalog fetched by this client, and activation in a running client. A fetch timestamp does not prove it includes the latest hub save, and runtime activation is shown as unverified. Configured providers stay visible as zero-model groups when discovery is off or returns no rows. |
 | **Logs** | Auto-refresh recent requests with tokens, requested effort and (when available) effective outbound effort, resolved model, provider, status, request id, duration, and error details. The detail view includes the exact reasoning wire field when the adapter emits one. Filter by opaque conversation/session id (when the client sends one) to total tokens and estimated list-price cost for the currently loaded Logs ring. |
 | **Usage / Debug** | Inspect token-usage coverage and trends. The Usage page's Models table also breaks each model down into input tokens, output tokens, cache hits, cache writes, and cache hit rate; a dash means cache telemetry for that metric is unavailable. Or enable opt-in provider transport and usage-extraction diagnostics. |
 | **Storage** | Read-only CODEX_HOME disk breakdown (sessions, archives, DBs, attachments). Optional archived cleanup: preview the oldest N%, then quarantine to `CODEX_HOME/.trash` (default) or permanently delete behind an explicit checkbox. **Auto-cleanup policy** is opt-in and **default OFF** (`storageCleanupPolicy.enabled`); configure threshold/target/schedule/mode on the Storage page, or trigger **Run now**. Quarantined entries can be restored from the Storage page (JSONL + threads). Active sessions stay read-only. Cleanup and restore are refused while Codex holds the newest/active `state_*.sqlite` locked. |
-| **Stop** | Gracefully stop the proxy and installed background service, restore native Codex, and exit (`POST /api/stop`). On Windows with the Task Scheduler backend the dashboard refuses and asks you to run `ocx stop` instead: that wrapper can respawn the proxy after the task ends, and only a stop running outside this process can verify the restart window before restoring your client config. Nothing is changed when it refuses. |
+| **Stop** | Gracefully stop the proxy and installed background service, restore native Codex, and exit (`POST /api/stop`). On Windows with the Task Scheduler backend the dashboard refuses and asks you to run `ocx stop` instead: that wrapper can respawn the proxy after the task ends, and only a stop running outside this process can verify the restart window before restoring your client config. Nothing is changed when it refuses. It also refuses for a proxy the OpenCodex desktop app runs, which the app would start again: use the app's tray **Stop proxy** or **Quit** there. |
 
 If some usage records cannot be included, the Usage page, Dashboard, provider workspace, provider
 catalog, and API key views show a warning even when no readable records remain. Counts, dates, and
@@ -365,7 +373,7 @@ The GUI is a thin client over the proxy's JSON management API. Useful endpoints 
 | `POST /api/codex-auth/login` · `GET /api/codex-auth/login-status` | Add a pool account through browser login. |
 | `GET /api/logs?tail=50&limit=20&offset=0&provider=...&status=5xx` | Read recent request metadata with optional tail, provider, and exact/class status filters. With `limit`/`offset`, paging walks backward from the newest row (`offset=0` returns the latest page). Response shape: `{ timeZone, generatedAt, total, logs }` where `total` is the filtered row count before pagination. |
 | `GET` / `PUT /api/subagent-models` | Read or set the five featured `spawn_agent` override models. |
-| `POST /api/stop` | Stop the proxy/service, restore native Codex, and exit. Refused with `respawnable_service` on the Windows Task Scheduler backend, with `self_unload_service` when this proxy is itself the installed launchd/systemd job, and with `service_state_unknown` when the Task Scheduler state cannot be read; nothing is changed in any of those cases. |
+| `POST /api/stop` | Stop the proxy/service, restore native Codex, and exit. Refused with `respawnable_service` on the Windows Task Scheduler backend, with `self_unload_service` when this proxy is itself the installed launchd/systemd job, and with `service_state_unknown` when the Task Scheduler state cannot be read; nothing is changed in any of those cases. A dashboard session is also refused, with `desktop_supervised`, while the OpenCodex desktop app runs the proxy. |
 
 :::tip
 Adding **Ollama Cloud** or another catalog provider from the dashboard copies its text-versus-vision
@@ -382,3 +390,9 @@ While browser authentication is pending, the dashboard does not recommend restar
 ### Usage chart keyboard and touch controls
 
 Usage heatmap days have one Tab entry point. Use Up/Down for adjacent days and Left/Right for adjacent weeks. Weekly bars expose the same day details on keyboard focus, pointer hover, or touch. Day labels include the date, request count, and token count; tooltip overlays stay within the viewport.
+
+### Claude
+
+The **Claude** sidebar page sits directly below **Codex**. One header and tab strip stay in place while you switch tabs, ordered Account, Code, Desktop, Settings. The Account tab shows what the Anthropic provider's **Accounts** tab shows on **Providers**: login, the browser option, the Claude account roster with switch, pause, remove, and reauthentication, the paste-code field, account pool settings, and quota. Provider-level controls such as the default provider, removal, and the enabled switch stay on **Providers**. When Anthropic is not configured, **Add Anthropic** starts Claude sign-in directly, after the same risk notice the Add provider dialog shows. Opening Claude without a tab selects Account when Anthropic is configured, otherwise Code. Code holds the Claude connection switch; Settings shows that connection as On or Off, interception as Running or Stopped, and the intercept port. When interception is stopped, Settings shows why and offers **Start interception**, which starts it in place without restarting OpenCodex. On Desktop, one status row shows whether Claude Desktop runs the profile and whether it is saved, with Save and Save & apply beside it. Compatibility, agent instructions, and context controls remain on Code.
+
+Bookmarks select a tab directly: `#claude/account`, `#claude/code`, `#claude/desktop`, and `#claude/settings`. The former `#integrations/claude` and `#integrations/claude/desktop` bookmarks redirect to Code and Desktop. Arrow keys move between tabs; Home and End select the first and last tab.

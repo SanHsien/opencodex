@@ -16,6 +16,44 @@ Codex Spark exception; standalone Images retain the separate relay contract belo
 
 Shared parsing and streaming follow the [request-copy](../transports/byte-accounting.md#request-copy-accounting) and [stream-buffer accounting](../transports/byte-accounting.md#stream-buffer-accounting) contracts. Response-attached WebSocket telemetry follows the [stage record identity contract](../transports/responses-wire-shapes.md#passthrough-sse-stream-shapes-314).
 
+## Hosted Responses image display
+
+For loopback-admitted Codex Responses clients,
+`src/server/responses-hosted-image-display.ts` projects hosted `image_generation_call`
+results into assistant messages with `phase: final_answer` and Markdown links to local
+artifacts. The final phase keeps the image outside collapsible progress output.
+`src/server/responses/passthrough-delivery.ts` applies this projection after continuation
+observers, on the client branch only, for SSE, JSON and JSON synthesized into SSE.
+The SSE projection emits consistent message lifecycle events and terminal snapshots,
+suppresses replaced hosted-image progress frames, and adjusts numeric sequence numbers
+for inserted or removed events, identically in both relay shapes.
+Hosted items in the continuation cache retain their upstream representation; other
+client rewrites keep their existing cache policy. Generic, remotely admitted and non-Responses
+clients do not receive this filesystem projection. Individual image item events without
+a string item id or a valid non-negative integer output index pass through without
+allocating display state, so unidentified items cannot collide at a synthetic index.
+
+Full-history assistant messages can replay the display Markdown without their generated
+item ids. At Responses request preparation and at the remote compaction handler
+(`src/server/responses/compact.ts`), exact generated links become opaque artifact HTTP
+references before routing, helper dispatch and the upstream compact request. A link
+matches when its target, as a plain path or `file://` URL with either separator and dot
+segments resolved, names an `img-codex-<uuid>` image directly inside the current
+artifact directory; on macOS and Windows the comparison also ignores letter case. This
+does not read files and still applies after artifact pruning; unrelated paths, nested
+directories, user messages and tool payloads retain their original content. Local display
+uses filesystem links because remote Markdown media has a separate client safety gate;
+HTTP references here are for upstream context, not a claim of desktop HTTP rendering.
+
+Image data must pass the shared base64, format and byte-budget checks in
+`src/images/artifacts.ts`. Files use random names, exclusive creation and mode 0600;
+the artifact directory uses mode 0700 on creation. Per-response display state is capped
+at 128 image items, with the existing 50 MiB per-image and 100 MiB aggregate decoded
+limits. Exceeding the item cap returns HTTP 502 before streaming or a failed SSE
+terminal after streaming has started. Retention runs after the batch. Failed or invalid results produce a bounded
+display message without reflecting payloads or filesystem errors. URL results and
+partial-image previews are not downloaded or rendered by this projection.
+
 ## Standalone Images
 
 Codex's local `image_gen.imagegen` tool makes a second Images request after the model calls it:
@@ -33,7 +71,8 @@ one upstream attempt; client cancellation aborts the upstream and pool-only fail
 existing account-health state. Unknown Images subpaths still reach the JSON `/v1/*` 404 guard.
 
 When the OpenAI credential path is unavailable or its authentication fails, `generations` (not
-`edits`) may fall back to Google Antigravity if that provider is logged in. The fallback is
+`edits`) may fall back to Google Antigravity if that provider has an unpaused account. A paused
+active account returns an operator-actionable 403 `permission_error` and is not treated as a login failure. The fallback is
 credential-driven: it exists so an image request reaches a real upstream answer rather than dying on a
 local credential error, and it does not apply when the caller selected an explicit keyed custom
 provider, because a configured pool owns its own authentication failure rather than hiding it behind
@@ -42,7 +81,11 @@ separately billed generation.
 On non-loopback binds, data-plane authentication and origin policy cover both Images routes. An
 explicit keyed Images provider accepts the proxy admission secret as either an OpenAI-style bearer
 or `x-opencodex-api-key` because the provider key replaces caller authorization before fetch. The
-ChatGPT forward path still requires the dedicated header so its upstream bearer remains distinct.
+ChatGPT Direct path still requires the dedicated header so its caller-owned upstream bearer remains
+distinct. A proxy admission bearer leaves managed Pool eligible: Pool replaces it with its stored
+credential, while Direct cannot forward it. A selected Pool authentication failure remains its own
+error rather than falling through to a separately billed keyed provider. The outbound Images send
+has one selected Authorization value, validated before the non-idempotent upstream POST.
 The keyed path never enters `handleResponses`, so `src/server/images.ts` repeats
 `selectProactiveApiKeyTransport` inside the keyed branch and rebuilds Authorization from the
 returned clone rather than the earlier snapshot.
@@ -52,8 +95,11 @@ on: the ChatGPT forward account, the keyed provider, the xAI Imagine bridge, or 
 fallback. It is evaluated against that destination rather than the selector in the body, because
 the bridge and the fallback choose their own model, and a body that names no model cannot satisfy
 a model list. A refusal is the same 403 the scope returns on the routed path, and a key with no
-scope reaches every destination as before. Coverage lives in
-`tests/server/api-key-scope-images.test.ts`.
+scope reaches every destination as before. Forward candidates are filtered by that scope before any
+stored Pool credential is resolved, refreshed or leased, so a forbidden key never reaches account
+state; when no allowed destination remains, the 403 wins over the generic configuration 400.
+Coverage lives in `tests/server/api-key-scope-images.test.ts` and
+`tests/server/server-images-pool-admission.test.ts`.
 
 The API-key `openai-responses` path also adapts Codex's private standalone image tool to the public
 Responses tool surface. A complete `image_gen` namespace is lowered to safe

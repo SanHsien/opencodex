@@ -7,11 +7,13 @@ import { legacyCustomModelCatalogSlugs } from "../custom-model-catalog-migration
 import { getCodexHome } from "../paths";
 import type { OcxConfig } from "../../types";
 import { pendingModelSelectionProviders } from "../../providers/initial-model-selection";
+import { captureModelDiscoveryBaseline, finalizeModelDiscovery } from "../../providers/new-model-policy-runtime";
 import { OPENAI_CODEX_PROVIDER_ID } from "../../providers/openai-tiers";
 import { providerCodexAccountMode } from "../../providers/registry";
 import { COMBO_NAMESPACE } from "../../combos";
 import { codexAccountNamespaceEntries, isMainCodexAccountTarget } from "../account-namespaces";
 import { MAIN_CODEX_ACCOUNT_ID } from "../main-account";
+import { applyNativeAccessPrograms } from "./access-programs";
 import {
   availableAccountGatedNativeModels,
   codexModelEntitlementStateForAccount,
@@ -266,6 +268,7 @@ function catalogModelsForMergeWithNativeRecovery(
   ]);
 }
 
+/** Merge retained rows, project confirmed account metadata, and publish only changed catalog bytes. */
 function writeRetainedCatalogSync({
   config,
   goModels,
@@ -526,6 +529,7 @@ function writeRetainedCatalogSync({
       warningPolicy: "emit",
     },
   });
+  applyNativeAccessPrograms(catalog.models, modelEntitlements, accountTargets);
   clampCatalogModelsToCodexSupport(catalog.models);
   finalizeAutoReviewModelOverride(catalog.models, catalogModelsForMerge, config);
   // Last mutation before serialization; see `enforceCatalogSlugUniqueness` for why the ordering
@@ -599,10 +603,13 @@ export async function syncCatalogModels(
     evidence: retainedCatalogSyncEvidence(config, preflightRead.catalogPath, preflightRead.catalog),
     processEvidence: retainedCatalogProcessEvidence(),
   };
+  const discoveryBaseline = captureModelDiscoveryBaseline(config);
+  const providerContentRevisions = new Map<string, string>();
   const [goModels, modelEntitlements] = await Promise.all([
     gatherRoutedModels(config, {
       comboOmissions,
       providerModelOutcomes,
+      providerContentRevisions,
     }),
     resolveAdmittedCodexModelEntitlements(config),
   ]);
@@ -626,6 +633,11 @@ export async function syncCatalogModels(
     const current = revalidateRetainedCatalogSync(config, prepared);
     if (current === null) return null;
     if (!isCodexModelEntitlementSnapshotCurrent(modelEntitlements)) return null;
+    // Revalidate before adopting discovery: its scoped config mutation would otherwise
+    // invalidate our own evidence. K -> C is the catalog/config lock order.
+    if (!finalizeModelDiscovery(config, discoveryBaseline, goModels,
+      providerModelOutcomes.filter(outcome => outcome.state === "authoritative").map(outcome => outcome.provider),
+      providerContentRevisions)) return null;
     return writeRetainedCatalogSync({
       config,
       goModels,

@@ -120,6 +120,10 @@ export interface CatalogGatherProviderModelOutcome {
 export interface ModelsAuthResolution {
   readonly apiKey: string | undefined;
   readonly observed: boolean;
+  readonly oauthAccountId?: string;
+  /** Upstream user id carried by the OAuth snapshot (Zed); distinct from the store slot id. */
+  readonly oauthProviderUserId?: string;
+  readonly oauthGeneration?: string;
   readonly oauthApiBaseUrl?: string;
   readonly oauthProjectId?: string;
 }
@@ -415,6 +419,7 @@ export function captureProviderGather(
     finalMethod: request.method,
     finalUrl: request.url,
     filter: capturedField(discovery.spec, "filter"),
+    preferFirst: capturedField(discovery.spec, "preferFirst"),
     maxResponseBytes: discovery.maxResponseBytes,
     maxModels: discovery.maxModels,
     trustedOpenAiApi,
@@ -444,7 +449,9 @@ export function captureGatherFlight(
   const authResolver = createAuthResolver(providerAuthOutcomes);
   const comboTargetsByProvider = configuredComboTargetModelsByProvider(config);
   const providers = Object.entries(config.providers)
-    .filter(([, provider]) => provider.disabled !== true)
+    // A decision service (canonical TypeSafe or a self-hosted `jev-decision` row) owns no model
+    // transport: never probe its endpoint for /models and never publish its model id as routable.
+    .filter(([, provider]) => provider.disabled !== true && provider.adapter !== "jev-decision")
     .map(([name, provider]) => captureProviderGather(
       name,
       provider,
@@ -531,6 +538,7 @@ function providerCatalogFingerprint(name: string, prov: OcxProviderConfig): Reco
     defaultModel: prov.defaultModel ?? null,
     ctx: prov.contextWindow ?? null,
     ctxW: prov.modelContextWindows ?? null,
+    ctxTier: prov.modelContextTiers ?? null,
     maxIn: prov.modelMaxInputTokens ?? null,
     maxOut: prov.modelMaxOutputTokens ?? null,
     autoCompact: prov.modelAutoCompactTokenLimits ?? null,

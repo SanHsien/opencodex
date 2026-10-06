@@ -1,5 +1,7 @@
 # Docs And Release
 
+The activation scheduling contract is covered by `tests/codex-integration/codex-quota-auto-refresh.test.ts`, including restart recovery and bounded retries. See the [quota activation contract](../providers/openai-tiers.md#public-provider-contract).
+
 Automatic package-tree restart holds a releasable data-plane drain until its scheduled
 service-home check succeeds. A veto releases that fence; a committed shutdown uses the
 permanent drain latch.
@@ -84,7 +86,7 @@ Manual navigation is defined in `docs-site/astro.config.mjs`. When adding a publ
 sidebar and either add localized copies or intentionally accept Starlight fallback behavior.
 
 Provider preset totals are recounted from the current registry when a preset lands. The
-documented split is 99 total: 82 key-based, 13 OAuth, three local, and one default
+documented split is 102 total: 84 key-based, 14 OAuth, three local, and one default
 ChatGPT-forward preset. The English provider guide, all seven translated copies, and all eight
 quickstarts carry the same counts.
 
@@ -180,9 +182,37 @@ Those controls still have no owner, so there is no image-publish workflow or off
 
 ## Windows service wrapper and incomplete updates
 
+The scheduler wrapper retries child exits, including zero, after five seconds. Only the
+opt-in CLI stay-out code ends it successfully; missing Bun/CLI paths still exit with
+installation error 3. Explicit service stop terminates the wrapper itself.
+Before launching, the wrapper applies the bundled-Bun size gate (`REAL_BUN_MIN_BYTES`). An
+in-place npm install extracts `bun/bin/bun.exe` as a small placeholder and replaces it only when
+bun's postinstall runs later; executing the placeholder exits 216 and, interactively, raises a
+modal 16-bit dialog. A Bun file below the gate, or one whose size cannot be read because it
+vanished after the exist check, logs `bundled Bun is not ready` and is re-checked every five
+seconds without being executed, so the service starts once the postinstall lands. A Bun path
+that is already missing at the exist check keeps the unchanged `bun_missing` path: backup
+restore, then installation error 3. If the postinstall never runs (scripts blocked), the
+wrapper keeps waiting and logging; reinstalling with `--allow-scripts=bun` (or running the
+package's `bun/install.js`) is the recovery, and the next pass starts without a service repair.
+Timestamp expansion in the scheduler wrapper stays outside parenthesized batch
+blocks so locale dates containing parentheses cannot abort prelaunch checks or
+transactional-backup recovery. Delayed expansion stays disabled to preserve
+exclamation marks in paths. Recovery logs a fixed success message without expanding
+the filesystem-derived backup directory name into a command.
+`src/service/windows-wrapper-exit.ts` defines the opt-in contract: new wrappers set
+`OCX_WINDOWS_WRAPPER_PROTOCOL=1`, and all three CLI live-owner exits return 42 in that
+service context. The wrapper translates 42 into a successful exit; legacy service
+contexts retain exit 0.
+
 > Decision record: [ADR-0082](../decisions/ADR-0082-windows-service-wrapper-and-incomplete-updates.md)
 
 ## GitHub workflow map
+
+The PR-target resolver accepts commit-index candidates only when their base repository's
+owner and name match the workflow repository. Foreign or incomplete fork-network entries
+cannot supply a write-job PR number. If no unique local current-head candidate remains,
+the existing repository-scoped open-PR lookup runs; absent or ambiguous matches emit no identity.
 
 | Workflow | Trigger | Purpose |
 | --- | --- | --- |
@@ -316,6 +346,8 @@ Invariants:
 - `bin/ocx.mjs` resolves the bundled binary via `require.resolve("bun/package.json")` and a size gate
   (`>= 1 MB`) that rejects the ~450-byte placeholder stub left by `--ignore-scripts`/pnpm; it then
   lazy-runs `install.js` and execs `src/cli/index.ts` under Bun, propagating exit code and signal.
+  The Windows service wrapper applies the same gate before each launch and waits on a placeholder
+  instead of executing it ([Windows service wrapper](#windows-service-wrapper-and-incomplete-updates)).
 - `package.json` carries `"trustedDependencies": ["bun"]` so `bun install` runs the dependency's
   postinstall, and `"engines": { "node": ">=18" }` (Bun is no longer a user prerequisite).
 - The plain-Node launcher owns `OPENCODEX_BUN_PATH` selection before Bun can load project dotenv and
@@ -337,6 +369,22 @@ is polled until readable and then receives a fresh full stability interval, whil
 startup identity cancels the pending restart. Failed restart admission retries after the same
 bounded delay. Stopping the server before the accepted restart begins vetoes it, and a service child
 restarts only while it still owns the service home. Source checkouts and standalone binaries remain outside this fence.
+
+mise installs every version in its own directory and repoints a floating link, so `mise upgrade`
+never changes the manifest the fence watches: the proxy would keep serving the old version, and once
+mise pruned it the fence would report the tree unreadable and refuse traffic without restarting.
+`src/update/mise-launcher-target.ts` therefore plans a launcher watch, and
+`src/lib/package-tree-retarget.ts` runs it, only for the managed Linux service
+(`OCX_SERVICE_MANAGED=1`) of a verified mise owner whose recorded launcher is that tool's
+`<selector>/node_modules/.bin/ocx`, and only when that launcher resolves to the running package at
+boot. Shims, other layouts, launchd (which pins package paths) and foreground proxies are not
+followed. The watch re-resolves the launcher on its own unref'd timer, so an idle service notices an
+upgrade without a request. One complete target identity, canonical package root plus manifest
+identity, must hold for the settle interval; a change to either, an unresolvable target, a target
+outside the tool root, or a return to the running root restarts the wait. It then enters the same
+restart handler as the fence without fencing requests, retries a refused admission after another
+full interval, and reports the settled target's version as `installedVersion` when the fence has
+none. The replacement boots from the target, so it never restarts again.
 
 The fence withholds readiness, never identity (INV-FENCE-01). The fenced `/healthz` still answers a
 local attestation challenge and reports `restartCapability`, plus the `installedVersion` on disk
@@ -372,7 +420,11 @@ working tree and pins that wiring.
 
 The `package-standalone` job in `.github/workflows/release.yml` also builds Bun compiled
 `ocx` archives for Linux, macOS, and Windows, bundles `gui/dist`, smoke-tests `/healthz`, and
-publishes SHA-256 sidecars for the attach job.
+publishes SHA-256 sidecars for the attach job. Each archive also carries the target-matching
+`@napi-rs/keyring` native addon under `keyring/`; the macOS release installs both optional Darwin
+packages so its separate arm64 and x64 builds cannot silently reuse the hosted runner's
+architecture. Desktop preparation copies those same pinned assets into Tauri resources. The loader
+and packaged-app proof are owned by the [desktop keyring contract](../desktop-shell.md#packaged-native-keyring-binding).
 
 Opening a release starts with the `dev` pre-move. Dispatch
 `.github/workflows/dev-version-bump.yml` with the intended version, merge the pull request it opens,

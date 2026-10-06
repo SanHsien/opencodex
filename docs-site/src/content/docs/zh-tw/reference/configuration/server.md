@@ -14,7 +14,7 @@ description: 監聽器、遠端存取、許可金鑰、逾時、儲存、sidecar
 | `proxy?` | `string` | — | 對外 HTTP(S) 或 SOCKS5 代理 URL（`socks5://host:port`）或 `${ENV_VAR}`。HTTP URL 僅在那些變數未設定時套用至 `HTTP_PROXY` / `HTTPS_PROXY`。SOCKS5 URL 使用內建的真實 SOCKS5 通道，也會套用至 `ALL_PROXY`（`ocx start --socks5`），並清除此行程繼承的 `HTTP(S)_PROXY`。回送保留在 `NO_PROXY` 中。 |
 | `emptyCompletionRetry?` | `boolean` | `false` | 明確啟用：當 Responses 完成時沒有文字或工具呼叫，以相同請求重試一次。重試可能產生費用。`OCX_EMPTY_COMPLETION_RETRY=0` 可在不變更設定的情況下停用；combo 與 routed-compaction turn 不適用。 |
 | `dropCodexSafetyBuffering?` | `boolean` | `false` | 從規範的 Codex Responses 透傳中移除選用的、面向客戶端的提示：兩個 `x-codex-safety-buffering-enabled` / `x-codex-safety-buffering-faster-model` 回應標頭、中繼資料類型為 `safety_buffering` 的 `response.metadata` 事件，以及頂層的 `safety_buffering` 欄位。其他標頭、回應資料、政策拒絕與失敗都會保留。這不會停用供應商的安全機制或上游緩衝。原生的 `codex.response.metadata.headers` WebSocket 中繼資料與 `/responses/compact` 不受此過濾影響。 |
-| `stallTimeoutSec?` | `number` | `300` | 上游無有效進展的秒數，適用於 Responses 與原生 Chat；最小 1 秒。 |
+| `stallTimeoutSec?` | `number` | `300`（public）/ 停用（local） | 上游無有效進展（Responses 與原生 Chat）多少秒後切斷串流。未設定時**本地**上游（loopback、private、`.local`/`.lan` 名稱）預設停用，公網上游預設 300 秒；正值對兩者生效（最小 1 秒）；`0` 全面停用靜默 watchdog。對於把 canonical ChatGPT SSE 折疊為非串流 JSON 的 Responses 請求，即使 watchdog 已停用，仍保留獨立的 15 分鐘整體上限。`/v1/responses/compact` 的擱置回應本文讀取共用此預算，但即使本地上游也預設 300 秒；明確值（含 `0`）優先。 |
 | `oauthOpenBrowser?` | `boolean` | `true` | 登入是否可以在執行 proxy 的機器上開啟瀏覽器。缺省與 `true` 都會開啟，所以既有安裝不受影響；只有明確的 `false` 才會拒絕。當你需要在不同的瀏覽器設定檔中開啟授權連結，或儀表板不在 proxy 所在機器上時，請選擇拒絕——登入仍會開始，URL 仍會被回傳並顯示。`POST /api/oauth/login` 與 `POST /api/codex-auth/login` 接受可覆寫此設定的逐請求 `openBrowser` 布林值，儀表板也在登入按鈕旁提供相同選項。裝置碼流程無論如何都不會開啟瀏覽器。 |
 | `connectTimeoutMs?` | `number` | `200000` | 每次嘗試的 DNS/TCP/TLS/final-header 截止時間；它在 body 生成前結束。 |
 | `shutdownTimeoutMs?` | `number` | `5000` | 在中止活躍回合前的優雅排空截止時間。 |
@@ -322,6 +322,27 @@ redirect URL，或授權碼，貼進 OpenCodex。等待中的流程會保留 sta
 目前還沒有對應的儀表板控制項；請在 `config.json` 中設定，或使用
 `ocx config set usageLedgerMaxBytes <bytes>`。
 
+## Catalog 自動更新（`catalogAutoRefresh`）
+
+當 OpenCodex 管理你的本機 Codex 用戶端時預設啟用：該區段或 `enabled` 可以不存在。Proxy 每 60 分鐘更新一次它的模型目錄，並在啟動後約三分鐘進行一次初始更新。當 Codex 整合被關閉，或這個實例以 hub 身分執行或與另一個存活的 proxy 並存時，背景更新只在明確的 `"enabled": true` 下執行，而且絕不讀取 Codex 來源。
+
+```json
+{
+  "catalogAutoRefresh": { "enabled": true, "intervalMinutes": 60 }
+}
+```
+
+| 欄位 | 預設值 | 意義 |
+| --- | --- | --- |
+| `enabled` | `true` | 設為 `false` 以停用自動更新。 |
+| `intervalMinutes` | `60` | 更新週期；低於 15 的正值會被夾限為 15。`0` 停用更新。 |
+
+每次更新都會觀察所選 Codex runtime 內附的目錄，再暖機已認證的 Codex 模型清單，然後才收斂所提供的清單。來源失敗會使用既有的證據，並在之後的週期重試。週期與啟用的編輯，會在後續的週期生效。
+
+你的 ChatGPT 帳號的 Codex 清單中列出、但這個 OpenCodex 版本尚不認識的原生 OpenAI 模型，會以上游為它發布的中繼資料（名稱、reasoning 等級、上下文視窗）加入。OpenCodex 會把這類模型記在它 home 目錄中的 `discovered-native-models.json`，並忘記 14 天沒有再看到的項目。之後帶有該模型的版本會接手它的列。
+
+執行中的 Codex session 會保留記憶體內的模型清單。當 Codex app-server 正在執行、而提供的集合改變時，proxy 會記錄重新啟動的提示，並在它的自動更新狀態中記下 `reloadRequired`。準備好重新啟動那些 session 時，請執行 `ocx sync --restart-codex`。自動更新絕不會重新啟動它們。
+
 ## 配額重置通知（`quotaResetNotify`）
 
 預設關閉。當這個區塊缺席時，不會執行偵測、不會啟動計時器，也不會寫入任何狀態檔案。
@@ -521,6 +542,27 @@ OpenCodex 只會變更帶有明確 `request_kind: "compaction"` 中繼資料、�
 OpenCodex 會改用可攜式摘要器，這樣當對話在自己的模型上恢復時摘要仍可讀，且呼叫者的憑證不會
 跨到另一個供應商。所選模型必須支援輸入大小與內容。手動編輯 `config.json` 後請重啟代理。
 儀表板儲存會立即套用。
+
+## 記憶體路由
+
+在 **Dashboard → Overview → Memory routing** 中，為 Codex 的兩個記憶體階段各自選擇一個模型與選用的 reasoning effort，然後按 **Save**。選擇 **Off** 並儲存即可移除覆寫。變更會套用到下一個記憶體請求，不需要重新啟動 proxy。
+
+在 OpenCodex 的 `config.json` 中設定 `memoryModels` 以路由那些請求。省略這個區塊時，兩個階段都保持它們既有的路由。兩個階段彼此獨立：設定其中一個不會動到另一個。
+
+```json
+{
+  "memoryModels": {
+    "extract": { "model": "provider/model-id", "reasoningEffort": "low" },
+    "consolidation": { "model": "provider/model-id", "reasoningEffort": "medium" }
+  }
+}
+```
+
+`extract` 是把單一已結束的 session 摘要成原始記憶的階段；`consolidation` 是把那些原始記憶合併進 `$CODEX_HOME/memories` 底下檔案的單次代理執行。`model` 接受原生模型 ID、帶供應商前綴的模型 ID，以及已設定的 combo。`reasoningEffort` 是選用的；省略它就保留 Codex 所要求的 effort。支援的宣告有 `none`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max` 與 `ultra`。Codex 對 extract 寫死 `low`，對 consolidation 寫死 `medium`，所以設定的 effort 會取代那個值。
+
+OpenCodex 從 Codex 自己的回合中繼資料辨識這些請求：`x-codex-turn-metadata` 標頭中的 `request_kind: "memory"` 標示 extract 階段，而 `thread_source: "memory_consolidation"` 標示 consolidation 對話串。在 HTTP 上，`x-openai-subagent` 標頭指名 `memory_consolidation` 的請求，只有在回合中繼資料缺席時才算 consolidation 階段。明確的非記憶體中繼資料優先於這個後備。模型 id 刻意不是訊號：extract 階段與 Codex 用於標題與 commit 訊息的是同一個 helper 模型，所以以模型為基礎的規則也會捕捉到一般的 helper 呼叫。缺少、格式錯誤或互相矛盾的中繼資料不會啟用覆寫；提供多份中繼資料時，它們必須指名同一個階段。WebSocket 請求使用每個 frame 的中繼資料，而不是連線稍早握手時的中繼資料——橋接會把握手的 `x-openai-subagent` 標頭重新附加到每個 frame，所以那個標頭指名的是連線，而不是目前的階段，也不是 websocket 的訊號。
+
+當 `shadowCallIntercept` 會比對到同一個請求時，已設定的階段優先。關閉的階段保持它目前的路由，包括任何比對到它模型的既有 shadow-call 規則。所選模型的供應商會收到 Codex 為記憶體所摘要的 session 文字，包括通常在另一個供應商上執行的 session；儀表板面板會在模型選擇器旁邊說明這點。目標不再能解析的階段——供應商被停用或刪除，或它的 combo 不再存在——會以 `409` 與錯誤碼 `memory_model_target_unavailable` 讓該記憶體呼叫失敗，而不是退回預設供應商。請求記錄會把階段（`memory-extract` 或 `memory-consolidation`）列為路由原因。手動編輯 `config.json` 後請重新啟動 proxy。儀表板儲存會立即套用。
 
 ## Shadow call
 

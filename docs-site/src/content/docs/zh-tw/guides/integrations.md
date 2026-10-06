@@ -1,9 +1,9 @@
 ---
 title: 整合
-description: 從儀表板把 opencodex 連接到 OpenCode、Pi、OMP、Hermes、OpenClaw、Kimi Code、gjc、DeepSeek Harness、MiniMax Code、ZCode、Prime Agent、Aside、Raycast、omo 與 Cline CLI——每個客戶端一個開關，每次寫入前都會先備份。
+description: 從儀表板把 opencodex 連接到 OpenCode、Pi、OMP、Hermes、OpenClaw、Kimi Code、gjc、DeepSeek Harness、MiniMax Code、ZCode、Prime Agent、Aside、Raycast、omo、Cline CLI、Kilo 與 Factory Droid——每個客戶端一個開關，每次寫入前都會先備份。
 ---
 
-**整合（Integrations）** 分頁會把 opencodex 的 provider 區塊寫入客戶端自己的設定檔，也會把它移除。共有十五個客戶端以這種方式運作，每個都有一個開關：
+**整合（Integrations）** 分頁會把 opencodex 的 provider 區塊寫入客戶端自己的設定檔，也會把它移除。共有十七個客戶端以這種方式運作，每個都有一個開關：
 
 | 客戶端 | 設定檔 | 格式 | 變更生效時機 | 憑證 |
 |---|---|---|---|---|
@@ -22,6 +22,8 @@ description: 從儀表板把 opencodex 連接到 OpenCode、Pi、OMP、Hermes、
 | Raycast | `~/.config/raycast/ai/providers.yaml` | YAML | 儲存後立即生效——Raycast 會監看該檔案 | 無——僅限 loopback |
 | omo | `~/.omo/agent/models.json` | JSON | 新工作階段 | loopback 佔位符 |
 | Cline CLI | `~/.cline/data/settings/providers.json` 及同層的 `models.json` | JSON 組 | 結束並重新啟動 Cline 後 | loopback 佔位符 |
+| Kilo | `~/.config/kilo` 下最先存在的 `kilo.jsonc`、`kilo.json`、`opencode.jsonc`、`opencode.json` 或 `config.json`（`XDG_CONFIG_HOME` 會移動該目錄；若都不存在則建立 `kilo.jsonc`） | JSONC | 新工作階段 | `OPENCODEX_KILO_API_KEY` |
+| Factory Droid | `~/.factory/settings.json` (`%USERPROFILE%\.factory\settings.json` Windows 上) | JSON | 檔案變更時立即生效 | 無金鑰迴環 |
 
 產生的目錄只包含每個 provider 選擇中已啟用的模型。這適用於下載檔案，也適用於受管理整合，
 包括 Pi 與 Aside。管理端的模型清單仍會顯示完整名單，方便你啟用更多模型。
@@ -43,6 +45,8 @@ modelProfile:
 所以兩者都會寫入並保持同步；它們指名相同的 provider 與 model id，opencode V2 會把它們合併
 成一個 provider 項目。Apply、Refresh、Disable 與 Restore 會同時作用於這兩個片段，你的其他
 provider、agent、按鍵綁定與 MCP 項目都不會被動到。
+
+具有受支援推理強度階梯的 GJC 模型會匯出 `reasoning: true`、`thinking.levels` 與 `compat.supportsReasoningEffort`，讓 GJC 提供強度選擇。原生 Codex 模型即使未在目錄中列出階梯，也會取得標準階梯。沒有已知階梯的模型會省略這些欄位；`none` 不傳送強度，`ultra` 在傳輸時會折疊成 `max`，因此不會列為選項。重新整理整合即可更新模型選項。
 
 受管理 DSH 支援的相容性下限是 **DSH 0.1.0-rc.6**。OpenCodex 只擁有
 `llm-pi-ai.providers.opencodex`：Apply 與 Refresh 會取代該片段，Disable 只移除該片段，
@@ -349,8 +353,6 @@ Undo 會還原**兩個檔案原本的位元組字串**，包括原本就不存�
 `catalog` 對應 `models.json`。它本身不是一個 Cline 設定檔。建議優先使用整合指令，以取得
 有日誌記錄的合併與回復能力。這個產生出來的整合不支援遠端准入連線；它需要無驗證的
 loopback 存取。
-</content>
-
 ## GitHub Copilot App
 
 GitHub Copilot 桌面應用程式可以把 opencodex 當作相容 OpenAI 的模型供應商。這是手動的客戶端
@@ -384,3 +386,48 @@ API key 欄位填入資料准入金鑰（見[遠端存取](/zh-tw/reference/conf
 所述的 token，或儀表板產生的 `ocx_…` 金鑰）。應用程式會以 `Authorization: Bearer` 送出，
 `/v1/chat/completions` 會將其視為代理准入，絕不會轉發給上游；請見
 [認證矩陣](/zh-tw/reference/proxy-formats/#認證矩陣)。
+
+## omo（Codex / LazyCodex）角色模型
+
+安裝 LazyCodex 後，Codex 分頁會顯示一個 **omo (Codex / LazyCodex)** 區段，列出 `$CODEX_HOME/agents/*.toml` 中找到的每個 Codex 代理角色，以及各自釘選的模型。不論父層要求哪個模型，Codex 都會用該釘選執行角色，所以這裡才是真正決定角色模型的地方。當 `omo@sisyphuslabs` Codex 外掛在 `$CODEX_HOME/config.toml` 中被啟用，且 `$CODEX_HOME/plugins/cache/sisyphuslabs/omo/` 底下的已安裝副本帶有它的 `lazycodex-install.json` 時，LazyCodex 才算已安裝。單單一個 `~/.omo` 資料夾不算，因為以 Pi 為基礎的 omo 也會建立它。沒有 LazyCodex 時，該區段會隱藏，而命令列會回報它未安裝。在某一列選擇模型並按 Save：
+
+- opencodex 只改寫該角色檔案根層級的 `model = "..."` 那一行。角色的指示、註解與其他鍵都保持原樣。沒有釘選的角色會在檔案靠近開頭處新增一個。
+- 相同的值會寫入 `~/.omo/omo.jsonc` 中的 `codex.agents.<role>.model`，這是 LazyCodex 5.1.1 與更新版本會讀取的位置。如果該檔案不存在，不會建立它。如果它含有註解，就維持原樣不動，因為儲存會移除它們；分頁會說明這點，你可以自己在那裡設定該值。
+
+在你按下 Save 之前什麼都不會發生；同步或重新啟動 opencodex 絕不會改變角色檔案。新的 Codex session 會取得變更。命令列上有相同的控制：
+
+```bash
+ocx agent roles
+ocx agent roles set explorer xai/grok-4.5
+```
+
+### 自動指派
+
+自動指派是 omo（Codex / LazyCodex）的一部分：它位於該區段中角色表的上方，且只在偵測到 LazyCodex 時才存在。沒有它時，儀表板兩者都不顯示，API 回應 409 `lazycodex_not_detected`，而 `ocx agent roles suggest` 會被拒絕。
+
+自動指派會一次為每個角色建議模型。opencodex 向你的預設 Codex 模型（Codex `config.toml` 中的根層級 `model`）問一個問題：針對每個角色，根據它的描述與指示的開頭，它需要哪個能力層級（fast、standard 或 frontier），以及多少推理（glance、measured、thorough 或 exhaustive）？那個模型絕不會挑選模型。接著 opencodex 會從你的選擇器清單中，挑出達到該層級的最便宜模型：
+
+- 列在 opencodex 設定中 `codexRoleTiers`（`{ "fast": [...], "standard": [...], "frontier": [...] }`）之下的模型，屬於該層級。
+- 其他有已知價格的模型依價格排序，並平均分到三個層級。只有一兩個有價格的模型時，最貴的是 frontier，另一個（如果有）是 standard。
+- 沒有價格也沒有列出層級的模型絕不會被建議。把它們列出來就能納入。
+
+每項建議會顯示模型、層級、reasoning effort、一行理由，以及什麼會讓它上升或下降。模型無法清楚評估規模的角色會顯示為未評估，並附上原因，且不能套用。在你對某一列按 Apply 或按 Apply all 之前不會寫入任何東西。套用使用與手動挑選相同的儲存，且當檔案已經有 `model_reasoning_effort` 時也會改寫它。effort 會放在所選模型自己的等級上：它的最低、它的預設、比預設高一級，或它的最高。
+
+```bash
+ocx agent roles suggest
+ocx agent roles suggest --model xai/grok-4.5 --apply
+```
+
+## Kilo
+
+Kilo 只會把 `provider.opencodex` 寫入 `~/.config/kilo` 下最先存在的全域檔（`XDG_CONFIG_HOME` 會移動該目錄；若沒有任何候選檔則建立 `kilo.jsonc`）。若另一個候選檔也定義 `provider.opencodex`，狀態會回報衝突且套用會拒絕。其他鍵保持不變。套用會重寫整個檔案，因此不會保留註解與尾隨逗號。請在 Kilo 中選擇 `opencodex/<模型>`。
+
+即使其他候選檔發生衝突或無法剖析，停用仍可移除已記錄檔案中由 OpenCodex 管理的區塊；其他候選檔不會變動。
+
+```bash
+ocx integration client enable --client kilo
+```
+
+## Factory Droid
+
+Factory Droid 使用 `~/.factory/settings.json`（Windows 上為 `%USERPROFILE%\.factory\settings.json`）。使用 `ocx integration client enable --client droid` 明確啟用，然後在 `/model` 中選擇自訂模型。受管理的項目不含金鑰，且僅支援迴環連線。停用會移除受管理的項目；Undo 會還原儲存的原始位元組。如果舊版 `config.json` 含有 OpenCodex 項目，或 `settings.local.json` 覆寫了 `customModels`，請先解決衝突再啟用。請參閱 [Factory BYOK 文件](https://docs.factory.ai/model-independence/byok)。

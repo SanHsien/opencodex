@@ -27,6 +27,8 @@ export interface AccountRow {
   masked?: string;
   active: boolean;
   needsReauth?: boolean;
+  autoSelectable?: boolean;
+  skipReason?: "paused" | "needs_reauth" | "suspended" | "cooldown" | "quota_exhausted";
   selectionExcludedReason?: "plan_excluded";
   selectionExcludedPlan?: string;
   /** Registered credential that is still excluded from routing until validation completes. */
@@ -343,11 +345,21 @@ interface OAuthAccountDto {
   email?: string;
   active?: boolean;
   needsReauth?: boolean;
+  /** Present only for providers that support operator pause (generic OAuth pools). */
+  paused?: boolean;
+  autoSwitchThresholdOverride?: number | null;
+  autoSelectable?: boolean;
+  skipReason?: unknown;
   /** Always sent by the management route; explicitly `null` when the tier is unknown. */
   plan?: string | null;
   quota?: CodexQuotaDto | null;
   quotaUnavailable?: boolean;
   quotaFailure?: unknown;
+}
+
+function isKiroSkipReason(value: unknown): value is NonNullable<AccountRow["skipReason"]> {
+  return value === "paused" || value === "needs_reauth" || value === "suspended"
+    || value === "cooldown" || value === "quota_exhausted";
 }
 
 async function fetchOAuthRows(
@@ -376,6 +388,12 @@ async function fetchOAuthRows(
     email: a.email,
     active: a.active ?? a.id === activeId,
     needsReauth: a.needsReauth,
+    ...(a.paused === true ? { paused: true } : {}),
+    ...(name === "anthropic" && Object.hasOwn(a, "autoSwitchThresholdOverride") ? { autoSwitchThresholdOverride: a.autoSwitchThresholdOverride } : {}),
+    ...(name === "kiro" && typeof a.autoSelectable === "boolean"
+      ? { autoSelectable: a.autoSelectable } : {}),
+    ...(name === "kiro" && a.autoSelectable === false && isKiroSkipReason(a.skipReason)
+      ? { skipReason: a.skipReason } : {}),
     // Forward the server's answer verbatim. An absent key means the proxy predates tier
     // reporting while `null` means it checked and found no tier — collapsing either
     // direction would destroy the one distinction this field exists to make.

@@ -1,3 +1,4 @@
+import { clearIdleWindowSteering, pickIdleWindowAccount } from "./routing/idle-window";
 import { getEffectiveCodexAutoSwitchThreshold } from "./account-auto-switch";
 import { codexQuotaHasFreshUsage } from "./quota-observation-freshness";
 import { saveConfigPreservingClaudeCode } from "../config";
@@ -98,7 +99,7 @@ import {
   getPoolAccountPlanForSelection,
   hasCodexQuotaHeadroom,
   hasCodexSharedStateQuotaHeadroom,
-  isCodexAccountPlanExcluded,
+  isCodexAccountRotationExcluded,
   isCodexAccountSelectable,
   isHealthySharedCodexSelection,
   isUnknownUsage,
@@ -234,6 +235,7 @@ export function clearCodexUpstreamHealth(): void {
   // reset points. Leaving them behind lets a selection from one context suppress the
   // automatic cursor in the next one.
   clearAllManualPreferences();
+  clearIdleWindowSteering();
   clearUpstreamHealthState();
   forgetRuntimeActiveCodexAccount();
   // The reconcile watermark is part of this state, not something that outlives it. Keeping
@@ -291,7 +293,7 @@ function isTransientOnlyAffinityBlock(
   if (!isThreadAffinityGenerationLive(entry)) return false;
   if (hasUnrecoveredCodexQuotaRefusal(entry.accountId, quotaScope)) return false;
   if (isCodexAccountPaused(config, entry.accountId)) return false;
-  if (isCodexAccountPlanExcluded(config, entry.accountId)) return false;
+  if (isCodexAccountRotationExcluded(config, entry.accountId, now, selectionOptions)) return false;
   if (!isCodexAccountUsable(config, entry.accountId, selectionOptions)) return false;
   if (getCodexQuotaHealthSnapshot(entry.accountId, quotaScope, now) !== null) return false;
   if (isCodexQuotaAvoided(entry.accountId, quotaScope, now)) return false;
@@ -786,6 +788,10 @@ export function previewCodexAccountForRequest(
     if (lineagePreview) return lineagePreview.accountId;
   }
 
+  const idlePick = !entry && !peekPendingReleaseReason(threadId)
+    && !(threadId && getModelDetourAffinity(threadId, modelId, quotaScope))
+    ? pickIdleWindowAccount(config, threadId, now, false, quotaScope, selectionOptions) : null;
+  if (idlePick) return idlePick;
   const strategyPick = pickUnboundStrategyAccount(
     config,
     threadId,
@@ -806,7 +812,7 @@ export function previewCodexAccountForRequest(
     else if (
       hasConfiguredPoolAccount(config, active, selectionOptions)
       && !isCodexAccountPaused(config, active)
-      && !isCodexAccountPlanExcluded(config, active)
+      && !isCodexAccountRotationExcluded(config, active, now, selectionOptions)
     ) return active;
     else return null;
   }
@@ -881,6 +887,7 @@ export function resolveCodexAccountForThreadDetailed(
   // cold one: every branch that follows -- detour reuse, transient hold, quota re-eval --
   // should treat it as the continuing conversation it is. No-op on a fresh process.
   if (threadId) adoptLegacyLineageAffinity(threadId, lineage, now, quotaScope, modelId);
+  const hadModelAffinity = !!(threadId && getModelDetourAffinity(threadId, modelId, quotaScope));
 
   if (threadId && modelScopedSelection) {
     const detourEntry = getModelDetourAffinity(threadId, modelId, quotaScope);
@@ -1088,6 +1095,9 @@ export function resolveCodexAccountForThreadDetailed(
     }
   }
 
+  const idlePick = !entry && !releaseReason && !hadModelAffinity
+    ? pickIdleWindowAccount(config, threadId, now, true, quotaScope, selectionOptions) : null;
+  if (idlePick) return { status: "selected", accountId: idlePick, affinity: affinityAfterRelease(threadId, releaseReason) };
   // A request-scoped roster may still contain unhealthy candidates. Non-quota strategies return
   // before the quota/failover helpers below, so prefer only shared-healthy roster members here;
   // otherwise RR/fill-first can immediately re-pick a known failing account even when another
@@ -1180,7 +1190,7 @@ export function resolveCodexAccountForThreadDetailed(
     } else if (
       hasConfiguredPoolAccount(config, active, selectionOptions)
       && !isCodexAccountPaused(config, active)
-      && !isCodexAccountPlanExcluded(config, active)
+      && !isCodexAccountRotationExcluded(config, active, now, selectionOptions)
     ) {
       return { status: "selected", accountId: active, affinity: affinityAfterRelease(threadId, releaseReason) };
     } else {

@@ -12,7 +12,8 @@
     "doctor": "bun ../scripts/run-react-doctor.ts changed react-doctor@0.9.11",
     "doctor:full": "bun ../scripts/run-react-doctor.ts full react-doctor@0.9.11",
     "preview": "vite preview",
-    "test:sidebar-version": "bun tests/sidebar-version-browser.ts"
+    "test:sidebar-version": "bun tests/sidebar-version-browser.ts",
+    "test:quota-hover": "bun tests/quota-summary-hover-browser.ts"
   },
   "dependencies": {
     "@tanstack/react-virtual": "^3.14.9",

@@ -16,7 +16,6 @@ export type IntegrationTab =
   | "overview"
   | "keys"
   | "codex"
-  | "claude"
   | "grok"
   | "cursor"
   | FileIntegrationClientId;
@@ -31,7 +30,6 @@ export const TABS: readonly TabDefinition[] = [
   { id: "overview", hash: "integrations", labelKey: "integrations.tab.overview" },
   { id: "keys", hash: "integrations/keys", labelKey: "integrations.tab.keys" },
   { id: "codex", hash: "integrations/codex", labelKey: "integrations.tab.codex" },
-  { id: "claude", hash: "integrations/claude", labelKey: "integrations.tab.claude" },
   { id: "grok", hash: "integrations/grok", labelKey: "integrations.tab.grok" },
   { id: "cursor", hash: "integrations/cursor", labelKey: "integrations.tab.cursor" },
   { id: "opencode", hash: "integrations/opencode", labelKey: "integrations.tab.opencode" },
@@ -49,6 +47,8 @@ export const TABS: readonly TabDefinition[] = [
   { id: "raycast", hash: "integrations/raycast", labelKey: "integrations.tab.raycast" },
   { id: "omo", hash: "integrations/omo", labelKey: "integrations.tab.omo" },
   { id: "cline", hash: "integrations/cline", labelKey: "integrations.tab.cline" },
+  { id: "kilo", hash: "integrations/kilo", labelKey: "integrations.tab.kilo" },
+  { id: "droid", hash: "integrations/droid", labelKey: "integrations.tab.droid" },
 ] as const;
 
 export const FILE_CLIENTS = new Set<FileIntegrationClientId>([
@@ -67,4 +67,6 @@ export const FILE_CLIENTS = new Set<FileIntegrationClientId>([
   "raycast",
   "omo",
   "cline",
+  "kilo",
+  "droid",
 ]);

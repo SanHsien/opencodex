@@ -184,7 +184,7 @@ test("CLI-on refuses a disabled intercept without mutation", async () => {
     });
     const first = await put();
     expect(first.status).toBe(409);
-    expect(await first.json()).toMatchObject({ code: "intercept_disabled" });
+    expect(await first.json()).toMatchObject({ code: "disabled" });
     expect(loadConfig().claudeCode?.cliFirstParty).toBeUndefined();
     const settingsPath = join(process.env.CLAUDE_CONFIG_DIR!, "settings.json");
     expect(existsSync(settingsPath)).toBe(false);
@@ -234,7 +234,7 @@ test("CLI-on rechecks a drifted persisted port under the config lock", async () 
       method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ cliFirstParty: true }),
     });
     expect(response.status).toBe(409);
-    expect(await response.json()).toMatchObject({ code: "intercept_unavailable" });
+    expect(await response.json()).toMatchObject({ code: "port_mismatch" });
     expect(readFileSync(configPath, "utf8")).toBe(configBytes);
     expect(existsSync(settingsPath) ? readFileSync(settingsPath, "utf8") : null).toBe(settingsBefore);
     expect(existsSync(tokenPath) ? readFileSync(tokenPath, "utf8") : null).toBe(tokenBefore);
@@ -364,6 +364,51 @@ test("CLI-off reports a tokenless local proxy with foreign CA as residue", async
     expect(await response.json()).toMatchObject({ warnings: ["settings_residual"] });
     expect(loadConfig().claudeCode?.cliFirstParty).toBeUndefined();
     expect(readFileSync(settingsPath, "utf8")).toBe(bytes);
+  } finally { await server.stop(true); }
+});
+
+test("CLI-off keeps a shared env Desktop could own, pinning first-party instead of removing it", async () => {
+  // A legacy install can carry an owned shared proxy and cliFirstParty without a desktopMode
+  // marker. The env is ambiguous while the flag is set, so opt-out must not pin gateway and
+  // remove a connection Desktop may still be using.
+  const current = loadConfig();
+  current.port = 10100;
+  current.claudeCode = { ...current.claudeCode, cliFirstParty: true };
+  saveConfig(current);
+  const settingsPath = join(process.env.CLAUDE_CONFIG_DIR!, "settings.json");
+  mkdirSync(process.env.CLAUDE_CONFIG_DIR!, { recursive: true });
+  writeFileSync(settingsPath, JSON.stringify({ env: desktopFirstPartyTarget(current).env }));
+  const server = startServer(0);
+  try {
+    const response = await fetch(new URL("/api/claude-code", server.url), {
+      method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ cliFirstParty: false }),
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ cliFirstParty: false, warnings: ["shared_proxy_retained"] });
+    const claudeCode = loadConfig().claudeCode;
+    expect(claudeCode?.cliFirstParty).toBeUndefined();
+    expect(claudeCode?.desktopMode).toBe("first-party");
+    expect(JSON.parse(readFileSync(settingsPath, "utf8")).env).toBeDefined();
+    expect(await (await fetch(new URL("/api/claude-code", server.url))).json())
+      .toMatchObject({ cliFirstParty: false, desktopFirstParty: true });
+  } finally { await server.stop(true); }
+});
+
+test("CLI-off pins gateway and clears the env when nothing on disk is ours", async () => {
+  const current = loadConfig();
+  current.port = 10100;
+  current.claudeCode = { ...current.claudeCode, cliFirstParty: true };
+  saveConfig(current);
+  const server = startServer(0);
+  try {
+    const response = await fetch(new URL("/api/claude-code", server.url), {
+      method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ cliFirstParty: false }),
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ cliFirstParty: false, warnings: [] });
+    expect(loadConfig().claudeCode).toMatchObject({ desktopMode: "gateway" });
+    expect(await (await fetch(new URL("/api/claude-code", server.url))).json())
+      .toMatchObject({ cliFirstParty: false, desktopFirstParty: false, sharedProxy: "none" });
   } finally { await server.stop(true); }
 });
 
@@ -842,7 +887,7 @@ test("PUT immediately restores generated agents after re-enable and roster chang
       body: JSON.stringify({ injectAgents: true }),
     });
     expect(enable.status).toBe(200);
-    expect(readdirSync(agentsDir).some(name => name === "ocx-gpt-6-sol.md")).toBe(true);
+    expect(readdirSync(agentsDir).some(name => name === "ocx-gpt-6-1-sol.md")).toBe(true);
 
     const disable = await fetch(new URL("/api/claude-code", server.url), {
       method: "PUT",
@@ -858,7 +903,7 @@ test("PUT immediately restores generated agents after re-enable and roster chang
       body: JSON.stringify({ injectAgents: true }),
     });
     expect(reenable.status).toBe(200);
-    expect(readdirSync(agentsDir).some(name => name === "ocx-gpt-6-sol.md")).toBe(true);
+    expect(readdirSync(agentsDir).some(name => name === "ocx-gpt-6-1-sol.md")).toBe(true);
 
     const roster = await fetch(new URL("/api/subagent-models", server.url), {
       method: "PUT",
@@ -1073,9 +1118,14 @@ test("Claude Desktop profile GET, PUT and apply round-trip four-family assignmen
     expect(put.status).toBe(200);
     expect(loadConfig().claudeCode?.desktopProfile?.defaults.sonnet).toBe("mock/test-model");
 
-    const alias = loadConfig().claudeCode?.desktopProfile?.assignments["mock/test-model"]?.alias;
+    const savedProfile = loadConfig().claudeCode!.desktopProfile!;
+    const wireAlias = desktopProfiles.renderDesktopProfile(savedProfile, [{
+      route: "mock/test-model",
+      label: "test-model (mock)",
+    }])[0]!.name;
+    expect(wireAlias).not.toBe(savedProfile.assignments["mock/test-model"]!.alias);
     const discovery = await fetch(new URL("/v1/models?flavor=anthropic", server.url)).then(r => r.json()) as { data: Array<{ id: string }> };
-    expect(discovery.data.some(model => model.id === alias)).toBe(true);
+    expect(discovery.data.some(model => model.id === wireAlias)).toBe(true);
 
     const apply = await fetch(new URL("/api/claude-desktop/apply", server.url), {
       method: "POST",

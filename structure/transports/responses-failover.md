@@ -1,9 +1,34 @@
 # Responses Failover And Replay
 
+ `src/server/responses/request-transport.ts` resolves the final Anthropic model ID once for each enabled-pool request and holds its model route through admission. The three account-refusal retry sites in `adapter-dispatch.ts`, `adapter-continuation.ts` and `sidecar-execution.ts` use the same route, keep the original refusal if no replacement exists inside it, and preserve existing send and output replay limits. A local cooldown returns 429 with the earliest known Retry-After among accounts the route can use when they recover; explicit fallback includes usable ordinary-pool accounts even when the saved route IDs have been removed, while a strict route stays route-scoped. Selection, refusal and 429-rotation logs use the rule’s 1-based `route:#<n>` position, never its name.
+Classified 429 admission follows the [Anthropic account-pool contract](../providers/anthropic-account-pool.md#classified-429-admission). Classified account-entitlement 403 recovery follows the [Anthropic account-pool contract](../providers/anthropic-account-pool.md#account-entitlement-refusal-recovery).
+`src/server/responses/compaction-recovery-policy.ts` is a pure eligibility policy, not a dispatcher.
+It requires explicit configuration and normalized attempt evidence, preserves ordinary requests,
+and refuses cancellation, committed semantic output, tool effects, protected failures, exhausted
+send budgets and repeated recovery. Its Devin `invalid_argument` exception is separately opted in;
+an opaque HTTP 400 alone never grants replay. The caller owns canonical target resolution, output
+validation and shared-budget reservation. `compaction-recovery.ts` connects this policy to
+self-contained routed v1/v2 compaction in `core.ts` and `compact.ts`; normal and successful
+requests keep their original route. One configured emergency target shares the original send
+and translation budgets. Physical-send receipts and explicit retry-helper reports reconcile legacy
+fetch sends without double charging external reservations; one prepaid emergency permit is shared
+with adapter dispatch, and only additional retries draw from the remainder. Adapter observers retain partial-output and structured denial evidence
+before response projection. Native encrypted compaction, uploaded files, stored continuations,
+and policy/combo routes are excluded. Emergency output must contain one readable portable
+compaction item; recent original user messages are retained verbatim, and recovery failure keeps
+the original failure. A source Kiro account lease is returned before the emergency child is
+admitted: the child shares its holder and may select the same account, so replacing that holder
+without returning the source lease would block cap-one fallback and leak capacity at higher caps.
+`tests/responses/responses-compaction-recovery-policy.test.ts`,
+`tests/responses/responses-compaction-recovery.test.ts` and
+`tests/providers/kiro/kiro-leased-responses.test.ts` pin these boundaries.
+
 Retry, replay, and combo failover on the Responses data plane: upstream reset retry, the
 ambiguous-resend gate and replay boundary, combo quota fallback and commit boundaries, compaction
 routing overrides, and output headroom. The endpoint and dispatch rules they build on are in
-[Responses transport](responses.md).
+[Responses transport](responses.md). `src/lib/errors.ts` classifies an HTTP 400 input-token-count overflow as `context_length_exceeded`, including the counted-token variant; the wording is Google's, but the shared classifier matches it for any provider. Output-token limits and protected failures retain their existing categories. Classification does not itself shorten input or authorize replay.
+
+Policy-selected turns also retain their [original candidate authorization](policy-fallback.md) through fallback and subagent recovery.
 
 ## Chat-to-Responses message phase inference
 
@@ -83,6 +108,17 @@ leaves the grant unspent. The replacement is one HTTP send, never a second socke
 is sorted exactly like the pre-header row's (see
 [ambiguous connection-reset replay boundary](#ambiguous-connection-reset-replay-boundary)) before
 it goes round the recovery loop again.
+
+The boundary is the first non-control Responses event, not the first visible text delta:
+`response.created`, output/tool events and response usage all close the WebSocket replacement
+window. Quota metadata and ping/pong liveness alone do not. Cancellation and connect/silence
+deadlines never acquire the socket-death marker, even if a late close follows them.
+`tests/responses/ws-ambiguous-resend.test.ts` covers these boundaries through the exchange and
+the existing HTTP-only dispatch, including request-field preservation and terminal fallback
+answers. The replacement uses the shared credential-selection guard and physical-send ledger;
+there is no transport-local retry budget or credential snapshot with independent authority.
+
+> Decision record: [ADR-4191](../decisions/ADR-4191-established-websocket-fallback.md)
 
 ## Console upload rejection recovery
 
@@ -192,6 +228,34 @@ The management quota DTO keeps Combo editing aligned with scoped inference evide
 
 Lite and routing metadata use the same suffix-normalized model object as serialization, including configured bracket-suffix removal.
 
+## Grok Devin pre-output rate limits
+
+For direct Grok Responses requests served by the Devin runTurn adapter,
+`src/server/responses/run-turn-execution.ts` uses `preflightAdapterEvents` before creating the
+streaming Response. A first-event 429 without a replay-unsafe heartbeat becomes an HTTP 429 JSON
+error through the shared error formatter and client Retry-After resolver. The buffered first event
+is replayed for every other outcome. The preflight is bounded by the configured stall timeout,
+including any earlier OAuth failover preflight on this path. On expiry, its pending iterator read is
+handed to SSE replay exactly once; timeout therefore starts a 200 SSE response. An opted-in Devin
+cooldown heartbeat also starts SSE before its wait ends. Once SSE begins, the stream forwards safe
+heartbeats and checks the first meaningful event: a pre-output 429 may rotate to an eligible OAuth
+account and replay the unchanged request. Without an eligible account it remains an in-stream
+failure, since HTTP status is already committed. Text, reasoning, and tool output commit the stream
+and prevent later rotation. Buffered Responses turns ignore the cooldown-ready heartbeat during
+preflight and apply the same HTTP 429 formatter to a final refusal after OAuth failover. Other
+buffered results retain the original event list, including output preceding a late error. Combo
+children ignore cooldown readiness during their own preflight, so a final 429 without output can
+still move to the next combo target. Devin combo children bypass opted-in stated-reset waiting and
+surface the pre-output 429 immediately, because the outer response cannot forward their wait
+heartbeats while it is choosing a target. An earlier replay-unsafe heartbeat or meaningful output keeps
+the failure on the current target.
+
+## runTurn pre-output 401 replay
+
+`src/server/responses/run-turn-execution.ts` handles a structured pre-output 401 for `isOAuth401ReplayProvider` runTurn routes with one generation-fenced forced refresh and an `auth-recovery` hop. A terminal refresh may admit a surviving account; otherwise the client gets the login instruction. Devin quota `permission_denied` (429) and plain permission denial (403) do not trigger this path.
+An `oauth`-source Devin key rejected with 401 needs reauthentication because Cognition has no refresh endpoint. A `local-cli` slot with a stored account ID or email can adopt a changed CLI key after host and bounded identity validation; [OAuth/Devin ownership](../providers-and-adapters.md) defines the locked store check across aliases. An identity-less CLI import instead needs an explicit `ocx login devin` after rotation. Unreadable files and transient probes leave the account unflagged. A pause during refresh returns 403 without retry, reauth, or replacing the stored key. Kiro's terminal alternate requires `OAuthLoginRequiredError`; transient refresh failures do not enter it.
+Tests: `tests/responses/responses-devin-401-replay.test.ts` and `tests/server/server-kiro-refusal-e2e.test.ts`.
+
 ## Optional client transport hints
 
 `dropCodexSafetyBuffering` defaults to false. Canonical OpenAI forward Responses can remove only
@@ -222,6 +286,20 @@ Translated Chat request construction uses the [inline-image budget](streaming-he
 The [explicit model-capability contract](../config.md#explicit-per-model-capability-declarations) preserves operator declarations through provider storage and catalog capture; it does not infer upstream capability or change this surface's routing behavior.
 
 Provider-scoped approval reviewer settings are projected by the [catalog owner](../catalog.md#provider-scoped-approval-reviewer); this surface retains its existing routing, transport and account-selection behavior. Translated audio/file admission follows the [final-adapter input contract](../adapters/registry.md#untranslated-input-media); native raw passthrough remains separate. Unicode pattern normalization uses [copy-on-write traversal](byte-accounting.md#unicode-pattern-normalization) while preserving the existing schema and wire semantics.
+
+## Memory phase routing
+
+`src/server/responses/memory-models.ts` classifies Codex memory turns from validated
+`x-codex-turn-metadata` in HTTP headers or per-frame WebSocket `client_metadata`.
+`request_kind: "memory"` selects extract; `thread_source: "memory_consolidation"`
+selects consolidation. Supplied copies must agree. Explicit non-memory metadata blocks the
+HTTP `x-openai-subagent: memory_consolidation` fallback, which applies only when turn metadata
+is absent. WebSocket frames never use that handshake fallback. A configured phase in
+`memoryModels` wins over shadow-call interception; an unset phase keeps its existing route.
+Unavailable targets return 409 without contacting a different provider, while scoped API-key
+admission keeps its own refusal. Combo children retain the phase and its optional effort.
+The selected route decision records `memory-extract` or `memory-consolidation` as its reason,
+including when the destination is a combo, so request history names the phase that chose it.
 
 ## Compaction routing overrides
 
@@ -460,10 +538,22 @@ Dashboard Fast-row persistence and client refresh follow the [Fast selector rows
 
 ## Account refusal and rotation boundaries
 
-Native Responses uses the existing pre-stream OAuth HTTP-429 account rotation: account quorum,
-cooldown and the three-rotation request cap remain in force, the complete credential/transport/replay
-identity is refreshed, and usage is attributed to the serving account. Single-account installs do not
-retry; a missing alternate credential preserves the original error. Organization or project exhaustion
+Native Responses uses the existing pre-stream OAuth HTTP-429 account rotation: account quorum and
+cooldown remain in force, while generic OAuth uses the stable snapshot ceiling described below. The
+complete credential/transport/replay identity is refreshed, and usage is attributed to the serving
+account. Single-account installs do not rotate; a missing alternate credential preserves the original
+error while transient recovery remains available.
+
+Kiro adapter additionally classifies bounded HTTP 400/403/429 refusals before output.
+Confirmed monthly exhaustion is persisted for the sent login, suspension is quarantined
+in process, and an eligible alternate is admitted under the shared rotation and physical
+send budget. The original response remains readable if alternate admission fails. A
+terminal OAuth refresh rejection can use an eligible alternate only after the original
+generation is marked for reauthentication. Final Kiro 5xx errors have fixed public text.
+The Kiro replacement reserves a no-wait account lease before committing OAuth selection;
+a full replacement leaves the original refusal in place. A successful rotation transfers
+the request's lease before the replacement send, and the final response body releases it.
+Organization or project exhaustion
 allows an initial alternate attempt because the response does not identify the refusing scope. After
 resolving an alternate, organization-level retry is withheld only when both credentials have the same
 known workspace account id. Stored Pool/main-pool alternates supply that id directly; a request-owned
@@ -478,6 +568,14 @@ credential has been resolved.
 Send-budget refusal is attributed as a withheld rotation only when a model-family-aware eligibility
 check confirms from the live roster that at least two accounts exist and an alternate is not currently
 cooled. That check applies no cooldown and advances no rotation.
+
+Generic OAuth snapshots its eligible roster before dispatch. Its request rotation ceiling is
+`max(3, min(eligibleCount, GENERIC_OAUTH_MAX_ACCOUNTS_PER_REQUEST) - 1)` (the cap is six); the live picker still filters cooldowns, so the snapshot supplies the
+stable ceiling without making a cooled account eligible. Same-provider auth recovery keeps the last
+physical target, rather than a diagnostic key, and a real send is charged once even when recovery
+rebuilds the request.
+
+Antigravity main Google adapter dispatch: after same-account refresh, a second pre-output 401 or terminal refresh failure may switch once to a live sibling within existing budgets. A pre-output 403 switches once only when the bounded Google adapter normalization found a complete structured `VALIDATION_REQUIRED` reason and `src/server/responses/antigravity-validation-refusal.ts` recognizes its exact marker. The 401 and 403 paths share one per-request sibling-attempt guard and carry the sibling's full token/project snapshot; an ineligible sibling, cancellation or budget refusal preserves the 403. Continuations, passthrough and sidecars do not use this rotation (contract: `docs-site/src/content/docs/reference/configuration/providers.md`, `rotateAntigravityAccountOnAuthRefusal` in `src/oauth/generic-account-failover.ts`).
 
 Precommit Codex model refusals use bounded account recovery for HTTP `detail` and WebSocket-projected
 `error.message` bodies. Only an exact HTTP 400 refusal naming the requested or wire model establishes
@@ -498,14 +596,5 @@ provider cannot establish the original serving identity and remains portable.
 
 ## Anthropic Fast downgrade recovery
 
-The `anthropic` OAuth and `anthropic-apikey` registry entries use native `anthropic-speed` FastWire
-only for `claude-opus-5-5`, `claude-opus-5` and `claude-opus-4-8`; there is no provider-wide Fast
-fallback. In the main adapter dispatch loop, a fast refusal naming fast mode or the `speed` parameter
-(400 or 429), or a 429 with a fast-pool remaining header of zero, may use one shared-budget repair
-permit for a standard-speed resend. The resend charges the root workflow send counter once without a
-second request-budget charge. The request retains the drop decision through later rebuilds and records
-`anthropic-fast-downgrade`, cause `parameter-rejected`, and a `downgraded` / `response-declined` tier
-outcome. A spent budget leaves the original refusal intact; generic 429 and 529 responses keep their
-ordinary handling. This repair precedes same-target 429 waiting and credential rotation. Continuation
-and sidecar owners do not use this repair. Coverage: `tests/routing/fastwire-policy.test.ts` and
-`tests/responses/responses-anthropic-fast-downgrade.test.ts`.
+The `anthropic` OAuth and `anthropic-apikey` registry entries use native `anthropic-speed` FastWire only for `claude-opus-5-5`, `claude-opus-5` and `claude-opus-4-8`; there is no provider-wide Fast fallback. In the main adapter dispatch loop, a fast refusal naming fast mode or the `speed` parameter (400 or 429), or a 429 with a fast-pool remaining header of zero, may use one shared-budget repair permit for a standard-speed resend.
+The resend charges the root workflow send counter once without a second request-budget charge. The request retains the drop decision through later rebuilds and records `anthropic-fast-downgrade`, cause `parameter-rejected`, and a `downgraded` / `response-declined` tier outcome. A spent budget leaves the original refusal intact; generic 429 and 529 responses keep their ordinary handling. This repair precedes same-target 429 waiting and credential rotation. Continuation and sidecar owners do not use this repair. Coverage: `tests/routing/fastwire-policy.test.ts` and `tests/responses/responses-anthropic-fast-downgrade.test.ts`.

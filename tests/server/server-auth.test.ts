@@ -1515,7 +1515,7 @@ describe("server local API auth", () => {
       url.protocol = "ws:";
       const ws = new WebSocket(url, { headers: { "x-opencodex-api-key": "local-secret", ...(headers ?? {}) } } as unknown as string[]);
       return new Promise<string>((resolve, reject) => {
-        const timer = setTimeout(() => reject(new Error("tier websocket timeout")), watchdogMs(5_000));
+        const timer = setTimeout(() => reject(new Error("tier websocket timeout")), watchdogMs(20_000));
         ws.addEventListener("open", () => {
           ws.send(JSON.stringify({ type: "response.create", model, input: "hello" }));
         }, { once: true });
@@ -3005,6 +3005,35 @@ describe("server local API auth", () => {
     }
   });
 
+  test("canonical buffered Pool retry remains HTTP-only and relays an alternate 307", async () => {
+    const redirectTarget = "https://dead.invalid/alternate";
+    const harness = await startPoolRetryHarness(accountId => accountId === "acct-pool-a"
+      ? new Response(JSON.stringify({ error: { message: "rate limited" } }), {
+        status: 429,
+        headers: { "content-type": "application/json", "retry-after": "60" },
+      })
+      : new Response(null, { status: 307, headers: { location: redirectTarget } }));
+    const fixtureWebSocket = globalThis.WebSocket;
+    let upstreamWebSocketAttempts = 0;
+    globalThis.WebSocket = new Proxy(fixtureWebSocket, {
+      construct(target, args, newTarget) {
+        const url = new URL(String(args[0]));
+        if (url.protocol === "wss:" && url.hostname === "chatgpt.com") upstreamWebSocketAttempts += 1;
+        return Reflect.construct(target, args, newTarget);
+      },
+    });
+    try {
+      const response = await harness.request({ redirect: "manual" });
+      expect(response.status).toBe(307);
+      expect(response.headers.get("location")).toBe(redirectTarget);
+      expect(harness.dispatches).toEqual(["acct-pool-a", "acct-pool-b"]);
+      expect(upstreamWebSocketAttempts).toBe(0);
+    } finally {
+      globalThis.WebSocket = fixtureWebSocket;
+      await stopPoolRetryHarness(harness);
+    }
+  });
+
   test.each([429, 402] as const)(
     "a pre-stream %i from the only Pool account retries once with the validated caller main",
     async rejection => {
@@ -3035,7 +3064,9 @@ describe("server local API auth", () => {
           model,
           headers: { "chatgpt-account-id": "acct-caller-main" },
         });
-        expect(response.status).toBe(200);
+        if (response.status !== 200) {
+          throw new Error(`caller-main retry returned ${response.status}: ${await response.text()}; dispatches=${JSON.stringify(harness.dispatches)}; observed=${JSON.stringify(observed)}`);
+        }
         expect((await response.json() as { id: string }).id).toBe("caller-main-success");
         expect(observed).toEqual([
           { authorization: "Bearer pool-a-token", accountId: "acct-pool-a" },

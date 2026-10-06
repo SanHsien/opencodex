@@ -9,6 +9,7 @@ import {
 } from "../../src/claude/desktop-first-party";
 import type { writeDesktop3pConfig } from "../../src/claude/desktop-3p";
 import { handleManagementAPI } from "../../src/server/management-api";
+import { markSiblingStart, resetSiblingStartForTests } from "../../src/codex/sibling-start";
 import { syncEnabledClientIntegrations } from "../../src/server/management/config-routes";
 import type { CatalogModel } from "../../src/codex/catalog";
 import type { OcxConfig } from "../../src/types";
@@ -43,7 +44,7 @@ async function dispatch(path: string, init: RequestInit, inputConfig: OcxConfig,
   const response = await handleManagementAPI(new Request(url, {
     ...init,
     headers: { Host: url.host, "Content-Type": "application/json", ...(init.headers ?? {}) },
-  }), url, inputConfig, deps);
+  }), url, inputConfig, { ensureClaudeIntercept: async () => ({ ok: true, state: { proxyPort: 10200, caCertPath: join(root, "claude-intercept", "ca.pem"), pickerProxyPort: null } }), ...deps }, "admin-token", undefined, { trustedLoopback: true });
   return { status: response!.status, body: await response!.json() as Record<string, any> };
 }
 
@@ -87,11 +88,52 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  resetSiblingStartForTests();
   for (const key of ENV_KEYS) {
     if (previous[key] === undefined) delete process.env[key];
     else process.env[key] = previous[key];
   }
   removeTreeWithRetry(root);
+});
+
+test("a sibling roster update leaves an owned Desktop gateway profile untouched", async () => {
+  const gateway = await applyGateway();
+  expect(gateway.claudeCode?.desktopProfile).toBeTruthy();
+  markSiblingStart(10101);
+  let discoveries = 0;
+  let writes = 0;
+  const reply = await dispatch("/api/subagent-models", {
+    method: "PUT", body: JSON.stringify({ models: ["mock/keep"] }),
+  }, gateway, {
+    fetchAllModels: async () => { discoveries += 1; return [{ provider: "mock", id: "keep", contextWindow: 123_000 }]; },
+    writeDesktop3pConfig: () => { writes += 1; return { written: true, path: "fixture", fingerprint: "fedcba9876543210" }; },
+  });
+  expect(reply.status).toBe(200);
+  expect(discoveries).toBe(0);
+  expect(writes).toBe(0);
+});
+
+test("a sibling mark arriving during roster discovery still prevents the Desktop write", async () => {
+  const gateway = await applyGateway();
+  const discovery = gatedDiscovery([{ provider: "mock", id: "keep", contextWindow: 123_000 }]);
+  let writes = 0;
+  const request = dispatch("/api/subagent-models", {
+    method: "PUT", body: JSON.stringify({ models: ["mock/keep"] }),
+  }, gateway, {
+    fetchAllModels: discovery.fetchAllModels,
+    writeDesktop3pConfig: () => { writes += 1; return { written: true, path: "fixture", fingerprint: "fedcba9876543210" }; },
+  });
+  try {
+    await Promise.race([
+      discovery.started,
+      request.then(() => { throw new Error("roster update ended before Desktop discovery"); }),
+    ]);
+    markSiblingStart(10101);
+  } finally {
+    discovery.release();
+  }
+  expect((await request).status).toBe(200);
+  expect(writes).toBe(0);
 });
 
 test("a foreign HTTPS_PROXY in Claude Code settings is not first-party evidence", () => {

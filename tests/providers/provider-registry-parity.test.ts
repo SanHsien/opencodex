@@ -44,7 +44,7 @@ const EXPECTED_KEY_PROVIDER_IDS = [
   "deepseek", "cerebras", "chutes", "deepinfra", "hyperbolic", "nscale", "vultr", "jev", "baseten", "commandcode", "sambanova", "nebius", "crusoe", "digitalocean", "scaleway", "featherless", "novita", "together", "fireworks", "firepass", "moonshot",
   "huggingface", "nvidia", "venice", "zai", "zhipu-bigmodel", "zhipu-bigmodel-coding", "zhipu-bigmodel-responses", "nanogpt", "synthetic", "siliconflow", "qwen-cloud", "tencent-coding-plan",
   "volcengine", "volcengine-coding-plan", "volcengine-agent-plan", "qianfan", "alibaba", "alibaba-token-plan", "alibaba-token-plan-intl", "parallel", "zenmux", "litellm", "ollama-cloud", "mistral",
-  "minimax", "minimax-cn", "kimi-code", "opencode-zen", "vercel-ai-gateway", "opper",
+  "minimax", "minimax-cn", "kimi-code", "opencode-zen", "vercel-ai-gateway", "opper", "opengateway", "tokenlab",
   "opencode-free", "xiaomi", "xiaomi-mimo", "kilo", "mimo-free", "mimo", "cloudflare-ai-gateway", "cloudflare-workers-ai", "gitlab-duo",
   "qoder", "qoder-cn", "codebuddy", "codebuddy-cn", "stepfun", "claude-cli",
 ];
@@ -311,7 +311,7 @@ describe("provider registry parity", () => {
     expect(KEY_LOGIN_PROVIDERS.umans.modelContextWindows?.["umans-glm-5.2"]).toBe(405_504);
     expect(KEY_LOGIN_PROVIDERS.umans.modelInputModalities?.["umans-coder"]).toEqual(["text", "image"]);
     expect(KEY_LOGIN_PROVIDERS.umans.modelInputModalities?.["umans-glm-5.2"]).toEqual(["text"]);
-    expect(KEY_LOGIN_PROVIDERS["openai-apikey"].models).toEqual(["gpt-5.5", "gpt-5.6", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.6-sol-pro", "gpt-5.6-terra-pro", "gpt-5.6-luna-pro", "daybreak-red-latest", "daybreak-blue-latest", "gpt-6-astra", "gpt-6-sol", "gpt-6-luna"]);
+    expect(KEY_LOGIN_PROVIDERS["openai-apikey"].models).toEqual(["gpt-5.5", "gpt-5.6", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.6-sol-pro", "gpt-5.6-terra-pro", "gpt-5.6-luna-pro", "daybreak-red-latest", "daybreak-blue-latest", "gpt-6-astra", "gpt-6.1-sol", "gpt-6-sol", "gpt-6-luna"]);
     expect(KEY_LOGIN_PROVIDERS["openai-apikey"].modelContextWindows?.["gpt-6-astra"]).toBe(1_050_000);
     expect(KEY_LOGIN_PROVIDERS["openai-apikey"].modelMaxInputTokens?.["gpt-6-astra"]).toBe(922_000);
     expect(KEY_LOGIN_PROVIDERS["openai-apikey"].modelMaxOutputTokens?.["gpt-6-astra"]).toBe(128_000);
@@ -491,12 +491,14 @@ describe("provider registry parity", () => {
     });
 
     const minimaxModels = [
+      "MiniMax-M3.1-Flash-Preview",
       "MiniMax-M3",
       "MiniMax-M2.7", "MiniMax-M2.7-highspeed",
       "MiniMax-M2.5", "MiniMax-M2.5-highspeed",
       "MiniMax-M2.1", "MiniMax-M2.1-highspeed",
       "MiniMax-M2",
     ];
+    const splitModels = minimaxModels.slice(1);
     for (const providerId of ["minimax", "minimax-cn"]) {
       const entry = PROVIDER_REGISTRY.find(provider => provider.id === providerId);
       expect(entry?.adapter).toBe("openai-chat");
@@ -504,14 +506,18 @@ describe("provider registry parity", () => {
       expect(entry?.defaultModel).toBe("MiniMax-M3");
       expect(entry?.models).toEqual(minimaxModels);
       expect(entry?.modelContextWindows?.["MiniMax-M3"]).toBe(1_000_000);
+      expect(entry?.modelContextWindows?.["MiniMax-M3.1-Flash-Preview"]).toBe(1_000_000);
       expect(entry?.modelReasoningEfforts?.["MiniMax-M3"]).toEqual(["low", "medium", "high", "xhigh", "max"]);
+      expect(entry?.modelReasoningEfforts?.["MiniMax-M3.1-Flash-Preview"]).toEqual(["low", "medium", "high", "xhigh", "max"]);
       expect(entry?.modelDefaultReasoningEfforts?.["MiniMax-M3"]).toBe("medium");
+      expect(entry?.modelDefaultReasoningEfforts?.["MiniMax-M3.1-Flash-Preview"]).toBe("max");
       expect(entry?.modelReasoningEffortMap?.["MiniMax-M3"]).toMatchObject({ low: "disabled", medium: "adaptive", high: "adaptive" });
+      expect(entry?.modelReasoningEffortMap?.["MiniMax-M3.1-Flash-Preview"]).toBeUndefined();
       expect(entry?.preserveReasoningContentModels).toEqual(minimaxModels);
-      expect(entry?.reasoningSplitModels).toEqual(minimaxModels);
-      expect(entry?.reasoningDetailsModels).toEqual(minimaxModels);
+      expect(entry?.reasoningSplitModels).toEqual(splitModels);
+      expect(entry?.reasoningDetailsModels).toEqual(splitModels);
       expect(entry?.thinkingToggleModels).toEqual(["MiniMax-M3"]);
-      for (const modelId of minimaxModels.slice(1)) {
+      for (const modelId of minimaxModels.slice(2)) {
         expect(entry?.modelContextWindows?.[modelId]).toBe(204_800);
       }
     }
@@ -1652,7 +1658,7 @@ describe("provider registry parity", () => {
       provider: "commandcode",
     });
     expect(model.id).toBe("z-ai/glm-5.3-flash");
-    expect(model.reasoningEfforts).toEqual(["low", "high", "max"]);
+    expect(model.reasoningEfforts).toEqual(["low", "medium", "high", "xhigh", "max"]);
 
     const entries = buildCatalogEntries(nativeTemplate() as never, [], [model]);
     const entry = entries.find(e => e.slug === "commandcode/z-ai-glm-5.3-flash");
@@ -1661,7 +1667,7 @@ describe("provider registry parity", () => {
     expect(entry?.supported_reasoning_levels).not.toEqual([]);
     // Routed catalogs append the synthetic top rung, as every other routed row above does.
     expect((entry?.supported_reasoning_levels as { effort: string }[]).map(l => l.effort))
-      .toEqual(["low", "high", "max", "ultra"]);
+      .toEqual(["low", "medium", "high", "xhigh", "max", "ultra"]);
   });
   /*
    * #1043. Zen publishes no modality metadata, so the classification below is an
@@ -1856,8 +1862,8 @@ describe("renamed fixed-key destination reasoning metadata", () => {
   test("fills known model tables and unknown-model default for CommandCode", () => {
     const provider = make();
     enrichProviderFromRegistry("CommandCode", provider);
-    expect(configuredReasoningEfforts(provider, known)).toEqual(["high", "max"]);
-    expect(configuredReasoningEfforts(provider, newer)).toEqual(["low", "high", "max"]);
+    expect(configuredReasoningEfforts(provider, known)).toEqual(["low", "medium", "high", "xhigh", "max"]);
+    expect(configuredReasoningEfforts(provider, newer)).toEqual(["low", "medium", "high", "xhigh", "max"]);
     expect(configuredReasoningEfforts(provider, "unknown-model")).toEqual([]);
   });
   test("preserves explicit entries and clones arrays without losing other table rows", () => {
@@ -1870,7 +1876,7 @@ describe("renamed fixed-key destination reasoning metadata", () => {
     enrichProviderFromRegistry("CommandCode", provider);
     expect(provider).toEqual(once);
     expect(configuredReasoningEfforts(provider, known)).toEqual(["low"]);
-    expect(configuredReasoningEfforts(provider, newer)).toEqual(["low", "high", "max"]);
+    expect(configuredReasoningEfforts(provider, newer)).toEqual(["low", "medium", "high", "xhigh", "max"]);
     expect(configuredReasoningEfforts(provider, "custom")).toEqual([]);
     expect(configuredReasoningEfforts(provider, "unknown-model")).toEqual(["medium"]);
     provider.modelReasoningEfforts![known]!.push("high");
@@ -1882,7 +1888,7 @@ describe("renamed fixed-key destination reasoning metadata", () => {
     const provider = make({ modelReasoningEfforts: { [known]: [] } });
     enrichProviderFromRegistry("CommandCode", provider);
     expect(configuredReasoningEfforts(provider, known)).toEqual([]);
-    expect(configuredReasoningEfforts(provider, newer)).toEqual(["low", "high", "max"]);
+    expect(configuredReasoningEfforts(provider, newer)).toEqual(["low", "medium", "high", "xhigh", "max"]);
   });
   test("does not infer metadata for a different adapter, OAuth, or unrelated endpoint", () => {
     for (const override of [{ adapter: "openai-responses" }, { authMode: "oauth" as const }, { baseUrl: "https://example.test/v1" }]) {

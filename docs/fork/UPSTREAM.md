@@ -1002,3 +1002,28 @@ GUI 方面，`gui/src/i18n/zh-TW.ts` 與 fork 改過的 `gui/tests/{i18n-locales
 - PR：`#6507`
 - issue：`#6504`
 
+
+## 2026-10-03：stable 整合 v2.76.0（ancestry bridge；採用 4 筆候選）
+
+前一條（同日）的 4 筆採用候選與「整棵採用 stable 的前提」已成立，本輪完成整合：
+`sync/v2.76.0` 由 tag `v2.76.0`（`249462bf570555aad103957025eea96f7489c7eb`）長出，重放 `git diff v2.67.0 main` 的 fork overlay。
+分支與上游共享 `v2.76.0` 為祖先，所以 `git merge-base sync/v2.76.0 upstream/main` 不再為空。逐項分類、手動解衝突的檔案與安全邊界逐檔判定見
+[`DECISIONS.md`](DECISIONS.md) 同日條目。
+
+### 採用狀態（前一條的候選 1–4）
+
+| 候選 | commit | 狀態 |
+| --- | --- | --- |
+| 1 redaction ReDoS | `f5e9fdaba` | 已含在 `v2.76.0`（`src/lib/redact.ts` 的 XML 識別屬性掃描；fork 的換行 barrier 併存） |
+| 2 Windows manager 指令 timeout | `89db85ff0` | 已含在 `v2.76.0`（`src/lib/winsw.ts`、`src/service/windows-scheduler.ts`） |
+| 3 npm cache root（#6288） | `09cd45daa` | 已含在 `v2.76.0`（`src/update/npm-cache-preflight.mjs`、`transactional-install.mjs` 的 `--cache` pin） |
+| 4 locale 日期括號（#6290） | `8a3a7762f` | 已含在 `v2.76.0`；最終形 `115fa0322`（`dev`，#6455）**不在** `v2.76.0`，已從 `upstream/dev` cherry-pick（`09bd49e31`），含 `tests/windows/windows-service-wrappers.test.ts` 與 `tests/fixtures/windows-standalone-pre-placeholder.cmd` |
+
+下次 `v2.77.0`（或其後 stable）若已含 `115fa0322`，同步時該 commit 會乾淨地併入（內容相同）。
+
+### 其他
+
+- fork 專屬：`NO_MODEL_ARG`（`src/claude/agents-inject.ts`）改為要求省略 Agent `model` 參數（上游 `#6358` `not_planned`）。
+- 新增上游 workflow `codex-queue-helpers.yml`：加官方 repo-only guard。
+- 本輪沒有新增 PR／issue 審查；水位維持 `reviewed_through = v2.76.0`、PR `#6507`、issue `#6504`。
+- 下次同步改走一般 merge：`git fetch upstream main --tags && bun tools/check-upstream-updates.ts --strict`。

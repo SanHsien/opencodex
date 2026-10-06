@@ -91,17 +91,25 @@ OAuth 重新認證會保留維運方的設定，例如模型選擇、價格覆�
 
 ## 帳號與金鑰池
 
-### 主帳號 98% 保護
+### 主帳號額度保護
 
-在 **Codex settings → Multi-auth → Advanced settings** 中，**Block main account at 98%** 是 Ultra Fast 旁邊一個獨立的選擇加入選項。啟用時會先顯示後果；取消不會改變設定。即使 Advanced settings 已關閉，主帳號卡片仍會顯示監控中、未知用量或目前的政策封鎖狀態。
+在 **Codex settings → Multi-auth → Advanced settings** 中，**Block main account** 預設開啟，位於 Ultra Fast 旁邊。關閉它會立即生效；重新開啟時會先顯示後果，取消則不會改變設定。即使 Advanced settings 已關閉，主帳號卡片仍會顯示監控中、未知用量或目前的政策封鎖狀態。
 
-此政策在存在時使用 **5 小時窗口**，否則使用週窗口。僅有月配額的帳號使用其月窗口。它不會取所有窗口中的最高百分比。在開關保持開啟的情況下，一次全新的 **0%** 觀測會自動解除封鎖；下一次 98% 觀測會再次封鎖。未知用量不會被捏造成零，缺失的讀數也不會抹除已經量測到的封鎖狀態組。單靠預測的重置時間並不會解鎖。封鎖期間，既有的每分鐘一次背景週期會檢查全新的自有用量；失敗或無效的讀數會維持封鎖。其他暫停、重新認證與上游限制彼此獨立。
+這個預設來自主帳號耗盡時對 Codex Desktop 的影響：一旦 ChatGPT 帳號視窗回報剩餘 **0%**，Desktop 會停用它的送出按鈕，帳號在視窗重設之前也不再接受回合。讓 ocx 自己的流量停留在那個點之下，可以讓帳號保持可用（[#5694](https://github.com/lidge-jun/opencodex/issues/5694)）。代價是 Luna Reserve：封鎖生效期間，該主帳號上的 Reserve 無法啟動。若要讓主帳號跑到耗盡再交給 Reserve，請關閉這個開關。
 
-持久化的選項是 OpenCodex `config.json` 中的 `"codexMainAccountHardLock": true`，預設為關閉。這保護的是使用已識別主帳號的新請求，不是最後那 1% 本身：已在執行的請求、不相符的呼叫者自有 keyring 憑證，以及 proxy 之外的流量仍可以消耗配額。已新增的帳號與其他供應商仍可使用。
+**5 小時視窗與週視窗各自獨立封鎖**：5 小時視窗達到 90% 或週視窗達到 98% 時立即封鎖，即使另一個視窗仍有餘裕。僅有月配額的帳號使用其月視窗。在開關保持開啟的情況下，只要每個造成封鎖的視窗都回報了低於其門檻的全新讀數（0% 的重設也算），封鎖就會自動解除；下一次在門檻處的觀測會再次封鎖。請在 `config.json` 中設定 `codexMainAccountHardLockThresholds`，可選的 `short` 與 `long` 百分比，例如 `{ "short": 90, "long": 98 }`。兩者都必須是 80 到 100 的整數，且 `short` 不可超過 `long`；省略的欄位使用預設值。設定 API 接受相同的物件，並在 `mainAccountHardLock.thresholds` 中回傳實際生效的值。
 
-啟用保護時，一次自有的啟動會在原生設定檔復原與清理之後，還原主憑證的記憶體內身分繫結，所以持久化的 98% 封鎖在重啟後仍會存續。呼叫者自有的 Direct、exact-main、main-fallback 與 main-pin 請求，在繫結尚未完成期間可能短暫收到 503；健康的已儲存池帳號全程保持合格。這項初始化不會從外來或未確認的服務 home 讀取任何憑證。
+當全新的讀數在同一個重設週期內上升至少一個百分點，且最近沒有經過這個 proxy 的主帳號活動時，儀表板與 `ocx status` 會顯示**可能有 opencodex 以外的用量**。這是參考性的觀察，不是證據：長時間執行的回合也可能造成它。這個鎖定可能無法防止來自外部流量的耗盡。程序本機的通知會在身分或重設改變時清除，並在六小時後或在觀測到的重設時（以先到者為準）過期。當有即時的管理證據時，`ocx status --json` 會在 `mainAccountHardLock` 下公開狀態、生效的門檻、造成封鎖的視窗種類，以及選用的 `externalUsage` 警告。
 
-當此政策封鎖主帳號時，該帳號上的 Luna Reserve 也會被封鎖。維持在一般配額耗盡之前可能會阻止 Reserve 啟用。關閉這個開關會恢復一般的本機處理方式，不會授予額外的上游權益。請使用帳號配額重新整理動作來取得一次全新的觀測；不會自動消耗 reset credit。
+無法讀取的 5 小時讀數不能隱藏週封鎖。未知的用量不會被捏造成零，缺失的讀數也不會抹除已經量測到的封鎖狀態組。單靠預測的重設時間並不會解鎖。封鎖期間，每分鐘一次的掃描會等待最新已知的封鎖重設時間，再檢查自有用量。如果沒有已知的未來重設，或檢查仍然被封鎖，復原會使用上限為 5/10/20/40/60 分鐘的排程；較長的 `Retry-After` 也會延後設定檔與 token 的準備。只有全新的有效用量，或有權威的視窗缺席證據，才能解除封鎖。在 Pool 模式下，額度 `--refresh` 會繞過快取新鮮度，但仍遵守失敗讀取的節奏；被延後的讀取不會產生新的診斷嘗試。其他暫停、重新認證與上游限制彼此獨立。
+
+當一次全新有效的 WHAM 用量回應，其主視窗明確持續**至少 24 小時**並回報有效用量，或其主視窗明確為 `null` 且量測到的次要視窗提供週用量時，保護會把它視為舊 5 小時讀數的替代。在這兩種情況下，次要／第三視窗都必須明確為 `null`，或明確持續至少 24 小時並回報有效用量。這遵循解析器的 short/long 邊界，所以一天的視窗與週／月視窗一樣符合資格。目前的視窗仍使用相同設定的長視窗門檻（預設 98%）。這依賴單一回報的快照；不需要重複觀測。任何被省略的視窗欄位、未知的持續時間，或不完整的回應標頭，都不能清除先前的封鎖。只帶有點數與補充性僅月讀數的全 null 回應，也不能建立復原。套用延遲的回應之前，proxy 會再次檢查儲存的憑證。無法讀取的檔案或被取代的 bearer，不能更新用量快取、解除鎖定或隔離新的憑證，即使是沒有第二次額度讀取的同一個帳號也一樣。它解析出的一般用量仍可回傳給發出請求的呼叫者，但不會更新共享狀態，也不會成為復原證據。帳號卡片顯示已發布的快取用量，讓它的額度與鎖定狀態保持一致；Direct 供應商額度會省略未發布的回應與它較舊的快取報告。身分衝突與過期的 401/403 回覆會保留目前快取的資訊，並且不能清除或設定目前帳號的重新認證狀態。
+
+持久化的選項是 OpenCodex `config.json` 中的 `"codexMainAccountHardLock"`。缺少該鍵或為 `true` 代表開啟；只有明確的 `false` 才會關閉，而關閉設定時儲存的正是這個值。這裡改變了預設：這個政策過去是選擇加入，舊的開關在關閉時會移除該鍵，所以曾經關閉過的安裝現在會讀成開啟。如果你想要舊的行為，請把它關閉一次以記錄選擇退出。保護涵蓋的是使用已識別主帳號的新請求，不是最後那 2% 本身：已在執行的請求、不相符的呼叫者自有 keyring 憑證，以及 proxy 之外的流量仍可以消耗額度。已新增的帳號與其他供應商仍可使用。
+
+啟用保護時，一次自有的啟動會在原生設定檔復原與清理之後，還原主憑證的記憶體內身分繫結，所以持久化的政策封鎖在重啟後仍會存續。呼叫者自有的 Direct、exact-main、main-fallback 與 main-pin 請求，在繫結尚未完成期間可能短暫收到 503；健康的已儲存池帳號全程保持合格。這項初始化不會從外來或未確認的服務 home 讀取任何憑證。
+
+當此政策封鎖主帳號時，該帳號上的 Luna Reserve 也會被封鎖。維持在一般額度耗盡之前可能會阻止 Reserve 啟用。關閉這個開關會恢復一般的本機處理方式，不會授予額外的上游權益。請使用帳號額度重新整理動作來取得一次全新的觀測；不會自動消耗 reset credit。
 
 ### Luna Reserve 與路由模型並存
 
@@ -120,12 +128,13 @@ OAuth 重新認證會保留維運方的設定，例如模型選擇、價格覆�
 透過執行中的代理列出並切換供應商帳號與 API-key 池。隨附的說明介面如下：
 
 ```text
-Usage: ocx account <list|history|current|use|refresh|auto-switch|alias|priority|pause|resume|pause-exhausted|strategy|sticky|remove|clear-cooldown|add-key|import|import-orca|login|reauth|code|cancel|reset-credits|grok-reset-coupons|main> ...
+Usage: ocx account <list|history|current|use|clear|refresh|auto-switch|alias|priority|pause|resume|pause-exhausted|strategy|sticky|remove|clear-cooldown|add-key|import|import-orca|login|reauth|code|cancel|reset-credits|grok-reset-coupons|main> ...
 
 list [provider]     Codex 帳號池、OAuth 帳號與 API 金鑰（識別碼依 API 回傳遮罩顯示）。
 history openai <pool-account-id> [--limit <1-200>]  單一 Codex 帳號池帳號的近期路由決策。
 current <provider>  顯示現用帳號或金鑰。
-use <provider> <id|alias|main|auto> 切換現用憑證；'main' 選擇 Codex App 登入，'auto' 清除選擇。
+use <provider> <id|alias|main|auto> 切換現用憑證；'main' 選擇 Codex App 登入，'auto' 清除選擇，除非有帳號的 id 恰為此值。
+clear <provider>  無條件清除 Codex 帳號的手動選擇。
 refresh <provider>  強制重新整理 Codex 或供應商配額報告。
 auto-switch <provider> <on|off|status|threshold N>  控制 Codex 池閾值。
 alias <provider> <id|alias> <display-name|->  設定或清除帳號顯示名稱；'-' 表示清除。
@@ -133,7 +142,7 @@ priority <provider> <id|alias|main> [first|earlier|normal|later|last|-100..100|r
 pause <provider> <id|alias|main>  將帳號移出自動選擇。
 resume <provider> <id|alias|main>  將暫停的帳號放回自動選擇。
 pause-exhausted <provider>  暫停所有配額已用盡的帳號。
-clear-cooldown <provider> <id|alias|main>  清除上游失敗後設定的冷卻。
+clear-cooldown <openai|anthropic> <id|alias|main>  清除上游失敗後設定的冷卻。
 strategy <provider> [<quota|round-robin|fill-first|reset-first>]  帳號池放置策略；省略取值即讀取目前值。
 sticky <provider> [<1-100>]  已綁定執行緒在同一帳號上保留的請求數；省略取值即讀取目前值。
 remove <provider> <id|alias|main> --yes  在存在檢查後移除已儲存的帳號或金鑰。
@@ -245,7 +254,7 @@ kiro      oauth  8b24de70  k***1@examp***.net  -                mo 88%
 
 ### `ocx account use <provider> <account-or-key-id|alias|main|auto> [--json]`
 
-`auto` 會清除手動選擇，讓池重新依自身策略分配工作。Codex 帳號可以用 `ocx account alias` 設定的別名代替 id 來指定；`priority`、`pause`、`resume`、`clear-cooldown`、`remove` 與 `alias` 亦然。對於 Codex 帳號，`auto`、`main` 和 `__main__` 為保留字（不區分大小寫），不能設為別名。OAuth 帳號與 API 金鑰的顯示名稱仍遵循原有規則。
+`auto` 會清除手動選擇，讓池重新依自身策略分配工作 — 但若 Codex 帳號的 id 恰為 `auto`，則精確 id 比對優先；`ocx account clear <provider>` 一律還原自動選擇。Codex 帳號可以用 `ocx account alias` 設定的別名代替 id 來指定；`priority`、`pause`、`resume`、`clear-cooldown`、`remove` 與 `alias` 亦然。對於 Codex 帳號，`auto`、`main` 和 `__main__` 為保留字（不區分大小寫），不能設為別名。OAuth 帳號與 API 金鑰的顯示名稱仍遵循原有規則。
 
 選擇既有的 Codex 帳號、OAuth 帳號或 API 金鑰。對於 `openai`，`main` 選擇 Codex App 登入。Codex 池選擇清除行程本地親和性並套用於下一個請求，包含來自既有可見任務的請求；代理重啟或親和性驅逐也可能使任務未綁定，而進行中的請求保留其擷取的帳號。這僅控制池路由；Direct 模式繼續使用呼叫者擁有／原生的 main 憑證。基於用量的主動切換、401/403 重新認證、429/retry-after 冷卻、排除，以及 pre-output 429/402 失敗復原稍後可能選擇另一個合格的池帳號。當基於用量的切換關閉時，這些復原路徑仍然活躍。OpenCodex 在帳號變更後重播對話，但供應商端的 prompt cache 可能是冷的。未知的供應商或 id 離開 1。
 在 **401/403** 時，App 登入清除該帳號的行程本地親和性並要求重新認證。
@@ -255,6 +264,43 @@ kiro      oauth  8b24de70  k***1@examp***.net  -                mo 88%
 ```text
 { ok: true, provider, type, activeId }
 ```
+
+### `ocx account clear <provider> [--json]`
+
+不解析帳號 id 即清除 Codex 帳號的手動選擇，即使存在名為 `auto` 的帳號仍有效。僅適用於 Codex 池；其他提供者類型沒有可還原的自動選擇。
+
+### `ocx account pause|resume <provider> <id|alias|main> [--json]`
+
+暫停或恢復 Codex、Anthropic 或通用 OAuth 供應商池中的單一帳號，包括
+`google-antigravity`。在 Codex 池中，`main` 僅代表 Codex 內建帳號；OAuth 帳號必須用 id 或唯一別名識別。
+已暫停的 OAuth 帳號不會參與請求選帳、429 輪替或主動 Token 刷新，也不能手動選取。
+若暫停目前使用中的帳號，系統會在有其他可用帳號時切換過去。若全部帳號都已暫停，
+需要該池的請求會回覆 403，直到恢復其中一個帳號。
+
+Anthropic 和通用 OAuth 供應商可用帳號 id，或唯一且完全相符／不區分大小寫的別名識別帳號。
+JSON 回應會提供帳號 id、暫停狀態與目前 active 帳號 id。
+
+Anthropic 暫停不受帳號池啟用開關影響，包含工作階段綁定與 429 後繼選帳。
+重新啟動或登入仍保留暫停，憑證與健康狀態不會清除，已送出的請求不會中斷。
+刪除帳號會一併刪除暫停狀態；個別帳號的自動切換門檻不在此功能範圍內。
+
+```bash
+ocx account pause google-antigravity <account-id-or-alias>
+ocx account resume google-antigravity <account-id-or-alias>
+```
+
+### `ocx account clear-cooldown <openai|anthropic> <id|alias|main> [--json]`
+
+清除行程本地的失敗冷卻，但不變更已儲存的憑證。Codex 池帳號使用 `openai`，Anthropic
+OAuth 帳號使用 `anthropic`；其他供應商會被拒絕。兩種形式都接受帳號 id 或唯一別名，
+而 `main` 僅適用於 Codex 池。
+
+```bash
+ocx account clear-cooldown anthropic <id-or-alias>
+```
+
+即使沒有作用中的冷卻，命令也會成功，JSON 中的 `cleared` 為 `false`。清除 Anthropic
+冷卻也會推進帳號 generation，因此舊的 quota probe 無法恢復已清除狀態或發布過期的配額資格。
 
 ### `ocx account refresh <provider> [--json]`
 
@@ -266,7 +312,11 @@ kiro      oauth  8b24de70  k***1@examp***.net  -                mo 88%
 
 ### `ocx account auto-switch <provider> <on|off|status|threshold <0-100>> [--json]`
 
-控制 `openai` Codex 帳戶池閾值，或儲存通用 OAuth 帳戶池閾值。`on` 儲存 80%，`off` 儲存 0%，`threshold <n>` 接受 0–100。通用池的閾值只有在 `pool.kernel` 開啟且 `strategy: "fill-first"` 時才參與選擇；旗標關閉時，儲存閾值不會啟用閾值切換。兩種情況下都不會改變供應商啟用設定或停用 429 錯誤後的輪替。通用池的查詢與修改結果使用伺服器確認值。通用池的 `poolEnabled` 是已儲存的供應商設定，`null` 表示未指定，並不代表繼承後的實際狀態。`inert: true` 表示閾值已儲存但未套用，`inert: false` 表示帳戶池正在套用它。沒有 `inert` 欄位表示能力未知，此時同樣不會回報 `enabled: true`。API 金鑰供應商、Anthropic 與無效值會被拒絕。
+控制 `openai` Codex 帳戶池閾值，或儲存通用 OAuth 帳戶池閾值。`on` 儲存 80%，`off` 儲存 0%，`threshold <n>` 接受 0–100。通用池的閾值只有在 `pool.kernel` 開啟且 `strategy: "fill-first"` 時才參與選擇；旗標關閉時，儲存閾值不會啟用閾值切換。兩種情況下都不會改變供應商啟用設定或停用 429 錯誤後的輪替。通用池的查詢與修改結果使用伺服器確認值。通用池的 `poolEnabled` 是已儲存的供應商設定，`null` 表示未指定，並不代表繼承後的實際狀態。`inert: true` 表示閾值已儲存但未套用，`inert: false` 表示帳戶池正在套用它。沒有 `inert` 欄位表示能力未知，此時同樣不會回報 `enabled: true`。API 金鑰供應商與無效值會被拒絕。
+
+### `ocx account auto-switch anthropic … --account <id>`
+
+Anthropic OAuth 使用 `ocx account auto-switch anthropic threshold 90 --account <id>` 儲存帳戶專屬整數 0–100。`off --account <id>` 設為 0，`on --account <id>` 設為 80，`inherit --account <id>` 恢復繼承，`status --account <id>` 唯讀查詢；可加 `--json`。帳戶卡片提供相同控制。未設定/null 繼承 `anthropicAccountPool.autoSwitchThreshold`（預設 80）；0 只停用該帳戶依用量切換。設定在重啟和重新登入後保留，刪除帳戶時移除。手動選擇、affinity、未知或全部耗盡時的後備行為與模型路由限制不變。集區停用時不套用門檻；暫停與 429 復原仍有效。
 
 ```text
 openai: { provider, autoSwitchThreshold: number, enabled: boolean }
@@ -465,3 +515,17 @@ ocx models remove deepseek/deepseek-v4 --yes
 一般的 token 重新整理會保留歷史。重新認證、移除或帳號替換會讓舊的發布記錄退役。原生 main 與在登入發布之前執行的探測不會被包含在內。缺少歷史代表觀測不足，不是零用量。這個指令不會消耗配額。在觀測值支援的情況下，有效估計值帶有下方的限制。
 
 當同一窗口的觀測值與可歸因用量足以支援時，歷史輸出也會包含有效回報 token 估計值。每個估計值都附有樣本數與低信賴度標示。配額捨入、外部用量與假設的 log-label 連續性會限制這項推論；它不是你的供應商 token 額度。缺失或被截斷的帳本證據會回傳證據不足。`--limit` 控制顯示的歷史筆數，不影響有界估計值的輸入。
+
+### `ocx account routes anthropic`
+
+讀取已儲存的 Anthropic OAuth 模型路由、用本機 JSON 陣列取代它們，或清除它們：
+
+```sh
+ocx account routes anthropic --json
+ocx account routes anthropic --file routes.json
+ocx account routes anthropic --clear
+```
+
+檔案上限為 64 KiB。伺服器會驗證每條路由，並把它們儲存在 `anthropicAccountPool.routes` 之下；寫入需要正在執行的 proxy。請使用 `ocx account list anthropic --json` 中已儲存的帳號 ID。規則只影響已啟用的帳號池，且絕不聲稱某個帳號有權使用某個模型。請求記錄會把符合的規則標示為 `route:#<n>`（清單中從 1 起算的位置），不含它的操作者名稱。
+
+Vision 與 web-search helper 各自獨立比對自己的模型，當它們的嚴格路由沒有合格帳號時，可能在本機失敗。請見 [Anthropic helper 帳號路由](/zh-tw/reference/configuration/providers/#anthropicaccountpool實驗性)。

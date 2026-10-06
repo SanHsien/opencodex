@@ -53,6 +53,7 @@ const PROVIDER_ICON_ALIASES: Record<string, string> = {
   "opencode-go": "opencode.svg",
   "opencode-zen": "opencode.svg",
   openrouter: "openrouter-color.svg",
+  opengateway: "opengateway.svg",
   opper: "opper.svg",
   qianfan: "qianfan-color.svg",
   /*
@@ -83,6 +84,7 @@ const PROVIDER_ICON_ALIASES: Record<string, string> = {
   orcarouter: "orcarouter.svg",
   "orcarouter-oauth": "orcarouter.svg",
   packycode: "packycode.svg",
+  tokenlab: "tokenlab.svg",
   parallel: "parallel.svg",
   sambanova: "sambanova.svg",
   scaleway: "scaleway.svg",
@@ -138,6 +140,7 @@ const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
   xiaomi: "Xiaomi",
   cursor: "Cursor",
   deepseek: "DeepSeek",
+  zed: "Zed",
   // "Devin", not the registry's "Cognition (Devin/Windsurf)". This label sits in
   // a narrow provider rail beside one-word names like Cursor and Kimi, and the
   // long form is the registry's disambiguation for an add-provider list, not a
@@ -148,6 +151,7 @@ const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
   "github-copilot": "GitHub Copilot",
   "gitlab-duo": "GitLab Duo",
   openrouter: "OpenRouter",
+  opengateway: "OpenGateway",
   opper: "Opper",
   "opencode-go": "OpenCode Go",
   "opencode-free": "OpenCode Free",
@@ -155,6 +159,7 @@ const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
   orcarouter: "OrcaRouter - API",
   "orcarouter-oauth": "OrcaRouter - Auth",
   packycode: "PackyCode",
+  tokenlab: "TokenLab",
   mistral: "Mistral",
   groq: "Groq",
   "meta-model": "Meta Model API",
@@ -208,6 +213,15 @@ function providerIconAlias(provider: string): string | undefined {
   return Object.hasOwn(PROVIDER_ICON_ALIASES, key) ? PROVIDER_ICON_ALIASES[key] : undefined;
 }
 
+/**
+ * Every provider id that has a mark, with its file. The native menu bar panel embeds the same
+ * table in desktop/src-tauri/src/provider_icons.rs; gui/tests/provider-icons-native.test.ts keeps
+ * the two identical.
+ */
+export function providerIconAliasEntries(): Array<[provider: string, file: string]> {
+  return Object.entries(PROVIDER_ICON_ALIASES);
+}
+
 /** Optional hints kept for call-site compatibility; resolution is name-based for now. */
 export function providerIconSrc(provider: string, _hints?: ProviderIconHints): string | undefined {
   void _hints;
@@ -238,7 +252,9 @@ const MASKED_PROVIDER_ICONS: ReadonlySet<string> = new Set([
   "nous.svg",
   "novita.svg",
   "packycode.svg",
+  "tokenlab.svg",
   "opper.svg",
+  "opengateway.svg",
   "siliconflow.svg",
   "synthetic.svg",
   "zenmux.svg",

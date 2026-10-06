@@ -42,10 +42,12 @@ import {
   resolvePnpmGlobalOwner,
   runPnpmGlobalUpdate,
 } from "../src/update/pnpm-global-install.mjs";
+import { PNPM_READ_CWD, withPnpmCommandCwd, pnpmReadEnvironment } from "../src/update/pnpm-read-policy.mjs";
 import { checkRegistryPackageIntegrity } from "../src/update/registry-integrity.mjs";
 import { hasPendingTeardownIn } from "../src/config/pending-teardown-names.mjs";
 import {
   npmCachePreflightFailureMessage,
+  resolveNpmCachePath,
   runNpmCachePreflight,
 } from "../src/update/npm-cache-preflight.mjs";
 import { handoffWindowsTrayForUpdate, planWindowsTrayUpdate } from "../src/update/tray-update-plan.mjs";
@@ -208,6 +210,8 @@ function runPackageManagerSelfUpdate(manager) {
           encoding: "utf8",
           timeout: 20_000,
           windowsHide: true,
+          cwd: PNPM_READ_CWD,
+          env: pnpmReadEnvironment(unprivilegedOwnershipMutationEnvironment(process.env)),
           ...invocation.options,
         });
       },
@@ -221,6 +225,20 @@ function runPackageManagerSelfUpdate(manager) {
   const managerInvocation = args => manager === "pnpm"
     ? pnpmOwnerInvocation(owner, args)
     : npmInvocation(args);
+  // Read-only pnpm probes run from the installed package directory with project pnpmfiles
+  // disabled, so an attacker-controlled cwd cannot execute hooks during the update check.
+  const readProbeOptions = invocation => ({
+    encoding: "utf8",
+    timeout: 12000,
+    windowsHide: true,
+    ...(manager === "pnpm"
+      ? {
+        cwd: PNPM_READ_CWD,
+        env: pnpmReadEnvironment(unprivilegedOwnershipMutationEnvironment(invocation.env ?? process.env)),
+      }
+      : invocation.env ? { env: invocation.env } : {}),
+    ...invocation.options,
+  });
   const latestInvocation = managerInvocation(["view", `${PKG}@${tag}`, "version"]);
   const installArgs = manager === "pnpm"
     ? ["add", "-g", "--allow-build=bun", `${PKG}@${tag}`]
@@ -230,13 +248,7 @@ function runPackageManagerSelfUpdate(manager) {
     console.error(`opencodex: could not resolve ${manager} from a trusted absolute PATH entry; aborting before stopping the proxy.`);
     process.exit(1);
   }
-  const latestResult = spawnSync(latestInvocation.file, latestInvocation.args, {
-    encoding: "utf8",
-    timeout: 12000,
-    windowsHide: true,
-    ...(latestInvocation.env ? { env: latestInvocation.env } : {}),
-    ...latestInvocation.options,
-  });
+  const latestResult = spawnSync(latestInvocation.file, latestInvocation.args, readProbeOptions(latestInvocation));
   const latest = latestResult.status === 0 && typeof latestResult.stdout === "string" ? latestResult.stdout.trim() : "";
 
   console.log(`opencodex v${current} (installed via ${manager}, tag ${tag})`);
@@ -248,13 +260,7 @@ function runPackageManagerSelfUpdate(manager) {
   const integrity = checkRegistryPackageIntegrity(PKG, latest || null, args => {
     const invocation = managerInvocation(args);
     if (!invocation) return { status: 1 };
-    return spawnSync(invocation.file, invocation.args, {
-      encoding: "utf8",
-      timeout: 12000,
-      windowsHide: true,
-      ...(invocation.env ? { env: invocation.env } : {}),
-      ...invocation.options,
-    });
+    return spawnSync(invocation.file, invocation.args, readProbeOptions(invocation));
   });
   if (integrity.ok === false) {
     console.error(`opencodex: ${integrity.reason}; aborting before stopping the proxy.`);
@@ -266,12 +272,21 @@ function runPackageManagerSelfUpdate(manager) {
     console.log(`Verified ${PKG}@${latest} integrity metadata ${integrity.integrity.slice(0, 24)}…`);
   }
 
+  // The cache root is resolved once, with the environment staging uses, then checked and pinned:
+  // the stage installs with exactly the root this pre-flight inspected (#6288).
+  let npmCachePath;
   if (manager === "npm") {
-    const cachePreflight = runNpmCachePreflight();
+    const npmCache = resolveNpmCachePath({ env: unprivilegedOwnershipMutationEnvironment(process.env) });
+    // Windows skipped this gate before #6288: an unresolvable npm cache path keeps that behavior
+    // there (no check, no pin) and only a confirmed broken root aborts the update.
+    const cachePreflight = npmCache.ok
+      ? runNpmCachePreflight({ cachePath: npmCache.path })
+      : process.platform === "win32" ? { ok: true, reason: "windows_skip" } : npmCache;
     if (!cachePreflight.ok) {
       console.error(`opencodex: ${npmCachePreflightFailureMessage(cachePreflight.reason)}. Aborting before stopping the proxy.`);
       process.exit(1);
     }
+    npmCachePath = npmCache.path;
   }
 
   // Remember whether a background service manages the proxy BEFORE stopping — `ocx stop`
@@ -447,6 +462,9 @@ function runPackageManagerSelfUpdate(manager) {
     }
     const env = mutationChildEnvironment();
     delete env.OCX_SERVICE;
+    // The restarted proxy is an ordinary owner; only a sibling's own replacement carries this.
+    delete env.OCX_SIBLING_OF_PORT;
+    delete env.OCX_SIBLING_HANDOFF_NONCE;
     console.log(`Attempting to restart the proxy on port ${bakePort}.`);
     const child = spawn(process.execPath, [postUpdateLauncher, "start", "--port", String(bakePort)], {
       detached: true,
@@ -729,6 +747,7 @@ function runPackageManagerSelfUpdate(manager) {
           pkgName: PKG,
           targetVersion: latest || undefined,
           tag,
+          cachePath: npmCachePath,
           runNpm: (args) => {
             const invocation = npmInvocation(args);
             if (!invocation) return { status: 1 };
@@ -765,14 +784,17 @@ function runPackageManagerSelfUpdate(manager) {
           runPnpm: (args, capture = false) => {
             const invocation = pnpmOwnerInvocation(owner, args);
             if (!invocation) return { status: 1 };
-            return spawnSync(invocation.file, invocation.args, {
+            return withPnpmCommandCwd(args, cwd => spawnSync(invocation.file, invocation.args, {
               ...invocation.options,
               stdio: capture ? "pipe" : "inherit",
               encoding: "utf8",
               timeout: 180000,
               windowsHide: true,
-              env: unprivilegedOwnershipMutationEnvironment(invocation.env ?? process.env),
-            });
+              // Reads probe from the package dir; mutations (add -g, rollback) must not
+              // keep a cwd handle inside the package Windows is replacing.
+              cwd,
+              env: pnpmReadEnvironment(unprivilegedOwnershipMutationEnvironment(invocation.env ?? process.env)),
+            }));
           },
           log: line => console.log(line),
         });

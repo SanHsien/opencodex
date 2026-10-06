@@ -484,6 +484,13 @@ export const SERIAL_FULL_SUITE_FILES = [
   // Synchronous injection subprocesses can wedge the long-lived macOS isolate
   // parent while reaping a history Worker; contain them in a fresh bounded lane.
   "codex-integration/codex-inject-write-lock.test.ts",
+  // Its management API import stalled the long-lived macOS isolate pool before
+  // any case ran; the complete file finishes in under a second in a fresh process.
+  "routing/subagent-roster-retention.test.ts",
+  // Linux run 36610213506 stalled this file after its WebSocket admission case
+  // in a multi-file process; all 11 cases completed in the attribution process.
+  // Keep its real listener lifecycle in a fresh process on every platform.
+  "codex-integration/active-registry-admission.test.ts",
   "update/update-stop-first.test.ts",
   // Relays a 50 MiB WebSocket frame end to end against a 15s deadline, so its result is a
   // measurement of the whole process, not of the relay. On a healthy 3-CPU macOS runner the
@@ -499,6 +506,9 @@ export const SERIAL_FULL_SUITE_FILES = [
   "service/service-ownership-state.test.ts",
   "service/service-sqlite-home.test.ts",
   "service/service.test.ts",
+  "service/service-claim.test.ts",
+  "service/service-wsl-home-ownership.test.ts",
+  "codex-integration/native-codex-toggle.test.ts",
   "codex-integration/native-grok-toggle.test.ts",
   // Spawns fresh bun test child processes with fixed timing budgets (warm-up, open-pipe,
   // capture, timeout scenarios). Sharing a batch with other subprocess/proxy-heavy files

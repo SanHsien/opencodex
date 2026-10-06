@@ -175,6 +175,14 @@ session。受管的根層級 base 會回到 `/v1`。
 發送請求的呼叫端，一次模型回合也不會記錄任何歷史所有權。opencodex 是靠讀取 Codex 自己的設定來
 判定的，所以這個開關不取決於注入的 URL，也不取決於客戶端送出了什麼，關閉它不需要重新啟動就會生效。
 
+### Codex App 中的託管圖像結果
+
+當路由的 Responses 供應商回傳帶有 base64 圖像資料、已完成的託管 `image_generation_call` 時，opencodex 會把驗證過的圖像儲存在它本機的 `artifacts/` 目錄下，並把最終的 assistant 圖像訊息送給本機連線的 Codex 用戶端。圖像會留在可收合的進度區段之外。這適用於串流與非串流的 Responses，不需要另一次生成請求，也不會改變所選的供應商。
+
+當用戶端把這些已生成的圖像訊息當作 assistant 歷史重播時，opencodex 會在轉送該歷史之前，把它所生成的本機圖像連結換成不透明的 artifact 參照。這保護了顯示路徑，同時不會改變 app 中已顯示的圖像訊息。它不會遮蔽不相關的、使用者提供的路徑。
+
+這個顯示相容性需要 loopback 准入與可辨識的 Codex 用戶端。遠端與一般的 API 用戶端會保留供應商的託管回應格式。這個相容層不會繪製部分預覽與僅有 URL 的結果。Artifact 使用既有的保留上限，所以請在較舊的檔案被清除之前，儲存你想保留的圖像。無效的圖像或失敗的本機寫入，會產生可見的失敗訊息，而不是損壞的圖像連結。
+
 ### 內建圖像生成（`image_gen`）
 
 Codex 的內建 `image_gen` 工具不會經過 `/v1/responses`。codex-rs 擴充套件會直接 POST 到
@@ -388,6 +396,28 @@ resume-history 中繼資料是否被重新標記，取決於注入採用哪一�
 此模式生效期間，即時語音旁帶覆寫（`experimental_realtime_ws_base_url`）不會被注入——專用的供應商表
 形式無法攜帶它——所以 Codex Desktop 語音會使用它原生的端點，而不是這個 proxy。
 
+### 緊急壓縮模型（選擇加入）
+
+當 OpenCodeX 為 Google 等供應商轉換遠端壓縮時，如果之後存在明確的最終答案，它會把較早回合中的圖像換成簡短的重新開啟說明。既有的分析與檔案參照會留在摘要輸入中；最後一個最終答案之後的圖像會保留給尚未解決的工作。只有 commentary 與沒有階段標記的歷史會被保留。這只影響壓縮請求，不影響已儲存的附件或一般模型請求。它減少重複的視覺輸入，但不保證很長的文字歷史放得進供應商的上下文上限。
+
+`compactionRecovery` 讓初始的壓縮留在對話所選的路由上。它只在受支援的、輸出之前的壓縮失敗之後，才允許一次緊急嘗試。它與 `compactionRouting`（在壓縮開始之前選擇另一個模型）以及 `codexClientCompaction`（改變 Codex 的供應商形式）是分開的。
+
+```json
+{
+  "compactionRecovery": {
+    "enabled": true,
+    "model": "provider/emergency-model",
+    "allowDevinInvalidArgument": false
+  }
+}
+```
+
+請使用獨立設定、已授權、且上下文足以容納失敗輸入的模型。啟用復原代表允許該模型的供應商接收壓縮歷史，並在復原執行時為額外的嘗試收費；一般成功的壓縮不會產生額外呼叫。這個選項在缺少或停用時是關閉的。既有的已認證管理 API 透過 `PUT /api/settings` 接受這個區塊；送出 `compactionRecovery: null` 可移除它。直接編輯檔案應遵循一般的停止 proxy 設定流程。這個設定不會改變登入、對話的一般模型、Codex 的供應商 ID，或桌面 composer。
+
+復原不會在取消、語意輸出、工具副作用、送出預算用盡，或認證、准入或政策拒絕之後重播。一般的 `400` 錯誤不會啟用後備。Devin 對過大的歷史回應不透明的、輸出之前的 `invalid_argument`；當請求的估計大小達到或接近模型的輸入視窗時，adapter 會改為回報 `context_length_exceeded`，所以 Codex 會在一般回合壓縮，而失敗的壓縮也符合上下文溢出的條件，不需要任何 Devin 專屬的選項。估計使用經過 Cognition 清理與截斷後的工具描述，與送往上游的請求一致。較小的請求得到相同的代碼時，仍是單純的 `400`。另外選擇加入的 `allowDevinInvalidArgument` 情況只涵蓋其餘那些 `invalid_argument` 失敗，而且只針對已識別的壓縮請求。緊急嘗試與原始請求共用送出預算，且絕不會啟動第二次復原嘗試。
+
+原生加密壓縮不在這條復原路徑之內：它保留原本的錯誤。沒有自動的本機截斷模式。回應被接受並不能證明長對話保留了它的目標；在把緊急摘要視為已復原的任務之前，請先在原本的模型上驗證下一回合。
+
 ### 免登入 Codex Desktop（選擇加入）
 
 在 **Dashboard → Overview** 中，**Open Codex without signing in** 控制這個既有的選擇加入偏好。
@@ -513,6 +543,12 @@ Browser 或 Computer Use。原生 OpenAI 列保留上游 tool mode 不變。
 
 `ocx sync` 變更這份 metadata 後，請重新啟動 Codex App 並開啟新任務。既有 app-server process 與任務
 可能仍保留啟動時載入的目錄與 tool plan。
+
+### 路由模型的行內視覺化
+
+Codex App 的 Visualize 外掛會要求模型回覆一個用私用區字元（U+E200 … U+E201）包起來的參照。有些供應商會在模型看到之前就移除那些字元——我們檢查過的每一條 Claude 路由都是如此——所以模型過去會以一行裸的 `visualize{"path":…}` 回答，Codex App 把它當成文字印出。
+
+opencodex 會在送給路由模型的對話文字中，把那些參照改寫成 app 自己會繪製的指令 `::codex-inline-vis{path="/absolute/path/chart.html"}`。任何模型都能讀取並重複那個形式，所以視覺化會行內繪製。原生 OpenAI 透傳請求會原樣轉送。已經以裸 `visualize{…}` 形式儲存的回覆維持原狀；請在新的回覆中再次要求該視覺化。
 
 ### 自訂模型顯示名稱
 
@@ -674,6 +710,12 @@ ocx service install    # persistent: auto-starts on login and respawns on crash
 `ocx status` 可檢視 proxy 是否執行，未執行時也會給出相同的重啟提示；`ocx doctor` 會回報重啟安全性
 （service／shim 覆蓋情況）。
 
+### Codex 自動啟動 shim
+
+執行 `ocx codex-shim install` 以安裝選用的 launcher wrapper。它會在一般的 Codex 啟動之前執行 `ocx ensure`，然後轉送原本的引數與結束狀態。這個指令也適用於桌面套件隨附的獨立 `ocx`：安裝探測與已安裝的 wrapper 都使用那個執行檔，不需要另外安裝 Bun 或原始碼 checkout。
+
+使用 `ocx codex-shim status` 檢視它，並用 `ocx codex-shim uninstall` 還原已儲存的 Codex launcher。
+
 ## Codex 保留模式下的路由模型
 
 當 ChatGPT 的 5 小時配額耗盡時，Codex 可能會提供一個保留後備模型（`gpt-reserve` / Luna Reserve）。
@@ -712,6 +754,8 @@ ocx service install    # persistent: auto-starts on login and respawns on crash
 
 `ocx account refresh openai` 和 `ocx account list openai --quota --refresh` 僅查詢用量。模型驗證會消耗配額，因此需要使用者的儀表板工作階段：配額恢復後，開啟 `ocx gui` 並點選 **Refresh quotas**。無介面主機也需要透過瀏覽器存取其儀表板；僅憑管理員權杖無法授權驗證。暫停的帳號可以完成驗證，但不會因此恢復或被選取。模型授權錯誤會持續顯示，直到驗證或重新登入成功。
 
+在 **Codex Set → Multi-auth** 中，開啟 **Codex Auth** 標題列中的 **Codex 額度** 開關，即可在 Week 下方顯示主帳號和各池帳號最近查詢到的點數。預設關閉，並儲存為 `showCodexCredits`。餘額按地區格式顯示；上游回報時會顯示無限額或超額使用上限警告。由於沒有點數總上限，長條表示可用狀態而非百分比。此開關僅控制顯示，新登入需等待其自身的查詢結果。
+
 背景重新驗證是獨立功能，預設關閉。它需要 Token Guardian、`openai` 的 `proactive` 更新政策及 `tokenGuardian.codexWarmupEnabled`，並略過等待註冊驗證的帳號。
 
 ### 取消主帳號裝置重新驗證
@@ -723,6 +767,22 @@ ocx service install    # persistent: auto-starts on login and respawns on crash
 帳號退出帳號池選擇時，原因會隨判定一起傳遞，而不是為了顯示重新計算，因此介面不會在路由已排除該帳號時仍顯示正常。`GET /api/codex-auth/accounts` 會在每個帳號的 `needsReauth` 旁回傳 `reauthReason`：從未儲存憑證為 `missing_credential`，更新持續失敗為 `refresh_failed`，用量查詢本身遭拒為 `quota_unauthorized`。
 
 主帳號更新未完成時仍回傳帶 `Retry-After` 的 `503`，因為重試仍可能成功。訊息現在補充說明：若持續失敗，代表主帳號需要重新認證，而不只是再試一次。
+
+### 選用的閒置視窗導向
+
+`codexPool.startIdleWindows` 是選用的布林值，預設為 `false`。啟用時，新的、未綁定的真實請求，可能被放到一個符合資格的帳號上，該帳號觀察到的短額度視窗為 0%，且有證據顯示它的五小時計時尚未開始。這項檢查在對話與家族親和性之後執行，所以既有的綁定仍具權威性；明確的帳號 pin 或手動的帳號偏好也優先。獨立的模型額度範圍會被略過，共享的作用中游標不變。閒置視窗的選擇之後，其他對話恢復一般的策略選擇。
+
+觀測不得超過五分鐘，且短視窗必須明確為 18,000 秒。它的重設必須在 `observation + 5h` 的 60 秒內被觀測到（而不是已在計時或已過期的重設）。同步的、程序本機的保留，會防止同一個帳號與視窗被重複選擇。保留的期限至少是選擇之後的 5 小時加一分鐘；在那個期限之後，同一個帳號要再被導向之前，需要一次新的觀測。保留會在 proxy 程序重新啟動時清除，絕不會持久化到磁碟。
+
+在你既有的設定中啟用它：
+
+```json
+{
+  "codexPool": { "startIdleWindows": true }
+}
+```
+
+如果沒有帳號符合條件，就套用一般的路由。這個功能只導向實際進來的請求。它不建立合成請求，也不建立計時器。
 
 ### 讓降級的帳號退出輪換
 
@@ -788,6 +848,14 @@ ocx restore back # point plain Codex at the running proxy again
 返回根 URL 覆寫模式時，即使歷史預檢通過，OpenCodex 也會在提交設定前保留既有的 `[model_providers.opencodex]` 定義。如此一來，即使 Codex 在提交後或背景歷史工作啟動時遷移歷史格式，舊的 `opencodex` 對話仍能找到其提供者。新對話繼續使用所選的根提供者；明確要求的還原仍執行原有的獨立刪除檢查。
 
 請勿改寫使用中的分頁歷史檔案或執行緒列來自行遷移這些對話。復原前關閉相關對話，只回報確切錯誤與版本，不要公開私人歷史。備份或指令碼成功不能證明顯示已復原；重新開啟 Codex 後確認對話。
+
+### 遠端對話串列表的供應商過濾
+
+Provider-table 路由會把新對話的預設供應商 id 改為 `opencodex`，而無法安全改標籤的歷史可能仍標記為 `openai`。有些原生 app-server／行動版本會把省略的 `thread/list.modelProviders` 過濾，當成只有目前的預設供應商，所以這些既有的對話可能從該遠端列表中消失，即使它們的資料庫列與 rollout 完好無缺。相容的列表用戶端可以送出 `modelProviders: []` 來要求所有供應商。OpenCodex 無法改寫那個 RPC，因為遠端用戶端是直接與 Codex 原生的 app-server 溝通，而不是推論 proxy。
+
+`ocx sync` 與 `ocx start` 在套用 provider-table 路由時會包含這項警告。如果使用者自有的根 URL 讓指令走進不路由的分支，CLI 會省略警告。在用戶端壓縮模式下，CLI 可以保留該 URL、套用 `opencodex` provider table，並包含警告。當任一設定啟用時，儀表板會顯示另一個偏好提示。如果兩個設定都啟用，不論根 URL 為何，它只出現一次。該提示回報的是已啟用的偏好；並不代表 Authless Desktop 在目前的路由上有效。Authless Desktop 只適用於有效的 loopback authless 路由，對遠端用戶端路由或需要准入標頭的 listener 會被忽略。這項警告不是遷移：OpenCodex 不會只為了影響用戶端的列表過濾而編輯供應商標籤。請在原生 Codex 與 app-server／用戶端版本中驗證該對話；不要為了讓遠端列表包含它而改寫分頁歷史。
+
+不要自行改寫進行中的分頁 rollout 或對話串列來遷移那些對話。任何復原之前，請先關閉受影響的對話，並在不上傳私人歷史的情況下，回報確切的錯誤與版本。單靠備份或成功的腳本，並不能證明對話再次可見。重新開啟後，請在 Codex 中檢查已還原的對話。
 
 ## 實驗性原生對話中途 steering
 
@@ -1004,3 +1072,7 @@ JSON 報告只包含結果、時間與布林檢查點。通過需要排隊接受
 `not_exercised`。兩者都不算通過。行程只有在全部四個實際情境都通過時才 exit 0，否則
 exit 1，而無效引數或缺少憑證則 exit 2。這是一個**線路診斷**，不是端對端的 Codex App/CLI
 介面測試、實際認證，或指示在正式環境啟用此實驗性功能。
+
+## 串流換行符號
+
+共用的 SSE 解碼器接受 LF、CRLF 與單獨的 CR 換行符號，即使分隔符跨越網路 chunk 也一樣。這讓相容的供應商可以串流事件，而不需要只用 LF 的分框。

@@ -31,7 +31,8 @@ import {
   advanceComboAfterFailure,
   comboFailureCooldownScope,
   JEV_PROVIDER_ID,
-  resolveJevDecision,
+  jevDecisionBackendFor,
+  resolveJevComboDecision,
   type ComboPick,
   type JevCandidate,
   type JevDecision,
@@ -45,6 +46,17 @@ import {
 } from "../../responses/state";
 import { hasUnreadableEncryptedAgentTask } from "./encrypted-payload";
 import { routeConcreteModel, comboRouteDecisionTrace } from "../../router";
+import { memoryModelRouteReason } from "./memory-models";
+import { poolAccountProviderLabel } from "../../providers/label";
+import { getAccountSet } from "../../oauth/store";
+import {
+  formatAnthropicProviderForLog,
+  getAnthropicAccountHealthSnapshot,
+  getAnthropicPoolRetryAfterSeconds,
+  getEligibleAnthropicAccounts,
+} from "../../oauth/anthropic-routing";
+import { codexAccountLogLabel } from "../../codex/account-label";
+import { codexQuotaScopeForModel, getCodexQuotaHealthSnapshot } from "../../codex/routing";
 import { isCanonicalOpenAiForwardProvider } from "../../providers/openai-tiers";
 import type { AgentTaskRecoveryFailureReason } from "./agent-task-recovery";
 import {
@@ -87,6 +99,7 @@ import { streamingContextOverflowResponse, jsonContextOverflowResponse } from ".
 import { mandatoryResponsesReasoningReplayUnavailable } from "./core-replay";
 import { settleOperatorReplacement } from "../../lib/upstream-retry";
 import { createComboProtocolLanes, dispatchNativeComboChild } from "./core-combo-native";
+import { createJevModelInvoker } from "./jev-model-invoke";
 import { clientWireOf } from "../inference/client-wire";
 
 /**
@@ -96,6 +109,49 @@ import { clientWireOf } from "../inference/client-wire";
  */
 export const COMBO_TARGET_BASE_SENDS = CODEX_TEXT_GUARDED_BUDGET_POLICY.baseSendAllowance;
 
+function cooledPoolAccountLabel(config: OcxConfig, providerName: string, modelId: string, label: string | undefined): string | undefined {
+  if (!label) return undefined;
+  if (providerName === "anthropic") {
+    const matches = getAccountSet("anthropic")?.accounts.filter(account =>
+      formatAnthropicProviderForLog("anthropic", account.id) === label) ?? [];
+    return matches.length === 1 && getAnthropicAccountHealthSnapshot(matches[0]!.id) ? label : undefined;
+  }
+  const provider = config.providers[providerName];
+  if (!provider || !isCanonicalOpenAiForwardProvider(provider)) return undefined;
+  const matches = (config.codexAccounts ?? []).filter(account =>
+    `${providerName}-${codexAccountLogLabel(account)}` === label);
+  return matches.length === 1
+    && getCodexQuotaHealthSnapshot(matches[0]!.id, codexQuotaScopeForModel(modelId))
+    ? label : undefined;
+}
+
+
+/**
+ * True only for the Anthropic OAuth pool's OWN "all accounts cooled" 429. Its Retry-After is the
+ * earliest per-account cooldown restated (`getAnthropicPoolRetryAfterSeconds`), which the pool
+ * keeps enforcing locally, so it must not also park the combo target: an account added, resumed or
+ * cleared a minute later would otherwise sit ignored until the target expired, up to the 24h
+ * server-delay ceiling.
+ *
+ * Provenance, not just current state: the target must be the OAuth pool, no account may have been
+ * identified for the failure, and the pool must be holding the wait right now. An upstream 429 on
+ * a pool account always cools and names that account, and an API-key provider never qualifies, so
+ * a genuine upstream Retry-After still parks the target in full.
+ */
+export function isAnthropicPoolLocalRefusal(
+  config: OcxConfig,
+  providerName: string,
+  status: number,
+  failedAccount: string | undefined,
+  now = Date.now(),
+): boolean {
+  return providerName === "anthropic"
+    && config.providers[providerName]?.authMode === "oauth"
+    && status === 429
+    && failedAccount === undefined
+    && getEligibleAnthropicAccounts(now).length === 0
+    && getAnthropicPoolRetryAfterSeconds(now) !== null;
+}
 
 /**
  * A combo's execution policy is DECLARED by the combo, not inherited from the single-target
@@ -226,6 +282,7 @@ function eligibleJevComboChoices(
         provider: pick.target.provider,
         model: pick.target.model,
         reasoningEfforts,
+        modelProfile: pick.target.modelProfile,
       },
     });
   }
@@ -510,16 +567,30 @@ export async function executeComboResponses(
     const decisionStartedAt = Date.now();
     let decision: JevDecision;
     try {
-      decision = await resolveJevDecision({
+      decision = await resolveJevComboDecision({
         body,
         candidates: choices.map(choice => choice.candidate),
         fallback,
         config,
+        ...(combo.decisionProvider ? { decisionProvider: combo.decisionProvider } : {}),
+        ...(combo.decisionModel
+          ? {
+            decisionModel: combo.decisionModel,
+            invokeModel: createJevModelInvoker({
+              req,
+              config,
+              options,
+              handleResponses: requestDispatchers.handleResponses,
+            }),
+          }
+          : {}),
+        ...(combo.decisionTimeoutMs !== undefined ? { timeoutMs: combo.decisionTimeoutMs } : {}),
         signal: options.abortSignal,
       });
     } catch (error) {
       if (options.abortSignal?.aborted) return clientCancelledResponse();
       decision = {
+        backend: jevDecisionBackendFor(combo),
         ...fallback,
         gate: "network",
         latencyMs: Math.max(0, Date.now() - decisionStartedAt),
@@ -538,6 +609,7 @@ export async function executeComboResponses(
       },
       gate: decision.gate,
       latencyMs: decision.latencyMs,
+      backend: decision.backend,
       ...(decision.confidence !== undefined ? { confidence: decision.confidence } : {}),
       ...(decision.chosenProbability !== undefined
         ? { chosenProbability: decision.chosenProbability }
@@ -545,6 +617,7 @@ export async function executeComboResponses(
       ...(decision.usage ? { usage: decision.usage } : {}),
     });
     console.debug("[combo] JEV decision", {
+      backend: decision.backend,
       targetKey: decision.targetKey,
       effort: decision.effort,
       gate: decision.gate,
@@ -558,7 +631,10 @@ export async function executeComboResponses(
   }
   // One immutable combo selection trace, before any child dispatch; child
   // adoption below must never replace it with a concrete child route trace.
-  logCtx.routeDecision = comboRouteDecisionTrace(config, comboId, pick, requestedModel);
+  const decision = comboRouteDecisionTrace(config, comboId, pick, requestedModel);
+  logCtx.routeDecision = options.memoryModelPhase
+    ? { ...decision, selected: { ...decision.selected, reason: memoryModelRouteReason(options.memoryModelPhase) } }
+    : decision;
 
   const originalReasoning = body && typeof body === "object" && !Array.isArray(body)
     ? (body as { reasoning?: unknown }).reasoning
@@ -667,7 +743,11 @@ export async function executeComboResponses(
     const attempt = beginRequestAttempt(
       (logCtx.attempts?.length ?? 0) + 1,
       pick.target.provider,
-      pick.target.model,
+      // The id the child wire will actually send, not the selector the combo named. A target may
+      // be an alias, and `routeConcreteModel` above is where it becomes the provider's native id;
+      // recording the alias here would describe a request that never left (the adapter resolves
+      // the id before it reads any per-model list).
+      targetRoute.modelId,
       config.providers[pick.target.provider]!.adapter,
     );
     childLog.activeAttempt = attempt;
@@ -958,8 +1038,20 @@ export async function executeComboResponses(
     });
     const failedTargetKey = targetKey(pick.target);
     let failedTargetCooldownRecorded = false;
+    // The dispatch rewrote this to name the pool account that actually served the turn.
+    const failedAccount = cooledPoolAccountLabel(
+      config,
+      pick.target.provider,
+      pick.target.model,
+      poolAccountProviderLabel(childLog.provider, pick.target.provider),
+    );
+    // The target still cools on the pool's own refusal (the anti-hammer guard), but for the local
+    // fallback rather than the pool's restated per-account Retry-After.
+    const poolLocalRefusal = isAnthropicPoolLocalRefusal(
+      config, pick.target.provider, failure.response.status, failedAccount, failureNow,
+    );
     const nextPick = advanceComboAfterFailure(config, pick, {
-      retryAfter: failure.retryAfter,
+      retryAfter: poolLocalRefusal ? undefined : failure.retryAfter,
       resetAt: failure.resetAt,
       cooldownMs: combo.cooldownMs,
       now: failureNow,
@@ -968,6 +1060,7 @@ export async function executeComboResponses(
       status: failure.response.status,
       code: failure.upstreamCode,
       message: failure.classificationText,
+      failedAccount,
       onCooldownRecorded: target => {
         failedTargetCooldownRecorded ||= targetKey(target) === failedTargetKey;
       },

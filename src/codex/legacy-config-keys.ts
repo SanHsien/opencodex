@@ -1,9 +1,7 @@
 import { join } from "node:path";
 import { resolveCodexHomeDir } from "./home";
-import { readBoundedRegularFile } from "../lib/bounded-file-read";
+import { readBoundedCodexConfig } from "./inject/bounded-config-reader";
 
-/** Same bound as the other config.toml readers: it exists to keep the read bounded. */
-const MAX_LEGACY_CONFIG_BYTES = 4 * 1024 * 1024;
 import { parseTomlDocument } from "./project-config-warnings";
 import { redactUserPath } from "../lib/redact";
 
@@ -36,16 +34,15 @@ export function collectLegacyCodexConfigKeyDiagnostics(
   const path = resolveCodexConfigPath(options.codexConfigPath);
   // One open decides all three answers. existsSync, then statSync, then readFileSync resolved
   // the same name three times, and only the last one produced the bytes this function returns.
-  const read = readBoundedRegularFile(path, MAX_LEGACY_CONFIG_BYTES);
-  if (read.kind === "absent") return { status: "available", path, diagnostics: [] };
-  if (read.kind === "refused") {
-    return {
-      status: "unavailable",
-      path,
-      reason: read.reason === "not-a-regular-file" ? "not_a_file" : "read_failed",
-    };
+  // A symlinked config.toml is read through (Codex does); the reader's 1 MiB bound applies.
+  let content: string | null;
+  try {
+    content = readBoundedCodexConfig(path);
+  } catch (error) {
+    const notAFile = error instanceof Error && error.message.includes("not a bounded regular file");
+    return { status: "unavailable", path, reason: notAFile ? "not_a_file" : "read_failed" };
   }
-  const content = read.content;
+  if (content === null) return { status: "available", path, diagnostics: [] };
   const { root } = parseTomlDocument(content);
   const found: LegacyCodexConfigKeyDiagnostic[] = [];
   for (const key of LEGACY_KEYS) {

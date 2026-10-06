@@ -7,13 +7,23 @@ description: 多代理、組合、可觀測性、存取、整合、系統與設�
 
 ## 代理政策
 
-### `ocx agent <status|injection|effort|subagents|fallback|sidecar> ...`
+### `ocx agent <status|injection|effort|subagents|fallback|roles|sidecar> ...`
 
 管理無頭多代理名冊、effort 上限、prompt 注入、fallback 與 sidecar 設定。使用 `status` 查看目前政策。關於介面模式、委派、effort 與 fallback 行為如何搭配運作，請見[子代理介面](/zh-tw/guides/sub-agent-surface/)。
 
 ```bash
 ocx agent subagents set ark/model-a,openai/gpt-5.5
 ```
+
+`ocx agent roles` 用於 omo（Codex / LazyCodex）。它會列出 `$CODEX_HOME/agents` 中每個 Codex 代理角色的模型釘選，以及 `~/.omo/omo.jsonc` 是否可以更新；或是告知尚未安裝 LazyCodex，此時 `set` 會被拒絕。`ocx agent roles set <role> <model>` 只會改寫該角色根層級的 `model` 那一行，並把值鏡射到 omo.jsonc 的 `codex.agents.<role>.model`。缺少 omo.jsonc，或其中含有註解時，檔案會維持不變，且指令會說明這點。請見 [omo（Codex / LazyCodex）角色模型](/zh-tw/guides/integrations/#omo-codex--lazycodex-role-models)。
+
+```bash
+ocx agent roles set explorer xai/grok-4.5
+```
+
+`ocx agent roles suggest` 僅適用於 omo（Codex / LazyCodex），未安裝 LazyCodex 時與 `set` 一樣會被拒絕。它以對預設 Codex 模型（或 `--model`）的一次呼叫來評估每個角色的規模，並印出每個角色建議的模型與 effort，不寫入任何東西。`--apply` 會透過與 `set` 相同的寫入來寫入每一項建議，略過並指名模型與 effort 已經相符的角色。請見[自動指派](/zh-tw/guides/integrations/#auto-assign)。
+
+`ocx agent injection suggest <work>` 對委派模型做同樣的事：它評估所描述工作的規模，從委派選擇器的清單中建議最便宜且足夠的模型與 effort，除非給了 `--apply`，否則不寫入任何東西；給了 `--apply` 就透過與 `injection set` 相同的寫入來儲存。請見[委派模型與 effort](/zh-tw/guides/sub-agent-surface/#delegation-model-and-effort)。
 
 `ocx agent sidecar web --list` 與 `ocx agent sidecar vision --list` 會印出伺服器目前為每個
 sidecar 提供的模型——恰好是儀表板選擇器顯示的那個經過篩選的集合（選擇器可見列，加上有登入
@@ -243,7 +253,7 @@ ocx claude desktop import <path> [--apply]         驗證並匯入 JSON
 
 ## 客戶端設定匯出
 
-### `ocx export --client <opencode|pi|omp|hermes|openclaw|kimi|gajae|dsh|mcode|zcode|prime|aside|raycast|omo>`
+### `ocx export --client <opencode|pi|omp|hermes|openclaw|kimi|gajae|dsh|mcode|zcode|prime|aside|raycast|omo|cline|kilo|droid>`
 
 印出連接到執行中代理的客戶端設定。此指令會用所選客戶端的原生格式，序列化含有 base URL、模型清單，以及適用的環境變數參考或 loopback 佔位符的 `opencodex` provider 區塊。
 
@@ -251,7 +261,7 @@ ocx claude desktop import <path> [--apply]         驗證並匯入 JSON
 
 | 旗標 | 動作 |
 | --- | --- |
-| `--client <opencode\|pi\|omp\|hermes\|openclaw\|kimi\|gajae\|dsh\|mcode\|zcode\|prime\|aside\|raycast\|omo>` | 必填。選擇客戶端設定格式。 |
+| `--client <opencode\|pi\|omp\|hermes\|openclaw\|kimi\|gajae\|dsh\|mcode\|zcode\|prime\|aside\|raycast\|omo\|cline\|kilo\|droid>` | 必填。選擇客戶端設定格式。 |
 | `--json` | 在 stdout 印出產生的文件的 JSON 版本，供指令碼使用。即使所選客戶端的原生格式是 YAML、TOML 或 JSON5，這裡輸出的仍是 JSON。 |
 | `--out <path>` | 將設定寫入 `<path>`。拒絕覆寫既有檔案。 |
 | `--force` | 允許 `--out` 覆寫既有檔案。 |
@@ -281,6 +291,8 @@ ocx export --client opencode --out ~/opencodex-opencode.json
 | `aside` | `~/.aside/u/<account>/models.json`，對應 Aside 自己的 `accounts.json` 指定的目前帳戶；資訊清單無法讀取時會被拒絕，而不是退回任一帳戶 | `aside-models.json` | 無——loopback 佔位符 |
 | `raycast` | `~/.config/raycast/ai/providers.yaml`（macOS 與 Windows 相同；Raycast 不遵循 `XDG_CONFIG_HOME`） | `raycast-providers.yaml` | 無——僅限 loopback，不會寫入 `api_keys` 項目 |
 | `omo` | `~/.omo/agent/models.json`（設定後依序由 `OMO_CODING_AGENT_DIR`、`SENPI_CODING_AGENT_DIR`、`PI_CODING_AGENT_DIR` 優先；相對路徑會被拒絕） | `omo-models.json` | 無——loopback 佔位符 |
+| `kilo` | `~/.config/kilo` 下最先存在的 `kilo.jsonc`、`kilo.json`、`opencode.jsonc`、`opencode.json` 或 `config.json`（`XDG_CONFIG_HOME` 可變更該目錄）；皆不存在時使用 `kilo.jsonc` | `kilo.jsonc` | `OPENCODEX_KILO_API_KEY` |
+| `droid` | `~/.factory/settings.json` (`%USERPROFILE%\.factory\settings.json` on Windows) | `factory-settings.json` | 僅限迴環；不需環境變數 |
 
 受管理的 DSH 匯出需要 DSH 0.1.0-rc.6 或更新版本，且只擁有 `llm-pi-ai.providers.opencodex`。DSH
 會熱重載該 provider；使用者的預設模型與 `deepseek-official` 維持不變。這項匯出僅支援 loopback，
@@ -367,3 +379,15 @@ ocx system codex-cli-update attest --candidate <absolute-path> --npm-prefix <abs
 層級與管理用金鑰會被拒絕。它接受 `range`、`surface`、`provider`、`model`、`since` 與 `until`；
 未知或重複的選項，以及呼叫端自選的金鑰 ID 都會被拒絕。被略過的過大資料列仍保有明確的歷史不完整
 警告。
+
+## 說明列出的請求
+
+人類可讀的 `ocx logs` 輸出包含 `id=<request-id>`。把該值傳給 `ocx logs explain <request-id>` 以檢視路由決策。沒有 ID 或 ID 含有控制字元的列，會省略該欄位，而不是顯示一個不同的查詢鍵。JSON 與 JSONL 輸出保留既有的 schema。
+
+## 路由設定檔查詢狀態
+
+`ocx route policy show <id>` 在設定檔不存在時以結束碼 4 結束。缺少或無效的指令引數以結束碼 2 結束。腳本可以區分缺少的設定檔與不正確的用法。
+
+## 上游錯誤細節
+
+當上游錯誤封套包含多個訊息欄位時，OpenCodex 會依既定的優先順序使用第一個非空白的字串。空的或格式錯誤的欄位不再遮蔽有效的後備診斷。

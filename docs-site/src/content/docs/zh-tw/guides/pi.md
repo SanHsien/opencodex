@@ -36,7 +36,7 @@ ocx export --client pi
           "name": "Claude Opus 5 (anthropic)",
           "input": ["text"],
           "contextWindow": 200000,
-          "maxTokens": 32000
+          "maxTokens": 128000
         }
       ]
     }
@@ -100,9 +100,7 @@ export OPENCODEX_API_KEY=<your key>
 該模型的這兩個欄位都會省略，Pi 會套用自己的預設值；`ocx export` 會印出有多少列屬於這種
 情況。
 
-`maxTokens` 是滿足 schema 要求的 `32000` 預算，並會限制在不超過 context window，讓小
-context 的模型永遠不會被賦予超過其 context 的輸出量。這並不是對任何特定模型真實上限的
-聲明。
+輸出上限使用目錄或產生的中繼資料中已知的模型上限，僅在未知時回退到 `32000`。輸出上限始終不超過 context window；已知低於 `32000` 的上限也會保留。
 
 有兩個欄位是刻意省略的。`cost` 需要全部四個價格欄位，而 opencodex 沒有路由模型的價格
 資料——發出零值等於斷言每個模型都是免費的。

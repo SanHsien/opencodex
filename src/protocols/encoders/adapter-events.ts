@@ -136,12 +136,19 @@ export interface ClientEncodeHooks {
 export interface AdapterEventEncodeOptions {
   translatorBudget: TranslatorBudget;
   hideThinkingSummary?: boolean;
+  /** Provider policy: suppress raw content-channel reasoning, keep provider-authored summaries. */
+  hideRawReasoning?: boolean;
   toolNsMap?: ReadonlyMap<string, { namespace: string; name: string; freeform?: true }>;
   declaredToolNames?: ReadonlySet<string>;
   toolParameterSchemas?: ReadonlyMap<string, Record<string, unknown>>;
   freeformToolNames?: ReadonlySet<string>;
   toolSearchToolNames?: ReadonlySet<string>;
   stallTimeoutSec?: number;
+  /**
+   * Operator-trusted local upstream (loopback / private / `.local` / `.lan`): an unset budget
+   * resolves to disabled there instead of the 300 s default, matching the bridge (#5876).
+   */
+  localUpstream?: boolean;
   /** Wire-silence heartbeat and stall tick; the bridge's 2 s default. */
   heartbeatMs?: number;
   hooks?: ClientEncodeHooks;
@@ -165,7 +172,9 @@ export function encodeAdapterEventStream(
   const heartbeatMs = options.heartbeatMs ?? 2_000;
   const setTimer = options.timers?.setInterval ?? ((handler: () => void, ms: number) => setInterval(handler, ms));
   const clearTimer = options.timers?.clearInterval ?? ((id: unknown) => clearInterval(id as ReturnType<typeof setInterval>));
-  const maxStallTicks = Math.ceil((resolveStallTimeoutSec(options.stallTimeoutSec) * 1000) / heartbeatMs);
+  const maxStallTicks = Math.ceil(
+    (resolveStallTimeoutSec(options.stallTimeoutSec, { localUpstream: options.localUpstream }) * 1000) / heartbeatMs,
+  );
   const textEncoder = new TextEncoder();
 
   let controller!: ReadableStreamDefaultController<Uint8Array>;
@@ -606,7 +615,7 @@ export function encodeAdapterEventStream(
             break;
           }
           case "reasoning_raw_delta": {
-            if (options.hideThinkingSummary) {
+            if (options.hideThinkingSummary || options.hideRawReasoning) {
               hiddenRawBytes += Buffer.byteLength(event.text);
               break;
             }
@@ -836,7 +845,7 @@ export function encodeAdapterEventStream(
         if (upstreamActivity) {
           upstreamActivity = false;
           stallTicks = 0;
-        } else if (++stallTicks >= maxStallTicks) {
+        } else if (maxStallTicks > 0 && ++stallTicks >= maxStallTicks) {
           stall();
           return;
         }

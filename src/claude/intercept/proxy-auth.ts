@@ -40,12 +40,17 @@ function readPinnedToken(configDir: string, harden: boolean): string {
   assertOwnedNode(directory, true);
   if (process.platform !== "win32" && (directory.mode & 0o077) !== 0) throw invalidCredential();
   const path = claudeInterceptProxyTokenPath(configDir);
+  // Refuse a symlink or special file before opening: NOFOLLOW is 0 on Windows.
+  const entry = lstatSync(path);
+  assertOwnedNode(entry);
+  if (entry.size < TOKEN_LENGTH || entry.size > TOKEN_MAX_BYTES) throw invalidCredential();
   // NONBLOCK prevents a raced-in FIFO from blocking before fstat can reject it.
   const fd = openSync(path, constants.O_RDONLY | NOFOLLOW | NONBLOCK);
   try {
     const opened = fstatSync(fd);
     assertOwnedNode(opened);
-    if (opened.size < TOKEN_LENGTH || opened.size > TOKEN_MAX_BYTES) throw invalidCredential();
+    if (opened.dev !== entry.dev || opened.ino !== entry.ino
+      || opened.size < TOKEN_LENGTH || opened.size > TOKEN_MAX_BYTES) throw invalidCredential();
     const bytes = Buffer.alloc(TOKEN_MAX_BYTES + 1);
     let length = 0;
     while (length < bytes.length) {

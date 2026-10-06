@@ -146,7 +146,7 @@ Codex-login 供應商上列出的每個裸 `gpt-*` id（此處為 **GPT-6-Nova**
 | --- | --- | --- |
 | `adapter` | `string` | `openai-chat`、`openai-responses`、`anthropic`、`google`、`kiro`、`cursor`、`ollama-native`、`azure-openai`（或別名 `azure`）、`codebuddy`、`qoder` 之一。 |
 | `baseUrl` | `string` | 上游 API base URL。多數內建固定端點忽略不符；碰撞安全的金鑰預設保留較舊的同名自訂目的地。 |
-| `requestPacing?` | `{ enabled, requestsPerMinute?, minIntervalMs?, models? }` | 選用的用戶端出站請求啟動節流，與上游用量、計費及限流指標彼此獨立。供應商限制適用於所有模型，`models` 依上游模型精確 ID 比對（例如 `nvidia/llama-3.1-nemotron-ultra-253b-v1`）且只能增加延遲。排隊等待不計入回應標頭逾時。涵蓋 HTTP、Responses WebSocket 及明確的適配器 `fetchResponse`/`runTurn` 呼叫。 |
+| `requestPacing?` | `{ enabled, requestsPerMinute?, minIntervalMs?, maxConcurrentRequests?, models? }` | 選用的用戶端出站請求啟動節流，與上游用量、計費及限流指標彼此獨立。`maxConcurrentRequests` 是限制進行中請求數的正整數，供應商或模型規則都可單獨設定此項。供應商限制適用於所有模型，`models` 依上游模型精確 ID 比對，並可增加延遲或收緊並發限制。排隊等待不計入回應標頭逾時。涵蓋 HTTP 及明確的適配器 `fetchResponse`/`runTurn` 呼叫。設定並行上限時，標準 Responses WebSocket 請求改用 HTTP/SSE，以便在回應本文完成、出錯或取消時釋放並行名額。 對包含 Cursor 的 `runTurn` 適配器，並行上限計算進行中的回合數，而非實體傳送數：同一回合內的 RunSSE 與 BidiAppend 可重疊，其他回合仍須等待。後續傳送仍遵守啟動間隔。 |
 | `upstreamHttpVersion?` | `"auto" \| "http1.1" \| "h1" \| "http2" \| "h2"` | 為此供應商的上游請求釘選使用的 HTTP 版本。預設為 `auto`，交由 Bun 協商。明確釘選需要 HTTPS 目標，且在無法遵守時會在本機失敗。當某供應商的 HTTP/2 SSE 串流卡住而不送出事件時，請設為 `http1.1`——徵狀是一個長時間執行的串流請求什麼都不產生，最終逾時。對 Cursor 而言，`http1.1`／`h1` 會為推論選用它的 `RunSSE` + `BidiAppend` 相容傳輸，同時也會釘選即時模型探索。管理用的 `POST`／`PATCH` 接受 `null` 以清回 `auto`。 |
 | `responsesPath?` | `string` | Key-auth `openai-responses` 請求的相對資源路徑。必須以 `/` 開頭且不含 scheme、query 或 fragment。 |
 | `chatCompletionsPath?` | `string` | `openai-chat` 請求的相對資源路徑，為 `responsesPath` 的對應項，適用相同的路徑規則。當同一上游以不同前綴提供 Chat Completions 與 Responses 時需要此設定：按模型的 wire override 只更換適配器而不改動 `baseUrl`，否則已啟用的 Chat 請求會送往 Responses base。隨附範例為 Z.AI。 |
@@ -224,21 +224,39 @@ Codex-login 供應商上列出的每個裸 `gpt-*` id（此處為 **GPT-6-Nova**
 
 註冊或替換供應商（`POST /api/providers`）時，會先驗證 `responsesPath` 和 `chatCompletionsPath`，再修改記憶體或磁碟中的設定。`PATCH /api/providers?name=<provider>` 會將請求內容與已儲存的供應商合併；除僅更新 `requestPacing` 的請求外，凡是修改 `disabled` 以外欄位的更新，都會在儲存前以同樣方式驗證合併後供應商的路徑，若保留的既有路徑無效則回傳 `400`，且不變更設定。載入設定檔時也適用相同的路徑規則。
 
+例如，下面套用供應商層級的並行上限，以及對單一精確模型更嚴格的上限，而不設定間隔：
+
+```json
+{
+  "requestPacing": {
+    "enabled": true,
+    "maxConcurrentRequests": 8,
+    "models": {
+      "nvidia/llama-3.1-nemotron-ultra-253b-v1": {
+        "maxConcurrentRequests": 2
+      }
+    }
+  }
+}
+```
+
+並行名額會一直被佔用，直到上游請求結束，包括最後串流回應的位元組。超過適用的供應商與模型限制的請求會在節流佇列中等待；名額被釋放時，下一個符合資格的請求會被放行。佇列等待不會消耗上游回應標頭的逾時。
+
 API-key 供應商可持有字面值金鑰或環境參考。OAuth 供應商使用由 `ocx login` 填入的憑證存放；訂閱支援的 Claude Code 啟動行為在 [`claudeCode.authMode`](/zh-tw/reference/configuration/server/#claude-codeclaudecode) 下設定。
 
 ### 儲存供應商時會保留什麼
 
-以既有供應商的名稱呼叫 `POST /api/providers`，會以根據請求建立的列取代已儲存的列。儀表板的新增/編輯表單無法傳送所有欄位，因此儲存時會保留請求省略的部分已儲存欄位。其中五個記錄的是某個上游的行為：`preserveReasoningContentModels`, `requiresReasoningPlaceholderModels`, `foldDeveloperRoleToSystem`, `reasoningWireFormat`, `omitReasoningEffortWithToolsModels`。
+以既有供應商的名稱呼叫 `POST /api/providers`，會以根據請求建立的列取代已儲存的列。儀表板的新增/編輯表單無法傳送所有欄位，因此儲存時會保留請求省略的部分已儲存欄位。其中八個記錄的是某個上游的行為：`preserveReasoningContentModels`, `requiresReasoningPlaceholderModels`, `foldDeveloperRoleToSystem`, `reasoningWireFormat`, `omitReasoningEffortWithToolsModels`, `retryOn429`, `transientRetryOn5xx`, `retryOnReset`。
 
-| 儲存 | 五項設定 | 已儲存的 `apiKeyPool` |
+| 儲存 | 八項設定 | 已儲存的 `apiKeyPool` |
 | --- | --- | --- |
 | 目的地相同，欄位省略 | 保留已儲存的值，包括明確的 `[]` 或 `false` | 保留 |
 | 新目的地，欄位省略 | 不保留；可能套用新目的地的登錄檔預設值 | 不保留 |
 | 請求中傳送了該欄位 | 請求中的值 | 請求中的值 |
 
-目的地指轉接器、base URL（比較協定與主機時不分大小寫，忽略結尾斜線），以及請求有指定時的驗證模式。把供應商移到其他目的地時，描述舊上游的五項設定和為舊上游核發的金鑰池都不會帶過去。儲存絕不會把舊列的其餘部分合併進新列。
+目的地指轉接器、base URL（比較協定與主機時不分大小寫，忽略結尾斜線），以及請求有指定時的驗證模式。把供應商移到其他目的地時，描述舊上游的八項設定和為舊上游核發的金鑰池都不會帶過去。儲存絕不會把舊列的其餘部分合併進新列。
 
-`PATCH /api/providers?name=<provider>` 只修改它指定的欄位，無論目的地為何都保留其他所有已儲存欄位。它接受全部五項設定，`null` 表示清除。對於兩個推理清單，空陣列會作為明確的退出選項儲存，而不會被刪除。
+`PATCH /api/providers?name=<provider>` 只修改它指定的欄位，無論目的地為何都保留其他所有已儲存欄位。它接受全部八項設定，`null` 表示清除。對於兩個推理清單，空陣列會作為明確的退出選項儲存，而不會被刪除。
 
 ### 逐供應商 egress
 
@@ -438,11 +456,14 @@ Codex 會從目前回合模型的目錄列讀取 `auto_review_model_override`，
 | `anthropicAccountPool.quotaWindow?` | `"five-hour" \| "weekly" \| "max-utilization"` | `"five-hour"` | 用於用量感知帳號選擇的、已快取的供應商回報使用率列。`five-hour` 保留原本行為。`weekly` 為每週列評分，並在仍有其他合格帳號時跳過 5 小時列已耗盡的帳號，但當沒有這樣的帳號時，仍會退回耗盡的候選者。`max-utilization` 為已知的最高列評分，因此在每週用量尚未取得前也能使用 5 小時用量；若兩者都未知，該帳號依未知用量的排序規則處理。只有在選用的 `weekly` 與 `max-utilization` 視窗下，已知用量才會排在未知用量之前；省略或明確設為 `five-hour` 會保留舊有的排序方式。若每個合格帳號都是未知，選擇仍會依合格順序回傳一個。在前述「較低 5 小時優先」的同分判定之後，完全相同時仍保留合格順序。健康、已有 affinity 綁定的 session 不會被主動重新平衡。對於新 session 指派，以及合格 429 替換後的路由復原，`quota` 會直接用這個視窗為合格候選者排序；`fill-first` 會用這個視窗的閾值與耗盡規則，以穩定順序前進；`round-robin` 忽略它。冷卻狀態、容錯移轉上限與重新驗證資格仍是各自獨立的本機狀態。每個帳號的每週列，來自用量探測或觀察到的回應標頭。 |
 | `anthropicAccountPool.stickyLimit?` | `number` | `1` | 在一次 round-robin 選擇上保留的成功新 session 綁定。範圍 1–100。 |
 
-啟用時，429 會記錄一次冷卻，並可能在請求內輪換。冷卻時間來自一個可用的 `Retry-After`，否則來自 Anthropic 回報為 `rejected` 的速率限制視窗（包括週視窗）中，最新的有效重設時間。有效的上游期限不會被縮短到一個固定的冷卻上限；非有限或無法表示的期限會被忽略。若拒絕沒有可用的期限，會退回 60 秒的預設 backoff。親和性是行程本地且有界的。憑證 401/403 會把該帳號標記為需要重新認證。若所有合格帳號都在冷卻，客戶端會收到附帶已知 `Retry-After` 的 429，而不是認證錯誤。
+只有共用5小時或每週額度明確拒絕的429才會冷卻帳號並切換。暫時速率限制保留親和性，只暫停該帳號的請求准入；每個請求最多一次短暫的同帳號重試及一次合格兄弟帳號切換。沒有依據回應標頭的429只允許一次同帳號短暫重試，不冷卻帳號，也不產生Retry-After。預設單帳號行為不變。Fable專屬拒絕不限制Sonnet；手動選擇和親和性均檢查請求模型的共用與家族額度。被動家族資訊在30分鐘或已知重設時到期，由一個服務請求依序重新驗證。用量門檻仍是軟偏好，全部候選耗盡時保留原有退回機制，不是用量或帳單硬上限。親和性為行程本地且有界。Token 更新失敗保留原有重新認證規則。已分類的訂閱或帳號計費 403 可在輸出前切換帳號，並按 `Retry-After` 或預設十分鐘冷卻；一般權限拒絕不切換。若所有合格帳號都在冷卻，客戶端收到附帶已知 `Retry-After` 的 429，而非認證錯誤。
 
 Anthropic 的回應也會回報服務端帳號的 5 小時與每週使用率，一則回應帶有這兩者中的哪一個，就會記錄在該帳號上——兩個視窗各自獨立，無論是拒絕還是成功的回應都會記錄。因此用量感知選擇可以直接從你實際使用的帳號運作，不必等儀表板的 Providers 頁面去輪詢它們。這些讀數會刷新既有的列，而不是取代它，所以只有 usage 端點才會回報的、model-scoped 的每週列，會在其已知重設時間之前被保留。過期的量測值會變成未知，包括被後續標頭省略的既有標準視窗。一個只帶重設時間的標頭無法延長一個較舊的使用率量測值。沒有已知重設時間的值維持既有行為；缺席的量測值絕不會被替換成零用量。
 
 標頭觀測不會延後用量探測，也不會清除一次失敗探測的不可用狀態。重新啟動後，快取的 Anthropic 觀測值仍然可用，同時下一次配額讀取會再次探測，因為儲存的觀測值不包含探測時鐘。
+
+`anthropicAccountPool.routes` 將模型綁定至已儲存的 Anthropic OAuth 帳戶 ID。啟用帳戶池後，區分大小寫的 `match` 萬用模式依順序採用第一個符合的規則，限制首次選擇與 429 重試。僅當該規則沒有可用帳戶時，`fallback: true` 才會回退到一般帳戶池。
+
 
 :::caution[實驗性]
 除非你了解 Anthropic 帳號政策風險，否則保持停用。不確定時偏好手動 `ocx account use anthropic <id>` 切換。
@@ -622,6 +643,24 @@ Cursor 伺服器驅動的本機工具預設停用。Codex 繼續使用其自身�
 Codex 為目前回合的模型讀取的是持久化的目錄欄位，這就是為什麼一個有效的設定選擇器會被複製
 到每個合格的項目上。供應商範圍的選擇器（見上方）優先於這個根層級後備，並在路由列上優先生效。
 
+### 回應 service tier 權威性
+
+當某個供應商回應中的 `service_tier` 無法確立 Fast 是否被授予時，請在 `config.json` 中把 `providers.<name>.responseTierAuthoritative` 設為 `false`。這是操作者對整條供應商路由所做的宣告，獨立於 `supportsServiceTier` 與 `fastWire`。它既不會啟用 Fast，也不會改變送出的 `service_tier`。
+
+例如，把這個欄位加到一個既有的閘道供應商，其 Codex 後端的回應中繼資料不具權威性：
+
+```json
+{ "responseTierAuthoritative": false }
+```
+
+**閘道支援需選擇加入。** 只更新 OpenCodex 不會把這項宣告加到既有的供應商。沒有它時，符合資格的 priority 請求之後出現 `service_tier: "default"`，會維持舊有的 `response-declined` 解讀。只有在已知該路由的回應中繼資料不具權威性時，才設定 `false`。
+
+對於序列化為 `priority` 的符合資格請求，`default` 與 `priority` 的回聲都仍然只是觀察。記錄會保留 `responseServiceTier`，並記下 `tierOutcome.responseTierAuthoritative: false`、`fastOutcome: "applied"` 與 `confirmation: "assumed"`，而不帶 `response-declined`。這裡 **applied 的意思是請求參數已送出**，而 **assumed 的意思是實際的 Fast 效果未經確認**。模型提示會以該確認狀態分別顯示請求與原始回應。這個設定與這些記錄都不能證明有加速或有計費的 tier。
+
+成本估計使用既有的請求 tier 後備值，而不是把原始回聲當成已確認的價格 tier；需要回應確認的定價規則不能使用那個回聲。沒有權威性旗標的歷史記錄維持它們先前的解讀。
+
+這個欄位只接受布林值。省略與明確的 `true` 對其他目的地（包括官方 API 與未宣告的閘道）維持以回應為基礎的確認。標準的 `https://chatgpt.com/backend-api/codex` 搭配 `authMode: "forward"` 仍然自動視為不具權威性，即使設定了 `true`。閘道名稱與 URL 絕不會被推斷。如果同一個閘道混用不同的回應契約，請為那些路由使用不同的供應商項目，並只對相關的項目套用這項宣告。
+
 ### FastWire B1 能力遷移
 
 FastWire B1 之後，Fast 能力與任意 Chat 呼叫端層級轉發彼此獨立。上方的
@@ -759,6 +798,31 @@ origin，請用 `ORCAROUTER_AUTH_BASE_URL` 與 `ORCAROUTER_API_BASE_URL`。對�
 `allowPrivateNetwork: true`。登入會保留這個操作者設定，絕不會從 URL 覆寫中授予它。若未設定，
 目的地驗證會拒絕該本機端點用於推論與模型探索。OAuth 瀏覽器 callback 監聽器本身不需要這個
 供應商選用設定。請見[OrcaRouter 設定範例](/zh-tw/guides/providers/)。
+
+未明確設定供應商的 `fastWire` 時，透過 `allowedModels` 限制的 opencodex API 金鑰必須允許 `xai/grok-4.7-build-fast`（或不含供應商前綴的模型 ID），才能傳送 OAuth Fast 請求。僅允許 `xai/grok-4.7` 不會授予此 Fast 模型的權限。僅允許 Fast 模型的金鑰可以使用該模型；一般請求或關閉 Fast 時仍需允許 `xai/grok-4.7`。明確設定 `fastWire` 時，應允許實際傳送的模型。例如，`service-tier` 方式保留 `xai/grok-4.7`，因此需要該模型的權限。供應商限制仍然有效。
+
+## Zed 供應商（`adapter: "zed"`）
+
+Zed Hosted AI 橋接是實驗性的，且僅限登入。使用前請先執行 `ocx login zed`；登入會把 Zed 帳號身分與它的原生 app 存取 token，一起存進一般的 OAuth 儲存區。
+
+```json
+{
+  "providers": {
+    "zed": {
+      "adapter": "zed",
+      "baseUrl": "https://cloud.zed.dev",
+      "authMode": "oauth",
+      "defaultModel": "auto"
+    }
+  }
+}
+```
+
+橋接會取得短效的託管推論 token，並送出 `POST /completions`。即時的 `/models` 清單只用於帳號專屬的 picker 中繼資料：任意的模型 id 仍可轉送，後端家族則從即時的供應商欄位或模型名稱推斷。
+
+:::caution[非官方——風險自負]
+Zed 並未提供或認可這項整合，它也可能超出 Zed 的服務條款。Zed 可能限制或停權使用它的帳號。這個供應商絕不會預設啟用。
+:::
 
 ## OpenRouter 供應商路由
 

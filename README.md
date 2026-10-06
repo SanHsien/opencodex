@@ -237,7 +237,7 @@ opencodex 保持兩種獨立行為：
 | Ollama / vLLM / LM Studio（本機） | `openai-chat` | key（通常留空） |
 | 任意 OpenAI 相容端點 | `openai-chat` | key |
 
-此外還有 DeepSeek、Groq、OpenRouter、Together、Fireworks、Cerebras、Mistral、Hugging Face、NVIDIA NIM、MiniMax、Qwen Cloud、騰訊雲 Coding Plan、SiliconFlow 等等。完整清單可用 `ocx init` 檢視，或見[供應商文件](https://opencodex.me/zh-tw/reference/configuration/)。
+此外還有 DeepSeek、Groq、OpenRouter、OpenGateway、Together、Fireworks、Cerebras、Mistral、Hugging Face、NVIDIA NIM、MiniMax、Qwen Cloud、騰訊雲 Coding Plan、SiliconFlow 等等。完整清單可用 `ocx init` 檢視，或見[供應商文件](https://opencodex.me/zh-tw/reference/configuration/)。
 
 ## CLI
 

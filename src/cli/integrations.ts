@@ -126,7 +126,14 @@ export async function handleClaudeConfigCommand(argv: string[], deps: RuntimeApi
     }
     if (Object.keys(body).length === 0) throw new CliUsageError("at least one Claude setting is required", CLAUDE_USAGE);
     const result = await runtimeRequest("/api/claude-code", { method: "PUT", body: JSON.stringify(body) }, deps);
-    printData(result, wantsJson, ["Claude Code settings updated."]);
+    const warnings = (result as { warnings?: unknown }).warnings;
+    const retained = Array.isArray(warnings) && warnings.includes("shared_proxy_retained");
+    printData(result, wantsJson, [
+      "Claude Code settings updated.",
+      // The route kept the shared proxy env because Claude Desktop may still rely on it. Say so,
+      // or an operator who turned first-party off believes the local interception is gone.
+      ...(retained ? ["Warning: Claude Desktop still uses the shared proxy settings. Run `ocx claude desktop apply --gateway` to release them."] : []),
+    ]);
   });
 }
 
@@ -360,4 +367,17 @@ export async function handleZcodeCommand(argv: string[], deps: RuntimeApiDeps = 
     console.error("Restart ZCode to pick up the provider change.");
   }
   return code;
+}
+
+export async function handleClaudeInterceptCommand(argv: string[], deps: RuntimeApiDeps = {}): Promise<number> {
+  return runCliAction(async () => {
+    const args = [...argv];
+    const action = args.shift();
+    const wantsJson = takeFlag(args, "--json");
+    const usage = "Usage: ocx claude intercept start [--json]";
+    rejectArgs(args, usage);
+    if (action !== "start") throw new CliUsageError("Expected start", usage);
+    const result = await runtimeRequest("/api/claude-intercept/start", { method: "POST" }, deps);
+    printData(result, wantsJson, summaryLines(result));
+  });
 }

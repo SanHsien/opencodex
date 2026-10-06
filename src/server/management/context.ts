@@ -1,4 +1,5 @@
 import type { OcxConfig } from "../../types";
+import type { LowQuotaEvent } from "../../codex/low-quota-events";
 import type { Channel } from "../../update/index";
 import type { UpdateCheckResult } from "../../update/job";
 import type { NativeProfileApiDeps } from "../../codex/native-profile-api";
@@ -44,7 +45,10 @@ export interface ManagementRequestIngress {
 }
 
 export interface ManagementApiDeps {
+  /** Bound to this server's lifecycle owner; absent in direct route tests. */
+  listLowQuotaEvents?: (limit?: number) => LowQuotaEvent[];
   /** Bound Claude intercept state, injectable for isolated management-route tests. */
+  ensureClaudeIntercept?: () => Promise<import("../../claude/intercept/runtime").ClaudeInterceptOutcome>;
   getClaudeInterceptState?: typeof import("../../claude/intercept/runtime").getClaudeInterceptState;
   /** Reconciliation seam for field-scoped rollback tests. */
   reconcileClaudeFirstPartySettings?: typeof import("../../claude/first-party-settings").reconcileClaudeFirstPartySettings;
@@ -81,6 +85,8 @@ export interface ManagementApiDeps {
    * Tests stub it to orphan the fixture file mid-fetch (the r7 recheck test).
    */
   fetchAllModels?: (config: OcxConfig) => Promise<CatalogModel[]>;
+  /** Codex role auto-assign's one sizing model call; route tests answer it without a provider. */
+  completeCodexRoleSizing?: import("./codex-role-auto-assign").CompleteRoleSizing;
   /**
    * Writer seam for the Grok toggle: lets a test place the file in any state
    * between the pre-write recheck and the write itself (the r8 post-inspection
@@ -146,7 +152,7 @@ export interface ManagementApiDeps {
   codexPromptPaths?: CodexPromptPaths;
   /** Link seams are getters so the optional listener and supervisor are singletons. */
   linkSupervisor?: () => LinkSupervisor;
-  linkListener?: () => Pick<LinkListenerLifecycle<unknown>, "ensureStarted" | "status" | "close" | "onAuthenticatedCatalog">;
+  linkListener?: () => Pick<LinkListenerLifecycle<unknown>, "ensureStarted" | "status" | "close" | "onAuthenticatedCatalog"> & Partial<Pick<import("../index/optional-listeners").OptionalListenerSet<unknown>, "ensureClaudeIntercept" | "claudeInterceptOutcome">>;
   readLinkStore?: () => LinkStore;
   writeLinkStore?: (store: LinkStore) => void;
   linkKnownHostsPath?: () => string;
@@ -154,6 +160,8 @@ export interface ManagementApiDeps {
   issueApiKey?: (config: OcxConfig, name: string) => IssuedApiKey;
   revokeApiKey?: (config: OcxConfig, id: string) => boolean;
   loadLinkCandidates?: () => Array<{ alias: string; source: "ssh_config" | "tailscale" }>;
+  /** The port this runtime listens on; a join is refused unless it is the configured port. */
+  liveListenPort?: () => number | undefined;
   now?: () => number;
 }
 

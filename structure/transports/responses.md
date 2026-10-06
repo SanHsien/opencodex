@@ -4,17 +4,17 @@ Native result continuations and function-result injection follow [the mode-speci
 
 Native steering follows [the shared WebSocket contract](streaming-health.md#experimental-native-mid-turn-steering); this surface's defaults remain unchanged.
 
-The configuration-only [plaintext V2 contract](../subagents.md#plaintext-v2-agent-messages)
-is scoped to canonical ChatGPT Responses forwarding; other source-area behavior described here is unchanged. Management provider-validation calls use the [initialization-independent relative send-path validation](../config.md#provider-relative-send-paths) before persistence. Cursor's localized native-shell names follow the [routing-commentary guard contract](../providers/cursor.md#cursor-native-exec).
+The configuration-only [plaintext V2 contract](../subagents.md#plaintext-v2-agent-messages) is scoped to canonical ChatGPT Responses forwarding; other source-area behavior described here is unchanged. Management provider-validation calls use the [initialization-independent relative send-path validation](../config.md#provider-relative-send-paths) before persistence. Cursor's localized native-shell names follow the [routing-commentary guard contract](../providers/cursor.md#cursor-native-exec).
 
 Plaintext collaboration restoration treats a null namespace as absent, rejects non-string namespace types, and restores the native namespace/name pair before HTTP/WS delivery and continuation publication.
 When a successful streamed native response has a missing or unrecognized non-JSON content type, the plaintext V2 path confirms a bounded Responses SSE prefix, under the server's `stallTimeoutSec` probe budget, before applying that restoration; an `application/json` body takes the bounded JSON path instead, and an unknown, stalled, or unreadable body retains the fail-closed response.
 
 ## Responses HTTP/SSE
 
+Optional Codex memory selection enters `src/server/responses/request-prepare.ts` for HTTP and WebSocket frames, as specified in [memory phase routing](responses-failover.md#memory-phase-routing); an unset phase keeps its existing route and starts no background work. Responses request preparation stabilizes incoming `<skills_instructions>` under `skills.catalog_refresh`: `per_session` (default) reuses the first received catalog for a conversation; `per_turn` leaves the supplied catalog unchanged. Other instruction sections and user/tool content remain untouched. Requests without a reliable conversation identity bypass snapshots; shared prompt-cache cohorts are not conversation identities. Only a body with exactly one catalog block across its instructions and developer/system content takes part; two or more pass through unchanged. A known snapshot is substituted before parsing, but a new catalog is stored only when preparation reaches its success return, so a request rejected by parsing or admission pins nothing. Without a named principal, snapshots are shared by conversation id only on a server that requires no data-plane auth. Snapshots are process-local, expire after four idle hours, and use bounded LRU retention; oversized blocks bypass caching. The dashboard's `src/codex/prompt-layers.ts` and `src/codex/prompt-text-probe.ts` continue observing current files for previews and do not own session snapshots.
 `/v1/responses` is the main Codex-facing endpoint. The server parses Responses input, routes to a
 provider, lets the selected adapter speak the upstream protocol, then bridges adapter events back to
-Responses-compatible streaming output. For an opted-in key-auth provider, a hosted-search continuation stays bound to the API-key selection that served the first leg; the contract is the [hosted-search continuation binding](../providers-and-adapters.md#hosted-search-continuation-binding).
+Responses-compatible streaming output. The routed provider name follows every adapter build, including retries and continuations; only `github-copilot` injects a configured `modelContextTiers` value as upstream `contextTier`, while unconfigured passthrough retains the caller field. For an opted-in key-auth provider, a hosted-search continuation stays bound to the API-key selection that served the first leg; the contract is the [hosted-search continuation binding](../providers-and-adapters.md#hosted-search-continuation-binding).
 
 The `openai-responses` adapter preserves the incoming `User-Agent` as a non-credential fallback in
 both key and forward modes. A configured provider header with that name wins case-insensitively;
@@ -61,6 +61,8 @@ the code let a provider-scoped transport past it is what #4992 recorded, and it 
 regression for this policy has to enter through `handleResponses` rather than through a
 hand-written override that cooperates by calling the executor it was handed.
 
+`src/server/responses/sidecar-execution.ts` owns search probe settlement: local validation releases immediately, bodyless responses release before returning, and upstream bodies retain the lease through completion, error or cancellation regardless of HTTP status. The core dispatcher does not infer body completion from a non-success status.
+
 ### Semantic progress ownership
 
 The Responses proxy does not treat transcript growth as repository progress. It can observe request
@@ -72,9 +74,7 @@ retention limits, and the stall watchdog is a silence limit. None is a cumulativ
 semantic no-progress budget.
 
 > Decision record: [ADR-0031](../decisions/ADR-0031-responses-http-sse.md)
-
 > Decision record: [ADR-0032](../decisions/ADR-0032-responses-http-sse.md)
-
 > Decision record: [ADR-0033](../decisions/ADR-0033-responses-http-sse.md)
 
 > Decision record: [ADR-0034](../decisions/ADR-0034-responses-http-sse.md)
@@ -118,7 +118,7 @@ echoed bare name to its namespaced identity before authorizing anything
 echo is a guess rather than a nomination. The bridges check the declared set before consulting
 `toolNsMap`, so there a bare helper echo is refused either way. A genuine namespace-free
 declaration is untouched throughout: that is the caller declaring the tool, not a namespace being
-discarded to manufacture a bare name.
+discarded to manufacture a bare name. Meta Responses also applies [tool-selection compatibility](../providers-and-adapters.md#meta-responses-tool-selection).
 
 Function-call wrappers around freeform bodies are restored by
 `src/responses/apply-patch-envelope.ts`. The declared `input` field is authoritative. For bare
@@ -275,11 +275,8 @@ cancellation terminates dispatch before rotation can persist another key.
 
 ### Routed service-tier capability
 
-OpenAI-compatible service-tier support is resolved only after the final provider/model wire is
-known. `supportsServiceTier` remains the provider fallback, while the exact
-`modelSupportsServiceTier` map can override it per upstream model, including an explicit `false`.
-The catalog and request path share this decision: a routed row publishes `service_tiers` only when
-the resolved policy is eligible, and the final-route normalizer applies the same gate to
+OpenAI-compatible service-tier support is resolved only after the final provider/model wire is known. `supportsServiceTier` remains the provider fallback, while the exact `modelSupportsServiceTier` map can override it per upstream model, including an explicit `false`.
+The catalog and request path share this decision: a routed row publishes `service_tiers` only when the resolved policy is eligible, and the final-route normalizer applies the same gate to
 `service_tier`. Both `openai-responses` and `openai-chat` use the resolved provider/model capability
 for catalog publication, routing evidence, and fingerprints. Canonical Fast injection additionally
 requires a compatible FastWire mapping on the final adapter and an eligible policy. Setting
@@ -288,16 +285,19 @@ foreign caller values; an exact-model `true` does not grant that forwarding perm
 unclassified Chat routes it gates every caller tier because no canonical Fast capability has been
 validated. An object-form registry wire default may also set `forwardCallerServiceTier: false` to
 close a known subscription gateway while leaving generic unclassified Responses passthrough
-unchanged. Exact `false`
-narrows provider defaults, and provider-level `supportsServiceTier: false` cannot be reopened.
+unchanged. Exact `false` narrows provider defaults, and provider-level `supportsServiceTier: false` cannot be reopened.
 Capability is namespaced by the selected provider and model; model-name similarity and adapter type
-alone never opt a gateway in.
+alone never opt a gateway in. Response-tier evidence is governed by `src/providers/openai-tiers-destination.ts`: canonical ChatGPT Codex forwarding is non-authoritative (#2558); other destinations honor the optional provider boolean `responseTierAuthoritative`, with omission retaining legacy response authority. No gateway name or address infers a declaration. The final route captures this in `TierObservationContext` through `src/server/responses/core-normalize.ts`, without changing capability, `TierDecision`, or outgoing parameters.
+
+### Response-tier observation authority
+
+`src/providers/fastwire.ts` copies a defined authority flag into `AttemptTierOutcome`. With false, an eligible serialized priority request remains `fastOutcome: applied` and `confirmation: assumed`: the parameter was sent, while actual scheduling is unconfirmed. Neither a `default` nor a `priority` echo can confirm or deny Fast; sanitized `responseServiceTier` remains for inspection, while local capability and wire failures still downgrade. Logs and persisted attempts retain the flag, and `src/usage/cost.ts` uses requested-tier estimation without promoting an untrusted echo or a confirmed label to response-confirmed pricing. Official API and undeclared destinations retain legacy response judgments.
 
 Anthropic Fast eligibility and downgrade recovery use the [Responses failover contract](responses-failover.md#anthropic-fast-downgrade-recovery).
 
 `POST /v1/responses/compact` handles remote compaction v1 before the generic `/v1/responses` branch
 and before the `/v1/*` guard. Unknown `/v1/*` paths return JSON 404 errors instead of falling through
-to GUI static serving.
+to GUI static serving. Translated compaction uses the [historical image projection](responses-wire-shapes.md#compaction-image-input).
 
 Both entry points apply the Reserve opt-in refusal in
 [providers/openai-tiers.md](../providers/openai-tiers.md#public-provider-contract) before auth, host-circuit
@@ -414,17 +414,17 @@ is composed from the following owners in `src/server/responses/`; none is a gene
 
 | Owner | Responsibility |
 | --- | --- |
-| `request-prepare.ts` | Body parsing, combo handoff, final route, encrypted-task recovery and initial admission. |
+| `request-prepare.ts` | Body parsing, combo handoff, final route, encrypted-task recovery and initial admission, retaining [original policy authorization](policy-fallback.md). xAI OAuth model-scope admission previews the billed Fast lane using the serialization decision shared with Chat, Messages and routed compact admission; final normalization rechecks the actual wire destination. |
 | `shadow-target-availability.ts` | Shadow-call target resolution for `request-prepare.ts`: an unavailable target fails once with `409 intercept_target_unavailable` instead of reaching the native source model or the default provider. |
 | `request-transport.ts` | Live credential selection, dispatch bindings, adapter replacement and same-target request identity. |
-| `request-sidecar-auth.ts` | Sidecar credential resolution and vision preprocessing. |
+| `request-sidecar-auth.ts` | Routed-compaction image projection, sidecar credential resolution and vision preprocessing. |
 | `response-effects.ts` | Completion notification, replay publication and live request-tool aliases. |
 | `request-send-budget.ts` | Request-wide send accounting, remaining allowance, the pending recovery permit and the shared ambiguous-resend grant. |
 | `reset-replay.ts` | The operator opt-in for replacing an ambiguous native Responses send, and the per-request grant both stages claim from. |
 | `request-spend.ts` | This request's entries in the durable spend ledger: one per physical send, settled from the terminal usage. |
 | `passthrough-execution.ts` | Native host-lease transfer and the enclosing dispatch/delivery `finally`. |
 | `passthrough-dispatch.ts` | Native request preparation, upstream sends and pre-commit recovery. |
-| `passthrough-delivery.ts` | Native HTTP/SSE/JSON delivery, rewrite/inspection, terminal accounting, and xAI tool-envelope filtering before continuation storage. |
+| `passthrough-delivery.ts`, `terminal-error-redaction.ts` | Native HTTP/SSE/JSON delivery, rewrite/inspection, terminal accounting, terminal diagnostic redaction before client delivery, and xAI tool-envelope filtering before continuation storage. |
 | `policy-refusal.ts` | Rewrites an allowlisted non-combo HTTP 403 model refusal (`isUpstreamPolicyRefusal` in `src/lib/errors.ts`) from an xAI destination only (`isXaiResponsesDestination`: api.x.ai or the Grok CLI proxy, on either wire) to an HTTP 200 Responses `incomplete` / `content_filter` payload, JSON or SSE, for both `adapter-dispatch.ts` and `passthrough-delivery.ts`. A streamed rewrite takes the turn admission lease and releases it when the body finishes, so the refusal stays inside active-turn accounting. Combo attempts keep the original 403 so failover classifies it as a hop. |
 | `sidecar-execution.ts` | Image/video versus web-search execution and their shared rotation hook. |
 | `completion-policy.ts`, `run-turn-execution.ts` | Empty-completion eligibility and adapter-owned event turns. |
@@ -435,7 +435,7 @@ Reusable helpers live in `core-auth.ts`, `core-codex-account.ts`, `core-combo.ts
 `core-combo-failure.ts`, `core-combo-native.ts`, `core-errors.ts`, `core-lifetime.ts`, `core-normalize.ts`,
 `core-opaque-recovery.ts` and `core-replay.ts`. `core-options.ts` owns the public option types
 and small composition contracts. Existing public helper names are re-exported by `core.ts`.
-Adapter construction remains with the existing registry; `fetch-helpers.ts` remains a leaf.
+Adapter construction remains with the existing registry; `fetch-helpers.ts` remains a leaf. For Kiro OAuth with load settings, `request-transport.ts` acquires a lease on the admitted account and transfers it before a reactive replacement send; cancellation permanently fences the request holder so recovery cannot install a late lease after abort cleanup. `core.ts` and `core-lifetime.ts` release the lease on returned-body completion, error, or cancellation, outside the inner admission `finally`.
 
 Mutable values are not copied across phases. A phase exposes only the values consumed by later
 phases, with getters/setters over the original local bindings where a retry or callback can
@@ -576,7 +576,7 @@ reuses `beginInferenceAttempt` and `createFinalRequestLog` with its own 401/429 
 ## Adapter-to-Responses bridge
 
 `src/bridge.ts` is a re-export facade; the implementation lives in `src/bridge/`.
-`src/bridge/sse.ts` (`bridgeToResponsesSSE`) turns adapter events into the Responses SSE stream,
+`src/bridge/sse.ts` (`bridgeToResponsesSSE`) turns adapter events into the Responses SSE stream; its once-only first-output observer includes nonempty `tool_call_delta` arguments (including custom-tool input), but not tool-start scaffolding or empty arguments,
 and `src/bridge/response-json.ts` (`buildResponseJSON`) builds the non-streaming Responses body
 from the same events. `buildResponseJSON` records a buffered delivery on the attempt unless the
 caller passes `recordBufferedDelivery: false`, which the direct client encoders do because they
@@ -584,8 +584,8 @@ count their own frames. `src/protocols/encoders/adapter-events.ts` ports the bri
 machine for those encoders, so a change to item boundaries, tool naming or terminal handling in
 `sse.ts` has to be made there too; the parity tests fail when the two diverge. `src/bridge/errors.ts` (`formatErrorResponse`) formats error responses and
 keeps only allowlisted transport verdict codes. Adapter error events take a different path:
-`src/bridge/internal.ts` carries an event's own `code` into the SSE and JSON failure, after
-mapping cyber-policy codes to HTTP 400. The same file holds the shared usage shaping; `input_tokens_details` and
+`src/bridge/internal.ts` preserves explicit verdicts except cyber-policy and known rate-limit mappings
+([client retry advice](responses-wire-shapes.md#client-rate-limit-retry-advice)). The shared usage shaping's `input_tokens_details` and
 `output_tokens_details` are always emitted, with zero defaults, because strict Responses clients
 deserialize them as required fields.
 

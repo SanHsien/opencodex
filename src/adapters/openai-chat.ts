@@ -1,18 +1,20 @@
 import { hasShrinkableOpenAIChatImages, normalizeOpenAIChatImages } from "./openai-chat-images";
+import { protectGlmSummaryBudget, resolveMaxTokens } from "./openai-chat/summary-budget";
 import { chatParallelToolCallsWireValue } from "./openai-chat/parallel-tool-calls";
 import { applyExplicitChatReasoningWirePolicy } from "./openai-chat/reasoning-wire";
 import type { AdapterRequest, IncomingMeta, ProviderAdapter } from "./base";
 import type { AdapterEvent, OcxParsedRequest, OcxProviderConfig, OcxUsage } from "../types";
 import { modelInList } from "../types";
 import { createInlineThinkContentSplitter, splitInlineThinkContent } from "./inline-think-tags";
-import { mapReasoningEffort, modelRecordValue } from "../reasoning-effort";
+import { mapReasoningEffort } from "../reasoning-effort";
 import { debugProviderDiagnostic } from "../lib/debug";
 import { sseFieldValue } from "../lib/sse-decoder";
 import { isDebugEnabled } from "../lib/debug-settings";
 import { openRouterProviderPayload, resolveOpenRouterRouting } from "../providers/openrouter-routing";
 import { resolveVercelGatewayRouting, vercelGatewayProviderPayload } from "../providers/vercel-gateway-routing";
 import { fastPolicyForModel } from "../providers/service-tier";
-import { createAdapterTierMetadata, decideTier, type AdapterTierMetadata } from "../providers/fastwire";
+import { applyGithubCopilotContextTier } from "../providers/github-copilot-context";
+import { createAdapterTierMetadata, decideTier, emittedFastWire, type AdapterTierMetadata } from "../providers/fastwire";
 import {
   isTranslatorBudgetExceededError,
   retainTranslatedEventBatch,
@@ -50,12 +52,6 @@ import { freeformToolsByWireName, type FreeformToolIdentity, reconcileSerialized
 export { stripBracketedModelSuffix } from "./openai-chat/wire";
 export { buildOpenAIChatPassthroughRequest } from "./openai-chat/passthrough";
 export { formatOpenAIChatErrorBody } from "./openai-chat/errors";
-
-function resolveMaxTokens(provider: OcxProviderConfig, parsed: OcxParsedRequest): number | undefined {
-  return parsed.options.maxOutputTokens
-    ?? modelRecordValue(provider.modelMaxOutputTokens, parsed.modelId)
-    ?? provider.defaultMaxOutputTokens;
-}
 
 function thinkingBudgetForEffort(parsed: OcxParsedRequest, reasoningEffort: string, maxOutputTokens?: number): number | undefined {
   if (parsed.options.reasoning === "minimal") return 0;
@@ -109,7 +105,7 @@ export function createOpenAIChatAdapter(provider: OcxProviderConfig): ProviderAd
         const toolChoice = toolChoiceToChatFormat(parsed.options.toolChoice, parsed.context.tools, provider, toolNames.registry());
 
         const body: Record<string, unknown> = {
-          model: provider.modelSuffixBracketStrip ? stripBracketedModelSuffix(parsed.modelId) : parsed.modelId,
+          model: parsed._wireModelOverride ?? (provider.modelSuffixBracketStrip ? stripBracketedModelSuffix(parsed.modelId) : parsed.modelId),
           messages,
           stream: parsed.stream,
         };
@@ -150,12 +146,14 @@ export function createOpenAIChatAdapter(provider: OcxProviderConfig): ProviderAd
           body.stop = parsed.options.stopSequences;
         }
         const reasoningDisabled = modelInList(provider.noReasoningModels, parsed.modelId);
-        const reasoningEffort = mapReasoningEffort(provider, parsed.modelId, parsed.options.reasoning);
+        const requestedEffort = protectGlmSummaryBudget(body, provider.baseUrl, parsed.options.reasoning)
+          ? "low" : parsed.options.reasoning;
+        const reasoningEffort = mapReasoningEffort(provider, parsed.modelId, requestedEffort);
         const explicitReasoning = applyExplicitChatReasoningWirePolicy({
           provider,
           modelId: parsed.modelId,
           hasTools: !!tools,
-          requestedEffort: parsed.options.reasoning,
+          requestedEffort,
           wireEffort: reasoningEffort,
           reasoningDisabled,
           body,
@@ -232,13 +230,11 @@ export function createOpenAIChatAdapter(provider: OcxProviderConfig): ProviderAd
         }
         if (parsed.stream) body.stream_options = { include_usage: true };
 
-        const bodyJson = JSON.stringify(body);
-        const actualServiceTier = typeof body.service_tier === "string" ? body.service_tier : null;
+        const bodyJson = JSON.stringify(applyGithubCopilotContextTier(body, provider, parsed.modelId, incoming?.providerName));
         const tierLog = createAdapterTierMetadata(
           parsed.options.tierObservation,
           parsed.options.tierDecision,
-          actualServiceTier === null ? null : "service-tier",
-          actualServiceTier,
+          ...emittedFastWire(parsed, body),
         );
         if (isDebugEnabled()) {
           let host = "upstream";
@@ -340,7 +336,7 @@ export function createOpenAIChatAdapter(provider: OcxProviderConfig): ProviderAd
           }
         }
         // Held markup is released only now, as one batch per response: the doubled-input repair needs every call.
-        const references = reconcileStructuredToolCalls(calls.map(call => ({ wireName: call.name, restoredName: toolNames.restore(call.name), argumentsText: call.args, freeformTool: freeformTools.get(call.name) })), toolCallContent.current());
+        const references = reconcileStructuredToolCalls(calls.map(call => ({ wireName: call.name, restoredName: toolNames.restore(call.name), argumentsText: call.args, freeformTool: freeformTools.get(call.name) })), toolCallContent.current(), !toolCallContent.releasedAnswerText && /(?:^|[/-])mimo-v2(?:\.|$)/i.test(lastRequestedModelId ?? ""));
         calls.forEach((call, index) => { call.args = references[index]!.argumentsText; });
         yield* toolCallContent.drain(references);
         for (const call of calls) {
@@ -803,7 +799,7 @@ export function createOpenAIChatAdapter(provider: OcxProviderConfig): ProviderAd
             events.push({ type: "tool_call_start", id, name: toolNames.restore(name) }, delta, { type: "tool_call_end" });
           }
         }
-        const references = reconcileStructuredToolCalls(structuredCalls, answerText);
+        const references = reconcileStructuredToolCalls(structuredCalls, answerText, /(?:^|[/-])mimo-v2(?:\.|$)/i.test(lastRequestedModelId ?? ""));
         structuredCalls.forEach((call, index) => { call.delta.arguments = references[index]!.argumentsText; });
         reconcileSerializedToolCallEvents(events, contentStart, contentEnd, references, budget);
         const stopReason = stopReasonFor(choice.finish_reason);

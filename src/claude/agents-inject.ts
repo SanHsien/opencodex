@@ -23,6 +23,7 @@ import { effectiveBlockedSkillNames, resolveInboundModel } from "./inbound";
 import { AnthropicRequestError } from "./inbound-records";
 import { knownModelIdsForProvider } from "../router";
 import { decodeRoutedModelIdOrThrow } from "../providers/slug-codec";
+import { siblingOfLivePort } from "../codex/sibling-start";
 
 export interface ClaudeAgentDef {
   file: string;
@@ -285,6 +286,9 @@ export function injectClaudeAgentDefs(
   /** Hub-sourced roster on a connected client; see `buildClaudeAgentDefs`. */
   rosterOverride?: readonly string[],
 ): string[] | null {
+  // `~/.claude/agents` is shared with the live proxy a sibling instance runs beside, which owns
+  // both its roster and its pruning (`src/codex/sibling-start.ts`).
+  if (siblingOfLivePort() !== null) return null;
   if (config.claudeCode?.enabled === false || config.claudeCode?.injectAgents === false) {
     // Disabled: prune verified-owned files so stale definitions stop loading
     // in future sessions (audit 071 #3). The roster override is irrelevant here by
@@ -295,11 +299,12 @@ export function injectClaudeAgentDefs(
 }
 /**
  * Dispatcher directive appended to every ocx-* description. The ocx-route body
- * directive makes the Agent tool's `model` argument INERT (the proxy overrides
- * the request model before routing — live-proven), so instead of asking the
- * dispatcher to omit it (which caused schema-anxiety loops), we hand it a fixed
- * placeholder: any value works; "haiku" is canonical because a haiku-labeled call
- * is visibly a placeholder in the Claude Code UI, while "sonnet" was
- * indistinguishable from a genuine Sonnet call (issue #252).
+ * directive makes the proxy override the request model before routing
+ * (live-proven), so the real model is pinned there. The Agent tool's `model`
+ * parameter, however, outranks the agent's frontmatter and
+ * CLAUDE_CODE_SUBAGENT_MODEL: a placeholder value (the former `model: "haiku"`
+ * instruction, upstream #6358, closed not_planned) really runs the subagent on that
+ * model whenever the call is not routed through the proxy. So the dispatcher is told
+ * to omit the parameter. Fork-only change; see docs/fork/DECISIONS.md.
  */
-const NO_MODEL_ARG = "NOTE: this agent's real model is pinned by the opencodex proxy — the `model` argument is ignored. Pass model: \"haiku\" as a placeholder (or omit it); routing is unaffected either way.";
+const NO_MODEL_ARG = "NOTE: this agent's real model is pinned by the opencodex proxy. Omit the `model` parameter when calling this agent: the Agent tool's `model` parameter outranks the agent definition, so any value you pass can run the subagent on that model instead.";

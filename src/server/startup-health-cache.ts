@@ -5,6 +5,8 @@ import { deriveStartupHealth, type StartupHealth } from "../codex/autostart-heal
 import { getCodexRoutingKind } from "../codex/inject";
 import { diagnoseCodexShim } from "../codex/shim";
 import { durableBunPath } from "../lib/bun-runtime";
+import { selfLaunchArgv } from "../lib/self-launch-argv";
+import { desktopStartupOwnership } from "../service/desktop-startup";
 import type { OcxConfig } from "../types";
 import { truncateRetainedUtf8 } from "../lib/admission";
 
@@ -38,6 +40,14 @@ export function startupHealthProbeTimeoutMs(): number {
   return PROBE_TIMEOUT_MS;
 }
 let cached: { timestamp: number; value: StartupHealth } | null = null;
+/**
+ * Last completed reading, kept across invalidation. Invalidation only means "no longer
+ * fresh": a settings write clears `cached` so the next fresh read re-probes, but answering
+ * the snapshot with the synthetic not-installed fallback meanwhile turned a healthy service
+ * into `at-risk` on the dashboard until the probe finished (up to 15s on Windows). The
+ * fallback is kept for a process that has never completed a reading.
+ */
+let lastReading: StartupHealth | null = null;
 let inflight: Promise<StartupHealth> | null = null;
 let generation = 0;
 
@@ -64,7 +74,11 @@ export function getStartupHealthSnapshot(
   const now = deps.now ?? Date.now;
   if (cached && now() - cached.timestamp < CACHE_TTL_MS) return cached.value;
   refreshInBackground(config, deps);
-  return cached ? markStartupHealthDiagnosticStale(cached.value) : conservativeFallback(config);
+  return staleOrFallback(config);
+}
+
+function staleOrFallback(config: Pick<OcxConfig, "codexAutoStart">): StartupHealth {
+  return lastReading ? markStartupHealthDiagnosticStale(lastReading) : conservativeFallback(config);
 }
 
 export function markStartupHealthDiagnosticStale(value: StartupHealth): StartupHealth {
@@ -78,7 +92,9 @@ export function markStartupHealthDiagnosticStale(value: StartupHealth): StartupH
     // Mirror deriveStartupHealth's choice: an already-registered service is refreshed in
     // place. Hardcoding installService here silently undid that for every stale-cache
     // read, which is the path the dashboard hits while a probe is revalidating.
-    recommendedCommand: value.routingKind === "custom-local" || value.routingKind === "unknown"
+    recommendedCommand: value.routingKind === "opencodex-local" && value.desktop?.owned
+      ? null
+      : value.routingKind === "custom-local" || value.routingKind === "unknown"
       ? value.commands.restoreNative
       : value.serviceInstalled && !value.serviceConflict
         ? value.commands.repairService
@@ -89,6 +105,7 @@ export function markStartupHealthDiagnosticStale(value: StartupHealth): StartupH
 function conservativeFallback(config: Pick<OcxConfig, "codexAutoStart">): StartupHealth {
   const shim = diagnoseCodexShim();
   return deriveStartupHealth({
+    desktop: desktopStartupOwnership(),
     routingKind: getCodexRoutingKind(),
     autostartEnabled: codexAutoStartEnabled(config),
     serviceInstalled: false,
@@ -109,7 +126,7 @@ function runProbe(config: Pick<OcxConfig, "codexAutoStart">): Promise<StartupHea
   const bun = durableBunPath();
   const cli = join(import.meta.dir, "..", "cli", "index.ts");
   return new Promise(resolve => {
-    execFile(bun, [cli, "__startup-health"], {
+    execFile(bun, selfLaunchArgv(["__startup-health"], { sourceEntrypoint: cli }), {
       encoding: "utf8",
       env: process.env,
       timeout: PROBE_TIMEOUT_MS,
@@ -140,7 +157,7 @@ function runProbe(config: Pick<OcxConfig, "codexAutoStart">): Promise<StartupHea
           } catch { /* scan earlier output; config repair messages may precede JSON */ }
         }
       }
-      resolve(cached ? markStartupHealthDiagnosticStale(cached.value) : conservativeFallback(config));
+      resolve(staleOrFallback(config));
     });
   });
 }
@@ -156,10 +173,11 @@ function refreshInBackground(
     .then(value => {
       if (startedGeneration === generation) {
         cached = { timestamp: (deps.now ?? Date.now)(), value };
+        if (!value.diagnosticStale) lastReading = value;
       }
       return value;
     })
-    .catch(() => cached ? markStartupHealthDiagnosticStale(cached.value) : conservativeFallback(config))
+    .catch(() => staleOrFallback(config))
     .finally(() => {
       // An invalidated probe must never clear the newer generation's flight.
       if (inflight === probe) inflight = null;
@@ -189,11 +207,17 @@ export async function getCachedStartupHealth(
         ]));
     if (settled) return settled;
   }
-  return cached ? markStartupHealthDiagnosticStale(cached.value) : conservativeFallback(config);
+  return staleOrFallback(config);
 }
 
 export function invalidateStartupHealthCache(): void {
   generation += 1;
   cached = null;
   inflight = null;
+}
+
+/** Test-only: also forget the last reading, returning to the never-probed state. */
+export function resetStartupHealthCacheForTests(): void {
+  invalidateStartupHealthCache();
+  lastReading = null;
 }

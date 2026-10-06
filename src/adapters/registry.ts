@@ -3,6 +3,7 @@ import { createAzureAdapter } from "./azure";
 import type { ProviderAdapter } from "./base";
 import { createClaudeCliAdapter } from "./claude-cli/adapter";
 import { withClinePassDeepSeekV4ToolReplayCompatibility } from "./cline-pass-deepseek-v4-tool-replay";
+import { withUniqueToolCallIds } from "./unique-tool-call-ids";
 import { createCodeBuddyAdapter } from "./codebuddy/adapter";
 import { createQoderAdapter } from "./qoder/adapter";
 import { createCommandCodeAdapter } from "./command-code";
@@ -14,6 +15,7 @@ import { createMimoFreeAdapter } from "./mimo-free";
 import { createOpenAIChatAdapter } from "./openai-chat";
 import { createOllamaNativeAdapter } from "./ollama-native";
 import { createResponsesPassthroughAdapter } from "./openai-responses";
+import { createZedAdapter } from "./zed";
 import type { OcxProviderConfig } from "../types";
 import { createAdapterTierMetadata } from "../providers/fastwire";
 import { withInputMediaGuard } from "./input-media-guard";
@@ -44,7 +46,8 @@ export type AdapterWire =
   | "google"
   | "kiro"
   | "cursor"
-  | "devin";
+  | "devin"
+  | "zed";
 
 export type AdapterMutationContract =
   | "codex-owned"
@@ -84,7 +87,7 @@ export const ADAPTER_REGISTRY = {
     wire: "openai-chat",
     mutation: "codex-owned",
     create: (provider: OcxProviderConfig, _context: AdapterFactoryContext) =>
-      withClinePassDeepSeekV4ToolReplayCompatibility(createOpenAIChatAdapter(provider)),
+      withUniqueToolCallIds(withClinePassDeepSeekV4ToolReplayCompatibility(createOpenAIChatAdapter(provider))),
   },
   "ollama-native": {
     wire: "ollama-native",
@@ -130,6 +133,11 @@ export const ADAPTER_REGISTRY = {
     wire: "devin",
     mutation: "codex-owned",
     create: (provider: OcxProviderConfig, context: AdapterFactoryContext) => createDevinAdapter(provider, context),
+  },
+  zed: {
+    wire: "zed",
+    mutation: "codex-owned",
+    create: (provider: OcxProviderConfig, _context: AdapterFactoryContext) => createZedAdapter(provider),
   },
   "mimo-free": {
     contractParent: "openai-chat",

@@ -12,6 +12,8 @@
  * - Tunnel and exec commands use StrictHostKeyChecking=yes. Only the probe uses accept-new,
  *   against an empty temporary file, so the key it records can be shown to the user first.
  * - Forwards always bind 127.0.0.1 on both ends.
+ * - Remote ocx runs through `remoteOcxArgv`: a non-interactive ssh session reads no interactive
+ *   profile, so ~/.bun/bin and Homebrew are usually missing from the remote PATH.
  */
 
 import { isAbsolute } from "node:path";
@@ -112,7 +114,7 @@ export function buildTunnelArgv(options: TunnelArgvOptions): string[] {
 
 export interface ExecArgvOptions {
   alias: string;
-  /** Remote argv. Each element is quoted for the remote POSIX shell. */
+  /** Remote argv. The command must be sh; its arguments are quoted for the remote shell. */
   argv: readonly string[];
   knownHostsFile: string;
 }
@@ -127,6 +129,20 @@ export function buildExecArgv(options: ExecArgvOptions): string[] {
     "--", alias,
     quoteRemote(options.argv),
   ];
+}
+
+/**
+ * The remote sh script for every ocx call. `quoteRemote` single-quotes it, so the login shell
+ * passes it through untouched and `$HOME`/`$PATH` expand in the remote `sh`; the arguments reach
+ * ocx as `"$@"` without another round of parsing. The fallback directories are appended, so an
+ * ocx the remote PATH already resolves keeps winning. A missing ocx exits 127.
+ */
+export const REMOTE_OCX_SCRIPT = 'PATH="$PATH:$HOME/.bun/bin:$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin"; exec ocx "$@"';
+/** The POSIX shell's exit status for a command it could not find. */
+export const REMOTE_COMMAND_NOT_FOUND = 127;
+
+export function remoteOcxArgv(args: readonly string[]): string[] {
+  return ["sh", "-c", REMOTE_OCX_SCRIPT, "ocx", ...args];
 }
 
 export interface ProbeArgvOptions {
@@ -161,10 +177,13 @@ export function buildResolveArgv(alias: string): string[] {
   return ["ssh", "-G", "--", assertSshAlias(alias)];
 }
 
-/** Quote argv for a POSIX remote shell: every element single-quoted, embedded quotes escaped. */
+/** Emit only sh in command position; single-quote every argument for the remote shell. */
 export function quoteRemote(argv: readonly string[]): string {
-  return argv.map(arg => {
+  if (argv[0] !== "sh") throw new LinkSshArgumentError("remote command must be sh");
+  return argv.map((arg, index) => {
     if (arg.includes("\0")) throw new LinkSshArgumentError("remote argument contains NUL");
+    // PowerShell treats a leading quoted word as an expression, not a command invocation.
+    if (index === 0) return "sh";
     return `'${arg.replaceAll("'", `'"'"'`)}'`;
   }).join(" ");
 }

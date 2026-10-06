@@ -171,6 +171,13 @@ data URL。託管的 `computer_call_output` 項目需要一條 Responses passthr
 
 在 `stream: false` 或無 `stream` 時，相同的 adapter 事件被收集為一個 Responses JSON 物件。兩種形式都保留所選模型、輸出項目、終端狀態與 usage。
 
+canonical ChatGPT Codex 路由的上游只接受 SSE，因此僅對上游請求使用 `stream: true`。OpenCodex
+會在有界限制內驗證終端串流，再將其折疊成客戶端要求的 JSON 形式；明確的 `store` 值不會改變。
+驗證失敗時會傳回錯誤，而不會以 HTTP 200 傳回部分 JSON。限制為每個 frame 4 MiB、transcript
+與重建來源各 32 MiB、100,000 個 SSE frame，以及 10,000 個重建 output item。
+`stallTimeoutSec` 同時控制第一個 body byte 與後續靜默間隔；當它是 `0`，或因本機 upstream
+預設停用時，不會立即逾時，只保留獨立的 15 分鐘整體上限。串流客戶端的行為不變。
+
 當供應商過濾或截斷一個回應時，一個未完成的工具呼叫在 JSON 與 SSE 中都會維持 `incomplete`。
 部分輸出會被保留，橋接不會為那個開放中的呼叫發出引數完成事件。已完成的呼叫維持它們的狀態。這
 保留了供應商本身的結果；客戶端對不完整回應的重試行為不受影響。

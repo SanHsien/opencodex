@@ -313,3 +313,9 @@ provider 設定。因此無需手動分類，[vision sidecar](/zh-tw/guides/side
 用量熱力圖的每一天只有一個 Tab 進入點。用上／下移到相鄰的日期，左／右移到相鄰的週。週長條在
 鍵盤 focus、指標 hover 或觸控時，都會顯示相同的當日細節。日期標籤包含日期、請求數與 token 數；
 提示框會保持在可視範圍內。
+
+### Claude
+
+**Claude** 側邊欄頁面位於 **Codex** 正下方。切換分頁時，同一個標頭與分頁列保持不動，順序為 Account、Code、Desktop、Settings。Account 分頁顯示 Anthropic 供應商在 **Providers** 的 **Accounts** 分頁所顯示的內容：登入、瀏覽器選項、含切換、暫停、移除與重新驗證的 Claude 帳號清單、貼上代碼欄位、帳號池設定，以及額度。供應商層級的控制項，例如預設供應商、移除與啟用開關，仍留在 **Providers**。Anthropic 尚未設定時，**Add Anthropic** 會在顯示與 Add provider 對話框相同的風險告知後，直接開始 Claude 登入。不指定分頁開啟 Claude 時，若 Anthropic 已設定就選擇 Account，否則選擇 Code。Code 內有 Claude 連線開關；Settings 顯示該連線為 On 或 Off、攔截為 Running 或 Stopped，以及攔截連接埠。攔截停止時，Settings 會顯示原因，並提供 **Start interception**，在原地啟動它而不必重新啟動 OpenCodex。在 Desktop 上，一列狀態顯示 Claude Desktop 是否執行該設定檔以及是否已儲存，旁邊有 Save 與 Save & apply。相容性、代理指令與上下文控制項仍留在 Code。
+
+書籤可直接選擇分頁：`#claude/account`、`#claude/code`、`#claude/desktop` 與 `#claude/settings`。舊的 `#integrations/claude` 與 `#integrations/claude/desktop` 書籤會重新導向到 Code 與 Desktop。方向鍵在分頁之間移動；Home 與 End 選擇第一個與最後一個分頁。

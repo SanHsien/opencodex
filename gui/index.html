@@ -14,6 +14,26 @@
           var t = localStorage.getItem("ocx-theme");
           if (t === "light" || t === "dark") document.documentElement.setAttribute("data-theme", t);
         } catch (e) {}
+        // FOUT guard: set <html lang> before first paint so :lang() font stacks apply immediately.
+        // Mirrors detectInitial() + LOCALES in src/i18n/shared.ts.
+        // Fork policy: English and Traditional Chinese only; a stored retired "zh" maps to zh-TW.
+        var langMap = { en: "en", zh: "zh-TW", "zh-TW": "zh-TW" };
+        var stored = null;
+        try {
+          stored = localStorage.getItem("ocx-lang");
+        } catch (e) {
+          stored = null; // storage blocked: fall back to navigator.language below
+        }
+        var locale = stored && Object.prototype.hasOwnProperty.call(langMap, stored) ? stored : null;
+        if (!locale) {
+          var nav = (navigator.language || "en").toLowerCase();
+          if (nav.indexOf("zh") === 0) {
+            locale = "zh-TW";
+          } else {
+            locale = "en";
+          }
+        }
+        document.documentElement.lang = langMap[locale];
       })();
     </script>
   </head>

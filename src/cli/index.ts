@@ -1,7 +1,13 @@
 #!/usr/bin/env bun
+import { serviceStayOutExitCode, WINDOWS_WRAPPER_PROTOCOL_ENV } from "../service/windows-wrapper-exit";
+import { isSupervisedServiceChild, serviceChildOwnershipDecisionForClassifiedChild } from "../service/service-child-ownership";
+import { SERVICE_MANAGED_ENV } from "../service/state";
+import { raiseWindowsProxyPriority } from "../service/windows-process-priority";
 import { spawn } from "node:child_process";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { currentServingCommand, deferServiceChildToNewerRuntime, markDelegatedServiceReady, recordServingRuntime } from "../config/serving-runtimes";
+import { packageVersion } from "../lib/package-version";
 import { findGuiDist } from "../server/gui-static";
 import { inspectGuiBundleFreshness, staleGuiBundleLines } from "../server/gui-freshness";
 
@@ -37,7 +43,7 @@ import {
   resolveCodexHistoryJobTarget,
   runCodexHistoryJob,
 } from "../codex/history-job";
-import { reconcileJournal } from "../codex/journal";
+import { findCrossHomeOwner, markCrossHomeSibling, markLiveHomeSibling, reconcileStartupJournal } from "./cross-home-owner";
 import { inspectClientRotationRecoveryGate, readClientConnectionState } from "../client/state";
 import {
   codexAutoStartEnabled,
@@ -73,20 +79,25 @@ import { parseStartOptions, StartArgsError } from "./start-args";
 
 import {
   discoverStableProxyForRestart,
-  isProxyReplacement,
+  recheckRestartFailedStart, reobserveRestartReplacement,
+  restartStartOutcome,
+  waitForProxyReplacement,
   runProxyRestart,
   runTrayProxyStart,
   type ProxyRestartLive,
   type ProxyRestartResult,
+  type ProxyRestartStartOutcome,
 } from "./tray-proxy";
 import { requestBoundSystemRestart } from "./system-restart-client";
 import { installCrashGuards } from "../lib/crash-guard";
 import { SpendLedgerOwnerError } from "../lib/spend-ledger-owner";
 import { redactUrlForLog } from "../lib/redact";
-import { dispatchCommand, decideBusyPreferredPort, decideStartWithLiveOwner } from "./dispatch";
+import { dispatchCommand, decideBusyPreferredPort, decideStartExitTeardown, decideStartWithLiveOwner, startupLeftCodexNativeLine } from "./dispatch";
+import { probeOwnerPastRestartParent, takeRestartHandoffMarkers } from "./restart-handoff";
 import { AuxiliaryListenerBindError, findAvailablePort, isAddrInUse, PortUnavailableError, shouldPersistSelectedPort, waitForPortAvailable } from "../server/ports";
 import {
   findLiveProxy,
+  proveLiveProxyOwnedByHome,
   probeEndpointLiveness,
   probeHostname,
   probePortOwner,
@@ -116,7 +127,6 @@ import { assertNotAdminToken, diagnoseService, isServiceOwnershipError, proxySti
 import { acquireOwnershipMutationLease } from "../service/ownership-mutation-lease.mjs";
 import { formatStartupRoutingDetail, startupHealthSummary } from "../codex/autostart-health";
 import { injectSystemEnv, reconcileShellHook, revertSystemEnv, uninstallShellHook } from "../server/system-env";
-import { buildDesktop3pRegistry } from "../claude/desktop-3p";
 import { startTokenGuardian } from "../oauth/token-guardian";
 import { startHistoryMigrationGuardian } from "../codex/history-migration-guardian";
 import { maybeShowStarPrompt } from "./star-prompt";
@@ -127,13 +137,9 @@ import {
   StartOwnershipRollbackUncertainError,
 } from "./start-ownership-publication";
 import { syncModelsToCodex } from "../codex/sync";
-import {
-  HUB_GATED_SKIP_MESSAGE,
-  localClientSkipReason,
-  shouldSyncGrokOnStart,
-  syncCodexOnStartIfEnabled,
-  type LocalClientSkipReason,
-} from "../codex/desired-state";
+import { localClientSkipReason, shouldSyncGrokOnStart, syncCodexOnStartIfEnabled } from "../codex/desired-state";
+import { honorSiblingMarker, markSiblingStart, siblingOfLivePort, siblingRuntimeField, siblingStopFoundOwner, withoutSiblingMarker } from "../codex/sibling-start";
+import { consumeSiblingHandoff } from "../codex/sibling-handoff";
 import {
   reconcileClientStartupBeforeReady,
   syncClaudeAgentDefsAtProxyStartup,
@@ -147,8 +153,12 @@ import { loadExportModels } from "../server/management/model-rows";
 
 import { removeOwnedConfigAfterDesktopCleanup } from "./uninstall-client-state";
 import { withProcessRuntimeProvenance } from "../lib/bun-runtime";
-import { selfLaunchArgv } from "../lib/self-launch-argv";
+import { startArgv } from "../lib/self-launch-argv";
 import { initializeNodeLauncherContext } from "./launcher-context";
+import { restoreSharedClientStateAfterStop } from "./stop-restore";
+import { startClientRuntimeUnderOwnershipLease } from "./client-start-fence";
+import { recoverStartStateUnderOwnershipLease } from "./start-owner-fence";
+import { handledSignalExitCode } from "../lib/handled-signal-exit";
 import { createLocalAttestationSecret } from "../lib/local-management-attestation";
 import { MEMORY_DRAIN_RESTART_MS, REPLACEMENT_READY_TIMEOUT_MS } from "../lib/system-restart-contract";
 
@@ -191,9 +201,9 @@ async function refreshOwnedRaycastCatalog(
 }
 
 initializeNodeLauncherContext();
-
 // The compiled executable is also the capture-only MCP server's launcher.
 // Handle this private entrypoint before CLI preflight or command dispatch.
+if (process.argv[2] === "__keyring-load-check") { console.log(JSON.stringify((await import("../lib/keyring-native")).inspectKeyringBinding())); process.exit(0); }
 if (process.argv[2] === "__codebuddy-mcp") {
   const { runCodeBuddyMcpServer } = await import("../adapters/codebuddy/mcp-server");
   await runCodeBuddyMcpServer(process.argv[3] ?? "");
@@ -230,28 +240,6 @@ async function waitForProxy(timeoutMs = 8_000): Promise<LiveProxy | null> {
     await new Promise(resolve => setTimeout(resolve, 150));
   }
   return null;
-}
-
-/**
- * The one startup line for "nothing was written to Codex".
- *
- * Two very different facts reached it: the user's own OFF switch, and a hub declining to
- * rewrite its own local clients. Printing the toggle's wording for the gate is what made
- * operators hunt for a switch they never set (#4236).
- */
-function startupLeftCodexNativeLine(reason: LocalClientSkipReason): string {
-  return reason === "hub-gated"
-    ? `   ${HUB_GATED_SKIP_MESSAGE} Startup left Codex native.`
-    : "   Codex integration OFF; startup left Codex native.";
-}
-
-/** Argv for detached `start`, optionally hard-pinning the listen port. */
-function startArgv(port?: number): string[] {
-  const args = ["start"];
-  if (typeof port === "number" && Number.isFinite(port) && port > 0 && port <= 65535) {
-    args.push("--port", String(Math.trunc(port)));
-  }
-  return selfLaunchArgv(args);
 }
 
 class StartCommandExit extends Error {
@@ -330,10 +318,9 @@ async function chooseListenPort(
         ocxService: process.env.OCX_SERVICE,
       });
       if (decision === "service-stay-out") {
-        // Same contract as the pre-bind owner check: the wrapper's retry loop terminates
-        // on a zero exit, and the port it was asked to serve is already served.
+        // Signal intentional stay-out to wrappers that support the exit protocol.
         console.log(`Proxy already running (PID ${holder?.pid ?? "unknown"}, port ${preferred}); service wrapper staying out of the way.`);
-        throw new StartCommandExit(0);
+        throw new StartCommandExit(serviceStayOutExitCode());
       }
       if (decision === "refuse-live-proxy") {
         console.error(`⚠️  Proxy already running (PID ${holder?.pid ?? "unknown"}, port ${preferred}). Use 'ocx stop' first.`);
@@ -365,32 +352,37 @@ async function chooseListenPort(
 }
 
 async function findProxyOwnerBeforeJournalRecovery(
-  options: { probeConfiguredPort?: boolean } = {},
+  options: { probeConfiguredPort?: boolean; deferPidCleanup?: boolean } = {},
 ): Promise<{ live: LiveProxy | null; pidSnapshot: number | null }> {
   const pidSnapshot = readPidFileValue();
   const hasRuntimeOwner = readRuntimePort() !== null;
   const shouldProbe = pidSnapshot !== null || hasRuntimeOwner || options.probeConfiguredPort === true;
-  // A negative answer here is acted on twice over: the caller walks past a proxy it was
-  // supposed to find, and the lines below delete this home's pid record and reconcile the
-  // journal. One 750ms probe is not enough evidence for either (#5004) — a transport
+  // A negative answer lets the caller walk past a proxy it was supposed to find and
+  // deletes this home's stale pid record. Supervised starts defer that write to the
+  // lease-held owner recheck; journal recovery follows cross-home discovery.
+  // One 750ms probe is not enough evidence for that (#5004) — a transport
   // failure is indistinguishable from an empty port, and the reported Windows duplicate
   // came from exactly that answer on a proxy the previous command had just found healthy.
   const live = shouldProbe ? await findLiveProxy(START_OWNERSHIP_LIVENESS) : null;
   if (live) return { live, pidSnapshot };
 
-  // The probe established that the snapshotted owner is stale. Compare before
-  // deleting so a concurrent start that rewrote the PID file keeps its state.
-  removePidIfValueIs(pidSnapshot);
-  if (!currentExternalCodexModelProvider()) {
-    const clientState = readClientConnectionState();
-    reconcileJournal(clientState.kind === "connected"
-      ? { activeClientApiKeyId: clientState.value.apiKeyId }
-      : undefined);
-  }
+  if (!options.deferPidCleanup) removePidIfValueIs(pidSnapshot);
   return { live: null, pidSnapshot };
 }
 
 async function handleStart(options: { block?: boolean } = {}) {
+  // A supervised service child defers to a foreign recorded owner before doing
+  // anything else. 'ocx service start' refuses this activation path already, but
+  // the process managers below it — the Windows boot wrapper's restart loop and
+  // the launchd/systemd units — spawn 'start' directly, which let an npm service
+  // resurrect beside a desktop-owned runtime. The stay-out exit is the wrapper's
+  // intentional-stop protocol, so a refusal does not read as a crash to respawn.
+  const supervisedServiceChild = isSupervisedServiceChild(process.env);
+  const childOwnership = serviceChildOwnershipDecisionForClassifiedChild(supervisedServiceChild);
+  if (childOwnership.kind === "stay-out") {
+    console.error("❌ " + childOwnership.refusal);
+    process.exit(serviceStayOutExitCode());
+  }
   // Native (WinSW) service mode has no batch wrapper to read the service token file into
   // the environment, and a FOREGROUND `ocx start` has no wrapper at all — so the app loads
   // the token here, before the server binds, with the same precedence the launchd plist and
@@ -427,47 +419,52 @@ async function handleStart(options: { block?: boolean } = {}) {
     }
   }
   const requestedPort = startOpts.port;
-  // Always probe the configured port, even when both state files are absent. A
-  // fallback-port sibling overwrites the pid/runtime records when it starts and
-  // removes them on its own shutdown, so their absence proves nothing about the
-  // configured port. Without the probe, `start` shadowed a healthy proxy with an
-  // ephemeral-port copy and re-pointed client config at the copy; the next sibling
-  // shutdown then left no runtime record for discovery at all. `handleEnsure`
-  // already passes this; `handleStart` is the path that did not.
-  const owner = await findProxyOwnerBeforeJournalRecovery({ probeConfiguredPort: true });
-  let siblingStart = false;
+  // Probe the configured port even without state files: a fallback sibling can remove them.
+  // Consume a sibling replacement's handoff before probing, even if its owner is momentarily down.
+  let siblingStart = honorSiblingMarker(process.env, consumeSiblingHandoff) !== null;
+  // A restart replacement waits out its draining parent instead of refusing it, and bounds its handoff log (restart-handoff.ts).
+  const restartParent = { restartParentPid: takeRestartHandoffMarkers(process.env), requestedPort, ocxService: process.env.OCX_SERVICE };
+  const owner = await probeOwnerPastRestartParent(() => findProxyOwnerBeforeJournalRecovery({ probeConfiguredPort: true, deferPidCleanup: supervisedServiceChild }), restartParent);
   if (owner.live) {
     // Rationale and the full decision table live on `decideStartWithLiveOwner`.
     const decision = decideStartWithLiveOwner({
       livePort: owner.live.port,
-      requestedPort,
-      ocxService: process.env.OCX_SERVICE,
+      livePid: owner.live.pid, ...restartParent,
     });
     if (decision === "service-stay-out") {
-      // Service-wrapper context (opencodex-service.cmd `:loop`): a healthy proxy from
-      // ANY source means the requested port is already served. Exit 0 so the wrapper's
-      // `if %ERRORLEVEL% NEQ 0` retry loop terminates instead of respawning every 5s
-      // against a listener it can never claim (observed as an endless
-      // "Proxy already running" service.log loop).
+      // A live owner is an intentional stay-out, not an unexpected child exit.
       console.log(`Proxy already running (PID ${owner.live.pid ?? owner.pidSnapshot ?? "unknown"}, port ${owner.live.port}); service wrapper staying out of the way.`);
-      process.exit(0);
+      process.exit(serviceStayOutExitCode());
     }
-    if (decision === "refuse") {
+    if (decision === "refuse" || decision === "await-parent") {
       console.error(`⚠️  Proxy already running (PID ${owner.live.pid ?? owner.pidSnapshot ?? "unknown"}, port ${owner.live.port}). Use 'ocx stop' first.`);
       process.exit(1);
     }
-    // Sibling path. Honest about the side effects it shares with any start in this home:
-    // the new instance takes over this home's ocx.pid / runtime-port.json while it runs,
-    // and re-points this home's Codex config at the new port when injection applies.
-    // What it must NOT do is persist its port into config.port: the configured-port
-    // proxy is still the owner of this home, and a later `ocx service` reads config.port
-    // to bake the service (observed: a probe on 10198 left the service pinned there).
+    // Sibling path. The new instance takes over this home's ocx.pid / runtime-port.json while
+    // it runs, and nothing else: Codex, Grok, Claude and the system env keep pointing at the
+    // live proxy for this process's whole lifetime, its exit and `ocx stop` included, so the
+    // mark goes down before any client write (`src/codex/sibling-start.ts`). Nor may it persist
+    // its port into config.port: the configured-port proxy still owns this home, and a later
+    // `ocx service` reads config.port to bake the service (a probe on 10198 pinned it there).
     siblingStart = true;
+    markSiblingStart(owner.live.port);
     console.warn(
       `Proxy already running on port ${owner.live.port}; requested a second instance on port ${requestedPort}. `
       + `Startup continues only for an independent OPENCODEX_HOME; one state directory has one spend-ledger writer.`,
     );
   }
+  siblingStart = await recoverStartStateUnderOwnershipLease({
+    supervised: supervisedServiceChild,
+    acquireLease: () => acquireOwnershipMutationLease(serviceStatePaths()),
+    decide: () => serviceChildOwnershipDecisionForClassifiedChild(supervisedServiceChild),
+    stayOut: refusal => { console.error("❌ " + refusal); process.exit(serviceStayOutExitCode()); },
+    recover: async () => {
+      if (!owner.live && supervisedServiceChild) removePidIfValueIs(owner.pidSnapshot);
+      if (!owner.live && !siblingStart) siblingStart = await markCrossHomeSibling();
+      if (!siblingStart) reconcileStartupJournal();
+      return siblingStart;
+    },
+  });
 
   const clientState = readClientConnectionState();
   if (clientState.kind === "invalid" || clientState.kind === "mismatched") {
@@ -479,14 +476,25 @@ async function handleStart(options: { block?: boolean } = {}) {
       throw new Error(`client startup refused: ${rotationGate.reason}`);
     }
     const { startClientRuntime } = await import("../client/runtime");
-    await startClientRuntime({ port: requestedPort, block: options.block });
+    // Same lease-held owner recheck as the server path below: this branch binds and publishes too.
+    await startClientRuntimeUnderOwnershipLease({
+      acquireLease: () => acquireOwnershipMutationLease(serviceStatePaths()),
+      decide: () => serviceChildOwnershipDecisionForClassifiedChild(supervisedServiceChild),
+      stayOut: refusal => { console.error("❌ " + refusal); process.exit(serviceStayOutExitCode()); },
+      start: afterPublish => startClientRuntime({ port: requestedPort, block: options.block, afterPublish }),
+    });
     return;
   }
 
+  // Managed service children may defer before binding (serving-runtimes.ts).
+  const deferredExit = await deferServiceChildToNewerRuntime({ sibling: siblingStart, env: process.env, selfVersion: packageVersion(), selfCommand: currentServingCommand(), port: requestedPort });
+  if (deferredExit !== null) process.exit(deferredExit);
+
   // Interactive-only update prompt. Must run BEFORE we bind a port / write a
   // PID: choosing "Update now" installs globally and exits, so we never want a
-  // live daemon holding resources while it overwrites its own binary.
-  await maybeShowUpdatePrompt();
+  // live daemon holding resources while it overwrites its own binary. Never from a
+  // sibling: replacing the global package makes the live proxy drain and restart.
+  if (!siblingStart) await maybeShowUpdatePrompt();
 
   type StartServerModule = typeof import("../server");
   type BoundStart = {
@@ -502,33 +510,43 @@ async function handleStart(options: { block?: boolean } = {}) {
     boundStart = await bindAndPublishStartOwnership({
       acquireLease: () => acquireOwnershipMutationLease(serviceStatePaths()),
       bind: async () => {
+        const leasedChildOwnership = serviceChildOwnershipDecisionForClassifiedChild(supervisedServiceChild);
+        if (leasedChildOwnership.kind === "stay-out") {
+          console.error("❌ " + leasedChildOwnership.refusal);
+          throw new StartCommandExit(serviceStayOutExitCode());
+        }
         // The earlier probe owned journal cleanup. This one owns the bind decision: an
         // updater may have stopped the old runtime and acquired this lease for replacement.
         const fencedLive = await findLiveProxy(START_OWNERSHIP_LIVENESS);
         if (fencedLive) {
           const decision = decideStartWithLiveOwner({
             livePort: fencedLive.port,
+            livePid: fencedLive.pid, restartParentPid: restartParent.restartParentPid,
             requestedPort,
             ocxService: process.env.OCX_SERVICE,
           });
           if (decision === "service-stay-out") {
             console.log(`Proxy already running (PID ${fencedLive.pid ?? "unknown"}, port ${fencedLive.port}); service wrapper staying out of the way.`);
-            throw new StartCommandExit(0);
+            throw new StartCommandExit(serviceStayOutExitCode());
           }
-          if (decision === "refuse") {
+          if (decision === "refuse" || decision === "await-parent") {
             console.error(`⚠️  Proxy appeared before bind (PID ${fencedLive.pid ?? "unknown"}, port ${fencedLive.port}). Use 'ocx stop' first.`);
             throw new StartCommandExit(1);
           }
           siblingStart = true;
+          markSiblingStart(fencedLive.port);
         }
+        if (!fencedLive && !siblingStart) siblingStart = await markCrossHomeSibling();
 
         // Port selection is check-then-bind. The lease prevents every cooperating start or
         // updater from turning that check into a different ownership decision.
         let port = await chooseListenPort(requestedPort, { sibling: siblingStart });
+        raiseWindowsProxyPriority();
         const serverModule = await import("../server");
         const readinessGate = createReadinessGate();
         const localAttestationSecret = createLocalAttestationSecret();
         const config = loadConfig();
+        await (await import("../plugins/loader")).loadAndReportOcxPlugins();
         let server: ReturnType<typeof serverModule.startServer>;
         for (let attempt = 0; ; attempt++) {
           try {
@@ -566,6 +584,7 @@ async function handleStart(options: { block?: boolean } = {}) {
         port: bound.port,
         hostname: bound.config.hostname,
         attestationSecret: bound.localAttestationSecret,
+        ...siblingRuntimeField(),
       }),
       stopBound: bound => bound.server.stop(true),
       removeRuntime: () => removeRuntimePortIfPidIs(process.pid),
@@ -578,6 +597,9 @@ async function handleStart(options: { block?: boolean } = {}) {
 
   const { server, serverModule, port, readinessGate, config } = boundStart;
   const { drainAndShutdown, isRecyclingForExit, noteExplicitShutdownRequested } = serverModule;
+  markDelegatedServiceReady();
+  // Register the relaunch command the service-child deferral consults on a later takeover.
+  recordServingRuntime({ command: currentServingCommand(), version: packageVersion(), servedAt: new Date().toISOString() });
   // Records are visible now; background work may observe this runtime without a gap.
   scheduleCatalogPrewarm();
   installCrashGuards();
@@ -592,24 +614,25 @@ async function handleStart(options: { block?: boolean } = {}) {
   // background — the first `ocx start` after an update usually races the Codex app's DB lock.
   // Loopback-only (legacy mode still forward-tags) and respects syncResumeHistory opt-out.
   let historyGuardian: ReturnType<typeof startHistoryMigrationGuardian> | undefined;
+  let routingHealer: { stop(): void } | undefined; // routing-healer.ts; stopped first in syncCleanup
 
   let cleaned = false;
   let cleanupSucceeded = true;
   const syncCleanup = () => {
     if (cleaned) return cleanupSucceeded;
     cleaned = true;
+    try { routingHealer?.stop(); } catch { /* best-effort */ }
     try { guardian.stop(); } catch { /* best-effort */ }
     try { historyGuardian?.stop(); } catch { /* best-effort */ }
     // Dashboard drain-and-restart (#563) must not tear down injection: the replacement
-    // process expects Codex/Grok/env fences to still be in place.
-    const recycling = isRecyclingForExit();
-    if (!recycling) {
+    // process expects Codex/Grok/env fences to still be in place. A sibling owns none of them.
+    const teardown = decideStartExitTeardown({ sibling: siblingStart, recycling: isRecyclingForExit(), ocxService: process.env.OCX_SERVICE });
+    if (teardown.revertSystemEnv) {
       try { revertSystemEnv(); } catch { /* best-effort */ }
     }
     removePid(process.pid);
     removeRuntimePort(process.pid);
-    const preserveRouting = process.env.OCX_SERVICE === "1";
-    if (!recycling && !preserveRouting && !currentExternalCodexModelProvider()) {
+    if (teardown.restoreNativeCodex && !currentExternalCodexModelProvider()) {
       try {
         const restored = restoreNativeCodex();
         if (!restored.success) {
@@ -625,7 +648,7 @@ async function handleStart(options: { block?: boolean } = {}) {
     // Grok fence is shared state we must not remove — that service keeps running and would be
     // left pointing nowhere. This guard also covers signal-driven exits, which is the path that
     // would otherwise bypass handleStop's gate entirely.
-    if (!recycling && !preserveRouting && serviceEnvironmentOwnedHere()) {
+    if (teardown.stripGrokConfig && serviceEnvironmentOwnedHere()) {
       try { stripGrokConfig(); } catch { /* best-effort restore */ }
     }
     return cleanupSucceeded;
@@ -638,7 +661,7 @@ async function handleStart(options: { block?: boolean } = {}) {
   // this window as the same Ctrl-C (one graceful drain); a deliberate later press
   // escalates to an immediate force-exit ("gradual kill").
   const FORCE_AFTER_MS = 500;
-  const shutdown = () => {
+  const shutdown = (signal?: NodeJS.Signals) => {
     const now = Date.now();
     if (shuttingDown) {
       if (now - shutdownStartedAt < FORCE_AFTER_MS) return; // near-simultaneous duplicate — ignore
@@ -656,7 +679,7 @@ async function handleStart(options: { block?: boolean } = {}) {
         shutdownSucceeded = await drainAndShutdown(server, config.shutdownTimeoutMs ?? 5000);
       } finally {
         const restored = syncCleanup(); // idempotent (cleaned-guard); also re-run by process.on("exit")
-        process.exit(restored && shutdownSucceeded ? 0 : 1);
+        process.exit(restored && shutdownSucceeded ? handledSignalExitCode(signal) : 1);
       }
     })();
   };
@@ -672,8 +695,9 @@ async function handleStart(options: { block?: boolean } = {}) {
   // syncCleanup reverts even if injection itself or subsequent startup steps fail).
   const systemEnv = await injectSystemEnv(port, config).catch(() => ({ injected: false }));
   // The hook is useful only for an installed Claude Code CLI. Reconcile instead of
-  // appending unconditionally so stale OpenCodex-owned hooks are removed as well.
-  reportShellHookFailure(reconcileShellHook(systemEnv.injected));
+  // appending unconditionally so stale OpenCodex-owned hooks are removed as well. A sibling
+  // skips it: reconciling to "not injected" would uninstall the live owner's ~/.zshrc hook.
+  if (!siblingStart) reportShellHookFailure(reconcileShellHook(systemEnv.injected));
   await maybeShowStarPrompt(); // once-only Yes/No GitHub-star prompt on first interactive start
   // Codex sync owns the ready/failed verdict, but its successful transition is
   // deferred until the best-effort Claude roster and Desktop registry settle. This
@@ -686,30 +710,12 @@ async function handleStart(options: { block?: boolean } = {}) {
       ? Promise.resolve(null)
       : syncClaudeAgentDefsAtProxyStartup(config, port),
     async () => {
-      try {
-        const { fetchAllModels } = await import("../server/management-api");
-        const { desktopVisibleNativeSlugs } = await import("../codex/catalog");
-        const { resolveAdmittedCodexModelEntitlements } = await import("../codex/model-entitlement-admission");
-        const { buildDesktopDiscoveryInputs } = await import("../claude/desktop-discovery-inputs");
-        const [models, modelEntitlements] = await Promise.all([
-          fetchAllModels(config),
-          resolveAdmittedCodexModelEntitlements(config, { clientVersion: null }),
-        ]);
-        const inputs = buildDesktopDiscoveryInputs({
-          config, models, modelEntitlements,
-          desktopNativeCandidates: desktopVisibleNativeSlugs(config),
-        });
-        buildDesktop3pRegistry(
-          inputs.nativeSlugs, inputs.routedModels,
-          config.claudeCode?.desktopProfile, inputs.nativeContextCap,
-        );
-      } catch {
-        // Best-effort; model discovery can rebuild it. Never reflect credential or provider errors.
-        console.warn("[opencodex] Claude Desktop model registry could not be initialized at startup.");
-      }
+      // Shared with the Claude Code CLI picker, which awaits this same build (desktop-3p-startup.ts).
+      const { initDesktop3pRegistry } = await import("../claude/desktop-3p-startup");
+      await initDesktop3pRegistry(config);
     },
   );
-  if (!startupSync.ran) console.log(startupLeftCodexNativeLine(localClientSkipReason(config)));
+  if (!startupSync.ran) console.log(startupLeftCodexNativeLine(localClientSkipReason(config), server.port ?? port));
   await refreshOwnedRaycastCatalog(config, port);
   // #1046: one warning per startup, after BOTH writes. The server's cache
   // invalidation happens first and the catalog sync second, so the mtime is only
@@ -720,9 +726,11 @@ async function handleStart(options: { block?: boolean } = {}) {
     const { warnIfStaleCodexAppServersAfterStartupWrite } = await import("../codex/app-server-processes");
     warnIfStaleCodexAppServersAfterStartupWrite({ log: console });
   }
-  if (!currentExternalCodexModelProvider() && !shouldInjectApiAuthHeader(config) && config.syncResumeHistory !== false) {
+  if (!siblingStart && !currentExternalCodexModelProvider() && !shouldInjectApiAuthHeader(config) && config.syncResumeHistory !== false) {
     historyGuardian = startHistoryMigrationGuardian();
   }
+  const routingHealerModule = siblingStart ? null : await import("../codex/routing-healer");
+  if (routingHealerModule && !cleaned) routingHealer = routingHealerModule.startCodexRoutingHealer({ port, config }); // `cleaned` read once the import settled
   // Grok Build auto-registration: additive fenced block in ~/.grok/config.toml so an installed
   // grok CLI can pick opencodex-routed models without manual config. No-op when ~/.grok is
   // absent or the bind is non-loopback; removed again by stop/eject/uninstall/shutdown.
@@ -744,6 +752,7 @@ async function handleStart(options: { block?: boolean } = {}) {
     // to explain it. Name the failure and the one command that repairs it.
     console.error(`⚠️  ${grokSyncFailureMessage(err)}`);
   }
+  console.log("Client startup work complete.");
   if (options.block ?? true) {
     setInterval(() => {}, 60_000);
     await new Promise<void>(() => {});
@@ -751,17 +760,25 @@ async function handleStart(options: { block?: boolean } = {}) {
 }
 
 function detachedStartEnvironment(): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = { ...process.env };
-  // Only a real service wrapper may claim supervision. A detached ensure/tray child
-  // is an ordinary owner: while live it maintains routing, and on exit it restores it.
+  const env: NodeJS.ProcessEnv = withoutSiblingMarker(process.env);
+  // Only a real service wrapper may claim supervision. A detached ensure/tray child is an
+  // ordinary owner, never a sibling: while live it maintains routing, and on exit restores it.
+  // The supervisor markers ride along whenever this runs inside a service child's
+  // environment, so they must leave with OCX_SERVICE — otherwise the child would
+  // answer the ownership gate as a managed job it is not.
   delete env.OCX_SERVICE;
+  delete env[SERVICE_MANAGED_ENV];
+  delete env[WINDOWS_WRAPPER_PROTOCOL_ENV];
   return withProcessRuntimeProvenance(env);
 }
 
-async function handleEnsure(options: { existingIsSuccess?: boolean } = {}): Promise<boolean> {
+async function handleEnsure(options: { existingIsSuccess?: boolean; forceStart?: boolean; onSpawn?: (child: ReturnType<typeof spawn>) => void } = {}): Promise<boolean> {
   const owner = await findProxyOwnerBeforeJournalRecovery({ probeConfiguredPort: true });
+  if (!owner.live && !(await markCrossHomeSibling())) reconcileStartupJournal();
+  // A later ensure can find this home's sibling alive; the other port still owns shared clients.
+  if (owner.live) await markLiveHomeSibling(owner.live);
   const config = loadConfig();
-  if (!codexAutoStartEnabled(config)) {
+  if (!options.forceStart && !codexAutoStartEnabled(config)) {
     console.log("Codex autostart is disabled.");
     return false;
   }
@@ -783,13 +800,13 @@ async function handleEnsure(options: { existingIsSuccess?: boolean } = {}): Prom
       // owns catalog refresh; ensure must not overwrite a working destination.
       // Ensure env file exists for already-running proxy (may have been deleted or pre-dates this feature).
       const systemEnv = await injectSystemEnv(live.port, config).catch(() => ({ injected: false }));
-      reportShellHookFailure(reconcileShellHook(systemEnv.injected));
+      if (siblingOfLivePort() === null) reportShellHookFailure(reconcileShellHook(systemEnv.injected));
       if (!systemEnv.injected) await syncClaudeAgentDefsAtProxyStartup(config, live.port);
       // Refresh the Grok Build fence too (same contract as start). live.hostname is the
       // hostname the running proxy actually bound — config.hostname may have drifted.
       // The reconciler re-reads immediately before each client-file mutation; only
       // the live proxy's observed bind host is safe to carry across this boundary.
-      await reconcileEnsureDesiredIntegrations(
+      if (siblingOfLivePort() === null) await reconcileEnsureDesiredIntegrations(
         live.port,
         { kind: "live", hostname: live.hostname },
       );
@@ -804,6 +821,7 @@ async function handleEnsure(options: { existingIsSuccess?: boolean } = {}): Prom
     windowsHide: true,
     env: detachedStartEnvironment(),
   });
+  options.onSpawn?.(child);
   child.unref();
 
   const port = (await waitForProxy())?.port;
@@ -817,7 +835,7 @@ async function handleEnsure(options: { existingIsSuccess?: boolean } = {}): Prom
   // responds — align here too so `ocx ensure` never returns with a stale ON/OFF mismatch.
   // Persisted state is loaded inside each mutation after waitForProxy, so a
   // toggle while the child starts wins over the pre-spawn snapshot.
-  await reconcileEnsureDesiredIntegrations(port, { kind: "spawned" });
+  if (siblingOfLivePort() === null) await reconcileEnsureDesiredIntegrations(port, { kind: "spawned" });
   // Always sync the LIVE port: after a fallback-port start, config.port still names the
   // busy preferred port — syncing that would point Codex at a dead listener.
   const synced = await syncModelsToCodex(port).catch(e => {
@@ -875,24 +893,8 @@ async function handleTrayProxyStart(existingIsSuccess = true): Promise<boolean> 
 
 const PROXY_RESTART_OBSERVE_MS = MEMORY_DRAIN_RESTART_MS + REPLACEMENT_READY_TIMEOUT_MS + 15_000;
 
-async function waitForProxyReplacement(
-  previous: ProxyRestartLive,
-  deadlineAt: number,
-): Promise<ProxyRestartLive | null> {
-  while (Date.now() < deadlineAt) {
-    const live = await findLiveProxy({ deadlineAt });
-    if (Date.now() >= deadlineAt) return null;
-    // Modern /healthz publishes a PID. Require a different, identity-verified process;
-    // merely seeing the old port online again is not proof that restart completed.
-    if (isProxyReplacement(previous, live)) {
-      return live;
-    }
-    const remainingMs = deadlineAt - Date.now();
-    if (remainingMs > 0) await Bun.sleep(Math.min(250, remainingMs));
-  }
-  return null;
-}
-
+/** Reserve confirmation time within the shared restart deadline. */
+const RESTART_REOBSERVE_RESERVE_MS = 10_000;
 function reportRestartFailure(result: Extract<ProxyRestartResult, { ok: false }>): void {
   if (result.phase === "identity") {
     console.error("❌ Refusing to restart because the running proxy identity could not be attested.");
@@ -915,9 +917,8 @@ function reportRestartFailure(result: Extract<ProxyRestartResult, { ok: false }>
     console.error("❌ Proxy was not running and the fallback start did not become healthy.");
   }
 }
-
 async function handleProxyRestart(
-  startWhenStopped: () => Promise<boolean | "skipped">,
+  startWhenStopped: (recoveringLiveRestart: boolean) => Promise<ProxyRestartStartOutcome>,
 ): Promise<boolean> {
   const deadlineAt = Date.now() + PROXY_RESTART_OBSERVE_MS;
   const result = await runProxyRestart({
@@ -927,92 +928,41 @@ async function handleProxyRestart(
     }),
     startWhenStopped,
     requestInPlaceRestart: previous => requestBoundSystemRestart(previous, deadlineAt),
-    waitForReplacement: previous => waitForProxyReplacement(previous, deadlineAt),
+    waitForReplacement: previous => waitForProxyReplacement(previous, deadlineAt - RESTART_REOBSERVE_RESERVE_MS, end => findLiveProxy({ deadlineAt: end })),
+    reobserveAfterReplacement: previous => reobserveRestartReplacement(previous, deadlineAt, end =>
+      discoverStableProxyForRestart({
+        findLive: () => findLiveProxy({ deadlineAt: end, attempts: 2, acceptPackageTreeFenced: true }),
+        waitBetweenChecks: () => Bun.sleep(250),
+        expired: () => Date.now() >= end,
+      })),
+    recheckAfterFailedStart: () => recheckRestartFailedStart(end => discoverStableProxyForRestart({
+      findLive: () => findLiveProxy({ deadlineAt: end, attempts: 2, acceptPackageTreeFenced: true }), expired: () => Date.now() >= end,
+    })),
   });
   if (!result.ok) reportRestartFailure(result);
   process.exitCode = result.ok ? 0 : 1;
   return result.ok;
 }
-
 async function handleTrayProxyRestart(): Promise<void> {
-  await handleProxyRestart(() => handleTrayProxyStart(false));
+  // A service start has no child handle here; its failed result is ambiguous.
+  await handleProxyRestart(async () => (await handleTrayProxyStart(false))
+    ? { status: "started" }
+    : { status: "failed", launch: "unknown" });
 }
-
-async function handleRestartStartWhenStopped(): Promise<boolean | "skipped"> {
-  if (!codexAutoStartEnabled(loadConfig())) {
+async function handleRestartStartWhenStopped(recoveringLiveRestart = false): Promise<ProxyRestartStartOutcome> {
+  if (!recoveringLiveRestart && !codexAutoStartEnabled(loadConfig())) {
     console.log("Codex autostart is disabled; no proxy was started.");
-    return "skipped";
+    return { status: "skipped" };
   }
-  return handleEnsure({ existingIsSuccess: false });
+  let child: ReturnType<typeof spawn> | null = null;
+  try {
+    const started = await handleEnsure({ existingIsSuccess: false, forceStart: recoveringLiveRestart, onSpawn: spawned => { child = spawned; } });
+    return restartStartOutcome(started, child);
+  } catch (error) {
+    return restartStartOutcome(false, child, error);
+  }
 }
 
-/**
- * Restore shared client state after a stop.
- *
- * Returns the two failure kinds separately. `historyOnly` means teardown succeeded and
- * only Codex history metadata could not be finalized: the proxy is down, the service is
- * stopped, and a manifest is waiting for review. `other` means something that actually
- * removes state a client depends on.
- *
- * The distinction exists because `ocx update` must proceed for the first and abort for the
- * second, and it can only see an exit code (#3008).
- *
- * `historyDeferred` is the third kind (#4718). The Codex history preflight refuses BEFORE
- * the config half runs, so nothing was restored at all: config, catalog, history and
- * provenance are untouched and the client is still routed at the proxy that just stopped.
- * Like `historyOnly` the proxy is genuinely down, so an update may replace package files.
- * Unlike `historyOnly` the obligation was not performed, so the receipt must survive.
- */
-async function restoreSharedClientStateAfterStop(): Promise<{ historyOnly: boolean; historyDeferred: boolean; other: boolean }> {
-  let historyOnly = false;
-  let historyDeferred = false;
-  let other = false;
-  try {
-    const result = await restoreNativeCodexAsync();
-    if (result.success) {
-      console.log(`↩️  ${result.message}`);
-      if (result.retainedCodexProviderTable) {
-        reportRetainedCodexProviderTable(result.retainedCodexProviderTable);
-      }
-    }
-    else {
-      // Codex history is the one restore whose failure leaves the runtime consistent: the
-      // manifest is retained and the routed metadata is untouched. Config and catalog are
-      // not — a client reads those, so their failure is a real teardown failure.
-      const artifacts = result.artifacts;
-      const configOrCatalogFailed = artifacts.config.state === "failed" || artifacts.catalog.state === "failed";
-      // A preflight refusal reports every artifact as `skipped` because none of them were
-      // attempted. Reading the states alone cannot tell that apart from an ownership
-      // refusal, so the structured reason carries it and the states are still required to
-      // agree — a refusal that somehow reports a failed artifact is not this case.
-      // A degraded restore has no refusal reason and reports config as partial, so it cannot
-      // enter this branch: its config obligation was discharged and the stop receipt must be
-      // released rather than preserved.
-      const preflightRefused = result.historyPreflightRefusal !== undefined
-        && artifacts.config.state === "skipped"
-        && artifacts.catalog.state === "skipped"
-        && artifacts.history.state === "skipped";
-      if (preflightRefused) historyDeferred = true;
-      else if (!configOrCatalogFailed && artifacts.history.state === "failed") historyOnly = true;
-      else other = true;
-      console.error(`⚠️  ${result.message}`);
-    }
-  } catch (error) {
-    other = true;
-    console.error(`⚠️  Native Codex restore failed: ${error instanceof Error ? error.message : String(error)}`);
-  }
-
-  // A refused or thrown Grok strip is actionable because it would point Grok at a dead proxy.
-  try {
-    const grok = stripGrokConfig();
-    if (grok.changed) console.log(`↩️  ${grok.message}`);
-    else if (!grok.ok) { other = true; console.error(`⚠️  ${grok.message}`); }
-  } catch (error) {
-    other = true;
-    console.error(`⚠️  Grok config restore failed: ${error instanceof Error ? error.message : String(error)}`);
-  }
-  return { historyOnly, historyDeferred, other };
-}
 
 async function handleStop(approval?: StopApproval) {
   const lease = acquireOwnershipMutationLease(serviceStatePaths());
@@ -1100,6 +1050,11 @@ async function handleStopUnlocked(snapshot?: GuardedStopSnapshot) {
   // service — the exact failure this flag prevents. A plain stop failure is different: we
   // tried, so local teardown still proceeds.
   let ownershipBlocked = false;
+  // A sibling instance's shared teardown is not this stop's to run: the client routing belongs
+  // to the live proxy it ran beside (`src/codex/sibling-start.ts`). Read before any stop removes
+  // the record; a record left behind by a hard-killed sibling still says so.
+  const siblingOfPort = readRuntimePort()?.siblingOfPort;
+  const stoppingSibling = siblingOfPort !== undefined;
   // Structured twin of the human lines below, for `ocx stop --json`: one document the
   // desktop shell can read across the process boundary (D4). Every field is assigned
   // where the corresponding boolean already flips — the summarizer never re-decides.
@@ -1137,7 +1092,7 @@ async function handleStopUnlocked(snapshot?: GuardedStopSnapshot) {
     .filter(read => isPendingTeardownAbandoned(read, teardownOwnerStillRunning));
   let teardownNonce: string | undefined;
   const claimTeardown = (endpoint: { hostname: string; port: number }, endpointSource: "exact" | "guessed") => {
-    if (teardownNonce) return;
+    if (teardownNonce || stoppingSibling) return;
     try {
       teardownNonce = claimPendingTeardown(endpoint, endpointSource).nonce;
     } catch (err) {
@@ -1155,8 +1110,8 @@ async function handleStopUnlocked(snapshot?: GuardedStopSnapshot) {
    * silently reopening the parent-crash window on the path where the stop is a hard kill
    * and no child teardown runs at all.
    *
-   * So the caller supplies whatever endpoint it already discovered: the orphan path knows
-   * one from `findLiveProxy` even when the runtime record is gone.
+   * So the caller supplies the endpoint it discovered after the orphan listener proves
+   * possession of this home's runtime record, even when the pid file is gone.
    *
    * When nothing resolves, the graceful request cannot be made at all — `stopProxy` goes
    * straight to the kill ladder, no child teardown runs, and there is no receipt to leave
@@ -1201,7 +1156,9 @@ async function handleStopUnlocked(snapshot?: GuardedStopSnapshot) {
           settle: () => settleApprovedTarget(snapshot.approval),
           managerState: () => observeGuardedManagerStopped(snapshot.manager),
         })).service
-      : stopServiceIfInstalledDetailed();
+      // A sibling never runs under a service manager: an installed one belongs to the live owner,
+      // and its ownership check would fail this stop and skip the stale-record purge below.
+      : stoppingSibling ? "absent" : stopServiceIfInstalledDetailed();
     record.service = serviceStop;
     stoppedService = serviceStop === "stopped" || serviceStop === "stopped-respawnable";
     schedulerCanRespawn = serviceStop === "stopped-respawnable";
@@ -1236,7 +1193,7 @@ async function handleStopUnlocked(snapshot?: GuardedStopSnapshot) {
 
   if (snapshot) {
     if (guardedStep?.effect === "approval-changed") {
-      return approvalChanged();
+      return approvalChanged(guardedStep.detail);
     }
     if (guardedStep?.effect === "manager-still-active") {
       return managerStillActive(record.service, record);
@@ -1288,14 +1245,22 @@ async function handleStopUnlocked(snapshot?: GuardedStopSnapshot) {
       }
     }
   } else {
-    // Snapshot the stale on-disk state BEFORE the async probe: a concurrent `ocx start`
-    // can write fresh records mid-probe, and the purge below must never delete those.
+    // Snapshot stale state before probing; purge only exact values if another start races us.
     const stalePidValue = readPidFileValue();
     const staleRuntimePid = readRuntimePort()?.pid ?? null;
     // Orphan recovery: a live proxy can outlive its pid file (crash, manual delete,
     // corrupt file). Identity-checked liveness still finds it via the runtime record.
     const live = await findLiveProxy({ acceptPackageTreeFenced: true });
-    if (live?.pid) {
+    if (siblingStopFoundOwner(siblingOfPort, live)) {
+      record.proxy = "not-running";
+      console.log(`The sibling instance is already gone; the proxy on port ${siblingOfPort} was left running.`);
+    } else if (live?.pid && (await proveLiveProxyOwnedByHome(live)) !== "proven") {
+      stopFailed = true;
+      ownershipBlocked = true;
+      record.proxy = "ownership-refused";
+      console.error(`❌ A proxy answers on port ${live.port}, but it has not proved it belongs to this home; refusing to stop it.`);
+      console.error("   Skipping shared teardown (native Codex restore, Grok config) while that proxy is running.");
+    } else if (live?.pid) {
       try {
         // The probe already found where it answers, and on this path the runtime record is
         // typically what went missing in the first place.
@@ -1343,9 +1308,9 @@ async function handleStopUnlocked(snapshot?: GuardedStopSnapshot) {
     }
   }
   }
-  // Environment ownership is independent from service ownership. Always roll back
-  // current-home variables; the helper refuses foreign markers on its own.
-  try { revertSystemEnv(); } catch { /* best-effort */ }
+  // Environment ownership is independent from service ownership. Roll back current-home
+  // variables (the helper refuses foreign markers on its own) unless a sibling never set them.
+  if (!stoppingSibling) { try { revertSystemEnv(); } catch { /* best-effort */ } }
   // A stopped Windows scheduler is not a proven-down proxy. `killWindowsSchedulerWrappers`
   // is explicitly best-effort and the `:loop` wrapper respawns its child after ~5s, so an
   // immediate probe can see a dead interval and an update can start replacing files right
@@ -1432,15 +1397,16 @@ async function handleStopUnlocked(snapshot?: GuardedStopSnapshot) {
       console.error("   The obligation is preserved; retry once the proxy is confirmed stopped.");
     }
   }
-  if (nativeRestoreHandledByProxy) record.sharedTeardown = "performed-by-proxy";
-  const restoreBlocked = ownershipBlocked || inheritedBlocks || nativeRestoreHandledByProxy;
+  if (nativeRestoreHandledByProxy && !stoppingSibling) record.sharedTeardown = "performed-by-proxy";
+  if (stoppingSibling) console.log(`↩️  Client routing stays on the proxy at port ${siblingOfPort}; this sibling had no shared teardown to run.`);
+  const restoreBlocked = ownershipBlocked || inheritedBlocks || nativeRestoreHandledByProxy || stoppingSibling;
   if (!restoreBlocked) {
     if (recoveredNonces.length > 0) {
       // A previous deferred stop died before restoring, and the probe says its endpoint is
       // not answering. That is the whole point of leaving the receipt behind.
       console.log("↩️  Finishing a shared teardown left unfinished by an earlier stop.");
     }
-    const restore = await restoreSharedClientStateAfterStop();
+    const restore = await restoreSharedClientStateAfterStop(reportRetainedCodexProviderTable);
     record.sharedTeardown = restore.historyDeferred ? "refused" : restore.other ? "failed" : "restored";
     if (restore.other) stopFailed = true;
     else if (restore.historyDeferred) historyDeferredNonces = teardownNonce ? [teardownNonce, ...recoveredNonces] : recoveredNonces;
@@ -1720,7 +1686,7 @@ async function handleStatus() {
     process.exit(1);
   }
 
-  const status = await collectStatus();
+  const status = await collectStatus({ mainAccountPolicy: wantsJson });
   if (wantsJson) {
     console.log(JSON.stringify(status.json, null, 2));
     return;
@@ -1974,7 +1940,7 @@ process.exit(await dispatchCommand(head, {
       detached: true,
       stdio: "ignore",
       windowsHide: true,
-      env: withProcessRuntimeProvenance(process.env),
+      env: withProcessRuntimeProvenance(withoutSiblingMarker(process.env)),
     });
     child.unref();
   },

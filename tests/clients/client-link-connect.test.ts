@@ -7,6 +7,8 @@ import { getDefaultConfig, saveConfig } from "../../src/config";
 import { clientConnectionSchema } from "../../src/config/schema/leaf-validators";
 import { handleConnectCommand, handleDisconnectCommand } from "../../src/cli/connect";
 import { readSecretBytes } from "../../src/cli/runtime-api";
+import { joinHome } from "../../src/client/link-join";
+import { quoteRemote, remoteOcxArgv } from "../../src/link/ssh-argv";
 import { connectClient, routingTarget } from "../../src/client/connect";
 import { readServiceApiTokenState } from "../../src/lib/service-secrets";
 import { isLinkConnection, readClientConnectionState } from "../../src/client/state";
@@ -41,10 +43,20 @@ describe("client link connection contracts", () => {
     expect(clientConnectionSchema.safeParse(client({ serverUrl: "https://127.0.0.1:34567" })).success).toBe(false);
   });
 
-  test("uses the local configured port for Codex while retaining link mode identity", () => {
+  test("keeps Codex on the standalone 127.0.0.1 form of the local configured port while retaining link identity", () => {
     const target = routingTarget("http://127.0.0.1:34567", 10100);
-    expect(target.baseUrl).toBe("http://localhost:10100/v1");
-    expect(target.requiresAdmissionToken).toBe(true);
+    expect(target).toEqual({
+      baseUrl: "http://127.0.0.1:10100/v1",
+      requiresAdmissionToken: false,
+      tokenEnv: "OPENCODEX_API_AUTH_TOKEN",
+      link: true,
+    });
+    // The loopback opt-ins follow the standalone target, so a join changes no Codex routing bytes.
+    expect(routingTarget("http://127.0.0.1:34567", 10100, { codexClientCompaction: true }).clientCompaction).toBe(true);
+    // A hub client still points Codex at the hub with the admission token in env_key.
+    expect(routingTarget("https://hub.example.test")).toEqual({
+      baseUrl: "https://hub.example.test/v1", requiresAdmissionToken: true, tokenEnv: "OPENCODEX_API_AUTH_TOKEN",
+    });
     expect(isLinkConnection(client() as never)).toBe(true);
     expect(isLinkConnection(undefined)).toBe(false);
   });
@@ -117,6 +129,81 @@ describe("client link connection contracts", () => {
       })).rejects.toThrow("hub is not ready");
       expect(readServiceApiTokenState()).toEqual({ kind: "absent" });
       expect(readClientConnectionState()).toEqual({ kind: "disconnected" });
+    });
+  });
+
+  test("cancellation during catalog download prevents late enrollment writes and drains token rollback", async () => {
+    await withLinkHome(async home => {
+      const prior = '{"models":[{"id":"prior"}]}\n';
+      writeFileSync(DEFAULT_CATALOG_PATH, prior);
+      const abort = new AbortController();
+      let cancelledFetch = false;
+      await expect(connectClient(linkOptions(), {
+        signal: abort.signal,
+        fetchImpl: async (input, init) => {
+          if (String(input).endsWith("/readyz")) return Response.json({
+            service: "opencodex", version: "0.0.0", uptime: 1, pid: 1, port: 34567,
+            status: "ready", protocol: 1, minimumClientProtocol: 1,
+            managementUrl: "http://127.0.0.1:34567",
+          });
+          abort.abort(new Error("fixture enrollment cancelled"));
+          cancelledFetch = init?.signal?.aborted === true;
+          // Even a fetch implementation returning after abort cannot authorize a write.
+          return Response.json({ models: [] });
+        },
+        lifecycleLockDeps: { lockPath: join(home, "lifecycle.sqlite") },
+      })).rejects.toThrow("fixture enrollment cancelled");
+      expect(cancelledFetch).toBe(true);
+      expect(readFileSync(DEFAULT_CATALOG_PATH, "utf8")).toBe(prior);
+      expect(readServiceApiTokenState()).toEqual({ kind: "absent" });
+      expect(readClientConnectionState()).toEqual({ kind: "disconnected" });
+    });
+  });
+
+  test("a real enrollment commit survives a tunnel exit queued before join completion", async () => {
+    await withLinkHome(async home => {
+      let exit!: (code: number) => void;
+      const exited = new Promise<number>(resolve => { exit = resolve; });
+      let revoked = 0, restarted = 0;
+      const result = await joinHome({
+        runner: {
+          run: async argv => {
+            if (argv.at(-1) === quoteRemote(remoteOcxArgv(["link", "revoke", "--link-id", linkId]))) {
+              revoked += 1;
+              return { code: 0, stdout: "", stderr: "" };
+            }
+            return { code: 0, stdout: JSON.stringify({ linkId, apiKeyId: "key-1", key, listenerPort: 45678 }), stderr: "" };
+          },
+          spawnTunnel: () => { throw new Error("unexpected real tunnel"); },
+        },
+        knownHostsFile: join(home, "known-hosts"),
+        confirmedHost: { alias: "home", fingerprint: "SHA256:fixture", probedAt: 1 },
+        now: () => 1, choosePort: async () => 34567,
+        writeState: () => {}, clearState: () => {}, readSidecar: () => null,
+        spawnTunnel: () => ({ pid: 123, exited, stop: async () => {} }),
+        scanListenPids: () => ({ ok: true, pids: [123] }),
+        selectedClients: ["claude"],
+        fetchImpl: async (input, init) => {
+          if (!String(input).endsWith("/readyz")) return Response.json({ models: [] });
+          if (!new Headers(init?.headers).has("x-opencodex-api-key")) return new Response(null, { status: 401 });
+          return Response.json({ service: "opencodex", version: "0.0.0", uptime: 1, pid: 123,
+            port: 34567, status: "ready", protocol: 1, minimumClientProtocol: 1,
+            managementUrl: "http://127.0.0.1:34567" });
+        },
+        connectDeps: { lifecycleLockDeps: { lockPath: join(home, "lifecycle.sqlite") },
+          catalogCompatibility: { supportedEfforts: () => new Set() } },
+        connect: async (options, deps) => {
+          const committed = await connectClient(options, deps);
+          exit(255);
+          return committed;
+        },
+        scheduleRestart: () => { restarted += 1; },
+      }, { alias: "home" });
+      expect(result).toEqual({ linkId, apiKeyId: "key-1" });
+      expect(readClientConnectionState()).toMatchObject({ kind: "connected", value: { link: { linkId } } });
+      expect(readServiceApiTokenState()).toMatchObject({ kind: "present", token: key });
+      expect(revoked).toBe(0);
+      expect(restarted).toBe(1);
     });
   });
 

@@ -47,7 +47,7 @@ describe("buildClaudeAgentDefs (devlog 070 + audit 071)", () => {
     expect(byName["ocx-self"]!.model).toBe("ocx-claude-native--gpt-5.6-sol");
     expect(defs).toHaveLength(3);
     // Dispatcher directive (live repro: model:"fable" override broke inherit).
-    for (const d of defs) expect(d.description).toContain("`model` argument is ignored");
+    for (const d of defs) expect(d.description).toContain("Omit the `model` parameter");
   });
 
   test("generated profiles retain catalog-derived 1M markers for Claude 4.6 and 4.7", async () => {
@@ -119,15 +119,17 @@ describe("buildClaudeAgentDefs (devlog 070 + audit 071)", () => {
     expect(byName["ocx-self"]!.model).toBe("ocx-claude-cursor--gpt-5.6-sol[1M]");
   });
 
-  test("placeholder guidance recommends haiku, never sonnet (issue #252)", () => {
+  test("dispatcher guidance says to omit the model parameter, never to pass a placeholder (fork-only, upstream #6358)", () => {
     const dir = tempDir();
     writeFileSync(join(dir, "settings.json"), JSON.stringify({ model: "ocx-claude-native--gpt-5.6-sol" }));
     const defs = buildClaudeAgentDefs(cfg({ subagentModels: ["gpt-5.6-sol"] }), {}, dir);
     expect(defs.length).toBeGreaterThan(0);
     for (const d of defs) {
-      // A sonnet-labeled placeholder is indistinguishable from a genuine Sonnet
-      // call in the Claude Code UI; guidance must steer to the haiku placeholder.
-      expect(d.description).toContain('model: "haiku"');
+      // The Agent tool's `model` parameter outranks the agent definition, so a placeholder such
+      // as "haiku" really runs the subagent on Haiku whenever the call is not proxy-routed.
+      expect(d.description).toContain("Omit the `model` parameter");
+      expect(d.description).toContain("pinned by the opencodex proxy");
+      expect(d.description).not.toContain('model: "haiku"');
       expect(d.description).not.toContain('model: "sonnet"');
     }
   });

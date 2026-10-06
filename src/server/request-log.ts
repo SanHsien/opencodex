@@ -73,11 +73,12 @@ import {
   type UsageDebugBodyKind,
 } from "../usage/debug";
 import { MAX_LOG_SIZE } from "./request-log-filter";
-export { filterRequestLogs, filteredRequestLogCount } from "./request-log-filter";
+export { filterRequestLogs, filteredRequestLogCount, queryRequestLogs } from "./request-log-filter";
 import { enforceAppOwnedMemoryBudget, type RetainedStoreSnapshot } from "../lib/app-owned-memory";
 import { capEstimateAtContextWindow } from "../lib/token-estimate";
 import { inferCursorContextWindow } from "../adapters/cursor/discovery";
 import { KIRO_MODEL_CONTEXT_WINDOWS, normalizeKiroModelId } from "../providers/kiro-models";
+import { kiroObservedContextWindow } from "../providers/kiro-model-catalog";
 import { DEVIN_MODEL_CONTEXT_WINDOWS } from "../adapters/devin/live-models";
 import { modelRecordValue } from "../reasoning-effort";
 import {
@@ -246,6 +247,8 @@ export interface RequestLogContext {
   terminalSource?: "upstream" | "synthetic";
   /** Bounded route-decision trace (RI-01); never contains secrets. */
   routeDecision?: RouteDecisionTraceV1;
+  /** Full eligible provider/model membership from a policy route; never logged. */
+  policyEligibility?: ReadonlySet<string>;
   /** Privacy-bounded JEV selection metadata; downstream usage is recorded on attempts[]. */
   jevDecision?: PersistedJevDecisionV1;
   /** Opt-in shadow evidence, normalized again at the logging boundary. */
@@ -1629,7 +1632,8 @@ function contextWindowForModel(adapter: string, modelId: string | undefined): nu
   if (adapter === "kiro" || adapter.startsWith("kiro-")) {
     const normalized = normalizeKiroModelId(modelId);
     if (normalized === "auto") return undefined;
-    return modelRecordValue(KIRO_MODEL_CONTEXT_WINDOWS, modelId)
+    return kiroObservedContextWindow(modelId)
+      ?? modelRecordValue(KIRO_MODEL_CONTEXT_WINDOWS, modelId)
       ?? modelRecordValue(KIRO_MODEL_CONTEXT_WINDOWS, normalized);
   }
   if (adapter === "cursor" || adapter.startsWith("cursor-")) {
@@ -1905,7 +1909,7 @@ export function aggregateAttemptUsage(
 
   const sumOptional = (
     key: "cachedInputTokens" | "cacheReadInputTokens" | "cacheCreationInputTokens"
-      | "reasoningOutputTokens",
+      | "reasoningOutputTokens" | "providerCredits",
   ): number | undefined => {
     const present = usages.flatMap(usage => (
       typeof usage[key] === "number" ? [usage[key] as number] : []
@@ -1916,6 +1920,7 @@ export function aggregateAttemptUsage(
   const cacheReadInputTokens = sumOptional("cacheReadInputTokens");
   const cacheCreationInputTokens = sumOptional("cacheCreationInputTokens");
   const reasoningOutputTokens = sumOptional("reasoningOutputTokens");
+  const providerCredits = sumOptional("providerCredits");
   const totalTokens = usages.reduce(
     (sum, usage) => sum + (usageTotalTokens(usage) ?? 0),
     0,
@@ -1928,6 +1933,7 @@ export function aggregateAttemptUsage(
     ...(cacheReadInputTokens !== undefined ? { cacheReadInputTokens } : {}),
     ...(cacheCreationInputTokens !== undefined ? { cacheCreationInputTokens } : {}),
     ...(reasoningOutputTokens !== undefined ? { reasoningOutputTokens } : {}),
+    ...(providerCredits !== undefined ? { providerCredits } : {}),
     ...(status === "estimated" ? { estimated: true } : {}),
   };
   return { usage: aggregate, status, totalTokens };

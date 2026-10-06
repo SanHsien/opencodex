@@ -10,6 +10,7 @@ import {
   openSync,
   readFileSync,
   rmSync,
+  constants as fsConstants,
 } from "node:fs";
 import { join } from "node:path";
 import { CODEX_SHIM_REENTRY_EXIT_CODE, CODEX_SHIM_REENTRY_DIAGNOSTIC } from "./shim-templates";
@@ -149,9 +150,12 @@ function finishAfterStderr(status) {
 }
 
 try {
+  // BUN_BE_BUN selects the supervisor's interpreter mode, not the saved launcher.
+  const launcherEnv = { ...process.env };
+  delete launcherEnv.BUN_BE_BUN;
   launcher = spawn(launcherShellPath, [wrapperPath, "--version"], {
     detached: true,
-    env: process.env,
+    env: launcherEnv,
     stdio: ["ignore", "ignore", "pipe", "pipe"],
   });
   if (!launcher.pid) throw new Error("Codex shim probe launcher has no pid");
@@ -240,7 +244,8 @@ function readProbeMetadata(path: string, maxBytes: number): string | null {
     // lstat keeps a symlinked metadata file unread; dev/ino rejects a swap before open.
     const lexical = lstatSync(path);
     if (!lexical.isFile() || lexical.size > maxBytes) return null;
-    const fd = openSync(path, "r");
+    // O_NOFOLLOW/O_NONBLOCK are undefined on Windows (?? 0); on POSIX a raced-in FIFO cannot block the open.
+    const fd = openSync(path, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0) | (fsConstants.O_NONBLOCK ?? 0));
     try {
       const stat = fstatSync(fd);
       if (!stat.isFile() || stat.size > maxBytes || stat.dev !== lexical.dev || stat.ino !== lexical.ino) return null;
@@ -265,6 +270,7 @@ function probeUnixShimInstall(wrapperPath: string): UnixShimProbeResult {
   const stderrPath = join(probeDir, "stderr");
   const env: NodeJS.ProcessEnv = {
     ...process.env,
+    BUN_BE_BUN: "1",
     OCX_SHIM_BYPASS: "1",
     OCX_SHIM_PROBE: "1",
     OCX_SHIM_PROBE_REENTRY_PATH: reentryPath,

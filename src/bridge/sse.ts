@@ -73,14 +73,22 @@ export function bridgeToResponsesSSE(
   options?: {
     responseId?: string;
     stallTimeoutSec?: number;
+    /**
+     * The upstream is local infrastructure (loopback / private / `.local` / `.lan`); an unset
+     * `stallTimeoutSec` then resolves to disabled so a slow local model is not cut mid-turn.
+     * Wire keep-alives still re-arm the client's idle clock either way.
+     */
+    localUpstream?: boolean;
     hideThinkingSummary?: boolean;
+    /** Provider policy: suppress raw content-channel reasoning, keep provider-authored summaries. */
+    hideRawReasoning?: boolean;
     /**
      * Remote compaction v2 turn: accumulate all assistant text and, on done, emit ONE synthetic
      * `{type:"compaction", encrypted_content:"ocx1:"+base64(text)}` output item before
      * response.completed — codex-rs collect_compaction_output requires exactly one.
      */
     compaction?: boolean;
-    /** One-shot: first non-empty text/thinking/raw-reasoning delta observed (WP4 TTFT). */
+    /** One-shot: first non-empty text/thinking/raw-reasoning/tool-input delta observed. */
     onFirstOutput?: () => void;
     onTerminal?: (status: ResponsesTerminalStatus) => void;
     onCompletedResponse?: (response: Record<string, unknown>, providerState?: OcxProviderContinuationState) => void;
@@ -95,6 +103,8 @@ export function bridgeToResponsesSSE(
     onUsage?: (usage: OcxUsage | undefined) => void;
     /** Request-visible tool names. Required for client calls when enforcement is explicitly enabled. */
     declaredToolNames?: ReadonlySet<string>;
+    /** Bare custom declarations; unlike freeformToolNames, excludes foreign namespace children. */
+    bareCustomToolNames?: ReadonlySet<string>;
     /**
      * Whether `declaredToolNames` is an authorization boundary this proxy enforces, or only the
      * catalog used to normalize provider-invented names back to declared ones.
@@ -341,7 +351,9 @@ export function bridgeToResponsesSSE(
         ? encoder.encode(': opencodex heartbeat\n\n')
         : encoder.encode('event: response.heartbeat\ndata: {"type":"response.heartbeat"}\n\n');
       let stallTicks = 0;
-      const stallSec = resolveStallTimeoutSec(options?.stallTimeoutSec);
+      const stallSec = resolveStallTimeoutSec(options?.stallTimeoutSec, {
+        localUpstream: options?.localUpstream,
+      });
       const maxStallTicks = Math.ceil((stallSec * 1000) / heartbeatMs);
 
       let currentMsg: {
@@ -695,7 +707,9 @@ export function bridgeToResponsesSSE(
             ? event.thinking.length > 0
             : event.type === "reasoning_raw_delta"
               ? event.text.length > 0
-              : false;
+              : event.type === "tool_call_delta"
+                ? event.arguments.length > 0
+                : false;
         if (!nonEmpty) return;
         firstOutputReported = true;
         try { options?.onFirstOutput?.(); } catch { /* metrics must not break the stream */ }
@@ -965,7 +979,7 @@ export function bridgeToResponsesSSE(
               break;
             }
             case "reasoning_raw_delta": {
-              if (options?.hideThinkingSummary) {
+              if (options?.hideThinkingSummary || options?.hideRawReasoning) {
                 hiddenRawReasoning = appendString(
                   hiddenRawReasoning,
                   event.text,
@@ -1005,7 +1019,7 @@ export function bridgeToResponsesSSE(
                 rememberReasoningForCall(event.id, rawReasoningForNextToolCall, replayCacheScope);
               }
               if (currentToolCall) closeCurrentToolCall();
-              const effectiveName = normalizeDeclaredToolName(event.name, options?.declaredToolNames);
+              const effectiveName = normalizeDeclaredToolName(event.name, options?.declaredToolNames, undefined, options?.bareCustomToolNames);
               const codeModeHelperName = effectiveName === "exec" && event.name !== effectiveName
                 ? event.name
                 : undefined;
@@ -1407,7 +1421,11 @@ export function bridgeToResponsesSSE(
           if (upstreamActivity) {
             upstreamActivity = false;
             stallTicks = 0;
-          } else if (++stallTicks >= maxStallTicks) {
+          } else if (stallSec > 0 && ++stallTicks >= maxStallTicks) {
+            // stallSec of 0 is an explicit disabled budget (local upstream, or the operator's
+            // stallTimeoutSec: 0). Never let `maxStallTicks === 0` arm a kill on the first beat:
+            // with it the `>= 0` comparison is true the moment a single tick lands, which would
+            // terminate a healthy silent local model after ~2s instead of leaving it alone.
             if (!attemptTerminationCleanup(() => {
               if (currentMsg) closeCurrentMessage();
               if (currentReasoning) closeCurrentReasoning();

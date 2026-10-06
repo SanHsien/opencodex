@@ -13,6 +13,7 @@ import {
   rmdirSync,
   unlinkSync,
   writeFileSync,
+  constants as fsConstants,
 } from "node:fs";
 import { basename, dirname, join } from "node:path";
 
@@ -72,7 +73,8 @@ function readOwner(path) {
     // lstat rejects a symlinked owner record; dev/ino rejects a swap before open.
     const lexical = lstatSync(ownerPath);
     if (!lexical.isFile() || lexical.size > 4096) return null;
-    const fd = openSync(ownerPath, "r");
+    // O_NOFOLLOW/O_NONBLOCK are undefined on Windows (?? 0); on POSIX a raced-in FIFO cannot block the open.
+    const fd = openSync(ownerPath, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0) | (fsConstants.O_NONBLOCK ?? 0));
     let owner;
     let record;
     try {

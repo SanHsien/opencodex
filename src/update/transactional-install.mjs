@@ -23,7 +23,7 @@
  */
 import { spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { closeSync, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { closeSync, constants as fsConstants, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 
 /**
@@ -211,7 +211,8 @@ function readOwnedStageMarker(dir, pkgName) {
     // lstat rejects a symlinked marker; dev/ino rejects a swap before open.
     const lexical = lstatSync(markerPath);
     if (!lexical.isFile()) return null;
-    const fd = openSync(markerPath, "r");
+    // O_NOFOLLOW/O_NONBLOCK are undefined on Windows (?? 0); on POSIX a raced-in FIFO cannot block the open.
+    const fd = openSync(markerPath, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0) | (fsConstants.O_NONBLOCK ?? 0));
     let marker;
     try {
       const stat = fstatSync(fd);
@@ -400,6 +401,7 @@ export function transactionalNpmUpdate({
   targetVersion,
   tag,
   runNpm,
+  cachePath,
   log = () => {},
   deps = {},
 }) {
@@ -442,8 +444,12 @@ export function transactionalNpmUpdate({
   // @oven/bun-* executable into bun/bin, so a successful npm exit without this narrow
   // approval leaves the staged tree intentionally incomplete. Allow only the package
   // whose executable the manifest verifies below; never broaden this to all scripts.
+  // --prefix <stage> also moves npm's globalconfig to <stage>/etc/npmrc, so a `cache=` from the
+  // operator's global npmrc would be dropped and npm would fall back to its default root. Pin
+  // the cache the pre-flight resolved and checked, so staging uses that exact root (#6288).
+  const cacheArgs = typeof cachePath === "string" && cachePath.length > 0 ? ["--cache", cachePath] : [];
   const install = runNpm([
-    "install", "-g", "--prefix", stageRoot,
+    "install", "-g", "--prefix", stageRoot, ...cacheArgs,
     "--allow-scripts=bun", "--no-audit", "--no-fund", spec,
   ]);
   if (install.status !== 0) {

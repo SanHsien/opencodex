@@ -7,6 +7,10 @@ Agent 設定控制要廣告哪個 Codex 協作介面，以及 opencodex 如何�
 
 ## Agent 欄位
 
+### Skills 目錄更新
+
+`skills.catalog_refresh` 在 opencodex 的 `config.json` 中接受 `"per_session"`（預設）或 `"per_turn"`。Session 模式會重複使用對話收到的第一份 skills 指令，保護提示快取前綴不受回合之間目錄變更的影響。Turn 模式則轉送用戶端目前的目錄。設定與快照存活時間的細節，請見[保持技能目錄穩定](/zh-tw/guides/codex-prompt/#保持技能目錄穩定)。
+
 ### Astra roster 升級
 
 升級後第一次啟動時，既有的 `subagentModels` 清單會在最前面加入 `gpt-6-astra`。前四個不重複的非 Astra 選項會被保留，舊的第五個選項會被丟棄。若 `gpt-5.5` 被保留，它會移到最後。因此先前的預設清單會變成 Astra、Sol、Terra、Luna、5.5。未設定的清單會取得同樣的預設值；明確的空舊清單會變成 `["gpt-6-astra"]`。既有的 Astra 項目不會被重複加入。
@@ -16,7 +20,7 @@ Agent 設定控制要廣告哪個 Codex 協作介面，以及 opencodex 如何�
 | 欄位 | 型別 | 預設值 | 意義 |
 | --- | --- | --- | --- |
 | `multiAgentMode?` | `"v1" \| "default" \| "v2"` | `"default"` | `v1` 將每個目錄模型標記為 v1；`v2` 將每個模型標記為 v2。`default` 還原上游 pin（Sol/Terra v2、Luna v1），否則遵循原生的 `multi_agent_v2` 旗標。套用於新 session。 |
-| `subagentModels?` | `string[]` | `gpt-6-astra`, `gpt-6-sol`, `gpt-6-luna` | 最多五個原生或路由 id，在子代理 picker 中優先顯示。[Astra 一次性升級](/zh-tw/reference/configuration/agents/#astra-roster-upgrade)後，明確的空清單會被保留。 |
+| `subagentModels?` | `string[]` | `gpt-6-astra`, `gpt-6.1-sol`, `gpt-6-luna` | 最多五個原生或路由 id，在子代理 picker 中優先顯示。[Astra 一次性升級](/zh-tw/reference/configuration/agents/#astra-roster-upgrade)後，明確的空清單會被保留。 |
 | `injectionModel?` | `string` | — | 在代理撰寫的 v2 委派指引中使用的偏好原生或路由子代理模型。 |
 | `injectionEffort?` | `string` | — | 偏好 effort（`low` 到 `ultra`），僅在搭配 `injectionModel` 時有意義。 |
 | `injectionPrompt?` | `string` | — | 取代內建指引本文。支援 `{{model}}`、`{{effort}}`、`{{roster}}` 與 `{{fallback}}`。只要設定了 `injectionModel` 就足以產生自訂 prompt。 |

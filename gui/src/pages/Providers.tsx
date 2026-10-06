@@ -1,9 +1,12 @@
-import { usageSummary30dResourceKey } from "../usage-summary-resource";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { readUsageResponseJson, usageSummary30dResourceKey } from "../usage-summary-resource";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import ProviderWorkspaceShell, { type AddProviderIntent } from "../components/provider-workspace/ProviderWorkspaceShell";
 import ProviderDetails from "../components/provider-workspace/ProviderDetails";
+import ProviderAuthPanel from "../components/provider-workspace/ProviderAuthPanel";
+import type { ProviderAuthHandlers } from "../components/provider-workspace/types";
+import type { CatalogLoginHint } from "../components/provider-catalog/login-hint-visibility";
 import { matchingWorkspacePreset, type CatalogPreset } from "../components/provider-catalog/provider-presets";
-import { isAccountProvider, type WorkspaceProvider } from "../provider-workspace/catalog";
+import { applyActiveAccountReauth, buildProviderWorkspace, isAccountProvider, type WorkspaceProvider } from "../provider-workspace/catalog";
 import { ensureOpenAiProvider, openAiAccountProviderState, OpenAiEnableError } from "../provider-payload";
 import { oauthTosRisk } from "../oauth-tos-risk";
 import { ToastNotice, type NoticeTone } from "../ui";
@@ -23,8 +26,11 @@ import { buildAccountLoginStatus, buildAddModalAccountRows } from "./providers-p
 import type { CodexAccountMutationCompletion } from "../codex-account-mutation";
 import { useProviderModelsNotice } from "./use-provider-models-notice";
 import { navigateHash } from "../hash-routing";
-import { JEV_AUTO_CREATE_HASH } from "../app-routing";
+import { jevAutoCreateHash } from "../app-routing";
+import { canCreateJevAutoFrom } from "../jev-decision-service";
 import { useProviderSettingsDeepLink } from "./providers-deep-link";
+import { subscribeKiroDeviceFinal } from "../kiro-device-login-finalizer";
+import type { BrowserLaunch } from "../oauth-browser-launch";
 
 /** The page's real refresh tickets: only the captured report epoch and account read can settle them. */
 // oxlint-disable-next-line react/only-export-components -- keep the page-owned coordinator and its direct race tests in the authorized owner.
@@ -209,7 +215,25 @@ function useAccountSelectionEvents(
   return useCallback(() => recoverRef.current(), []);
 }
 
-export default function Providers({ apiBase }: { apiBase: string }) {
+/** Sign-in controls handed to `scopeEmpty`: the same login the Add provider Accounts row starts. */
+export type ScopedProviderLogin = {
+  busy: boolean;
+  hint: CatalogLoginHint | null;
+  onSignIn: () => void;
+  onCancel: () => void;
+};
+
+/**
+ * `scopeProvider` renders only that provider's Accounts content (the Claude page's Account
+ * tab): the ProviderAuthPanel that ProviderDetails shows on its Accounts tab, with the same
+ * props, handlers and modals, and none of the page head, rail, detail header or tabs.
+ * `scopeEmpty` fills the slot while that provider is not configured.
+ */
+export default function Providers({ apiBase, scopeProvider, scopeEmpty }: {
+  apiBase: string;
+  scopeProvider?: string;
+  scopeEmpty?: (login: ScopedProviderLogin) => ReactNode;
+}) {
   const t = useT();
   const configCacheKey = `ocx.providers.config.v1:${apiBase}`;
   const [config, setConfig] = useState<ProvidersConfig | null>(
@@ -224,7 +248,7 @@ export default function Providers({ apiBase }: { apiBase: string }) {
   const [oauthProviders, setOauthProviders] = useState<string[]>([]);
   const [oauthStatus, setOauthStatus] = useState<Record<string, import("./providers-shared").OAuthStatus>>({});
   const [busy, setBusy] = useState<string | null>(null);
-  const [loginInfo, setLoginInfo] = useState<{ provider: string; url?: string; instructions?: string; deviceCode?: string } | null>(null);
+  const [loginInfo, setLoginInfo] = useState<{ provider: string; url?: string; instructions?: string; deviceCode?: string; browserLaunch?: BrowserLaunch } | null>(null);
   const [workspaceSelected, setWorkspaceSelected] = useState<string | null>(null);
   const [addIntent, setAddIntent] = useState<AddProviderIntent | null>(null);
   const [removeConfirmName, setRemoveConfirmName] = useState<string | null>(null);
@@ -316,8 +340,7 @@ export default function Providers({ apiBase }: { apiBase: string }) {
     [apiBase],
     async (signal) => {
       const res = await fetch(`${apiBase}/api/usage?range=30d`, { signal });
-      if (!res.ok) throw new Error(String(res.status));
-      return await res.json() as { providers?: Array<{ provider: string; requests: number }> };
+      return await readUsageResponseJson<{ providers?: Array<{ provider: string; requests: number }> }>(res);
     },
     { deadlineMs: 60_000 }, // shared usage-summary key: all four subscribers raise the deadline together
   );
@@ -351,7 +374,8 @@ export default function Providers({ apiBase }: { apiBase: string }) {
   // WP3: one Codex account controller for the whole Providers page, shared by the
   // Overview tab and the Accounts tab so a mutation on either is instantly visible on
   // both. Mounting CodexAccountPool twice used to fork this state.
-  const codexPool = useCodexAccountPool(apiBase);
+  // A scoped view of a non-Codex provider never shows this controller, so it does not poll.
+  const codexPool = useCodexAccountPool(apiBase, !scopeProvider || scopeProvider === "openai");
   // Single source for Codex reauth health: the controller derives it from the same
   // accounts/active pair this page used to poll on its own 30s timer.
   const codexActiveNeedsReauth = codexPool.activeNeedsReauth;
@@ -377,16 +401,24 @@ export default function Providers({ apiBase }: { apiBase: string }) {
     };
   }, [oauthStatus, codexPool.accounts, codexPool.loadState, codexActiveNeedsReauth]);
 
+  // A scoped view reads only its own provider's rosters, keys and quota enrichment. The hook
+  // derives every read (bootstrap, quota=1 enrichment, selection refresh, 30s recovery) from
+  // the config it is given, so narrowing that config is what keeps the others quiet.
+  const poolConfig = useMemo(() => {
+    if (!scopeProvider || !config) return config;
+    const scoped = config.providers[scopeProvider];
+    return { ...config, providers: scoped ? { [scopeProvider]: scoped } : {} };
+  }, [config, scopeProvider]);
   const pools = useProviderAccountPools({
     apiBase, t: t as unknown as Parameters<typeof useProviderAccountPools>[0]["t"],
-    config, oauthStatus: oauthStatusWithCodex, aliveRef,
+    config: poolConfig, oauthStatus: oauthStatusWithCodex, aliveRef,
     notify,
     fetchConfig, fetchOauth, fetchProviderQuotas, codexActiveNeedsReauth,
   });
   const {
-    accountSets, setAccountSets, accountLoadStates, switchingAccount, keyPools, fetchAccountSets, fetchKeyPools,
+    accountSets, setAccountSets, accountLoadStates, switchingAccount, pausingAccount, keyPools, fetchAccountSets, fetchKeyPools,
     refreshAccountRosters, oauthCardProviders, keyCardProviders,
-    switchAccount, switchApiKey, removeApiKey, addApiKeyValue, editCredentialAlias,
+    switchAccount, pauseAccount, setAccountPoolThreshold, setAccountThreshold, switchApiKey, removeApiKey, addApiKeyValue, editCredentialAlias,
     removeAccount, activeAccountNeedsReauth,
   } = pools;
   const refreshSelection = useCallback((target?: AccountSelectionTarget) => {
@@ -435,8 +467,11 @@ export default function Providers({ apiBase }: { apiBase: string }) {
         : mode === "forward" || mode === "local"
           ? undefined
           : () => fetchKeyPools([provider], true);
+    // A scoped view has no workspace shell, so no provider-report read will ever settle the
+    // epoch; the forced account read is the whole refresh there.
+    if (scopeProvider) return readAccounts?.() ?? Promise.resolve(true);
     return beginQuotaRefresh(readAccounts);
-  }, [config, codexPool, fetchAccountSets, fetchKeyPools, beginQuotaRefresh]);
+  }, [config, codexPool, fetchAccountSets, fetchKeyPools, beginQuotaRefresh, scopeProvider]);
 
   /**
    * Force a fresh read of EVERY provider's quota, for the overview where no provider
@@ -471,12 +506,20 @@ export default function Providers({ apiBase }: { apiBase: string }) {
 
   const bumpModelsRefresh = () => setModelsRefreshToken(n => n + 1);
 
-  const { cancelLoginOAuth, loginOAuth, logoutOAuth } = useProvidersOAuth({
+  const { cancelLoginOAuth, loginOAuth, logoutOAuth, onNativeLoginSettled } = useProvidersOAuth({
     apiBase, t, aliveRef, accountSets, setAccountSets,
     setBusy, setStatus, setLoginInfo, setOauthStatus, notify,
     fetchConfig, fetchOauth, fetchAccountSets, fetchProviderQuotas, bumpModelsRefresh,
     onLoginSettled: onProviderLoginSettled,
   });
+  const nativeSettledRef = useRef(onNativeLoginSettled);
+  useEffect(() => { nativeSettledRef.current = onNativeLoginSettled; }, [onNativeLoginSettled]);
+  useEffect(() => subscribeKiroDeviceFinal(apiBase, outcome => {
+    void nativeSettledRef.current("kiro", outcome).catch(() => {
+      // The handler owns the outcome notice and catches expected roster errors;
+      // an unexpected callback failure must not become an unhandled rejection.
+    });
+  }), [apiBase]);
 
   const { removeProvider, confirmRemoveProvider, setProviderDisabled, setDefaultProvider, updateProvider } = useProvidersCrud({
     apiBase, t, removeBusyRef, workspaceSelected, setWorkspaceSelected, setRemoveConfirmName,
@@ -505,14 +548,14 @@ export default function Providers({ apiBase }: { apiBase: string }) {
   if (!config) {
     return (
       <>
-        <div className="page-head">
+        {!scopeProvider && <div className="page-head">
           <h2>{t("nav.providers")}</h2>
-        </div>
+        </div>}
         {status
           ? <ToastNotice tone={statusTone} onDismiss={clearStatus} dismissLabel={t("common.close")}>{status}</ToastNotice>
           : (
             <div className="providers-workspace providers-workspace--boot" aria-busy="true">
-              <div className="providers-workspace-rail providers-workspace-rail--boot" aria-hidden="true" />
+              {!scopeProvider && <div className="providers-workspace-rail providers-workspace-rail--boot" aria-hidden="true" />}
               <div className="providers-workspace-main">
                 <p className="muted"><span className="spin" aria-hidden="true" /> {t("prov.loadingConfig")}</p>
               </div>
@@ -568,18 +611,71 @@ export default function Providers({ apiBase }: { apiBase: string }) {
     revealProviderAccounts(provider);
   };
 
+  const authHandlers: ProviderAuthHandlers = {
+    onLogin: requestLoginOAuth,
+    onNativeLoginSettled,
+    onCancelLogin: cancelLoginOAuth,
+    onLogout: logoutOAuth,
+    onReauth: (provider, accountId) => requestLoginOAuth(provider, true, accountId),
+    onSwitchAccount: switchAccount,
+    onPauseAccount: pauseAccount,
+    onAccountPoolThreshold: setAccountPoolThreshold,
+    onAccountThreshold: setAccountThreshold,
+    onRemoveAccount: removeAccount,
+    onRetryAccounts: async provider => { await fetchAccountSets([provider]); },
+    onAddApiKey: addApiKeyValue,
+    onSwitchApiKey: switchApiKey,
+    onRemoveApiKey: removeApiKey,
+    onEditAlias: editCredentialAlias,
+    onRefreshQuota: refreshProviderQuota,
+  };
+
+  // Derived exactly as the workspace shell derives its rows, so the panel sees the same item.
+  const scopedConfigured = scopeProvider ? config.providers[scopeProvider] as WorkspaceProvider | undefined : undefined;
+  const scopedSections = scopeProvider && scopedConfigured
+    ? applyActiveAccountReauth(buildProviderWorkspace({ [scopeProvider]: scopedConfigured }), activeAccountNeedsReauth)
+    : null;
+  const scopedItem = scopedSections
+    ? [...scopedSections.ready, ...scopedSections.needsSetup, ...scopedSections.disabled][0] ?? null
+    : null;
+
   return (
     <>
-      <div className="page-head">
+      {!scopeProvider && <div className="page-head">
         <h2>{t("nav.providers")}</h2>
         <div className="row">
           <button type="button" className="btn btn-primary" onClick={() => setAdding(true)}><IconPlus />{t("prov.add")}</button>
         </div>
-      </div>
+      </div>}
       {status && (
         <ToastNotice tone={statusTone} onDismiss={clearStatus} dismissLabel={t("common.close")}>{status}</ToastNotice>
       )}
-      <ProviderWorkspaceShell
+      {scopeProvider ? (scopedItem ? (
+        <ProviderAuthPanel
+          item={scopedItem}
+          apiBase={apiBase}
+          oauth={accountLoginStatus[scopedItem.name] ?? oauthStatus[scopedItem.name]}
+          accounts={accountSets[scopedItem.name]?.accounts ?? []}
+          keys={keyPools[scopedItem.name] ?? []}
+          accountLoadState={accountLoadStates[scopedItem.name] ?? (scopedItem.authMode === "oauth" ? "idle" : "ready")}
+          switchingAccountId={switchingAccount?.provider === scopedItem.name ? switchingAccount.accountId : null}
+          pausingAccountId={pausingAccount?.provider === scopedItem.name ? pausingAccount.accountId : null}
+          busy={busy === scopedItem.name}
+          loginHint={loginInfo}
+          authHandlers={authHandlers}
+          onUpdateProvider={updateProvider}
+          codexController={codexPool}
+        />
+      ) : scopeEmpty?.({
+        busy: busy === scopeProvider,
+        hint: loginInfo?.provider === scopeProvider ? loginInfo : null,
+        // Straight to the warning-aware OAuth entry, the call onAccountLogin makes for this
+        // provider once discovery lists it. /api/oauth/login validates the provider against its
+        // own static registry, so a cold mount (or a failed /api/oauth/providers read) must not
+        // leave this button waiting on discovery or silently doing nothing.
+        onSignIn: () => requestLoginOAuth(scopeProvider),
+        onCancel: () => { void cancelLoginOAuth(scopeProvider); },
+      })) : <ProviderWorkspaceShell
         onRemoveProvider={removeProvider}
         providers={config.providers as Record<string, WorkspaceProvider>}
         apiBase={apiBase}
@@ -622,8 +718,8 @@ export default function Providers({ apiBase }: { apiBase: string }) {
             modelRevision={data.modelRevision}
             modelRowsReady={data.modelRowsReady}
             onOpenModels={() => navigateHash("models")}
-            onCreateJevAuto={item.adapter === "jev-decision" && item.hasApiKey
-              ? () => navigateHash(JEV_AUTO_CREATE_HASH)
+            onCreateJevAuto={canCreateJevAutoFrom(item)
+              ? () => navigateHash(jevAutoCreateHash(item.name))
               : undefined}
             modelsLoading={data.modelsLoading}
             modelsLoadFailed={data.modelsLoadFailed}
@@ -640,22 +736,10 @@ export default function Providers({ apiBase }: { apiBase: string }) {
             settingsFocusToken={settingsFocus.token}
             settingsFocusProvider={settingsFocus.provider}
             switchingAccountId={switchingAccount?.provider === item.name ? switchingAccount.accountId : null}
+            pausingAccountId={pausingAccount?.provider === item.name ? pausingAccount.accountId : null}
             busyProvider={busy}
             loginHint={loginInfo}
-            authHandlers={{
-              onLogin: requestLoginOAuth,
-              onCancelLogin: cancelLoginOAuth,
-              onLogout: logoutOAuth,
-              onReauth: (provider, accountId) => requestLoginOAuth(provider, true, accountId),
-              onSwitchAccount: switchAccount,
-              onRemoveAccount: removeAccount,
-              onRetryAccounts: async provider => { await fetchAccountSets([provider]); },
-              onAddApiKey: addApiKeyValue,
-              onSwitchApiKey: switchApiKey,
-              onRemoveApiKey: removeApiKey,
-              onEditAlias: editCredentialAlias,
-              onRefreshQuota: refreshProviderQuota,
-            }}
+            authHandlers={authHandlers}
             onRefreshQuota={() => refreshProviderQuota(item.name)}
             isDefault={item.name === config.defaultProvider}
             onRemoveProvider={removeProvider}
@@ -666,7 +750,7 @@ export default function Providers({ apiBase }: { apiBase: string }) {
           />
           );
         }}
-      />
+      />}
       <ProvidersPageModals
         apiBase={apiBase}
         config={config}

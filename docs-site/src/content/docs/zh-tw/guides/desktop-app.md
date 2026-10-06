@@ -46,6 +46,18 @@ sudo apt install ./OpenCodex-<version>-linux-amd64.deb
 
 在 macOS 上，關閉儀表板後，應用程式會繼續在選單列中執行。從 Dock 或 Finder 再次開啟 OpenCodex 即可恢復儀表板，無須重新啟動代理。
 
+## macOS 的啟動安全
+
+當 OpenCodex 記錄的擁有權、**登入時啟動**註冊，以及對其內建 proxy 的即時監督全部相符時，啟動安全會回報**桌面 App** 保護。缺少或過期的檢查會維持**有風險**。如果桌面 app 擁有 proxy 但無法驗證保護，請重新開啟 OpenCodex 並檢查**登入時啟動**。只要這個擁有權還在，服務與 launcher 的安裝或修復就會維持停用；`ocx restore` 仍可用來還原 Codex 路由。
+
+一般的桌面更新會以固定的啟動探針取代內建的 CLI。不需要在更新後保留任何本機修補。
+
+## 保持 proxy 執行
+
+App 會讓它啟動的 proxy 持續執行。當該 proxy 自行重新啟動時——在**連接為 Child**、從儀表板進行記憶體重啟，或中斷 Child 之後——app 會在同一個連接埠啟動新的 proxy，通常在約一秒內（若 proxy 在最近兩分鐘內已重啟過則需數秒），並重新載入開啟中的儀表板，所以系統匣的 Stop 仍能作用到它，Quit 仍會結束它。如果 proxy 在沒有被要求的情況下結束（崩潰，或從終端機執行 `ocx stop`），app 會在一段隨 proxy 持續失敗而從 3 秒增加到 30 秒的短暫延遲後再次啟動它。如果 proxy 在它的連接埠上不再回應，app 會在約 15 秒內察覺並以同樣方式復原；對於不是它啟動的 proxy（背景服務，或你自己啟動的），它會先等待約一分鐘讓該 proxy 恢復。復原期間，它絕不會停止或取代別的東西已在該連接埠上執行的 proxy；它會改為連接到那一個，而不要求接管它。這包括在**連接為 Child** 之後由背景服務重新啟動的 Child proxy：app 會連接上去並顯示 Child 的儀表板。如果連接埠被 app 無法使用的東西佔用，例如綁定在 `127.0.0.1` 以外位址的 proxy，app 會停止重試並等待狀況改變。在更新頁面開啟時完成的復原，會讓該頁面留在畫面上。
+
+系統匣的 **Stop proxy** 與 **Quit** 會讓 proxy 保持停止。儀表板自己的 **Stop** 按鈕不會停止由 app 執行的 proxy，因為 app 會再次啟動它：它會說明這點，並且什麼都不改變。app 做了什麼決定以及原因，會記錄在 app 記錄目錄中的 `runtime-supervisor.log`（macOS 上是 `~/Library/Logs/com.opencodex.desktop`）。
+
 ## 系統匣中的用量資訊
 
 在 macOS 與 Windows 上，點擊系統匣圖示可開啟精簡用量視窗。系統匣的 **Show usage** 也能開啟它，包括不會轉送點擊事件的 Linux 桌面環境。Linux 會在啟動時開啟儀表板，即使桌面環境不顯示系統匣圖示也一樣。

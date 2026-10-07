@@ -1599,7 +1599,7 @@ describe("bun test user lock", () => {
     const root = mkdtempSync(join(tmpdir(), "opencodex-test-lock-"));
     const lockPath = join(root, "suite.lock");
     try {
-      const lock = await acquireTestRunLock({ runId: "native-identity", lockPath, pollMs: 5, maxWaitMs: 50 });
+      const lock = await acquireTestRunLock({ runId: "native-identity", lockPath, pollMs: 5, maxWaitMs: 50, env: queuedTestEnv });
       expect(lock.owner?.processIdentity).toMatch(/^[0-9]+$/);
       lock.release();
     } finally {
@@ -1655,6 +1655,7 @@ describe("bun test user lock", () => {
       await expect(acquireTestRunLock({
         runId: "competing-run",
         lockPath,
+        env: queuedTestEnv,
         pollMs: 5,
         maxWaitMs: 20,
       })).rejects.toThrow("timed out");
@@ -1702,6 +1703,7 @@ describe("bun test user lock", () => {
         runId: "stale",
         ownerPid: deadPid,
         lockPath,
+        env: queuedTestEnv,
         pollMs: 5,
         maxWaitMs: 50,
         processIdentity,
@@ -1715,6 +1717,7 @@ describe("bun test user lock", () => {
       const replacement = await acquireTestRunLock({
         runId: "replacement",
         lockPath,
+        env: queuedTestEnv,
         pollMs: 5,
         maxWaitMs: 50,
         processIdentity,
@@ -1736,6 +1739,7 @@ describe("bun test user lock", () => {
         runId: "stale",
         ownerPid: deadPid,
         lockPath,
+        env: queuedTestEnv,
         pollMs: 5,
         maxWaitMs: 50,
         processIdentity,
@@ -1749,6 +1753,7 @@ describe("bun test user lock", () => {
       await expect(acquireTestRunLock({
         runId: "replacement",
         lockPath,
+        env: queuedTestEnv,
         pollMs: 5,
         maxWaitMs: 20,
         processIdentity,
@@ -1768,6 +1773,7 @@ describe("bun test user lock", () => {
         runId: "stale",
         ownerPid: deadPid,
         lockPath,
+        env: queuedTestEnv,
         pollMs: 5,
         maxWaitMs: 50,
       });
@@ -1777,6 +1783,7 @@ describe("bun test user lock", () => {
       await expect(acquireTestRunLock({
         runId: "replacement",
         lockPath,
+        env: queuedTestEnv,
         pollMs: 5,
         maxWaitMs: 20,
       })).rejects.toThrow("timed out");
@@ -1795,6 +1802,7 @@ describe("bun test user lock", () => {
         runId: "stale",
         ownerPid: deadPid,
         lockPath,
+        env: queuedTestEnv,
         pollMs: 5,
         maxWaitMs: 50,
         processIdentity: () => undefined,
@@ -1808,6 +1816,7 @@ describe("bun test user lock", () => {
       await expect(acquireTestRunLock({
         runId: "replacement",
         lockPath,
+        env: queuedTestEnv,
         pollMs: 5,
         maxWaitMs: 20,
         processIdentity: () => undefined,

@@ -230,7 +230,8 @@ describe("every locale carries the same pool claims", () => {
   ] as const;
 
   test("keys exist and the checkable tokens survive translation", () => {
-    expect(LOCALES.length).toBe(10);
+    // Fork policy: only en and zh-TW ship (docs/fork/DECISIONS.md).
+    expect(LOCALES.map(locale => locale.code)).toEqual(["en", "zh-TW"]);
     for (const { code } of LOCALES) {
       const dict = DICTS[code];
       for (const key of KEYS) {
@@ -251,9 +252,9 @@ describe("every locale carries the same pool claims", () => {
     }
   });
 
-  test("Korean reads as Korean product copy", () => {
-    expect(DICTS.ko["anthropicPool.detailsSummary"]).toBe("계정 선택 방식 알아보기");
-    expect(DICTS.ko["anthropicPool.experimentalWarning"]).toContain("공식 Claude Code 클라이언트");
-    expect(DICTS.ko["anthropicPool.detailsFailover"]).toContain("일시 중지");
+  test("Traditional Chinese reads as Traditional Chinese product copy", () => {
+    expect(DICTS["zh-TW"]["anthropicPool.detailsSummary"]).toBe("帳號選擇方式");
+    expect(DICTS["zh-TW"]["anthropicPool.experimentalWarning"]).toContain("官方 Claude Code 用戶端");
+    expect(DICTS["zh-TW"]["anthropicPool.detailsFailover"]).toContain("暫停");
   });
 });

@@ -146,7 +146,8 @@ test("every locale carries the Anthropic dialog copy with the same anchors", () 
     "oauthTos.anthropicAcknowledge",
     "oauthTos.anthropicContinue",
   ] as const;
-  expect(LOCALES.length).toBe(10);
+  // Fork policy: only en and zh-TW ship (docs/fork/DECISIONS.md).
+  expect(LOCALES.map(locale => locale.code)).toEqual(["en", "zh-TW"]);
   for (const { code } of LOCALES) {
     const dict = DICTS[code];
     for (const key of keys) {
@@ -161,7 +162,7 @@ test("every locale carries the Anthropic dialog copy with the same anchors", () 
     expect(dict["oauthTos.anthropicSaferPath"], code).toContain("API");
     expect(dict["oauthTos.anthropicContinue"], code).toContain("Claude");
   }
-  expect(DICTS.ko["oauthTos.anthropicTitle"]).toBe("Claude 구독 연결");
-  expect(DICTS.ko["oauthTos.anthropicContinue"]).toBe("Claude 구독으로 계속");
+  expect(DICTS["zh-TW"]["oauthTos.anthropicTitle"]).toBe("Claude 訂閱連線");
+  expect(DICTS["zh-TW"]["oauthTos.anthropicContinue"]).toBe("使用 Claude 訂閱繼續");
 });
 

@@ -1,5 +1,11 @@
 # 維護決策
 
+## 2026-10-07：修復 v2.76.0 整合後 main CI（docs 建置、GUI 測試、test-runner 鎖測試）
+
+- docs-site：`Header.astro` 語言選單只留 English／繁體中文（原列 8 個語系，造成 840 筆 missing-page）；zh-tw 頁面內的英文 heading 錨點改成對應的繁中 slug（約 40 筆 missing-fragment）。
+- GUI 測試：`anthropic-pool-conditions`／`oauth-tos-warning-modal` 的語系數量斷言改為 `["en", "zh-TW"]`，韓文文案斷言換成 zh-TW 實際文案；`native-main-confirmation-layout` 改用仍存在的 `en`（原用已移除的 `de`，translator 在 CSS 斷言前就丟錯）。
+- `tests/ci-workflows/test-runner.test.ts`：「bun test user lock」的 10 個案例漏傳 `env: queuedTestEnv`；CI 工作流設了 `OCX_TEST_NO_QUEUE=1` 時 `acquireTestRunLock` 直接回傳 `owner: null`，POSIX 5 案因此失敗。鎖實作與強化邏輯未動，測試補上隔離 env。
+
 ## 2026-10-03：stable 整合 v2.76.0（不帶入上游歷史）；4 筆採用候選已採用
 
 **決定**：在以 tag `v2.76.0`（`249462bf570555aad103957025eea96f7489c7eb`）為起點的分支 `sync/v2.76.0` 上重放 fork overlay

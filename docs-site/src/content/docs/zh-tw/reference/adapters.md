@@ -20,7 +20,7 @@ interface ProviderAdapter {
 `buildRequest` 把 `OcxParsedRequest` 轉成上游 HTTP 請求；`parseStream` / `parseResponse` 把 provider
 回覆轉回內部 `AdapterEvent`。`fetchResponse` 允許 adapter 自己負責重試和 timeout；`runTurn` 支援
 無法表示成一次 HTTP fetch 加一條回應流的 transport。隨後
-[`bridge.ts`](/zh-tw/reference/architecture/#the-bridge) 把 event 轉成 Responses SSE。
+[`bridge.ts`](/zh-tw/reference/architecture/#橋接器) 把 event 轉成 Responses SSE。
 
 ## 翻譯後 Responses 路由上的外部任務輸入
 
@@ -111,7 +111,7 @@ index 的引數片段時，仍會保留身分：這些片段會被組裝成一�
 key。
 
 Adapter 的選擇不會決定上游 transport。符合資格的請求可以使用
-[上游 WebSocket proxy 路由](/zh-tw/reference/proxy-formats/#json-and-sse-output)；無效或不受支援的
+[上游 WebSocket proxy 路由](/zh-tw/reference/proxy-formats/#json-與-sse-輸出)；無效或不受支援的
 WebSocket proxy 設定會退回 HTTP/SSE。以 HTTP fetch 為基礎的 Responses 處理使用 Bun 的 HTTP
 proxy 規則，不會繼承 WSS 專用的 `ALL_PROXY` 退路。
 
@@ -128,7 +128,7 @@ proxy 規則，不會繼承 WSS 專用的 `ALL_PROXY` 退路。
 HTTPS `api.x.ai` 或 `cli-chat-proxy.grok.com` 上的 xAI Responses，非空的字串型子結果也會
 轉換成保留精確空白與換行的 `input_text` part。其他目的地保留字串值條目；空白字串與混合
 加密/未知 part 不會被部分轉換。獨立選用（opt-in）的加密任務復原行為另見
-[agent 訊息](/zh-tw/reference/configuration/providers/#routed-agent-messages)。
+[agent 訊息](/zh-tw/reference/configuration/providers/#路由過的-agent-訊息)。
 
 正典 ChatGPT Codex forward 目的地還會規範化兩種其較嚴格的 backend 會拒絕的公開 Responses
 形狀：`input` 中完全為文字的 `system` 訊息會依請求順序附加到頂層的 `instructions` 字串，而
@@ -140,7 +140,7 @@ provider 與非正典 forward gateway 都會保留這兩個欄位不變；多模
 遍歷限制內被遞迴移除。當 `store: false` 時，`item_reference` 列也會被省略，因為目的地無法
 解析它未持久化的條目。Function/工具的 `call_id` 配對與 `reasoning.effort` 會被保留。
 
-[Luna Reserve 相容性](/zh-tw/reference/cli/providers-accounts/#luna-reserve-alongside-routed-models)
+[Luna Reserve 相容性](/zh-tw/reference/cli/providers-accounts/#luna-reserve-與路由模型並存)
 使用的是這條正典 ChatGPT-forward 路徑，而不是 key 認證或任意的 Responses gateway。它保留
 這裡描述的安全呼叫端 header allowlist 與目的地限定的請求規範化。OpenCodex 會在自有主帳號的
 usage 查詢上傳送其 Reserve 能力標頭；該標頭本身不是權限。符合資格的相容性請求會在派送時
@@ -363,7 +363,7 @@ Cursor 的 HTTP/1.1 相容配對：伺服器輸出用 `agent.v1.AgentService/Run
   OAuth/authorization 資料絕不會寫入 checkpoint 狀態。Cursor 以 OAuth 為基礎的即時
   transport 與帳號過濾後的模型發現仍屬實驗性；登入與 transport 設定見
   [provider 指南](/zh-tw/guides/providers/) 與
-  [Cursor provider 設定](/zh-tw/reference/configuration/providers/#cursor-provider-adapter-cursor)。
+  [Cursor provider 設定](/zh-tw/reference/configuration/providers/#cursor-供應商adapter-cursor)。
   checkpoint 重用本身是自動的，沒有使用者可設定的選項。
 - 對即時模型探索與推論都遵循 `upstreamHttpVersion`。`auto`、`http2` 與 `h2` 保留既有的
   HTTP/2 transport；只有 `http1.1` 與 `h1` 會選用相容模式。

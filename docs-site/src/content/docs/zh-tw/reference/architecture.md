@@ -181,7 +181,7 @@ Codex context compaction 同樣適用於路由模型。`server/responses/compact
   與 Codex 自身快取一致），取得失敗時會回退到舊資料。
 - `codex/catalog.ts` facade 匯出的 `codex/catalog/sync.ts` 把路由模型作為帶名稱空間的條目
   合併進 Codex 目錄，優先排列精選的
-  [subagent 模型](/zh-tw/guides/codex-integration/#the-subagent-picker)，過濾
+  [subagent 模型](/zh-tw/guides/codex-integration/#subagent-選擇器)，過濾
   `disabledModels`，並可從一次性備份中完整恢復原始目錄。
 
 ## Reasoning effort

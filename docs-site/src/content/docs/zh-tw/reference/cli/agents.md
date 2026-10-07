@@ -15,15 +15,15 @@ description: 多代理、組合、可觀測性、存取、整合、系統與設�
 ocx agent subagents set ark/model-a,openai/gpt-5.5
 ```
 
-`ocx agent roles` 用於 omo（Codex / LazyCodex）。它會列出 `$CODEX_HOME/agents` 中每個 Codex 代理角色的模型釘選，以及 `~/.omo/omo.jsonc` 是否可以更新；或是告知尚未安裝 LazyCodex，此時 `set` 會被拒絕。`ocx agent roles set <role> <model>` 只會改寫該角色根層級的 `model` 那一行，並把值鏡射到 omo.jsonc 的 `codex.agents.<role>.model`。缺少 omo.jsonc，或其中含有註解時，檔案會維持不變，且指令會說明這點。請見 [omo（Codex / LazyCodex）角色模型](/zh-tw/guides/integrations/#omo-codex--lazycodex-role-models)。
+`ocx agent roles` 用於 omo（Codex / LazyCodex）。它會列出 `$CODEX_HOME/agents` 中每個 Codex 代理角色的模型釘選，以及 `~/.omo/omo.jsonc` 是否可以更新；或是告知尚未安裝 LazyCodex，此時 `set` 會被拒絕。`ocx agent roles set <role> <model>` 只會改寫該角色根層級的 `model` 那一行，並把值鏡射到 omo.jsonc 的 `codex.agents.<role>.model`。缺少 omo.jsonc，或其中含有註解時，檔案會維持不變，且指令會說明這點。請見 [omo（Codex / LazyCodex）角色模型](/zh-tw/guides/integrations/#omocodex--lazycodex角色模型)。
 
 ```bash
 ocx agent roles set explorer xai/grok-4.5
 ```
 
-`ocx agent roles suggest` 僅適用於 omo（Codex / LazyCodex），未安裝 LazyCodex 時與 `set` 一樣會被拒絕。它以對預設 Codex 模型（或 `--model`）的一次呼叫來評估每個角色的規模，並印出每個角色建議的模型與 effort，不寫入任何東西。`--apply` 會透過與 `set` 相同的寫入來寫入每一項建議，略過並指名模型與 effort 已經相符的角色。請見[自動指派](/zh-tw/guides/integrations/#auto-assign)。
+`ocx agent roles suggest` 僅適用於 omo（Codex / LazyCodex），未安裝 LazyCodex 時與 `set` 一樣會被拒絕。它以對預設 Codex 模型（或 `--model`）的一次呼叫來評估每個角色的規模，並印出每個角色建議的模型與 effort，不寫入任何東西。`--apply` 會透過與 `set` 相同的寫入來寫入每一項建議，略過並指名模型與 effort 已經相符的角色。請見[自動指派](/zh-tw/guides/integrations/#自動指派)。
 
-`ocx agent injection suggest <work>` 對委派模型做同樣的事：它評估所描述工作的規模，從委派選擇器的清單中建議最便宜且足夠的模型與 effort，除非給了 `--apply`，否則不寫入任何東西；給了 `--apply` 就透過與 `injection set` 相同的寫入來儲存。請見[委派模型與 effort](/zh-tw/guides/sub-agent-surface/#delegation-model-and-effort)。
+`ocx agent injection suggest <work>` 對委派模型做同樣的事：它評估所描述工作的規模，從委派選擇器的清單中建議最便宜且足夠的模型與 effort，除非給了 `--apply`，否則不寫入任何東西；給了 `--apply` 就透過與 `injection set` 相同的寫入來儲存。請見[委派模型與 effort](/zh-tw/guides/sub-agent-surface/#委託模型與推理強度)。
 
 `ocx agent sidecar web --list` 與 `ocx agent sidecar vision --list` 會印出伺服器目前為每個
 sidecar 提供的模型——恰好是儀表板選擇器顯示的那個經過篩選的集合（選擇器可見列，加上有登入

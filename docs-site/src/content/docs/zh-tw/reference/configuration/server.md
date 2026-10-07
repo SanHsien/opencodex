@@ -26,8 +26,8 @@ description: 監聽器、遠端存取、許可金鑰、逾時、儲存、sidecar
 | `metricsExport.enabled?` | `boolean` | `false` | 在已驗證的 `GET /api/metrics` 啟用程序本機的彙總請求指標。需要重新啟動；停用時路徑回傳 404，且不會啟動任何匯出活動。 |
 | `codexAutoStart?` | `boolean` | `true` | 讓 Codex shim 在啟動 Codex 前執行 `ocx ensure`。False 使 ensure 為 no-op。 |
 | `codexShimAutoRestore?` | `boolean` | `true` | 在完成的外部 Codex 更新取代已安裝的 shim 後還原它。環境退出：`OPENCODEX_CODEX_SHIM_AUTO_RESTORE=0`。 |
-| `codexDesktopAuthless?` | `boolean` | `false` | 在回送綁定上選擇加入無驗證的 Codex Desktop 路由：注入專屬的 `opencodex` 供應商並設定 `requires_openai_auth = false`，讓 Desktop 不需要 ChatGPT 登入即可開啟。在非回送綁定上會被忽略。`ocx system settings --desktop-authless on`。詳見 [Codex 整合](/zh-tw/guides/codex-integration/#authless-codex-desktop-opt-in)。 |
-| `codexClientCompaction?` | `boolean` | `false` | 在已驗證的回送綁定上選擇加入 Codex 用戶端壓縮。使用專屬的 `opencodex` 供應商身分並設定 `requires_openai_auth = true`，防止新的路由壓縮儲存 OpenCodeX 擁有的 `ocx1:` 狀態。兩者都啟用時，`codexDesktopAuthless` 優先，並維持 `requires_openai_auth = false`。V2 子代理路由不受影響。`ocx system settings --client-compaction on`。詳見 [Codex 整合](/zh-tw/guides/codex-integration/#client-side-compaction-opt-in)。 |
+| `codexDesktopAuthless?` | `boolean` | `false` | 在回送綁定上選擇加入無驗證的 Codex Desktop 路由：注入專屬的 `opencodex` 供應商並設定 `requires_openai_auth = false`，讓 Desktop 不需要 ChatGPT 登入即可開啟。在非回送綁定上會被忽略。`ocx system settings --desktop-authless on`。詳見 [Codex 整合](/zh-tw/guides/codex-integration/#免登入-codex-desktop選擇加入)。 |
+| `codexClientCompaction?` | `boolean` | `false` | 在已驗證的回送綁定上選擇加入 Codex 用戶端壓縮。使用專屬的 `opencodex` 供應商身分並設定 `requires_openai_auth = true`，防止新的路由壓縮儲存 OpenCodeX 擁有的 `ocx1:` 狀態。兩者都啟用時，`codexDesktopAuthless` 優先，並維持 `requires_openai_auth = false`。V2 子代理路由不受影響。`ocx system settings --client-compaction on`。詳見 [Codex 整合](/zh-tw/guides/codex-integration/#用戶端側壓縮選擇加入)。 |
 | `resetCreditAutoRedeem?` | `{ enabled?: boolean; leadTimeMinutes?: number }` | 關閉 | 選擇加入：在主要 Codex 帳號最快到期的 reset credit 過期前 `leadTimeMinutes` 分鐘（1–60，預設 10）兌換它。每次嘗試都會先重新讀取上游的 credit 清單，若該 credit 已消失（例如已被手動兌換）則跳過；呼叫前會先把 `redeem_request_id` 記錄到 `$OPENCODEX_HOME/reset-credit-auto-redeem.json`，因此當機後重播的是同一個冪等請求，而不會消耗第二個 credit。共享這個設定目錄的多個伺服器會協調保留與結算，避免一個行程覆寫另一個行程的請求紀錄。日誌只帶有經雜湊的帳號金鑰。 |
 | `syncResumeHistory?` | `boolean` | `true` | 可逆的 Codex App 歷史相容性。原始中繼資料由 `ocx stop` / `ocx restore` 備份並還原。 |
 | `shadowCallIntercept?` | `{ enabled?: boolean; model?: string; sourceModels?: string[] }` | off | 將識別的 Codex helper/shadow call 重定向到所選模型，並保留為請求設定的 reasoning effort。預設來源前綴為 `gpt-6-luna`, `gpt-5.6-luna`；0.144.x 及更舊的客戶端使用 `gpt-5.4-mini`，可透過 `sourceModels` 恢復。 |
@@ -470,7 +470,7 @@ Chat Completions 或 Messages 請求可能如何送達供應商。每個值預�
 
 `ocx api policy` 會顯示已解析的值，並透過執行中的代理變更它們
 （`--unrepresentable <legacy|reject>`、`--rollout <switch>=<on|off>`、`--messages <on|off>`
-對應 [`apiSurfaces`](#api-surfaces-apisurfaces)）。只有在給定設定旗標時才會寫入。儀表板的
+對應 [`apiSurfaces`](#api-surfacesapisurfaces)）。只有在給定設定旗標時才會寫入。儀表板的
 API 頁面與 `PATCH /api/protocols/settings` 使用相同的驗證。
 
 ## Claude Code（`claudeCode`）
@@ -660,7 +660,7 @@ socket：管理是發布在 443 上、僅限迴路的 ingress，資料則是發�
 拒絕，而不是去宣告一個另一台機器用不到的位址。
 
 一個同時服務自己本機客戶端的 hub，也會設定
-[`unauthenticatedLoopbackListener`](#local-clients-that-cannot-receive-the-token)。它不帶連接埠的
+[`unauthenticatedLoopbackListener`](#無法接收-token-的本機用戶端)。它不帶連接埠的
 companion 形式，正是讓 hub 成為單一連接埠部署的原因，而它在迴路或萬用 `hostname` 上會被拒絕，
 因為公開的 listener 已經佔用了 `127.0.0.1:<連接埠>`。
 
@@ -668,6 +668,6 @@ companion 形式，正是讓 hub 成為單一連接埠部署的原因，而它�
 
 `codexNativeSteering` 與 `codexNativeInjection` 啟用兩條獨立、預設關閉的原生 WebSocket
 控制路徑。詳見規範指南中的
-[支援的 steering 路由與設定](/zh-tw/guides/codex-integration/#steering-continuation-settings)、
-[型別化結果與核准的續傳](/zh-tw/guides/codex-integration/#rich-tool-results-and-explicit-approvals-after-response-completion)，
-以及[確認期限與保留的內容](/zh-tw/guides/codex-integration/#steering-confirmation-deadlines-and-retained-context)。
+[支援的 steering 路由與設定](/zh-tw/guides/codex-integration/#steering-續傳設定)、
+[型別化結果與核准的續傳](/zh-tw/guides/codex-integration/#回應完成後的豐富工具結果與明確核准)，
+以及[確認期限與保留的內容](/zh-tw/guides/codex-integration/#steering-確認期限與保留的-context)。

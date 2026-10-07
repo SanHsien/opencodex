@@ -57,15 +57,10 @@ const t = <K extends keyof typeof fr>(en: K, ko: string, zh: string, ru: string,
 	locale === 'fr' ? fr[en] : locale === 'ko' ? ko : locale === 'zh-cn' ? zh : locale === 'zh-tw' ? zhTW : locale === 'ru' ? ru : locale === 'ja' ? ja : locale === 'tr' ? tr : en;
 
 type LanguageOption = { code: 'root' | 'fr' | 'ko' | 'zh-cn' | 'zh-tw' | 'ru' | 'ja' | 'tr'; label: string };
+// Fork policy: only English and Traditional Chinese exist (docs/fork/DECISIONS.md).
 const languages: LanguageOption[] = [
 	{ code: 'root', label: 'English' },
-	{ code: 'fr', label: 'Français' },
-	{ code: 'ko', label: '한국어' },
-	{ code: 'zh-cn', label: '简体中文' },
 	{ code: 'zh-tw', label: '繁體中文' },
-	{ code: 'ru', label: 'Русский' },
-	{ code: 'ja', label: '日本語' },
-	{ code: 'tr', label: 'Türkçe' },
 ];
 const currentLanguage = languages.find(({ code }) => code === (locale ?? 'root')) ?? languages[0];
 

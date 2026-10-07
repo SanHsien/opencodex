@@ -408,9 +408,9 @@ provider 名稱。
 
 `PATCH /api/protocols/settings` 是這裡唯一的寫入端點，也支援 API 頁面上的 Messages 切換開關。
 CLI 透過 `ocx api protocols`、`ocx api explain` 與 `ocx api policy` 驅動這些路由。分階段開關
-預設關閉（[協定路徑](/zh-tw/guides/protocol-paths/#rollout-switches)）；Messages 設定在升級與
+預設關閉（[協定路徑](/zh-tw/guides/protocol-paths/#分階段開關)）；Messages 設定在升級與
 降級之間如何與 `claudeCode.enabled` 互動，請見
-[API surfaces](/zh-tw/reference/configuration/server/#api-surfaces-apisurfaces)。
+[API surfaces](/zh-tw/reference/configuration/server/#api-surfacesapisurfaces)。
 
 ### 供應商
 

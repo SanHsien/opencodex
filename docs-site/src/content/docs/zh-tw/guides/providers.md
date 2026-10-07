@@ -30,10 +30,10 @@ description: opencodex 進行身分驗證並與 LLM 供應商通訊的所有方�
 Luna Reserve 相容性是 canonical OpenAI forward 路徑上的 ChatGPT 帳號能力，不是 OpenAI API-key 的權益。
 它的手動 stored-main selector 需要有效的本機 authless Desktop 模式，以及目前 credential 綁定的上游
 權限；單靠 catalog entry 本身不能授權請求。設定、重新啟動順序、授權需求與不受支援的輔助工具，請見
-[Luna Reserve alongside routed models](/zh-tw/reference/cli/providers-accounts/#luna-reserve-alongside-routed-models)。
+[Luna Reserve alongside routed models](/zh-tw/reference/cli/providers-accounts/#luna-reserve-與路由模型並存)。
 
 新增一個 quota 已用盡的帳號，並完成其延後驗證，請見
-[Codex account warmup](/zh-tw/guides/codex-integration/#codex-account-warmup)。
+[Codex account warmup](/zh-tw/guides/codex-integration/#codex-帳號預熱)。
 
 ### Providers 總覽的池容量
 
@@ -979,7 +979,7 @@ Antigravity／Cloud Code Assist 模式）、`azure` / `azure-openai`、`kiro`、
 這類沒有對應實作的 proprietary API，不會被直接支援。
 
 Provider 設定決定 adapter；上游 transport 的選擇是另一回事。符合資格的 Responses 流量可以透過
-[明確的 proxy 路由](/zh-tw/reference/proxy-formats/#json-and-sse-output) 使用 WSS。無效或不支援的
+[明確的 proxy 路由](/zh-tw/reference/proxy-formats/#json-與-sse-輸出) 使用 WSS。無效或不支援的
 WebSocket proxy 設定會退回 HTTP/SSE，走的是 Bun 的 HTTP proxy 規則，而不是 WSS 專用的 `ALL_PROXY`
 fallback。
 
@@ -1083,7 +1083,7 @@ provider 層級目標作為 fallback。凡是能解析出來的都會被套用�
 
 這些欄位可透過設定檔、`PATCH /api/providers?name=<provider>`，以及儀表板的 raw JSON provider
 editor 設定；沒有專屬的表單控制項。canonical 的 `openai` provider 會拒絕這些欄位。逐欄位規則請見
-[provider 設定參考](/zh-tw/reference/configuration/providers/#auto-review-approval-model-selection)。
+[provider 設定參考](/zh-tw/reference/configuration/providers/#自動審查核准模型選擇)。
 
 ## Providers 總覽的速率限制
 

@@ -49,7 +49,7 @@ OpenCodex 只會辨識帶有非空白 `id`、`name` 與 `namespace`，以及受�
 
 格式錯誤、空白、不透明或不完整的信封仍會驗證失敗。真正的工具結果仍保有其必要的 `call_id`；
 原生透傳與 compaction 保留其既有的原始輸入處理方式。詳見
-[adapter 合約](/zh-tw/reference/adapters/#external-task-input-on-translated-responses-routes)。
+[adapter 合約](/zh-tw/reference/adapters/#翻譯後-responses-路由上的外部任務輸入)。
 
 ## 運作原理
 
@@ -161,7 +161,7 @@ API-key 驗證、另一個供應商憑證，或另一個 Codex 帳號。只有 `
 文字是由模型回傳復原的，所以不保證逐位元組保真。它會拒絕一般／API-key 的 proxy 呼叫者。在任何
 原生嘗試之前失敗的復原會回傳 `unreadable_encrypted_agent_task`；在原生嘗試已經失敗之後，會保留
 它們最後的錯誤。完整的信任邊界與設定請見
-[Agent 設定：加密的 v2 任務復原](/zh-tw/reference/configuration/agents/#encrypted-v2-task-recovery)。
+[Agent 設定：加密的 v2 任務復原](/zh-tw/reference/configuration/agents/#加密-v2-任務復原)。
 
 同一套復原機制也涵蓋一個從原生 ChatGPT 模型切換到路由模型的現有執行緒。這種執行緒會在之後的每
 一回合重播由後端鑄造的加密 agent 訊息，所以在 [#4089](https://github.com/lidge-jun/opencodex/issues/4089)
@@ -315,4 +315,4 @@ API-key 供應商、自訂相容閘道器、指向其他供應商的路由，以
 `followup_task`，且不會新增任何復原請求。HTTPS 仍維持加密，但任務文字可能會被保留在 Codex
 歷史、路由供應商的請求，以及本機的回應／除錯狀態中。既有的密文不受影響，且這個選項依賴未
 文件化的 ChatGPT 與 Codex 行為。詳見
-[Agent 設定：明文 v2 agent 訊息](/zh-tw/reference/configuration/agents/#plaintext-v2-agent-messages)。
+[Agent 設定：明文 v2 agent 訊息](/zh-tw/reference/configuration/agents/#明文-v2-代理訊息)。

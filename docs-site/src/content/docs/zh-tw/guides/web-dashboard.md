@@ -241,7 +241,7 @@ Pool 模式會在主要與已新增的 Codex 帳號之間選擇；Direct 只使�
 
 Providers overview 會另外把 Pool 模式的用量彙總成一個僅供顯示的加權容量估計值，並列出目前生效
 帳號的原始配額與下一次容量恢復時間。可見欄位、覆蓋不完整的意義，以及路由邊界，請見
-[Providers overview 的 pool 容量](/zh-tw/guides/providers/#providers-overview-pool-capacity)。
+[Providers overview 的 pool 容量](/zh-tw/guides/providers/#providers-總覽的池容量)。
 
 ## 星標是你的決定，不是 agent 的
 

@@ -66,7 +66,7 @@ ocx start --socks5-off
 無論是否有目錄備份，此規則皆適用；原始備份與使用者儲存的歷史模型選擇設定保持不變。
 
 當已儲存的 journal 缺少對應的注入雜湊時，還原會回報失敗，而不是取代已變更的設定檔。目前的檔案
-與 journal 仍可供檢視；詳見[沒有注入雜湊時的復原](/zh-tw/guides/codex-integration/#recovery-without-injection-hashes)。
+與 journal 仍可供檢視；詳見[沒有注入雜湊時的復原](/zh-tw/guides/codex-integration/#沒有注入雜湊時的復原)。
 
 對任一拼法傳入 `back` 可在不變更代理生命週期的情況下，將普通 `codex` 重新指向已在執行的代理：
 

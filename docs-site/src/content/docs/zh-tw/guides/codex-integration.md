@@ -456,7 +456,7 @@ requires_openai_auth = false
 - 新執行緒會被標記為 `opencodex` 供應商，與非 loopback 繫結一樣，歷史處理方式也相同。
 - 會依原生限定允許清單過濾模型選擇器的 Desktop 版本，在這個模式下也可能顯示空的或 `Custom` 選擇器；
   請求仍會使用已設定的模型。請依照
-  [Desktop 遠端伺服器](/zh-tw/guides/codex-app-models/#desktop-remote-servers)
+  [Desktop 遠端伺服器](/zh-tw/guides/codex-app-models/#desktop-remote-伺服器)
   所述，在 `config.toml` 中設定 `model = "<provider>/<id>"`。
 
 這只改變 Desktop 的登入關卡。非 loopback 繫結無論開關為何都會維持 `requires_openai_auth = true`
@@ -646,7 +646,7 @@ OpenCodex 直接注入路由，請先將 Codex 切回內建 `openai` provider，
    `tool_search_output` 項目型別與呼叫 id。OpenCodex 會把兩者都保留在歷史中，所以模型應該會看到
    已完成的搜尋，而不是永遠重複發出它。
 
-明確的 wire 映射請見[解析器與橋接](/zh-tw/reference/architecture/#the-parser)。沒有任何供應商層級的設定
+明確的 wire 映射請見[解析器與橋接](/zh-tw/reference/architecture/#解析器)。沒有任何供應商層級的設定
 可以補上一個缺失的 `tool_search` 宣告；一般的 code-mode 探索仍是一條獨立的路徑。
 
 ### 快取讀取診斷

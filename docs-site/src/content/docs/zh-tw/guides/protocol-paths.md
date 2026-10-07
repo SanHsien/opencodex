@@ -81,7 +81,7 @@ opencodex 提供三種用戶端 API：**Responses**（`/v1/responses`）、**Cha
 | `shadowPlan` | 每個 Chat 或 Messages 請求結束時,會將預覽本應預測的方案與請求實際採用的路徑比較;不一致時會在日誌列的路徑紀錄中加上 `planMismatch: true`。不會送出第二個請求。 |
 
 透過 CLI 或編輯 `config.json` 中的 `protocols` 來變更它們
-（[參考文件](/zh-tw/reference/configuration/server/#protocol-paths-protocols)）：
+（[參考文件](/zh-tw/reference/configuration/server/#protocol-pathsprotocols)）：
 
 ```bash
 ocx api policy                                   # 顯示目前政策；不會改變任何內容

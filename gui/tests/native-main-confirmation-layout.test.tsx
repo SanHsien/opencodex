@@ -8,7 +8,7 @@ const home = `/srv/${"long-home-segment/".repeat(12)}.codex`;
 const profile = { id: "00000000-0000-4000-8000-000000000001", label: "example-profile", identityHint: "native:11111111", state: "inactive" as const };
 const noop = () => {};
 const props: NativeMainProfilesViewProps = {
-  t: nativeMainTranslator("de"), id: "fixture", open: true, busy: false, blocked: false,
+  t: nativeMainTranslator("en"), id: "fixture", open: true, busy: false, blocked: false,
   snapshot: {
     list: { effectiveCodexHome: home, activeProfileId: null, profiles: [profile] },
     doctor: { effectiveCodexHome: home, activeProfileId: null, supported: true,

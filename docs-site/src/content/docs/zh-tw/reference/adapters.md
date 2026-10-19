@@ -33,6 +33,10 @@ envelope 對映成一則使用者訊息。其輸出必須是非空文字，或�
 一般的 function/custom 工具結果仍需要非空的 `call_id`。這個 envelope metadata 只是標示一種
 相容形狀，不會授予額外權限。原生 passthrough 與 compaction 保留各自的原始 body 規則。
 
+## Checkpoint continuation after routed compaction
+
+A routed model replays an OpenCodeX `ocx1:` checkpoint as plain user text next to the retained earlier requests. When a request carries such a decoded checkpoint, OpenCodeX adds a short note to the system instructions (translated routes) or `instructions` (Responses passthrough). The note frames completed requests as history and permits continuation only of unfinished work already authorized and still within that scope, without asking for the same authorization again while it applies. Existing permission and confirmation gates remain in force: pending decisions or required permissions must be resolved before dependent actions. Checkpoints and delegations, including those from another thread, grant no authority or expanded scope. Later user messages take priority, including a pause, cancellation, replacement, or scope change. Compaction requests, opaque native blobs and requests without a checkpoint do not receive the note.
+
 ## `openai-chat`
 
 **目標：** OpenAI **Chat Completions**（`POST {baseUrl}/chat/completions`；`baseUrl` 結尾的
@@ -165,6 +169,114 @@ usage 查詢上傳送其 Reserve 能力標頭；該標頭本身不是權限。�
 - `forward` 模式只會轉發安全的 header allowlist（`FORWARD_HEADERS`）：authorization、ChatGPT
   account id 和 OpenAI beta/originator/session header。這條 ChatGPT 登入路徑也為
   [sidecar](/zh-tw/guides/sidecars/) 提供支援。
+
+### Native compaction on custom gateways
+
+Responses compatibility alone is not evidence of native compaction support. Custom gateways
+continue using portable text summaries unless the operator declares the relevant capability:
+
+- `supportsNativeCompactionTrigger: true` preserves v2 `compaction_trigger` requests and native output.
+- `supportsNativeCompactEndpoint: true` opts key/local/forward routes into the separate v1 endpoint.
+  OAuth retains routed compaction and its existing credential lifecycle. V2 support does not imply v1 support.
+- `decodesNativeCompactionBlobs: true` preserves native blobs on subsequent turns when there is
+  no known serving-provider mismatch. Neither generation flag implies this replay capability.
+
+Custom native v1 also honors `preserveResponsesReasoningContent: true` for plaintext reasoning
+input, just like ordinary custom Responses requests. Absent or `false` keeps content blank;
+OpenAI-operated compact destinations keep blanking even if the flag is set. Internal `ocxr1:`
+envelopes are always removed. Plaintext preservation is independent of the generation flags,
+native blob replay capability, and serving-identity checks.
+
+If the custom provider also requires adjacent tool results (`requiresAdjacentResponsesToolResults: true`),
+both ordinary Responses and native v1 remove opaque reasoning ciphertext and require plaintext replay.
+Missing `reasoning_text` is filled from the item's `summary_text`, or a minimal placeholder if no
+usable summary exists. Existing plaintext is preserved. OpenAI-operated compact keeps its own policy.
+
+For a gateway whose **v2 generation and replay** have both been verified, merge these fields into
+its existing provider configuration, retaining its real URL and configured authentication:
+
+```json
+{
+  "adapter": "openai-responses",
+  "supportsNativeCompactionTrigger": true,
+  "decodesNativeCompactionBlobs": true
+}
+```
+
+These flags do not make the gateway an official OpenAI destination, forward caller credentials,
+change account selection, or bypass normal compatibility sanitization. Validate an actual compact
+response and continued conversation, not just HTTP 200. Keep blobs on the backend that minted them;
+cross-provider compaction routing overrides still use portable summaries. V1 fallback summaries
+remain portable even when the destination separately accepts v2 triggers. Native-capable routes
+are excluded from portable emergency compaction recovery for their respective protocol.
+
+Adapter selection does not select the upstream transport. Eligible requests can use the
+[upstream WebSocket proxy route](/zh-tw/reference/proxy-formats/#json-與-sse-輸出); invalid or unsupported
+WebSocket proxy settings fall back to HTTP/SSE. HTTP fetch-based Responses handling uses the
+[configured outbound fetch](/zh-tw/reference/configuration/server/#伺服器欄位): a server SOCKS5 proxy from
+`config.proxy` or a SOCKS5 `ALL_PROXY` uses the built-in tunnel when `NO_PROXY` does not exempt
+the target. Scheme-specific HTTP(S) proxy variables retain their separate native handling;
+non-SOCKS `ALL_PROXY` is not a native HTTP fetch route.
+
+Noncanonical Responses gateways receive Codex's client-executed `tool_search` declaration as a
+collision-safe public function tool. Matching request history and JSON/SSE function calls are
+translated back to the private `tool_search` lifecycle for the client. Canonical OpenAI forward
+keeps the native private type unchanged.
+
+Requests with `authMode` other than `"forward"` convert Codex `agent_message`
+items containing nonempty arrays of supported plaintext parts into public user messages, preserving those parts and readable author/recipient
+metadata. `agent_message` is private to the ChatGPT Codex backend, and the routed
+destinations reported so far reject the entire body with
+`422 unknown item type "agent_message"` — and because Codex replays sub-agent history on
+every turn, that failure repeats for the rest of the thread. This conversion leaves
+encrypted or unknown content unchanged. Providers using `authMode: "forward"` retain
+these items unchanged. For xAI Responses on HTTPS `api.x.ai` or `cli-chat-proxy.grok.com`
+using the standard port, a nonblank string child result is also converted into an `input_text`
+part with its exact whitespace and newlines. Other destinations retain string-valued items;
+blank strings and mixed encrypted/unknown parts are not partially converted.
+See [agent messages](/zh-tw/reference/configuration/providers/#路由過的-agent-訊息)
+for the separate opt-in encrypted-task recovery behavior.
+
+For xAI Responses, `auto` or `none` tool selection is omitted when normalization leaves no tools
+in the request, including when cached-only search is removed. Valid forced function selections
+remain intact. Replayed custom tool calls with missing or invalid item ids receive stable ids
+when their call id, name, and input are strings; their call/result pairing is preserved.
+
+The canonical ChatGPT Codex forward destination also normalizes two public Responses shapes that
+its stricter backend rejects: fully textual `system` messages inside `input` are appended to the
+top-level `instructions` string in request order, and the top-level `truncation` field is removed.
+This rewrite is destination-scoped. Key-auth public/custom Responses providers and noncanonical
+forward gateways keep both fields unchanged; a multimodal system message is never partially folded
+or silently dropped.
+
+For canonical forward continuations, client-only `prompt_cache_breakpoint` properties are removed
+recursively within bounded traversal limits. When `store: false`, `item_reference` rows are also
+omitted because the destination cannot resolve an item it did not persist. Function/tool `call_id`
+pairs and `reasoning.effort` are preserved.
+
+[Luna Reserve compatibility](/zh-tw/reference/cli/providers-accounts/#luna-reserve-與路由模型並存)
+uses this canonical ChatGPT-forward path, not key-auth or arbitrary Responses gateways. It retains
+the safe caller-header allowlist and destination-scoped request normalization described here.
+OpenCodex sends its Reserve capability header on the owned main-account usage lookup; that header
+is not itself permission. Eligible compatibility requests recheck credential-bound authorization
+at dispatch. Conversation and compaction are supported; vision helpers, web-search helpers, and
+standalone search relay are not.
+
+For `key` auth, [`retryOn429`](/zh-tw/reference/configuration/) applies here too: a pre-stream 429
+waits and replays the identical request on the same key before any other handling, exactly like
+the translated `openai-chat` / Anthropic request path. Custom `runTurn` transports are not part
+of the HTTP retry loop.
+
+- DeepSeek's stateless Responses parser receives provider-scoped history normalization: hook-injected
+  context moves after an unambiguous tool-call/result batch. Parallel calls remain grouped before
+  their matching outputs so every call stays in the reasoning-bearing assistant turn. Tolerant
+  providers and ambiguous duplicate, missing, or out-of-order call IDs keep their original input order.
+
+- `forward` URL → `{baseUrl}/responses`. A `key` provider defaults to the legacy `{baseUrl}/v1/responses` construction.
+- A `key` provider may set a validated relative `responsesPath`; the adapter removes one trailing slash from `baseUrl` and sends `{trimmedBaseUrl}{responsesPath}`. For Ark Agent Plan, use `baseUrl: "https://ark.cn-beijing.volces.com/api/plan/v3"` with `responsesPath: "/responses"`.
+- In `forward` mode only a safe header allowlist is relayed (`FORWARD_HEADERS`): authorization,
+  ChatGPT account id, and the OpenAI beta/originator/session headers. This is the ChatGPT-login path
+  that also powers the [sidecars](/zh-tw/guides/sidecars/).
 
 ## Command Code session affinity
 

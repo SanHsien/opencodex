@@ -1,6 +1,8 @@
 import type { KiroOAuthMetadata } from "../oauth/types";
+import type { NativeReasoningOwner } from "../responses/reasoning-replay-cache";
 import type { OcxTool, OcxToolChoice } from "./tools";
 import type { TierDecision, TierObservationContext } from "./provider";
+import type { TranslatorBudget } from "../lib/translator-budget";
 
 /** Exact provider/credential namespace for process-local reasoning replay. */
 export interface OcxReasoningReplayIdentity {
@@ -57,6 +59,20 @@ export interface OcxParsedRequest {
   stream: boolean;
   options: OcxRequestOptions;
   _rawBody?: unknown;
+  /** Claude replay tags, retained only until each route binding verifies them. */
+  _nativeReasoningReplay?: ReadonlyMap<string, string>;
+  _nativeReasoningBoundOwner?: NativeReasoningOwner;
+  _nativeReasoningMint?: { owner?: NativeReasoningOwner };
+  /**
+   * The Claude client's typed Anthropic web tools, as declared. Only the anthropic adapter reads
+   * them, and only for api.anthropic.com; every other destination never sees them.
+   */
+  _anthropicServerTools?: readonly Record<string, unknown>[];
+  /**
+   * Completed server-tool exchanges from the Claude client's history, keyed by the block that
+   * followed them (`call:<tool_use id>` / `text:<text>`). Same audience as `_anthropicServerTools`.
+   */
+  _anthropicServerReplay?: ReadonlyMap<string, readonly Record<string, unknown>[]>;
   /**
    * Boundary between replayed history and this turn's newly appended input. Usually the
    * items the proxy restored from local previous_response_id state; also set when the
@@ -87,11 +103,17 @@ export interface OcxParsedRequest {
   _cursorClientThreadId?: string;
   /** Conversation/provider/account/model-bound namespace for reasoning replay state. */
   _reasoningReplayScope?: OcxReasoningReplayScopeRef;
+  /** Trusted configuration snapshot; never read from the client's request body. */
+  _nativeReasoningRetention?: Readonly<{ modelSwitch: boolean; accountSwitch: boolean }>;
   /**
    * Set by bindRouteReasoningReplayScope after a proven serving-identity change, or by
    * prepareOpaqueBlobRecovery after an authoritative rejection; consumers strip replayed blobs.
    */
   _stripReasoningEncryptedContent?: boolean;
+  /** Native compaction remains nonportable even when reasoning-only retention is enabled. */
+  _stripNativeCompactionEncryptedContent?: boolean;
+  /** Retention kept reasoning ciphertext across a model/account change; arms streamed rejection recovery. */
+  _nativeReasoningRetainedAcrossRoute?: boolean;
   /**
    * Set when replayed reasoning item ids name items in a store this destination cannot read: by
    * prepareOpaqueBlobRecovery before the one recovery rebuild, and by bindRouteReasoningReplayScope
@@ -145,6 +167,8 @@ export interface OcxParsedRequest {
    * (see src/responses/compaction.ts).
    */
   _compactionRequest?: boolean;
+  /** Request-owned encoding of readable routed v2 retention; never used for native ciphertext. */
+  _compactionRetention?: { encode(summary: string): string; commit(): void };
   /** Manual compaction moved to another provider: summarize portably even on a canonical ChatGPT target. */
   _portableCompaction?: boolean;
   /**
@@ -159,6 +183,20 @@ export interface OcxParsedRequest {
    * provider-private continuation caches again on every later turn.
    */
   _contextCompactionBoundary?: boolean;
+  /**
+   * Core-owned registration slot for the optional advisor subsystem (src/advisor). Set per request
+   * by the sidecar planner, never at module load: the core Responses path only sees this
+   * structural shape, so an advisor-disabled install imports no advisor module. When present, the
+   * adapter delivery wraps the worker's event stream with it — the guard holds synthetic
+   * `advisor` tool calls, consults the configured expert model, and re-dispatches the worker.
+   */
+  _advisorGuard?: (options: {
+    parsed: OcxParsedRequest;
+    translatorBudget?: TranslatorBudget;
+    firstEvents: AsyncIterable<AdapterEvent>;
+    /** One bounded worker continuation re-dispatch (same machinery as the terminal guard). */
+    continuation: (parsed: OcxParsedRequest) => AsyncIterable<AdapterEvent> | Promise<AsyncIterable<AdapterEvent>>;
+  }) => AsyncGenerator<AdapterEvent>;
 }
 
 export interface OcxContext {
@@ -381,9 +419,14 @@ export interface OcxProviderContinuationState {
   [provider: string]: Record<string, unknown> | undefined;
 }
 
+/** One Anthropic server-side call as the API returned it: `server_tool_use` + its `*_tool_result`. */
+export interface AnthropicServerBlocks { use: Record<string, unknown>; result: Record<string, unknown> }
+
 export type AdapterEvent =
   | { type: "heartbeat"; replayUnsafe?: true; preflightReady?: true }
-  | { type: "text_delta"; text: string; phase?: OcxMessagePhase }
+  | { type: "text_delta"; text: string; phase?: OcxMessagePhase;
+      /** Complete documented Anthropic progress block: text remains signed thinking on replay. */
+      anthropicThinkingSignature?: string }
   | { type: "thinking_delta"; thinking: string }
   // Anthropic extended-thinking round-trip: signature_delta for the current thinking block, and
   // opaque redacted_thinking blocks. Both must be replayed verbatim or tool-use turns 400.
@@ -406,7 +449,11 @@ export type AdapterEvent =
   // output_item.added(in_progress) and end → the matching output_item.done(completed|failed) under
   // the SAME output index, so the activity animates instead of flashing completed instantly.
   | { type: "web_search_call_begin"; id: string }
-  | { type: "web_search_call_end"; id: string; queries: string[]; status?: "completed" | "failed"; sources?: OcxUrlCitation[] }
+  | {
+      type: "web_search_call_end"; id: string; queries: string[]; status?: "completed" | "failed"; sources?: OcxUrlCitation[];
+      /** Anthropic's server-side call (adapters/anthropic.ts): its `server_tool_use` and result block, verbatim. */
+      anthropic?: AnthropicServerBlocks;
+    }
   | {
       type: "done";
       usage?: OcxUsage;
@@ -436,7 +483,14 @@ export type AdapterEvent =
       /** Responses error type and code when the adapter has a structured provider failure. */
       errorType?: string;
       code?: string;
+      /** Proxy-internal permission to consider API-key recovery; never serialized. */
+      apiKeyRecovery?: true;
       retryable?: boolean;
+      /**
+       * Proxy-internal, never serialized: the upstream failed the turn before producing text or a
+       * tool call, so the opt-in empty-completion guard may replay the identical request once.
+       */
+      replaySafeBeforeOutput?: boolean;
     };
 
 /**

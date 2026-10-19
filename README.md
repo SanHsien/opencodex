@@ -420,7 +420,7 @@ issue 只能作協調用途且不可包含漏洞細節。收到回報不等於�
 
 ## 開發
 
-從原始碼開發需要在 `PATH` 中有本機 `bun` CLI。這與已發佈 npm 套件內附、僅供已安裝 `ocx` 指令使用的 Bun 執行環境不同。
+從原始碼開發需要在 `PATH` 中有本機 `bun` CLI。已發佈的 npm 套件內附自己的 Bun 執行環境供已安裝的 `ocx` 指令使用；套件 scripts 也可能透過該內附相依解析 Bun。
 
 ```bash
 git clone https://github.com/lidge-jun/opencodex.git

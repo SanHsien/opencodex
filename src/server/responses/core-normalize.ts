@@ -1,3 +1,4 @@
+import { effectiveAzureOutputBudget } from "../../adapters/azure";
 import { sanitizeLogMetadataString } from "../../lib/redact";
 import type { RouteResult } from "../../router";
 import type { InboundWire } from "../../providers/registry";
@@ -38,6 +39,7 @@ import { isInjectionDebugEnabled } from "../../lib/debug-settings";
 import { injectionDebugLog } from "../../lib/injection-debug-log";
 import { recordAttemptRequestedEffort } from "../request-log";
 import type { ResolvedFastPolicy } from "../../providers/fastwire";
+import { applyDroidResponsesReasoningDefault } from "../droid-reasoning-default";
 import { applyXaiOauthFastModel, xaiOauthFastModelForDecision } from "../../providers/xai-fast-model";
 
 /** Preview the billed xAI lane without mutating request state or resolving credentials. */
@@ -140,9 +142,15 @@ export async function applyFinalRouteRequestNormalization(args: {
   inboundWire: InboundWire;
   inboundTransport?: "websocket";
   claudeGoAffinity?: HandleResponsesOptions["claudeGoAffinity"];
+  droidDefaultEffort?: HandleResponsesOptions["droidDefaultEffort"];
 }): Promise<void> {
   const { parsed, route, config, req, logCtx, inboundWire, inboundTransport } = args;
   const effortSelector = prepareEffortNormalization(parsed, route);
+  if (applyDroidResponsesReasoningDefault(
+    parsed._rawBody,
+    args.droidDefaultEffort,
+    { provider: route.provider, modelId: route.modelId },
+  )) parsed.options.reasoning = args.droidDefaultEffort;
 
   // Only Anthropic message routes retain the Codex-facing selector. Other providers must keep
   // their existing response.model contract even when their public and wire model ids differ.
@@ -203,6 +211,17 @@ export async function applyFinalRouteRequestNormalization(args: {
   if (preserveAnthropicResponseModel) parsed._responseModelId = responseModelId;
   logCtx.model = virtualModel?.selectedModelId ?? route.modelId;
   logCtx.provider = route.providerName;
+  logCtx.spendPoolId = route.providerName;
+  // Admission precedes adapter serialization. Reserve the same explicit output cap
+  // the final destination will send, and recompute from the caller on every fallback.
+  const rawBudget = parsed._rawBody && typeof parsed._rawBody === "object"
+    ? (parsed._rawBody as { max_output_tokens?: unknown }).max_output_tokens : undefined;
+  const outputBudget = effectiveAzureOutputBudget(route.provider,
+    route.provider.adapter === "azure" || route.provider.adapter === "azure-openai"
+      ? rawBudget : parsed.options.maxOutputTokens);
+  if (typeof outputBudget === "number" && outputBudget > 0) {
+    logCtx.spendOutputCeilingTokens = Math.trunc(outputBudget);
+  }
   logCtx.providerAdapter = route.provider.adapter;
   logCtx.routeDecision = route.routeDecision;
   logCtx.policyEligibility = route.policyEligibility;

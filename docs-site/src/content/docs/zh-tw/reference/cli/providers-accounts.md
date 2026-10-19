@@ -26,6 +26,8 @@ description: 供應商設定、憑證、配額與模型目錄指令。
 | `presets` | `--json` | 列出儀表板供應商預設。 |
 | `account-mode` | `pool`, `direct`, `--json` | 選擇池化或直接的 Codex 帳號路由。 |
 
+預設的 `add`、`remove` 與 `set-default` 修改本機設定。修改執行中的代理需加 `--live`，線上刪除還需 `--yes`。`--sync --json` 同樣會在儲存後嘗試同步；失敗時保留儲存結果，以非零狀態結束，並回傳 `needsSync: true`。`--live` 不能與 `--sync` 同用。pacing 與 snapshot/apply 操作請見[英文指南](/zh-tw/reference/cli/providers-accounts/#snapshot-edit-and-apply-with-a-baseline)。
+
 ```bash
 ocx provider list --json
 ocx provider list --jsonl        # 每個已設定的供應商輸出一行 JSON 物件
@@ -49,6 +51,118 @@ ocx models live --provider ark --json
 
 機密請一律使用 `--api-key` 或 OAuth 登入。
 :::
+
+### Local saves and live provider state
+
+Start with offline discovery: `ocx provider --help`, then the leaf's `--help`.
+`list` and `show` read local configuration; `add`, `remove`, and `set-default`
+also use local configuration unless given `--live`. Other provider management
+operations below require a running proxy. Check `ocx ready --json` and
+`ocx status --json` before live work to confirm the intended target and version.
+A local list does not establish that the proxy adopted a saved change.
+
+Local `provider add <name> --json` reports `needsSync: true`. Adding `--sync`
+actually attempts synchronization in both JSON and human output modes. Its
+receipt adds `sync: {status, ok}`; only `status: "applied"` with `ok: true` clears
+`needsSync`. No proxy (`not-running`), refused sync or failed sync returns nonzero
+while preserving the local save. Policy-skipped or catalog-only results may exit
+0 with `needsSync: true`; they are not an applied client sync.
+Catalog ownership or saved-config safety refusals leave the catalog unchanged, return exit 1,
+and show recovery guidance in human output or `sync.warning` in JSON, even if config injection succeeded.
+
+For authorized live changes:
+
+```bash
+ocx provider snapshot --json
+ocx provider add anthropic --live --json
+ocx provider set-default anthropic --live --json
+ocx provider snapshot --json
+```
+
+Live add uses the target's presets and refuses an observed existing provider
+without `--force`. The check and server upsert are not atomic: concurrent changes
+can race. Custom providers still need `--adapter` and `--base-url`. `--live`
+never falls back to a local save; combining it with `--sync` is invalid.
+Credentials belong in the supported human login or stdin flow, not CLI examples.
+
+To remove an authorized provider, use `ocx provider remove <name> --live --yes --json`.
+The server checks dependencies and applies default reassignment and account/custom-model
+cleanup. Inspect the receipt and read back the target after a write.
+
+A live receipt can be `{"success":true,"name":"example","catalogRefresh":{"status":"committed","changed":true,"degraded":false,"notices":[]}}`.
+`success` means configuration persisted; it does not by itself prove catalog
+convergence. For example, `{"success":true,"name":"example","catalogRefresh":{"status":"skipped","reason":"busy","retryable":true}}`
+returns exit 1 even though the save succeeded. Failed refresh, or skips for
+`stale`, `refused` and `catalog-unavailable`, also return nonzero. Preserve degraded
+notices. Null, absent or `not-requested` refresh can exit 0 without a client sync.
+Read back before recovery; do not repeat a persisted write to repair convergence.
+Errors use safe prose on stderr, including in JSON mode, rather than a JSON error envelope.
+
+`provider test` is separate: it checks upstream model discovery connectivity. A failed connection exits 1; success and a static catalog with no applicable discovery endpoint exit 0.
+`applicable: false` is an expected static-catalog result, not successful inference
+or a failed connection.
+
+### Transport settings and request pacing
+
+`provider edit` is already live. Use `--upstream-http-version http1.1` to pin that
+protocol, or `--upstream-http-version -` to clear it. `--fast on|off` toggles Fast;
+`--context-window N` sets a positive provider override and `--context-window -`
+clears it. Omitted settings stay unchanged; zero is not a clear operation.
+
+```bash
+ocx provider pacing anthropic --json
+ocx provider pacing anthropic --enabled on --rpm 30 --min-interval-ms 1000 --max-concurrent 2 --json
+ocx provider pacing anthropic --json
+```
+
+The read returns `{provider, rules, status}`. `rules: null` means unconfigured;
+`status` contains separate runtime queue/timing observations. Numeric flags alone
+do not enable an unconfigured block; `--enabled off` disables pacing. RPM accepts
+validated positive fractional values. Interval/concurrency require positive integers.
+
+Scalar edits preserve the observed model rules but PATCH replaces the whole
+block without CAS, so a concurrent edit can be overwritten. Use snapshot/apply
+below when baseline comparison is required. For a complete rules object, including
+model-specific rules, use `ocx provider pacing anthropic --file pacing.json --json`.
+A minimal rules file is `{"enabled":true,"requestsPerMinute":30}`. File mode
+replaces the entire block and cannot be combined with scalar flags. `--file -`
+reads piped stdin; the input limits below apply.
+
+### Snapshot, edit and apply with a baseline
+
+Keep the same intended host and CLI context across these steps. Target pinning
+lasts within one invocation; snapshots contain no target identity token.
+
+```bash
+ocx provider snapshot --json > providers.baseline.json
+cp providers.baseline.json providers.next.json
+```
+
+Edit the next file and review the diff while preserving the original baseline.
+Each document contains exactly `{defaultProvider, providers}`. Snapshot is a
+read-only redacted editor projection, not raw config export. Do not add secret,
+derived or unknown fields: credentials, any `headers` field and display markers
+(`hasApiKey`, `hasHeaders`, `xaiResponsesOptInState`, `initialModelSelection`) are
+not batch-editable. Raw configuration export may expose credentials and belongs
+in a human-operated terminal outside an agent session.
+
+```bash
+ocx provider apply --baseline providers.baseline.json --file providers.next.json --json
+ocx provider snapshot --json
+```
+
+Add `--yes` only for reviewed, authorized removals or renames. Batch PUT preserves
+untouched private values and uses the public baseline to detect conflicts. It
+does **not** perform single-provider DELETE's OAuth account cleanup. HTTP 409
+returns exit 5: take a fresh snapshot, review concurrent changes and rebuild the
+proposed edit. Do not replace the baseline or retry automatically. Unknown write
+outcomes require inspection, not a rollback assumption.
+
+Use regular UTF-8 JSON files or explicit piped `-`; at most one batch input can
+be stdin. Each input has a 4 MiB limit and a 30-second read deadline. The combined
+serialized `{baseline,next}` request must also fit 4 MiB. Interactive stdin,
+special files, conflicting flags, invalid fields and unconfirmed removals are
+refused before mutation with exit 2. Input errors never echo the submitted values.
 
 ## 認證
 
@@ -90,6 +204,97 @@ OAuth 重新認證會保留維運方的設定，例如模型選擇、價格覆�
 移除供應商已儲存的 OAuth 憑證。
 
 ## 帳號與金鑰池
+
+### Pool policy, account thresholds and paid-credit intent
+
+Read offline help, then the selected target's policy before changing it:
+
+```bash
+ocx account pool --help
+ocx account pool openai --json
+ocx account pool anthropic --json
+```
+
+These are live management reads. The response includes `provider`, `kind`,
+`supported`, nullable stored policy, `enabledEffective` and optional `inert`.
+Only fields named by `supported` may be written; null is not false, and an inert
+policy is not active pooling. Threshold zero and `enabled:false` are independent.
+Use `--enabled on|off`, `--threshold 0..100`, `--strategy`, `--sticky 1..100`, and
+`--quota-window` only where supported. OpenAI does not support pool enabled/window
+writes; `reset-first` is for OpenAI and generic OAuth pools (never Anthropic), `least-loaded` Kiro-only, and Anthropic windows
+are `five-hour`, `weekly`, `max-utilization`. Omitted fields stay unchanged.
+Read DTO fields such as routes, per-account concurrency or Anthropic `nativeMessages`
+do not imply a setter in this command; use only the listed CLI options. A save that
+returns `warning: "config_bookkeeping_failed"` was persisted but needs a fresh read to
+confirm the live state.
+
+```bash
+ocx account pool anthropic --threshold 80 --quota-window five-hour --json
+ocx account pool anthropic --json
+ocx account auto-switch openai status --account <id-or-alias-or-main> --json
+```
+
+An explicit `--account` selects the OpenAI per-account threshold. Actions are
+`status`, `on` (80), `off` (0), `inherit` (null), or `threshold N` (0–100).
+Without `--account`, the existing auto-switch command remains pool-scoped.
+The result is `{ok, id, autoSwitchThresholdOverride, autoSwitchThreshold}`;
+read the nullable override and observed effective value separately.
+
+Paid-credit use after included quota is a distinct policy requiring explicit
+spending intent. `ocx account credits openai <id-or-alias-or-main> on|off --json`
+targets one account. `ocx account credits openai --all on|off --json` is exclusive
+with that selector: on records current selectable IDs plus main, off clears the
+list. Receipts are `{ok, id, creditsAfterLimit}` or `{ok, all, ids}`; retain the
+actual returned IDs and read back `ocx account list openai --json`. Showing credit
+balances with `--show-codex-credits` does not enable this policy. Do not enable
+credits to recover from a failed login or quota read.
+
+### Quota activation and reset-grant observations
+
+```bash
+ocx account quota-activation openai <id-or-alias-or-main> --window fiveHour off --json
+ocx account list openai --json
+ocx account anthropic-reset-grants --json
+```
+
+Quota activation accepts `fiveHour` or `weekly`, deliberately different from
+Anthropic pool `five-hour`. It writes one account/window toggle; enabling can
+schedule quota refresh. `{ok, id, window, enabled, available}` reports policy and
+observed availability, not completed refresh. Unavailable enablement may return
+409; disabling is still allowed. It never consumes a reset grant.
+
+Anthropic reset-grants accepts an optional exact Anthropic account ID, not a
+Codex alias/main selector; omission uses the existing active/fallback choice.
+The GET may contact the upstream status service. It reports eligibility/reason,
+grant counts, nullable dates, cooldown, pending operation and journal availability.
+Empty grants are not the same as unavailable status. It never consumes a grant
+or resumes a pending spend. Consumption remains a human GUI operation.
+
+### Use remaining included quota
+
+To keep using a selected account past a proactive switching threshold or the main-account
+protection threshold, explicitly enable its remaining-quota preference:
+
+```bash
+ocx account use-remaining openai main on
+ocx account use openai main
+ocx account use-remaining openai main status --json
+ocx account use-remaining openai main off
+```
+
+Replace `main` with a unique pool-account ID or alias to target an added account.
+Enabling this disables proactive usage switching for that account. For the main login, it also
+moves both effective hard-lock thresholds to 100%, so a 95% reading can still admit a request.
+The preference persists across restarts until turned off; original threshold settings remain
+stored and resume applying when it is disabled. It does not select an account itself or override
+round-robin scheduling, manual/automatic pause, entitlement checks, reauthentication, or upstream
+cooldowns. Paid-credit permission remains a separate setting; enabling this never opts an account
+into credits or redeems a reset grant. The default-on main hard lock still refuses at 100%.
+
+`GET /api/codex-auth/accounts/use-remaining?id=<account-id>` reads the live policy.
+`PUT /api/codex-auth/accounts/use-remaining` accepts `{ id, useRemainingQuota: boolean }`.
+Both require the existing management authentication. This control is currently exposed through
+the CLI and API.
 
 ### 主帳號額度保護
 
@@ -323,6 +528,43 @@ openai: { provider, autoSwitchThreshold: number, enabled: boolean }
 generic OAuth: { provider, autoSwitchThreshold: number | null, enabled: boolean, poolEnabled: boolean | null, inert: boolean | null }
 ```
 
+### `ocx account preserve-signed-in openai [on|off|status] [--apply-to-bound] [--json]`
+
+Opt in to **use other eligible accounts first and keep the signed-in ChatGPT/Codex Desktop
+identity as fallback**. A bare invocation or `status` reads the running proxy's policy, affected
+entry IDs, manual pin and next unbound choice. `on` persists `codexPreserveSignedInAccount: true`;
+`off` restores your existing custom account order without rewriting any priorities.
+
+The reserved group includes native `__main__` and ordinary pool entries with the same selected
+ChatGPT account/workspace **and** normalized member email. Sharing a workspace alone is insufficient.
+The group follows the latest physical login observed by the proxy's native-login lifecycle;
+no incoming request credential can define it. If member/workspace evidence is unavailable,
+`identityKnown: false` reports that only main can be identified. Status obtains a fresh owned
+observation; a busy or unreadable native profile returns 503 without applying the change.
+
+All four Codex strategies prefer other identities with quota headroom, preserving custom order
+within each group. Reserved entries remain fallback when preferred tiers drain. **Fallback can
+consume the signed-in quota**, subject to existing model access, pause, cooldown, reauthentication,
+hard-lock and paid-credit consent checks. This policy does not grant paid-credit consent.
+
+Healthy existing bindings stay in place, and manual pins and exact account-qualified model routes
+override the preference. To apply it to ongoing work, run:
+
+```bash
+ocx account preserve-signed-in openai on --apply-to-bound
+```
+
+This explicitly releases only affected bindings and any affected manual pin for the **next request**;
+in-flight requests keep their captured account. Unrelated bindings and pins remain. Moving work may
+lose its warm prompt cache, and account-scoped uploads or continuation state can prevent a move.
+`codexAccountPriorityFailback` remains a separate opt-in, with its existing quota-strategy,
+positive-threshold and fresh-observation conditions; it can also move work toward a preferred group.
+
+For **never use this identity through the pool**, use `ocx account pause openai main` instead:
+linked pause excludes main and matching pool entries without changing the desktop login file.
+Only requests that reach OpenCodex are controlled. This does not unlock an already-disabled
+desktop composer or promise to fix client-side quota gating.
+
 ### `ocx account priority <provider> <account-id|alias|main> [<-100..100|first|earlier|normal|later|last|reset>] [--json]`
 
 讀取或設定某個 Codex pool account 的選擇順序：**數值越高越早使用**，預設為 `0`，範圍是
@@ -469,7 +711,7 @@ Preview 建置使用 `<OPENCODEX_HOME>/native-main-profiles`。該配置絕不�
 
 `ocx model` 是 `ocx models` 的別名。無子指令時，列出已設定供應商中靜態播種的模型。`--provider` 過濾一個已設定的供應商，而 `--json` 回傳模型中繼資料。`live` 讀取執行中的目錄；`add`、`edit`、`remove` 與 `list-custom` 管理手動目錄項目；`enable`、`disable` 與 `provider` 控制可見性；`selected` 控制供應商允許清單；`context` 控制供應商 context 上限；而 `shadow` 管理背景 shadow-call 攔截。
 
-儀表板提供的每個 per-model 操作在此皆可用，因此無頭安裝永不需要 GUI 來管理目錄。`add`、`remove` 與 `list-custom` 針對設定檔運作並透過目錄同步套用於執行中的代理；其餘與即時管理 API 通訊並需要代理正在執行（`ocx start` 或已安裝的服務）。
+`add` 與 `remove` 預設儲存至本機；`--live` 修改執行中的代理。本機 `--json` 儲存時若無代理，回傳 `sync.status: "not-attempted"`、`needsSync: true`，結束碼為 0。實際嘗試的同步失敗時保留儲存結果，以非零碼結束。`list-custom` 是本機清單。`display-name` 使用原始上游 ID，`order` 使用 picker 的 public ID。完整排列、featured 前綴與 native 順序重設限制請見[英文步驟](/zh-tw/reference/cli/providers-accounts/#display-names-and-picker-identities)。
 
 | 子指令 | 支援的旗標 | 動作 |
 | --- | --- | --- |
@@ -479,7 +721,7 @@ Preview 建置使用 `<OPENCODEX_HOME>/native-main-profiles`。該配置絕不�
 | `set-price <provider/model>` | `--input <rate>`, `--output <rate>`, `--cache-read <rate>`, `--cache-write <rate>`, `--auto`, `--json` | 以每百萬 token 的美元設定顯示價格。設定時必須提供 input/output；省略的 cache 費率會變為零。`--auto` 只移除這個模型的覆寫。 |
 | `add <provider> <modelId>` | `--display-name <name>`, `--context-window <tokens>`, `--modalities <text,image,audio>` | 註冊供應商目錄未廣告的模型。 |
 | `edit <custom-id>` | `--model-id <id>`, `--display-name <name\|->`, `--context-window <tokens\|0>`, `--modalities <text,image,audio\|->`, `--json` | 編輯自訂模型。`-` 清除欄位；`0` 清除 context window。 |
-| `remove <custom-id\|provider/modelId>` | `--yes` | 刪除自訂模型。stdin 非互動終端時需要 `--yes`。 |
+| `remove <custom-id\|provider/modelId>` | `--yes`, `--live`, `--json` | 刪除自訂模型；使用 `--live` 或 `--json` 時必須加 `--yes`。 |
 | `list-custom` | `--json` | 顯示所有自訂模型及其 `custom-id`（其他子指令所採用）。 |
 | `enable <provider/model\|native-model>` | `--native`, `--json` | 使一個模型對 Codex 可見。 |
 | `disable <provider/model\|native-model>` | `--native`, `--json` | 對 Codex 隱藏一個模型。 |
@@ -503,6 +745,87 @@ ocx models remove deepseek/deepseek-v4 --yes
 帶斜線的模型選擇器為路由（`anthropic/claude-opus-5`）；裸 id 被視為原生 OpenAI 模型，因此 `--native` 僅在需要對一個否則看起來是路由的 id 強制該判讀時才需要。
 
 `--modalities` 僅接受 `text`、`image` 與 `audio`。Codex 將該欄位解析為封閉列舉，並拒絕包含任何其他值的整個目錄，因此 `add`、`edit` 與管理 API 都會拒絕錯誤值，而非儲存目錄寫入器稍後必須剝除的內容（#759）。
+
+### Live custom models and local save outcomes
+
+Use configured provider names and raw upstream model IDs. For an authorized
+live addition or deletion, inspect the intended target and read back afterward:
+
+```bash
+ocx ready --json
+ocx status --json
+ocx models add <provider> <raw-model-id> --live --display-name 'Research model' --context-window 128000 --modalities text --json
+ocx models live --json
+```
+
+Keep the returned stored `id`. Removal uses `ocx models remove <complete-stored-id> --live --yes --json`
+or an unambiguous provider/model selector from that target. Display labels and ID
+prefixes are not selectors. There is no local fallback, revision-protected deletion
+or alternate-ID retry. `models list-custom --json` is a local list, not a live
+registry read for another target.
+
+Without `--live`, add/remove JSON returns `{action, model, needsSync, sync}`.
+No proxy means `sync: {"status":"not-attempted","ok":false}`, `needsSync: true`
+and exit 0: the local save succeeded and opportunistic sync was not attempted.
+Attempted sync failures/refusals are nonzero while preserving the save. Only
+complete applied sync clears `needsSync`; policy-skipped success may exit 0 with
+it still true. JSON removal requires `--yes` even on an interactive terminal.
+
+### Display names and picker identities
+
+```bash
+ocx models display-name <provider>/<raw-model-id> --set 'Research model' --json
+ocx models live --json
+```
+
+This command splits on the first slash and retains every remaining slash in the
+raw upstream model ID. Do not substitute an encoded public picker ID or alias.
+`--clear` is the alternative to `--set` and sends null. Label overrides do not
+change pricing or public identity. A recognized saved-but-failed-refresh result
+has `saved: true` and exit 1; inspect state before another write.
+
+```bash
+ocx models order status --json
+ocx models live --json
+ocx models order set --models '<complete-public-id-permutation>' --json
+ocx models order status --json
+```
+
+Manual ordering uses the public IDs in `pickerAvailable`, every routed candidate
+exactly once, with current featured models in their exact required leading order.
+Blank, duplicate, missing, unknown and ambiguous entries refuse. The CLI re-reads
+settings and model identities immediately before the manual PUT; changed state
+returns conflict. This is an observational check, not CAS, so read back afterward.
+It never silently drops native identities or modifies featured selection.
+
+Alternatively select `--mode alphabetical`, `--mode provider`, or `--mode most-used`.
+These presets do not prepend the manual featured prefix. Most-used reads all-time,
+all-surface usage, retains unranked candidates, and refuses incomplete history.
+Both manual and non-default modes refuse saved orders containing bare native IDs.
+If clearing that saved order is intended, use `ocx models order reset --json` or
+`ocx models order set --mode default --json` first. Do not auto-reset on refusal.
+
+Live custom and order writes include `catalogRefresh`. Only committed,
+nondegraded refresh exits 0; skipped, failed or degraded refresh returns the saved
+receipt with exit 1. Order receipt `applied` is the featured roster, not client
+convergence. Unknown outcomes require inspection, not an assumption of rollback.
+
+### Apply a preset and verify selection
+
+```bash
+ocx models preset show --provider anthropic --json
+ocx models preset apply anthropic --json
+ocx models selected anthropic --json
+ocx models new-policy --provider anthropic --json
+ocx models new-policy off --provider anthropic --json
+ocx models new-policy --provider anthropic --json
+ocx models new-arrivals --json
+```
+
+The writes require intent to change selection or discovery policy. Read back the
+selection and policy; a saved preset fallback can leave the previous selection
+intact. `preset apply <provider> --all` is the supported all-models mode; the
+dashboard's disabled custom preset does not add another selectable mode.
 
 ### 把一個模型標記為純文字
 

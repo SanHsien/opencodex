@@ -11,6 +11,7 @@ import {
   withClaudeLoginHint,
   type SpawnFn,
 } from "../../src/adapters/claude-cli/adapter";
+import { CLAUDE_REPLAY_SYSTEM_PROMPT } from "../../src/adapters/claude-cli/stable-replay";
 import { baseScopedEnv } from "../../src/adapters/coding-agent/turn";
 import { CLAUDE_CLI_PROFILE, clearClaudeCliBinaryCache } from "../../src/adapters/claude-cli/profiles";
 import { effectiveAdapterContract, getAdapterDefinition } from "../../src/adapters/registry";
@@ -18,6 +19,10 @@ import { PROVIDER_REGISTRY } from "../../src/providers/registry";
 import { deriveProviderPresets, providerConfigSeed } from "../../src/providers/derive";
 import type { AdapterEvent, OcxParsedRequest, OcxProviderConfig } from "../../src/types";
 import { createTestTranslatorBudget } from "../helpers/translator-budget";
+import { createRequestExecutionBudget, CODEX_TEXT_GUARDED_BUDGET_POLICY } from "../../src/lib/request-execution-budget";
+import { createSpendReservationLedger } from "../../src/lib/spend-reservation-ledger";
+import { createRequestSpendTracker } from "../../src/server/responses/request-spend";
+import { createShippedSpendLedger, spendTestJournal, spendTestPolicy, testSpendSalt } from "../helpers/shipped-spend-ledger";
 
 const enc = new TextEncoder();
 
@@ -35,7 +40,7 @@ interface FakeChild extends EventEmitter {
   written: string[];
 }
 
-function fakeChild(stdout: Uint8Array[], opts: { stderr?: string; exitCode?: number } = {}): FakeChild {
+function fakeChild(stdout: Uint8Array[], opts: { stderr?: string; exitCode?: number; emitClose?: boolean } = {}): FakeChild {
   const child = new EventEmitter() as FakeChild;
   child.stdout = Readable.from(stdout);
   child.stderr = Readable.from(opts.stderr ? [enc.encode(opts.stderr)] : []);
@@ -44,7 +49,7 @@ function fakeChild(stdout: Uint8Array[], opts: { stderr?: string; exitCode?: num
   child.killed = false;
   child.exitCode = null;
   child.kill = () => { child.killed = true; return true; };
-  setTimeout(() => { child.exitCode = opts.exitCode ?? 0; child.emit("close", opts.exitCode ?? 0); }, 3);
+  if (opts.emitClose !== false) setTimeout(() => { child.exitCode = opts.exitCode ?? 0; child.emit("close", opts.exitCode ?? 0); }, 3);
   return child;
 }
 
@@ -119,6 +124,76 @@ describe("claude-cli is an official-harness provider, not a Messages relay", () 
   test("the adapter inherits the shared coding-agent contract instead of a second wire", () => {
     expect(getAdapterDefinition("claude-cli")?.contractParent).toBe("codebuddy");
     expect(effectiveAdapterContract("claude-cli").wire).toBe("codebuddy");
+  });
+});
+
+describe("CLI invocation spend admission", () => {
+  function accounting(maxTrackedSends = 10) {
+    const journal = spendTestJournal();
+    const ledger = createSpendReservationLedger({ journal, salt: testSpendSalt, now: () => 2,
+      policy: spendTestPolicy({ pool: { maxTokens: 50 }, maxTrackedSends }) });
+    const tracker = createRequestSpendTracker({ provider: "claude-cli", spendInputEstimateTokens: 1 }, undefined, ledger);
+    const policy = { ...CODEX_TEXT_GUARDED_BUDGET_POLICY };
+    const budget = createRequestExecutionBudget(policy, undefined, tracker);
+    return { journal, ledger, tracker, policy, budget };
+  }
+  const terminal = enc.encode(JSON.stringify({ type: "result", subtype: "success", is_error: false,
+    usage: { input_tokens: 70, output_tokens: 0 } }) + "\n");
+
+  test("full NORMAL seed capacity refuses before spawning the CLI", async () => {
+    const f = accounting(1);
+    f.ledger.reserve({ sendId: "busy", scopes: { poolId: "claude-cli" }, inputTokens: 1, outputCeilingTokens: 0 });
+    let spawns = 0;
+    const adapter = createClaudeCliAdapter(provider(), { which: () => "/test/claude",
+      spawn: () => { spawns++; return fakeChild([terminal]) as unknown as ChildProcess; } });
+    await expect(adapter.runTurn!(parsed(), { ...incoming(), sendBudget: f.budget }, () => {}))
+      .rejects.toMatchObject({ code: "request_send_budget_exhausted" });
+    expect(spawns).toBe(0);
+    expect(f.budget.physicalStarted).toBe(0);
+  });
+
+  test("a frozen invocation limit refuses the next CLI spawn after policy expansion", async () => {
+    const f = accounting();
+    Object.assign(f.policy, { maxTotalModelSends: 1, baseSendAllowance: 1 });
+    let spawns = 0;
+    const adapter = createClaudeCliAdapter(provider(), { which: () => "/test/claude",
+      spawn: () => { spawns++; return fakeChild([terminal]) as unknown as ChildProcess; } });
+    await adapter.runTurn!(parsed(), { ...incoming(), sendBudget: f.budget }, () => {});
+    Object.assign(f.policy, { maxTotalModelSends: 100, baseSendAllowance: 100 });
+    await expect(adapter.runTurn!(parsed(), { ...incoming(), sendBudget: f.budget }, () => {}))
+      .rejects.toMatchObject({ code: "request_send_budget_exhausted" });
+    expect(spawns).toBe(1);
+    expect(f.budget.physicalStarted).toBe(1);
+    expect(f.budget.physicalLimit).toBe(1);
+    f.tracker.settle({ inputTokens: 70 });
+  });
+
+  test("CLI terminal usage above its estimate settles only after the child is reaped", async () => {
+    const f = accounting();
+    const child = fakeChild([terminal], { emitClose: false });
+    const adapter = createClaudeCliAdapter(provider(), { which: () => "/test/claude",
+      spawn: () => child as unknown as ChildProcess });
+    let observedTerminal!: () => void;
+    const terminalSeen = new Promise<void>(resolve => { observedTerminal = resolve; });
+    const turn = adapter.runTurn!(parsed(), { ...incoming(), sendBudget: f.budget }, event => {
+      if (event.type !== "done") return;
+      f.tracker.settle(event.usage);
+      observedTerminal();
+    });
+    await terminalSeen;
+    let drained = false;
+    const drain = f.ledger.waitForReporterDrain().then(() => { drained = true; });
+    await Promise.resolve();
+    expect(drained).toBe(false);
+    expect(f.journal.lines.some(line => JSON.parse(line).kind === "forget")).toBe(false);
+    child.exitCode = 0;
+    child.emit("close", 0);
+    await turn;
+    await drain;
+    expect(f.budget.physicalStarted).toBe(1);
+    expect(f.ledger.snapshot("pool", "claude-cli")).toMatchObject({ settled: 70, reserved: 0 });
+    expect(createShippedSpendLedger({ journal: f.journal, salt: testSpendSalt, now: () => 2 })
+      .snapshot("pool", "claude-cli")?.settled).toBe(70);
   });
 });
 
@@ -211,6 +286,10 @@ describe("claude-cli child environment carries no credential and no proxy destin
     // Without USER the CLI reports "not logged in" on a signed-in machine: it looks its own keychain
     // entry up by account name. The value is a name, not a credential — no token is added here.
     const previous = process.env.USER;
+    // The test preload sandboxes CLAUDE_CONFIG_DIR, which the child env forwards by design
+    // (covered in claude-cli-usage-admission.test.ts); clear it so this set stays exact.
+    const previousConfigDir = process.env.CLAUDE_CONFIG_DIR;
+    delete process.env.CLAUDE_CONFIG_DIR;
     process.env.USER = "ocx-probe-user";
     try {
       const env = buildChildEnv(CLAUDE_CLI_PROFILE, "");
@@ -223,6 +302,7 @@ describe("claude-cli child environment carries no credential and no proxy destin
     } finally {
       if (previous === undefined) delete process.env.USER;
       else process.env.USER = previous;
+      if (previousConfigDir !== undefined) process.env.CLAUDE_CONFIG_DIR = previousConfigDir;
     }
   });
 
@@ -274,47 +354,52 @@ describe("claude-cli runTurn fails closed before any spawn", () => {
 });
 
 describe("claude-cli stages the folded prompt out of argv", () => {
-  test("keeps the folded prompt out of argv, in a private file that is removed afterwards", async () => {
+  test("keeps caller instructions out of argv and removes the private prompt file", async () => {
     const secret = "private-system-instruction";
     let promptFile = "";
+    let promptText = "";
+    let capturedArgs: string[] = [];
+    let promptMode = 0;
     const adapter = createClaudeCliAdapter(provider(), {
       which: () => "/opt/homebrew/bin/claude",
       spawn: (_command, args) => {
-        expect(args).not.toContain(secret);
-        const index = args.indexOf("--system-prompt-file");
-        expect(index).toBeGreaterThanOrEqual(0);
-        promptFile = args[index + 1] ?? "";
-        expect(readFileSync(promptFile, "utf8")).toBe(secret);
-        if (process.platform !== "win32") expect(statSync(promptFile).mode & 0o777).toBe(0o600);
+        capturedArgs = [...args];
+        promptFile = args[args.indexOf("--system-prompt-file") + 1] ?? "";
+        promptText = readFileSync(promptFile, "utf8");
+        promptMode = statSync(promptFile).mode & 0o777;
         return fakeChild([enc.encode('{"type":"result","subtype":"success"}\n')]) as unknown as ChildProcess;
       },
       killGraceMs: 20,
     });
-
-    await run(adapter, parsed({ context: { systemPrompt: [secret], messages: [] } }));
+    const events = await run(adapter, parsed({ context: { systemPrompt: [secret], messages: [] } }));
+    expect(events.some(event => event.type === "error")).toBe(false);
+    expect(capturedArgs).not.toContain(secret);
+    expect(capturedArgs).toContain("--system-prompt-file");
+    expect(promptText).toBe(secret + "\n\n" + CLAUDE_REPLAY_SYSTEM_PROMPT);
+    if (process.platform !== "win32") expect(promptMode).toBe(0o600);
     expect(promptFile).not.toBe("");
     expect(existsSync(promptFile)).toBe(false);
   });
 
-  test("a request with no system prompt stages an empty replacement, never the harness preset", async () => {
-    // Omitting the flag is not "no system prompt": it is Claude Code's own fourteen-block preset,
-    // which describes a harness with tools this turn does not have. An empty file is what the CLI
-    // snapshots as an empty system prompt (verified against 2.1.270 through the prompt_snapshot
-    // attachment), and it is the same request the Messages API path forwards with no system message.
+  test("no caller prompt leaves only fixed replay instructions, replacing the harness preset", async () => {
     let promptFile = "";
+    let promptText = "";
+    let capturedArgs: string[] = [];
     const adapter = createClaudeCliAdapter(provider(), {
       which: () => "/opt/homebrew/bin/claude",
       spawn: (_command, args) => {
-        const index = args.indexOf("--system-prompt-file");
-        expect(index).toBeGreaterThanOrEqual(0);
-        promptFile = args[index + 1] ?? "";
-        expect(readFileSync(promptFile, "utf8")).toBe("");
+        capturedArgs = [...args];
+        promptFile = args[args.indexOf("--system-prompt-file") + 1] ?? "";
+        promptText = readFileSync(promptFile, "utf8");
         return fakeChild([enc.encode('{"type":"result","subtype":"success"}\n')]) as unknown as ChildProcess;
       },
       killGraceMs: 20,
     });
-
-    await run(adapter, parsed());
+    const events = await run(adapter, parsed());
+    expect(events.some(event => event.type === "error")).toBe(false);
+    expect(capturedArgs).toContain("--system-prompt-file");
+    expect(promptText).toBe(CLAUDE_REPLAY_SYSTEM_PROMPT);
+    expect(promptFile).not.toBe("");
     expect(existsSync(promptFile)).toBe(false);
   });
 });
@@ -341,7 +426,7 @@ describe("claude-cli runTurn streams a subscription turn", () => {
     expect(events.filter(e => e.type === "text_delta").map(e => (e as { text: string }).text).join("")).toBe("Hello");
     expect(events.some(e => e.type === "thinking_delta")).toBe(true);
     expect(events.at(-1)).toMatchObject({ type: "done", usage: { inputTokens: 7, outputTokens: 2, totalTokens: 9 } });
-    expect(child.written.join("")).toContain('"text":"hello"');
+    expect(child.written.join("")).toContain('"text":"USER:\\nhello"');
   });
 
   test("an unauthenticated CLI becomes an actionable sign-in error", async () => {

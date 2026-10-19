@@ -31,6 +31,7 @@ import { isSubscriptionCliProvider } from "./subscription-cli";
  * The provider name is the Record key, not a field here.
  */
 export interface WorkspaceProvider {
+  anthropicOAuthInstance?: "anthropic2";
   adapter: string;
   baseUrl: string;
   hasApiKey?: boolean;
@@ -50,12 +51,15 @@ export interface WorkspaceProvider {
   disabled?: boolean;
   note?: string;
   allowPrivateNetwork?: boolean;
+  preserveResponsesReasoningContent?: boolean;
   requestPacing?: {
     enabled?: boolean;
     requestsPerMinute?: number;
     minIntervalMs?: number;
     maxConcurrentRequests?: number;
     models?: Record<string, { requestsPerMinute?: number; minIntervalMs?: number; maxConcurrentRequests?: number }>;
+    keySelection?: "active" | "round-robin";
+    keys?: { requestsPerMinute?: number; minIntervalMs?: number; maxConcurrentRequests?: number };
   };
   /** Codex account routing mode for the canonical `openai` forward provider. */
   codexAccountMode?: "direct" | "pool";

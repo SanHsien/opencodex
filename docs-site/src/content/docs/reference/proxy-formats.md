@@ -32,6 +32,14 @@ the same serialized request and records the recovery in Logs. Other 400 errors,
 custom destinations, cancellations and repeated upload rejections remain failures.
 This does not retry filtered model responses or interrupted streams.
 
+## Codex-native ordinary Lite hosted-search history
+
+Ordinary requests retain structural hosted-search history by default, including Responses Lite requests. To opt in to lossy reference notes, set `providers.openai.projectResponsesLiteHostedSearchHistory: true` in `config.json` (an actual boolean, not the string `"true"`). The per-provider setting defaults to off; omission or `false` keeps structural history. Even when enabled, projection applies only to ordinary requests whose final destination is exact canonical ChatGPT Codex `/responses` and whose effective request intent explicitly selects Responses Lite. It converts unreferenced remaining `web_search_call` history into labeled assistant reference notes. The final `x-openai-internal-codex-responses-lite` header selects Lite only when its value is exactly `true`; an explicit `false` overrides frame metadata. Without a recognized header value, a valid string-map `client_metadata.ws_request_header_x_openai_internal_codex_responses_lite` value of `true` is used, matching the existing WS metadata handling. Non-Lite or unrecognized effective intent retains structural history; malformed metadata does not override an explicit HTTP `true`. Model names, subscription authentication, missing hosted declarations and `additional_tools` alone do not select this policy; no header or metadata is rewritten to make it apply. Once enabled, it applies to new threads/forks, cross-model continuations and cache misses/restarts, without diagnostic settings. Only a valid same-scope bridge memo proves an original function call/result that can be restored first; an ID prefix, model name or missing memo cannot determine the issuer. A hosted cell exactly referenced by a same-input `item_reference.id` is retained. `store:false` removes references earlier, and its remaining hosted history can be projected. Tool declarations/Lite `additional_tools`, choices, client call/result pairs, reasoning/native ciphertext, non-hosted order and caller raw history retain their existing contracts.
+
+Within that opted-in Lite boundary, this is an explicit **lossy history policy**, not a claim that hosted calls are invalid schema or that all upstream errors are fixed. Notes carry untrusted status/action metadata and allowlisted URL/title/type from both action and top-level sources, never instructions or fetched page bodies: 2,048 UTF-16 units per string, 20 entries per list, 65,536 serialized bytes for all projected notes, then an omission note. IDs and unknown fields are dropped from converted cells. HTTP/SSE and WS share the final ordinary builder.
+
+Public OpenAI API and other destinations do not gain ordinary or native-compact projection. Native `/responses/compact` remains its existing endpoint/account-scrub/official opaque-output path and retains structural hosted history. Portable/routed summaries reuse their existing projection trigger and default reference behavior; the shared renderer additionally retains allowlisted top-level sources there. No new retry, source classification or compaction summarizer is introduced.
+
 ## Empty search answers
 
 After hosted search, a clean but empty forced-answer pass receives one additional answer
@@ -70,6 +78,42 @@ WebSocket. An upstream rejection fails the upgrade with 502; a ten-second handsh
 returns 504, and client cancellation returns 499. Bun does not expose the exact upstream handshake status, so an upstream 404/410
 cannot currently be forwarded precisely. A successful connection preserves the initial session
 frames in order. This handshake policy is separate from the Responses WebSocket transport.
+
+## Undeclared tool calls
+
+On the Responses endpoint, when a request declares a tool catalog, a native passthrough reply
+that calls a client-executed tool outside that catalog fails the turn instead of relaying the
+call: a `response.failed` event with error code `undeclared_tool_call`, then `data: [DONE]`;
+buffered JSON returns HTTP 502 with the same code. The refusal runs before the response can
+enter continuation state, and it stands down only for `authMode: "forward"` providers or a
+request with no declared catalog.
+
+The Chat Completions and Messages endpoints honor deferred tool catalogs: those clients may
+declare a partial catalog and discover the rest at runtime through their own tool registry,
+which — not the translated catalog snapshot — owns the full declaration boundary. A call
+outside the declared list is relayed for the client to validate; a call invented against an
+explicitly empty `tools: []` is still refused, because no deferred registry exists under an
+empty declaration. This applies to managed native routes and translated responses, including
+client tool calls in final hosted-search, image or video responses. Only the current turn's declaration applies;
+omitted, partial, and hosted-only catalogs keep their existing behavior. Caller-forward routes
+retain their exemption, and internal hosted operations are unaffected. Those refusals keep the
+`undeclared_tool_call` code on every wire:
+
+- **Chat Completions:** a `data:` frame containing an OpenAI-style `error` object carrying the
+  code, then the stream closes without a success completion or `[DONE]`; buffered JSON returns
+  HTTP 502 with the code.
+- **Messages:** an Anthropic `event: error` frame whose body is
+  `{ "type": "error", "error": { "type": "api_error", "code": "undeclared_tool_call", ... } }`,
+  without a successful `message_stop` or `[DONE]`; buffered JSON returns HTTP 502 `api_error`
+  with the code. A deterministic catalog violation is never reported as a retryable
+  `overloaded_error` (HTTP 529).
+
+Native Messages also recognizes inline system-message tool definitions alongside `tools: []`.
+Those names remain callable until permanently removed; an inline declaration does not authorize
+unrelated client tools. Hosted MCP calls and server-tool argument streams retain their native shape.
+
+Separately, on every inbound wire, a provider's `default.`-namespaced call is normalized back
+to the bare tool name the request declared (`default.Read` → `Read`).
 
 ## Endpoint overview
 
@@ -170,6 +214,44 @@ for final text and `session.updated` with `session.status="closed"`.
 This is the native opencodex data-plane shape. The request body must be a JSON object with a
 non-empty `model`. `input` may be a string or an array of Responses items.
 
+### Caller conversation header
+
+For HTTP `POST /v1/responses`, `POST /v1/messages`, and `POST /v1/chat/completions`, a client can send a stable
+`x-session-id` for each conversation. When no `session_id`, `session-id`, or `thread-id`
+header is present, opencodex promotes the marker to `session_id`. Managed Grok identity
+on Responses takes precedence too. Even an empty explicit header suppresses promotion.
+
+Use 1–128 ASCII letters, digits, `.`, `_`, `:`, or `-`, starting with a letter or digit.
+Surrounding whitespace is trimmed; missing or invalid markers are ignored. Loopback
+admission preserves the marker. Authenticated admission derives an opaque identifier
+from the marker and the admitted credential principal, so different credentials do not
+share a newly promoted identifier. Rotation changes this identifier; authenticated
+requests without a trusted principal are left unchanged.
+
+Use distinct markers for distinct conversations. This preserves conversation continuity
+for downstream consumers, but does not guarantee an upstream cache hit or measured savings.
+WebSocket frames, compact, and count_tokens do not use this promotion.
+
+On canonical ChatGPT-backed Responses dispatch, a non-empty explicit `session_id` wins.
+Otherwise, the first non-empty alias among `session-id`, then `thread-id`, supplies
+`session_id` if its value is safe; an invalid winning alias suppresses weaker identity.
+Empty header values are dropped before this step on every path (Responses auth header
+selection and the Claude Messages and Chat Completions bridges), so an empty header counts as
+absent: an empty `session-id` lets a valid `thread-id` win. The Claude metadata-derived
+session applies only when no non-empty canonical header or alias remains.
+Aliases keep their original names on the wire; their validated raw caller values are forwarded
+like an explicit `session_id`, without the principal scoping used for promoted `x-session-id`.
+This egress conversion does not change ingress affinity. Custom and API-key destinations are
+unchanged, and no identity is invented for requests without a conversation marker.
+
+For third-party clients, keep one caller-owned marker per conversation, including repeated
+`curl` requests. A shared `prompt_cache_key` or identical system/tools prefix is a cache cohort,
+not proof that two requests belong to one conversation. Requests without a conversation marker
+receive no invented stable session. OpenCodex also does not impersonate Codex by synthesizing
+an `originator`; a caller-supplied originator retains its normal forwarding rules. Header
+continuity does not establish a cache hit: compare the upstream's reported cached input tokens
+for your own repeated-prefix requests. An omitted cache-write count is not evidence of no write.
+
 ### Accepted request fields
 
 | Area | Accepted shape |
@@ -228,7 +310,26 @@ returns an error instead of partial JSON with HTTP 200. Streaming callers are un
 When a provider filters or truncates a response, an unfinished tool call remains `incomplete`
 in both JSON and SSE. Partial output is preserved, and the bridge does not emit an argument
 completion event for that open call. Calls already completed keep their status. This preserves
-the provider outcome; client retry behavior for incomplete responses is unchanged.
+the provider outcome.
+
+On the Responses streaming wire, an explicit non-retryable content-filter stop from
+Anthropic (`refusal` / `content_filter`) or Kiro (`CONTENT_FILTERED` /
+`GUARDRAIL_INTERVENED`) ends with `response.failed`, `error.code: "invalid_prompt"`,
+and `retryable: false`. This prevents clients that retry incomplete streams from
+resending the refused context. Usage and partial output are preserved. Web-search
+and image sidecars stop without executing calls from that refused iteration or
+asking the model again, on every inbound wire.
+
+Buffered Responses JSON retains `status: "incomplete"`; Chat Completions retains
+`finish_reason: "content_filter"`, and Messages retains `stop_reason: "refusal"`.
+A content filter without an explicit non-retryable verdict, token limits, stalls,
+and EOFs keep their existing incomplete behavior.
+
+Explicit incomplete reasons use the same vocabulary in adapter-backed responses and native
+Responses JSON, SSE, and WebSocket delivery:
+output-limit aliases such as `length` and `max_tokens` become `max_output_tokens`, and refusal/filter
+aliases such as `refusal` become `content_filter`. Other reasons remain unchanged, along with the
+provider's message, retryability, and usage. Direct Chat and Messages encoders apply the same mapping.
 
 On the pending `dev` implementation for #4112, a final upstream HTTP 413 on this surface
 is classified as `invalid_request_error` / `context_length_exceeded`. Non-streaming callers
@@ -247,6 +348,10 @@ If native passthrough rewriting fails, including when it exceeds the translation
 buffer budget, the relay reports the failure without waiting for upstream inspection
 to finish. It cancels the upstream work and emits `response.failed` followed by
 `data: [DONE]`; a budget overflow uses the `translation_buffer_limit` error code.
+
+Responses SSE accepts CR, LF and CRLF line endings, including mixed endings and CRLF split across
+network chunks. Tool validation, Chat translation, terminal inspection and WebSocket projection
+use the same event boundaries. A CR-only completion does not wait for the upstream connection to close.
 
 Client-facing Responses SSE frames are limited to 4 MiB per frame, measured in raw bytes before the
 SSE block delimiter. On HTTP, an unterminated upstream frame that exceeds the limit fails closed
@@ -313,6 +418,11 @@ When available, `input_tokens_details` can also include `cache_write_tokens`. Th
 detail objects are a compatibility guarantee for strict Responses clients; zero can mean "not
 reported," not necessarily "the provider performed no such work."
 
+For Anthropic upstreams, a reported `usage.output_tokens_details.thinking_tokens` is preserved as
+Responses `output_tokens_details.reasoning_tokens` and Chat `completion_tokens_details.reasoning_tokens`,
+for JSON and streaming replies. It is already included in the output-token total, not added again;
+missing or invalid detail is not estimated from visible thinking text. See [Anthropic's usage contract](https://platform.claude.com/docs/en/build-with-claude/thinking-steering-and-cost).
+
 ### Correlating a response with its request log
 
 Every admitted HTTP Responses reply carries an `x-opencodex-request-id` header holding a
@@ -325,8 +435,30 @@ named in `Access-Control-Expose-Headers`, which is what lets browser JavaScript 
 cross-origin — a custom `x-` header is otherwise invisible to `response.headers.get()` even when
 it is on the wire.
 
-Responses rejected at authentication or origin admission never reach this wrapper and carry no id,
-so a missing header means the request was refused before it was logged.
+Responses rejected at authentication or origin admission never reach this wrapper and carry no id.
+
+Logged `POST /v1/chat/completions` replies also carry `x-opencodex-request-id`, exposed through
+CORS, for JSON, streaming, handler errors and logged pre-handler refusals. This is the gateway
+history id, independent of the response body's completion id. Caller and upstream values cannot
+replace it. Rejections without a request-log owner, including authentication, origin, drain and
+active-turn refusals, carry no id. Streaming headers identify the eventual history row before
+final usage is saved.
+
+Logged `POST /v1/messages` replies carry the same OCX request-history id in **both**
+`request-id` and `x-opencodex-request-id`. This applies to native and translated replies,
+streaming and JSON, and logged refusals. Claude Code can use its persisted `requestId`
+metadata from `request-id` to join future transcripts to that OCX history row.
+
+On native delivered replies and upstream HTTP errors, an opaque Anthropic upstream
+`request-id` matching `req_[A-Za-z0-9_-]{1,128}` is preserved separately as
+`x-opencodex-upstream-request-id`. It is a provider diagnostic id, not an OCX ledger key.
+Missing or nonconforming upstream ids, and translated adapter ids, are omitted. These
+response headers are readable through CORS alongside existing exposed headers.
+
+No OCX id is added to authentication, origin, drain or active-turn refusals that have no
+request-log owner, or to count_tokens. Streaming headers identify the turn's eventual
+history row; they do not attest that final usage has already been saved. Old transcripts
+without a shared key remain unlinked; timestamp or token similarity is not an exact join.
 
 ### WebSocket upgrade on the same path
 
@@ -615,7 +747,13 @@ conversation.
 | Route type | Behavior |
 | --- | --- |
 | Canonical ChatGPT or official OpenAI route | Tries the native `/responses/compact` endpoint with the resolved account and model authentication; HTTP 404 falls back to a regular Responses compaction turn |
+| Explicitly opted-in custom `openai-responses` gateway | `supportsNativeCompactEndpoint: true` tries the native v1 endpoint for key/local/forward auth using the provider's normal Responses transport; HTTP 404 uses portable fallback; OAuth retains routed compaction and credential resolution |
 | Other routed model | Runs an internal, non-streaming, no-tools compaction turn with a `compaction_trigger`; requires exactly one synthetic `compaction` item whose `encrypted_content` is an `ocx1:` envelope; decodes that summary into v1 replacement history |
+
+The custom v1 endpoint capability is independent of v2 `supportsNativeCompactionTrigger`
+and of `decodesNativeCompactionBlobs` for replay. None grants canonical OpenAI identity or
+caller credential forwarding. Cross-provider overrides remain portable; v2 success alone
+does not establish support for `/responses/compact`. See [provider configuration](/reference/configuration/providers/).
 
 If the native compact endpoint returns HTTP 404, OpenCodex retries compaction through a regular
 Responses turn with the same model selector and session headers. Canonical ChatGPT fallback
@@ -761,3 +899,10 @@ An ordinary 400 and a 429 are never retried this way, and neither is a 5xx, with
 exception: a 502 whose body is the exact encrypted tool-output decrypt rejection, sent for a request
 that carries encrypted tool output, gets the same single resend. A second rejection reaches the
 client unchanged. If that happens, start a new conversation on the destination provider.
+
+### Malformed tool-call history
+
+Routed requests tolerate malformed serialized function arguments as an empty object.
+Two bounded history repairs preserve usable arguments: a missing JSON object prefix,
+and MiMo's trailing `</function></tool_call>` envelope with a missing closing quote or brace.
+A repair must decode to a JSON object. Valid JSON values containing those tags are preserved.

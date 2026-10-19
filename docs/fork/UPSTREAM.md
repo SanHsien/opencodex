@@ -1027,3 +1027,16 @@ GUI 方面，`gui/src/i18n/zh-TW.ts` 與 fork 改過的 `gui/tests/{i18n-locales
 - 新增上游 workflow `codex-queue-helpers.yml`：加官方 repo-only guard。
 - 本輪沒有新增 PR／issue 審查；水位維持 `reviewed_through = v2.76.0`、PR `#6507`、issue `#6504`。
 - 下次同步改走一般 merge：`git fetch upstream main --tags && bun tools/check-upstream-updates.ts --strict`。
+
+
+## 2026-10-19：stable 整合 v2.88.0（`v2.76.0..v2.88.0`）
+
+`sync/v2.88.0` 由 tag `v2.88.0`（`6936d9885d8a9bda9301737affcbaf1a4ff00e17`）長出，重放 `git diff v2.76.0 main` 的 fork overlay，方法同 2026-10-03 的 `v2.76.0` 整合，
+逐項判定見 [`DECISIONS.md`](DECISIONS.md) 同日條目。要點：
+
+- 52 個衝突檔：src 6 個（`bounded-file-read` add/add 並存、`shim-state-file`、`scripts/test.ts` 等）、workflow 1 個、zh-tw 文件 16 頁、GUI／語系 20 餘個、generated fixture 3 個（以上游為底補 fork 條目，`Cargo.lock` 取上游）。
+- 語系：上游新增的 `pt` 與 6 份 `advisor.md` 譯本剃除；新增的 `desktop-compatibility-copy.ts` 縮為 en／zh-TW；寫死其他語系的上游測試改寫或刪除。
+- 新 workflow：`catalog-async-contracts.yml` 保留執行；新增 fork 專屬 `fork-release-windows.yml`（`SanHsien/opencodex` guard，未簽章 MSI 附到 fork release）。
+- 桌面自動更新停用：`createUpdaterArtifacts: false`、updater `endpoints: []`。
+- 水位：`integrated_tag = v2.88.0`、`integrated_through`／`reviewed_through = 6936d9885`、`reviewed_date = 2026-10-19`；issue／PR 水位維持（`#6504`／`#6507`），本輪沒有新增 PR／issue 審查。
+- 本機驗證限制：測試固定 Bun `1.4.3`（`package.json testRunnerBun`），本機只有 `1.4.2`，經 `scripts/test.ts` 的測試與 Windows symlink 權限案例（`keyring-smoke`）在本機無法通過，需在 CI 或安裝 Bun 1.4.3 後確認。

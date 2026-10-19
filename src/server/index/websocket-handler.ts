@@ -30,7 +30,9 @@ import {
 } from "../ws-bridge";
 import {
   CodexAccountCooldownError,
+  CodexMainAccountHardLockError,
   cooldownErrorMessage,
+  cooldownErrorResponse,
 } from "../../codex/auth-context";
 import { codexAccountNamespaceForModel } from "../../codex/account-namespace-match";
 import {
@@ -87,6 +89,7 @@ import {
 import type { ServeOptionsContext } from "./serve-options";
 import type { RequestMetricsRecorder } from "../request-metrics";
 import { resolveInboundBodyLimitBytes } from "../request-decompress";
+import { responseToolOwnership } from "../responses/response-tool-ownership";
 
 /**
  * The WebSocket half of the Bun.serve options, split out of serve-options.ts to keep that file
@@ -182,6 +185,8 @@ export function createWebsocketHandler(
           }
           return;
         }
+        if (ws.data.responsesActivity?.closing) return;
+        ws.data.responsesActivity?.touch();
         const rawBytes = typeof raw === "string" ? Buffer.byteLength(raw) : raw.byteLength;
         if (rawBytes > MAX_WS_FRAME_BYTES) {
           sendJsonFrame(ws, buildWsErrorFrame(413, {
@@ -221,6 +226,7 @@ export function createWebsocketHandler(
             if (frame.type === "response.inject") {
               if (!ws.data.nativeControl?.inject) throw new NativeSteeringError("injection_not_supported", "Native injection is disabled or unavailable on this route.");
               ws.data.nativeControl.inject(frame);
+              ws.data.responsesActivity?.acceptResults(frame.input);
               return;
             }
             if (frame.type === "response.steer") {
@@ -228,7 +234,10 @@ export function createWebsocketHandler(
               ws.data.nativeControl.steer(frame);
               return;
             }
-            if (ws.data.nativeControl?.continue(frame)) return;
+            if (ws.data.nativeControl?.continue(frame)) {
+              ws.data.responsesActivity?.acceptResults(frame.input);
+              return;
+            }
           } catch (error) {
             sendJsonFrame(ws, buildWsErrorFrame(400, {
               type: "invalid_request_error",
@@ -292,6 +301,7 @@ export function createWebsocketHandler(
         }
 
         // Only a genuinely admitted turn may receive steering or continuations.
+        const finishActivity = ws.data.responsesActivity?.beginTurn(frame.input);
         ws.data.nativeControl = nativeControl;
         const payload: Record<string, unknown> = { ...frame };
         delete payload.type;
@@ -344,11 +354,16 @@ export function createWebsocketHandler(
                 terminalRecorder = recorder;
               },
             });
+            const observeLog = nativeControl?.relayActive
+              ? createNativeSteeringLogObserver(logCtx, () => recordFirstOutput(logCtx, start))
+              : (payload: string) => inspectResponseLogSsePayload(logCtx, payload);
+            const providerExecuted = responseToolOwnership(response);
             await sendResponseToWebSocket(ws, response, isCurrent, {
               untilEof: nativeControl?.relayActive === true,
-              onSsePayload: nativeControl?.relayActive
-                ? createNativeSteeringLogObserver(logCtx, () => recordFirstOutput(logCtx, start))
-                : payload => inspectResponseLogSsePayload(logCtx, payload),
+              onSsePayload: payload => {
+                ws.data.responsesActivity?.observePayload(payload, providerExecuted);
+                observeLog(payload);
+              },
               onTerminal: status => {
                 terminalRecorder?.(status, logCtx.terminalHttpStatus);
                 finalizeLog(httpStatusForRequestLogTerminal(status, logCtx), {
@@ -368,6 +383,13 @@ export function createWebsocketHandler(
                 const accountSelector = typeof payload.model === "string"
                   ? codexAccountNamespaceForModel(config.codexAccountNamespaces, payload.model)
                   : undefined;
+                if (err instanceof CodexMainAccountHardLockError) {
+                  // Same terminal usage-limit body and Retry-After as HTTP (#7046).
+                  const refusal = cooldownErrorResponse(err, Date.now(), accountSelector);
+                  const body = await refusal.json() as { error: Record<string, unknown> };
+                  sendJsonFrame(ws, buildWsErrorFrame(429, body.error, refusal.headers));
+                  return;
+                }
                 sendJsonFrame(ws, buildWsErrorFrame(429, {
                   type: "rate_limit_error",
                   message: cooldownErrorMessage(err, accountSelector),
@@ -383,6 +405,7 @@ export function createWebsocketHandler(
               /* socket already gone or send dropped */
             }
           } finally {
+            finishActivity?.();
             turnAdmissionLease.release();
             if (ws.data.nativeControl === nativeControl) ws.data.nativeControl = undefined;
             if (!logged && turnAbort.signal.aborted) finalizeLog(499);

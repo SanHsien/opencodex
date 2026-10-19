@@ -18,9 +18,12 @@
  */
 import { resolveEnvValue } from "../config/proxy-env";
 import { loadKeyringBinding } from "../lib/keyring-native";
+import { isGcpCredentialMaterial } from "../lib/gcp-credential-input";
 import type { OcxProviderConfig } from "../types";
 
 export const KEYCHAIN_REFERENCE_PREFIX = "keychain:";
+/** Stored GCP JSON uses the same OS service, but must never be restored as a literal API key. */
+export const GCP_CREDENTIAL_MARKER_PREFIX = "gcp-sa:";
 export const PROVIDER_KEYCHAIN_SERVICE = "opencodex.provider-api-key.v1";
 
 export interface ProviderKeychainEntry {
@@ -39,17 +42,25 @@ function defaultEntryFactory(service: string, account: string): ProviderKeychain
 let entryFactory: ProviderKeychainEntryFactory = defaultEntryFactory;
 const resolvedCache = new Map<string, string>();
 const warnedAccounts = new Set<string>();
+let resolutionGeneration = 0;
+
+/** Advances whenever cached secrets may have changed, so derived snapshots can rebuild. */
+export function providerKeyResolutionGeneration(): number {
+  return resolutionGeneration;
+}
 
 /** Test seam: swap the OS entry for an in-memory one and drop caches. */
 export function setProviderKeychainEntryFactoryForTests(factory: ProviderKeychainEntryFactory | null): void {
   entryFactory = factory ?? defaultEntryFactory;
   resolvedCache.clear();
+  resolutionGeneration++;
   warnedAccounts.clear();
 }
 
 /** Write-path seam: a store/restore mutated secrets, so cached reads and warnings are stale. */
 export function invalidateResolvedProviderKeyCache(): void {
   resolvedCache.clear();
+  resolutionGeneration++;
   warnedAccounts.clear();
 }
 
@@ -76,19 +87,21 @@ export function providerKeychainEntry(account: string): ProviderKeychainEntry {
   return entryFactory(PROVIDER_KEYCHAIN_SERVICE, account);
 }
 
-function readKeychain(account: string): string | undefined {
+function readKeychain(account: string, quiet = false): string | undefined {
   const cached = resolvedCache.get(account);
   if (cached !== undefined) return cached;
+  let value: string | null = null;
   try {
-    const value = providerKeychainEntry(account).getPassword();
-    if (typeof value === "string" && value.trim()) {
-      resolvedCache.set(account, value);
-      return value;
-    }
+    value = providerKeychainEntry(account).getPassword();
   } catch {
     // fall through to the single warning below
   }
-  if (!warnedAccounts.has(account)) {
+  if (typeof value === "string" && value.trim()) {
+    if (isGcpCredentialMaterial(value)) throw new Error("GCP credential JSON cannot be used as a literal API key; select a gcp-sa reference");
+    resolvedCache.set(account, value);
+    return value;
+  }
+  if (!quiet && !warnedAccounts.has(account)) {
     warnedAccounts.add(account);
     console.warn(`[opencodex] provider key reference keychain:${account} could not be read from the OS keychain; requests for this provider have no credential until the keychain is available (no plaintext fallback)`);
   }
@@ -105,12 +118,19 @@ export function resolveProviderApiKey(value: string | undefined): string | undef
   return resolveEnvValue(value);
 }
 
+/** The same resolution without the unreadable-reference warning, for observe-only callers. */
+export function resolveProviderApiKeyQuietly(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  if (isKeychainReference(value)) return readKeychain(keychainAccount(value), true);
+  return resolveEnvValue(value);
+}
+
 export type ProviderKeyStoreKind = "keychain" | "env" | "file" | "none";
 
 export function providerKeyStoreKind(provider: Pick<OcxProviderConfig, "apiKey"> | undefined): ProviderKeyStoreKind {
   const key = provider?.apiKey;
   if (!key) return "none";
-  if (isKeychainReference(key)) return "keychain";
+  if (key.startsWith(GCP_CREDENTIAL_MARKER_PREFIX) || isKeychainReference(key)) return "keychain";
   if (/^\$\{?\w+\}?$/.test(key)) return "env";
   return "file";
 }

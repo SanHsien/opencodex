@@ -56,6 +56,17 @@ shipped v1 設定會自動遷移到 marker 2 的 option-aware row。原始設定
 `~/.opencodex/config.json.pre-openai-tiers-v2.bak`；可用下列命令恢復：
 `cp ~/.opencodex/config.json.pre-openai-tiers-v2.bak ~/.opencodex/config.json`。
 
+## Claude Opus 5.5 progress updates
+
+When the `anthropic` adapter sends Claude Opus 5.5 to `api.anthropic.com` (OAuth or API key),
+OpenCodex requests Anthropic's [progress-update display mode](https://platform.claude.com/docs/en/build-with-claude/thinking#progress-updates).
+Progress updates and mid-turn acknowledgements appear as visible assistant commentary in Codex,
+even when thinking summaries are hidden. Reasoning summaries are omitted in this mode because
+Anthropic cannot distinguish progress updates from reasoning under `display: "summarized"`.
+The original signed thinking blocks are preserved for tool continuation; no signature is decoded
+or rewritten. Updates appear once their signed block completes. Other models and compatible
+third-party endpoints retain their existing thinking display behavior.
+
 ## Anthropic 圖像輸入
 
 內建的 Claude 模型種子資料為 `anthropic`（OAuth）與 `anthropic-apikey` 都宣告文字與圖像輸入，
@@ -65,6 +76,26 @@ shipped v1 設定會自動遷移到 marker 2 的 option-aware row。原始設定
 `capabilities: ["image_in"]`。OpenClaw 在沒有宣告任何支援模態時省略 `input`；Kimi 對未知或
 純文字模型省略 `capabilities`。沒有對應能力欄位的客戶端維持其既有設定形狀。更新 opencodex
 之後，請重新產生或重新整理由 opencodex 管理的客戶端設定，以取得更新後的中繼資料。
+
+## Replayed Anthropic thinking signatures
+
+On the Responses endpoint, an Anthropic-compatible upstream can reject a replayed thinking
+signature because it belongs to a different conversation prefix. When the error explicitly
+identifies this signature-binding problem, opencodex can remove replayed signed/redacted thinking
+and retry once within the request's send budget. This covers HTTP 400 refusals and initial stream
+errors before output or tool activity. Hosted web search and image/video bridges share one recovery
+limit across their model iterations: only the rejected inference is resent, while completed sidecar
+calls and tool results are retained. An empty-completion retry shares its request's allowance;
+ordinary continuations after output cannot use it. A failed replacement is
+returned without another signature retry. Other errors keep their existing handling.
+
+Sidecar recovery is disabled when enforced spend accounting cannot establish receipts for earlier
+ordinary sidecar sends. It never increases a caller or Combo send allowance.
+
+Only a successful, nonempty completion remembers the rejection for that conversation and serving
+identity for five minutes. Only the refused opaque payloads are suppressed when they can be
+identified; newly issued thinking remains replayable. Plaintext history remains available; a failed or cancelled retry does
+not disable thinking replay on later requests.
 
 ## 認證模式
 
@@ -81,6 +112,10 @@ preset 通常同時省略 `authMode` 與 `apiKey`。
 （`authMode: "key"`）。OAuth、forward 與 local preset 都被排除：它們的 credential 絕不能在同一 token
 上重播，而 local runtime 也沒有 remote key 可保留。此功能為 opt-in；未設定時關閉，物件存在時預設
 啟用，除非明確設為 `enabled: false`。
+
+### Anthropic API-key credit exhaustion
+
+Anthropic API-key pools with at least two keys automatically try a sibling key when a complete HTTP `400` or `402` error states that the credit balance is too low to access the Anthropic API. This applies to `invalid_request_error`, `billing_error`, and `permission_error` before any text or tool output. Key rotation and pool strategies skip the failed key for one hour, because an empty balance only clears when credits are added; when every key is out of credit, requests still use the active key and return Anthropic's original error; choosing the key as active in the dashboard, or restarting the proxy, clears that hold after a top-up. Replacement sends share the request's send limit. Ordinary `400` errors stay terminal, and this does not enable same-key retries or change OAuth account routing. A header override that sends a different credential cannot cool or rotate the selected pool key.
 
 ### 目前請求會花費哪個帳號
 
@@ -171,6 +206,7 @@ ocx login cursor       # 獨立 Cursor PKCE 登入
 ocx login command-code # Command Code browser OAuth（或匯入 ~/.commandcode/auth.json）
 ocx login orcarouter-oauth # OrcaRouter 瀏覽器同意 + PKCE
 ocx login devin       # Cognition/Devin：優先匯入 Devin CLI 憑證，否則走 Auth0 瀏覽器登入
+ocx login dsh-account # DeepSeek Harness Desktop（匯入 ~/.dsh/.credentials.yaml 授權）
 ocx login github-copilot  # GitHub device flow → Copilot token（Copilot Pro/Business）
 ocx login codex        # Codex 帳號池（別名：chatgpt、openai；需要 proxy 正在執行）
 ocx logout <provider>
@@ -187,7 +223,8 @@ ocx logout <provider>
 | `google-antigravity` | `google` | `https://daily-cloudcode-pa.googleapis.com` | 透過 Cloud Code Assist wire 使用 Google OAuth。即時探索使用 CCA 經認證的 `v1internal:fetchAvailableModels` 端點，發布目前登入帳號可用的 agent 模型；維護中的 catalog 作為 fallback。 |
 | `cursor` | `cursor` | `https://api2.cursor.sh` | 實驗性 PKCE 登入、即時 HTTP/2 transport 與按帳號篩選的模型探索。 |
 | `orcarouter-oauth` | `openai-chat` | `https://api.orcarouter.ai/v1` | 瀏覽器同意與金鑰交換使用 `https://www.orcarouter.ai`，採 S256 PKCE。回傳的使用者自有 `sk-orca-…` API 金鑰會存進既有 credential store，持續重複使用直到被撤銷為止。 |
-| `devin` | `devin` | `https://server.codeium.com` | 實驗性的非官方 Cognition/Devin 橋接。登入會先匯入已安裝 Devin CLI 已持有的憑證（`devin auth login` 會把 `devin-session-token` 寫入它自己的 `credentials.toml`）；沒有則開啟 Auth0 瀏覽器頁面，再以 `RegisterUser` 將貼上的權杖換成長期 API 金鑰。`ocx login devin-cli` 仍作為已棄用別名可用。模型清單依帳號透過 `GetCascadeModelConfigs` 即時取得。預設不在儀表板預設集內。已針對一個真實帳號、跨三個模型驗證過 chat 與用量回報。 |
+| `devin` | `devin` | `https://server.codeium.com` | 實驗性的非官方 Cognition/Devin 橋接。登入會先匯入已安裝 Devin CLI 已持有的憑證（`devin auth login` 會把 `devin-session-token` 寫入它自己的 `credentials.toml`）；沒有則開啟 Auth0 瀏覽器頁面，再以 `RegisterUser` 將貼上的權杖換成長期 API 金鑰。`ocx login devin-cli` 仍作為已棄用別名可用。模型清單依帳號透過 `GetCascadeModelConfigs` 即時取得。帳號配額來自 `GetUserStatus`，在單一八秒的請求與回應本文期限內取得：有日期的每日與每週視窗；若為點數計費方案，或策略未知但有餘額欄位且兩個重置日期皆缺，則另含每月 prompt 與 flex 點數池。已用點數為負值時省略每月視窗；有效的可用點數為零時標示為已耗盡。探測逾時則保留上次成功的配額。預設不在儀表板預設集內。已針對一個真實帳號、跨三個模型驗證過 chat 與用量回報。 |
+| `dsh-account` | `dsh-account` | `https://api.deepseek.com/anthropic` | 實驗性優先匯入帳號提供者，複用已安裝並登入的 DeepSeek Harness (DSH) Desktop 帳號。在使用者明確匯入時嚴格以唯讀方式讀取 `~/.dsh/.credentials.yaml` 憑據。獨立於 DeepSeek API Key 計費。 |
 | `github-copilot` | `openai-chat` | `https://api.githubcopilot.com` | 實驗性。GitHub device flow + `copilot_internal` exchange（VS Code OAuth client）。需要有效 Copilot 訂閱；不是官方第三方 API。 |
 
 Google Antigravity 帳戶與供應商的配額查詢（包括模型清單備援）使用固定的 Google 計量端點。這些目標支援透明 Fake-IP DNS，同時保留 TLS 驗證、重新導向拒絕與私有位址檢查。自訂 base URL 只改變模型請求，不改變配額目標；`NO_PROXY` 仍使用直連政策。
@@ -286,6 +323,29 @@ session／task key 有助提升 Code Plan cache hit rate；沒有 key 的請求�
 Device-code provider 在兩種情況下都不會從 proxy 開啟瀏覽器：它們只會顯示一個代碼與一個驗證 URL，供你
 在自己已登入的地方開啟。
 
+### Headless Claude login (code-display mode)
+
+For Anthropic there is a cleaner path than pasting a dead redirect: the **code-display** login.
+Anthropic redirects to its own page and shows a `code#state` string instead of calling back to the
+proxy, so nothing needs to reach `127.0.0.1` on the proxy's host.
+
+```bash
+ocx login anthropic --headless
+```
+
+Over the management API, start with `POST /api/oauth/login` and `{"provider":"anthropic","mode":"code"}`;
+the response carries a `flowId` and an `expiresAt` (10 minutes). Submit the pasted string to
+`POST /api/oauth/login/code` with that `flowId`. The answer is the result of the token exchange —
+`{"ok":true,"account":…}` or `{"ok":false,"error":…}` — so a hosted caller with a single paste box
+knows whether the login actually worked. A paste with the wrong state, or with no code in it, is
+refused before any token request and leaves the flow open for another try; a paste that reaches the
+token exchange uses the flow up, so start a new login if that exchange fails.
+
+Only `anthropic` and `anthropic2` support this mode; other providers answer `code_mode_unsupported`. Several code
+logins can be in flight at once, each pinned to its `flowId`, but they all write the same account
+store: the most recent successful one becomes the active Claude account. This is meant for one
+operator on a headless host, not for isolating unrelated users on a shared instance.
+
 ### 多個 OAuth 帳號
 
 credential 內含穩定 account id 或 email 的 OAuth provider 可以保存多個登入。Providers 頁面會在下拉
@@ -356,6 +416,20 @@ Reauthenticate。Codex pool 帳號不是那些 provider 之一，但 `ocx login 
 
 當 Kiro 發出點數計量時，請求記錄會把回報的花費保存為 `usage.providerCredits`，包括持久化的用量帳本。這些是 Kiro 點數；token 數仍可能是估計值，而點數值不會取代 USD 成本估計。完成後備請求會加總它們回報的點數。缺少該值代表 Kiro 沒有回報點數用量；明確的零代表它回報沒有花費。
 
+### Kiro refresh attention
+
+If an AWS SSO refresh returns `400 invalid_request` and matching Kiro CLI recovery does not
+succeed, the dashboard shows the affected account as needing re-authentication once its access
+token expires. The active provider then reports `loggedIn: false` from `/api/oauth/status`.
+A still-valid access token remains logged in. You can sign in again through the dashboard;
+a later successful automatic refresh also clears the attention state. This status does not
+classify the refresh grant as revoked or disable future refresh attempts. Network and server
+errors do not trigger this status.
+
+For desktop-auth accounts, an HTTP 401 with exactly `Bad credentials` requires a new login
+and immediately marks the rejected credential generation as needing re-authentication.
+Other messages, statuses, and AWS SSO responses do not trigger this desktop-specific rule.
+
 ### Kiro credential 匯入
 
 Kiro 登入預期存在 Kiro CLI。Unix 可用 `curl -fsSL https://cli.kiro.dev/install | bash` 安裝；Windows
@@ -391,9 +465,20 @@ database 並移除目前的 WAL、SHM 與 journal sidecar，再發布先前的 s
 `kiro-cli` data path 修復或移除不可讀 database、取消這些 import selector 後重試。沒有既有
 `kiro-cli` session 的新機器登入不受影響。
 
+### DeepSeek Account (DSH)
+
+`dsh-account` is an experimental, import-first account provider designed to reuse the authenticated account credentials of an installed DeepSeek Harness (DSH) Desktop application.
+
+- **Independent from DeepSeek API Key:** `dsh-account` runs on the DeepSeek account signed in to DeepSeek Harness, whereas the `deepseek` provider bills against your platform API key balance. The two credential domains and routes are strictly separate and never fall through into one another.
+- **Explicit import only:** opencodex reads `~/.dsh/.credentials.yaml` (or `$DSH_HOME/.credentials.yaml`) only when you run `ocx login dsh-account` or select **Log in** on the DeepSeek Account (DSH) row of the dashboard's **Add provider** picker. It never copies, imports, or uses the token on its own.
+- **Read-only DSH credential store:** OpenCodeX treats `~/.dsh/.credentials.yaml` as strictly read-only. OpenCodeX never writes, modifies, removes, or alters the permissions of any files belonging to DeepSeek Harness.
+- **Isolated credential copy & logout:** Upon import, OpenCodeX validates the token against DeepSeek's authoritative identity endpoint (`/auth-api/v0/users/current`) and saves its own copy to the OpenCodeX auth store. Logging out or removing the account in OpenCodeX only deletes the OpenCodeX local copy; it never triggers upstream remote session logout and will not sign you out of DeepSeek Harness Desktop.
+- **No background token rotation & 401 re-import:** DSH session grants do not feature an automatic background refresh endpoint. If upstream returns HTTP 401 (`ACCOUNT_TOKEN_INVALID`), OpenCodeX marks the account `needsReauth` and halts routing. To restore access, the user must explicitly re-import via `ocx login dsh-account`.
+- **Third-party disclaimer:** OpenCodeX makes no claim of official endorsement or authorization by DeepSeek for third-party clients reusing session grants.
+
 ## 3. API 金鑰目錄
 
-opencodex 內建 102 個 preset：84 個 key-based、14 個 OAuth、3 個 local，以及 1 個預設 ChatGPT-forward
+opencodex 內建 105 個 preset：85 個 key-based、16 個 OAuth、3 個 local，以及 1 個預設 ChatGPT-forward
 preset。儀表板的 **Add provider** picker 會開啟 key provider 的 dashboard、驗證金鑰並儲存；驗證方式
 依 provider 而異。主要條目如下。
 
@@ -506,6 +591,8 @@ Pi provider 設定會啟用 `compat.sendSessionAffinityHeaders`，讓 Pi 把它�
 小時 200 次 Big Pickle／free-model request。Zen 在這類 429 省略 `Retry-After` 時，opencodex 會在 client
 error 加入 provider guidance 與 synthetic `Retry-After`；若上游有 `Retry-After`，仍以上游值為準。
 same-key wait-and-retry 仍需透過 [`retryOn429`](/zh-tw/reference/configuration/) 明確 opt-in。
+
+在標準 `opencode-zen` 提供者中，使用 API 金鑰驗證及官方路由 `https://opencode.ai/zen/v1` 或 `https://opencode.ai/inference/v1` 時，Gemini 會在預設 `googleMode: ai-studio` 下自動使用 Google 原生 API。Zen 模型 ID 維持不變，包括沒有 `-tiered` 後綴的 Flash ID。Claude 使用 Anthropic Messages，不受 `googleMode` 影響。載入已儲存的設定時，僅忽略這些原生模型符合條件的舊 Chat/Responses 覆寫設定，以及符合條件的 Responses 專用 `image_generation` 託管工具偏好。自訂提供者、非金鑰驗證路由及其他偏好維持不變。
 
 **無 key 的 `opencode-free` tier 目前對第三方 client 關閉。** Zen 會拒絕任何沒有帶 `x-opencode-session`
 header 的 request，回傳 error type `MissingSessionID` 與訊息 "OpenCode's free tier can only be used in

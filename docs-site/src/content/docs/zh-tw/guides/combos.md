@@ -12,6 +12,17 @@ description: 將一個虛擬模型路由到多個供應商，以進行 failover 
 
 Combo 位於一般供應商路由之前。若 `provider/model` 選擇器對你而言是新的，請先閱讀[模型路由](/zh-tw/guides/model-routing/)。
 
+## Metered fallback consent
+
+Mark a pay-per-use combo target with `"metered": true` when it follows subscription targets. Omitted or false consent denies metered dispatch. Choose consent for your deployment:
+
+- **Local Claude Code or Codex:** on a loopback-only proxy, set `"allowMeteredTargets": true` on the combo, or run `ocx combo set <id> --allow-metered-targets on`. This explicitly permits local callers to use its marked targets. The default is false; `off` clears consent. Loopback authentication does not read API keys.
+- **Network or linked callers:** the caller's configured `apiKeys[]` entry must have `"allowMeteredComboTargets": true`. A proxy with a non-loopback listener ignores the combo flag, including on its secondary loopback listener. Linked callers also retain their configured-key consent requirement when the primary listener is loopback. The environment token never qualifies.
+
+Request headers cannot grant consent. Model/provider scopes still apply. This covers initial selection, failover and recovery across combo strategies, compaction, Messages, Chat Completions and WebSocket requests, and a subagent model fallback naming a combo alias. A collapsed fallback tries a usable unmetered target before refusing. Unmarked targets retain existing behavior; metering is declared by the operator rather than detected automatically.
+
+For example, a failover chain can target Anthropic OAuth, then Cursor, then `{ "provider": "anthropic-apikey", "model": "claude-opus-5-5", "metered": true }`. Without consent, exhaustion returns the last unmetered error, with one exception: an earlier 429 or 402 quota refusal takes precedence over a later 400, 401 or 403. If the subscription target returns 429 and Cursor then refuses with 401 or 403, the caller receives the subscription's 429, because the spent subscription explains the failure and Cursor's credential refusal does not. Dashboard saves retain omitted target metering and combo consent; explicitly setting either to false clears it. These consent fields are configured through the config file or API; the combo flag is also available through the CLI, while the dashboard does not expose it.
+
 ## 60 秒快速入門
 
 此範例建立 `combo/main`，Anthropic 在前、OpenAI 在後。兩個供應商必須已存在且已啟用。
@@ -228,7 +239,11 @@ ocx provider add jev --api-key "${TYPESAFE_API_KEY}"
 
 #### System One 相容伺服器
 
-JEV Combo 可以詢問實作 System One 線路契約的託管或自架伺服器。例如，支援 System One 的 Ollama 伺服器可以在 `POST /v1/systemone` 提供 `tev1`，不需要 API 金鑰。新增一個 `adapter: "jev-decision"` 的 provider 列，其 `baseUrl` 是**完整的**決策端點，然後在 Combo 的 `decisionProvider` 中指名它：
+A JEV Combo can ask a hosted or self-hosted server that implements the System One wire contract.
+For example, an Ollama server with System One support can serve `tev1` at
+`POST /v1/systemone` without an API key. Add a provider row with
+`adapter: "jev-decision"` whose `baseUrl` is the **full** decision endpoint, then name it in the
+Combo's `decisionProvider`:
 
 ```json
 {
@@ -257,18 +272,70 @@ JEV Combo 可以詢問實作 System One 線路契約的託管或自架伺服器�
 }
 ```
 
-- 該列的 `baseUrl` 必須是完整的決策端點，且路徑必須以 `/systemone` 結尾。決策模型是 `defaultModel`，否則是 `models` 的第一個項目；兩者都沒有的列會被視為不可用，並在不送出請求的情況下 fail open（`jev-latest` 是 TypeSafe 的模型，絕不會送到自架主機）。該列只是決策服務：它絕不會被發布為可路由的模型，也不能成為 Combo 目標。
-- Loopback 或區域網路端點需要在該列上明確設定 `allowPrivateNetwork: true`。純 `http:` 請使用字面的 loopback、RFC 1918 或 IPv6 ULA 位址；每個解析出的位址都必須留在允許的集合內，且不可套用任何對外 proxy（請把該主機加入 `NO_PROXY`）。其他所有目的地都必須使用 HTTPS。重新導向仍然 fail open。
-- 只有該列自己的 `apiKey` 會被送出，而且只在有設定時；沒有金鑰的列不會送出 `Authorization` 標頭。`apiKey` 參照 `${TYPESAFE_API_KEY}`／`${JEV_API_KEY}` 或另一個 provider 的 keychain 項目的列，會被視為不可用而拒絕，所以 `TYPESAFE_API_KEY`、`JEV_API_KEY` 與 `jev` 列的金鑰絕不會被送到自架端點。`jev` 這個 id 本身（明確或省略）永遠代表 TypeSafe 端點與模型 `jev-latest`。
-- 自架服務會把每個目標／effort 選項當成純描述字串收到（例如 `Target openai/gpt-5.6-sol (provider openai, model gpt-5.6-sol) with low reasoning effort.`），因為 Ollama 只接受字串或 `null` 的選項描述。TypeSafe 仍然收到結構化的選項物件。
-- OpenCodex 會向 System One 相容的列提供 2–26 個選項。每個目標對每個被提供的推理 effort 貢獻一個選項；可用各目標的 `reasoningEfforts` 縮減它們。少於 2 個或多於 26 個選項會在不送出請求的情況下 fail open。
-- 冷模型載入可能需要數十秒，而被中止的決策請求會讓 Ollama 放棄載入。請預先暖機模型並讓它常駐（`OLLAMA_KEEP_ALIVE=-1` 或 `keep_alive`），並在服務比四秒慢時調高 `decisionTimeoutMs`（1000–120000 ms，預設 4000）。每個逾時或錯誤仍會 fail open 到第一個合格目標。
+- The row's `baseUrl` must be the full decision endpoint. HTTPS services may use any path,
+  such as `/v1/decisions`; plain HTTP endpoints must still end in `/systemone`.
+  Userinfo, query strings, and fragments are not accepted in decision URLs.
+  The decision model is `defaultModel`, else the first `models` entry; a row with neither is
+  treated as unusable and fails open without a request (`jev-latest` is TypeSafe's model and is
+  never sent to a self-hosted host). The row is a decision service only: it is never published as a
+  routable model and cannot be a Combo target.
+- A loopback or LAN endpoint needs `allowPrivateNetwork: true` set explicitly on that row. Use a
+  literal loopback, RFC 1918, or IPv6 ULA address for plain `http:`; every resolved address must stay
+  in the allowed set and no outbound proxy may apply (add the
+  host to `NO_PROXY`). Every other destination must use HTTPS. Redirects still fail open.
+- Only the row's own `apiKey` is sent, and only when it is set; a keyless row sends no
+  `Authorization` header. A row whose `apiKey` references `${TYPESAFE_API_KEY}`/`${JEV_API_KEY}` or
+  another provider's keychain entry is refused as unusable, so `TYPESAFE_API_KEY`, `JEV_API_KEY`, and
+  the `jev` row's key are never sent to a self-hosted endpoint. The `jev` id itself (explicit or
+  omitted) always means the TypeSafe endpoint with model `jev-latest`.
+- Self-hosted services receive each target/effort option as a plain description string (for
+  example `Target openai/gpt-5.6-sol (provider openai, model gpt-5.6-sol) with low reasoning
+  effort.`), because Ollama accepts only string or `null` option descriptions. TypeSafe keeps
+  receiving the structured option objects.
+- OpenCodex offers 2–26 options to a System One-compatible row. Each target contributes one option
+  per offered reasoning effort; use per-target `reasoningEfforts` to trim them. Fewer than 2 or
+  more than 26 options fail open without a request.
+- A cold model load can take tens of seconds, and an aborted decision request makes Ollama abandon the
+  load. Pre-warm the model and keep it resident (`OLLAMA_KEEP_ALIVE=-1`, or `keep_alive`), and raise
+  `decisionTimeoutMs` (1000–120000 ms, default 4000) when the service is slower than four seconds.
+  Every timeout or error still fails open to the first eligible target.
 
-provider 的 **Test connection** 會向它的端點送出一個有界的探測決策。System One provider（包括無金鑰的列）上的 **Create JEV Auto** 會把該列預先填為決策 provider。已停用的列、不以 `/systemone` 結尾的端點，以及沒有模型的列，會連同原因一起顯示，且不能被選取。
+The provider's **Test connection** sends a bounded probe decision to its endpoint.
+**Create JEV Auto** on a System One provider (keyless rows included) prefills that row as the
+decision provider. Disabled rows, invalid decision URLs, and rows without a model
+are shown with a reason and cannot be picked.
 
-[Laya MLX](https://github.com/mizorewww/laya-mlx) 在 Apple Silicon 上執行型別化的決策。要搭配這個方法使用，請透過 System One 相容的 HTTP wrapper 公開它，再像上面的 `ollama-tev1` 那樣設定一個列，使用 wrapper 完整的 `/systemone` URL，並把它接受的模型 id 設為 `defaultModel`。單靠 MLX Python runtime 並不是 HTTP 決策端點。對於 loopback 的 HTTP wrapper，請保留 `allowPrivateNetwork: true` 並使用它字面的 loopback 位址。
+For an alternative hosted service with the same decision request/response contract, add a separate
+provider row and select it with the Combo's `decisionProvider`:
 
-作為託管的例子，有貢獻者在 [#6185](https://github.com/lidge-jun/opencodex/pull/6185) 回報下面這個 Zen System One 端點可用。請手動把它設定成一般的列；這不是 OpenCodex 的 registry preset，也不保證目前可用：
+```json
+{
+  "providers": {
+    "alternative-decider": {
+      "adapter": "jev-decision",
+      "baseUrl": "https://decisions.example/v1/decisions",
+      "apiKey": "${ALTERNATIVE_DECISION_KEY}",
+      "defaultModel": "decision-model-v1",
+      "liveModels": false
+    }
+  }
+}
+```
+
+Set `decisionProvider: "alternative-decider"` on the existing JEV Combo. Its own credential and
+model accompany the bounded decision state; TypeSafe environment credentials are never inherited.
+The `jev` id remains canonical. HTTPS/TLS, outbound destination restrictions, redirect refusal,
+request/response bounds, timeout, cancellation, and the eligible-choice allowlist still apply.
+
+[Laya MLX](https://github.com/mizorewww/laya-mlx) runs typed decisions on Apple Silicon. To use it
+with this method, expose it through a System One-compatible HTTP wrapper, then configure a row like
+`ollama-tev1` above with the wrapper's full `/systemone` URL and accepted model id as `defaultModel`.
+The MLX Python runtime alone is not an HTTP decision endpoint. For a loopback HTTP wrapper, keep
+`allowPrivateNetwork: true` and use its literal loopback address.
+
+For a hosted example, a contributor reported the following Zen System One endpoint working in
+[#6185](https://github.com/lidge-jun/opencodex/pull/6185). Configure it manually as an ordinary row;
+this is not an OpenCodex registry preset or a guarantee of current availability:
 
 ```json
 {
@@ -294,7 +361,8 @@ provider 的 **Test connection** 會向它的端點送出一個有界的探測�
 }
 ```
 
-若該端點需要驗證，請使用它自己的金鑰；只有在端點接受無金鑰呼叫時才省略 `apiKey`。絕不要為它重複使用 `TYPESAFE_API_KEY` 或 `JEV_API_KEY`。
+Use that endpoint's own key if authentication is required; omit `apiKey` only if the endpoint
+accepts keyless calls. Never reuse `TYPESAFE_API_KEY` or `JEV_API_KEY` for it.
 
 #### opencodex 模型
 
@@ -357,7 +425,7 @@ Combo 失敗分為**跳轉**失敗與**終端**失敗。
 | HTTP 410，且帶有明確的模型終止使用、已退役、已棄用、已停用或不再提供的訊號 | 冷卻該目標並跳轉。不相關的 410 回應仍視為終端錯誤。 |
 | 分類為認證、訂閱、配額、限流、過載或上游伺服器錯誤 | 冷卻目標並跳轉，即使單靠狀態碼不足。 |
 | 客戶端取消（499）、`origin_rejected`、cyber-policy 拒絕、上下文溢出或其他無效請求 | 停止並回傳錯誤；另一個目標不會讓請求變為有效。 |
-| 結構化 HTTP 400，明確拒絕 `user`、對 `reasoning.effort`/`reasoning_effort` 回傳不支援值，或回傳模型特定影像輸入拒絕（`param: input`） | 在輸出開始前跳轉到下一個符合條件的目標，且不記錄冷卻時間；參見下方選用參數相容性。 |
+| 結構化 HTTP 400，明確拒絕 `user`、對 `reasoning.effort`/`reasoning_effort` 回傳不支援值、回傳模型特定影像輸入拒絕（`param: input`），或拒絕該路由無法讀取的輸入媒體（`unsupported_input_modality`） | 在輸出開始前跳轉到下一個符合條件的目標，且不記錄冷卻時間；參見下方選用參數相容性。 |
 | 由行程內轉接器（`runTurn`）執行的 Responses 回合中，目前請求未宣告的第一個工具呼叫（在任何輸出與不可重播的副作用之前） | 讓該目標進入冷卻，並以相同的工具目錄跳轉到下一個目標。出現可見輸出或不可重播的副作用之後，拒絕即為最終結果。Chat Completions 與 Anthropic Messages 請求不受影響。 |
 | 任何其他未分類錯誤 | 停止並回傳錯誤。 |
 
@@ -503,7 +571,7 @@ Codex v2 子代理有一個重要限制（[issue #92](https://github.com/lidge-j
 
 ### 儀表板
 
-開啟本機儀表板並選擇 **Combos**。該工作區可建立、編輯、重新命名與移除 combo，且其目標 picker 會排除已停用的模型與巢狀 combo。
+開啟本機儀表板並選擇 **Combos**。該工作區可建立、編輯、重新命名與移除 combo。模型選擇器包含隱藏模型；顯示／隱藏設定僅影響對外模型清單，不影響 Combo 內部選擇，選取隱藏模型也不會將其對外顯示。目標選擇器仍排除已停用的供應商、巢狀 combo 與僅提供決策服務的 JEV 供應商。
 
 每個目標也會顯示即時額度徽章：**可用**、**額度已用盡**或**額度未知**。只有當每個可用目標均有目前有效的伺服器確認，顯示其所設定憑證的推論限額已耗盡時，編輯器才會因配額而停用儲存與建立。僅供顯示的帳戶、模型、搜尋與 MCP 配額，以及缺失或已過期的路由依據，都不會觸發此限制。此限制會在適用的重設時間或資料有效期限結束時解除，並在頁面變為作用中或可見狀態時重新檢查；重新整理會同時重新載入 Combo 資料與配額。儀表板編輯器目前尚未公開 `cooldownMs` 或 `waitForCooldownMs`；在後續 UI 工作完成前，請使用設定檔或管理 API。
 

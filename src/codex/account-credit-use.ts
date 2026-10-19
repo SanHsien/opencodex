@@ -3,7 +3,9 @@ import { deleteConfigTopLevelKey } from "../config/rebase-provenance";
 import { isThirtyDayOnlyCodexPlan } from "./plan";
 import {
   CODEX_EXHAUSTED_USAGE_PERCENT,
+  TERMINAL_SHORT_WINDOW_FRESHNESS_MS,
   isTerminalShortWindow,
+  hasSpendableCodexCredits,
   resetAtToMs,
   type StoredAccountQuota,
 } from "./quota-types";
@@ -14,7 +16,7 @@ import {
  * Upstream does not refuse an account that holds ChatGPT credits at 100%: it serves the request
  * and draws the balance. Selection only takes an account off on quota after a refusal, so an
  * account with credits was never moved off. Spending is opt-in: only the ids in
- * `creditCodexAccountIds` may keep serving from credits, and every other account leaves rotation
+ * `creditCodexAccountIds` may keep serving from fresh spendable credits, and every other account leaves rotation
  * at 100% and comes back after its reset. Pool accounts and the `__main__` login both carry the
  * switch; the main login is also checked where the main-account hard lock is.
  */
@@ -72,8 +74,13 @@ export function codexUsageLimitResetAt(quota: StoredAccountQuota | null, plan: u
   if (!quota) return undefined;
   const full: number[] = [];
   if (isTerminalShortWindow(quota, now)) {
-    // A reset-less burst reading counts while it is fresh, so there is no instant to report.
-    full.push(typeof quota.shortResetAt === "number" && quota.shortResetAt > 0 ? resetAtToMs(quota.shortResetAt) : now);
+    // A reset-less burst reading holds until its observation goes stale: the freshness horizon
+    // is the deadline a retried request still meets, so report it rather than `now` (which
+    // collapsed the refusal's Retry-After to 1s against an account blocked for minutes).
+    // `isTerminalShortWindow` guarantees `shortObservedAt` is finite on this branch.
+    full.push(typeof quota.shortResetAt === "number" && quota.shortResetAt > 0
+      ? resetAtToMs(quota.shortResetAt)
+      : (quota.shortObservedAt ?? now) + TERMINAL_SHORT_WINDOW_FRESHNESS_MS);
   }
   const longWindows: Array<[number | undefined, number | undefined]> = isThirtyDayOnlyCodexPlan(plan)
     ? [[quota.monthlyPercent, quota.monthlyResetAt]]
@@ -95,5 +102,6 @@ export function isCodexAccountHeldForCredits(
   plan: unknown,
   now: number,
 ): boolean {
-  return !codexAccountUsesCreditsAfterLimit(config, accountId) && isCodexUsageLimitReached(quota, plan, now);
+  return !(codexAccountUsesCreditsAfterLimit(config, accountId) && hasSpendableCodexCredits(quota, now))
+    && isCodexUsageLimitReached(quota, plan, now);
 }

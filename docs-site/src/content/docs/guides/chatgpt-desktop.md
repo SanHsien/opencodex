@@ -74,14 +74,33 @@ bundled binary of the discovered bundle; if that bundle has no app-server binary
 Before writing the launcher, `launch` also checks that the bundle and its
 app-server binary are owned by you or root, are not writable by group or others,
 and pass strict code-signature verification under OpenAI's team ID
-(`2DC432GLL2`). A bundle that fails any of these is refused, so a copy placed by
-another account cannot be made to run inside your session. The launcher file is
+(`2DC432GLL2`). A bundle that fails any of these checks is refused, including
+one owned by another account. The launcher file is
 written to a temporary file and renamed into place; an existing symbolic link at
 that path is replaced, not followed.
+
+`restore` applies the same ownership, permissions, and signature checks to the
+bundle and its main app executable before quitting or opening it. It works with
+the experimental flag off and without a bundled app-server binary. If trust
+verification or relaunch fails, the existing launcher is kept for recovery.
+
+Both commands also check the folders containing the bundle up to the filesystem
+root. Folders owned by another account, symbolic links, and ordinary group- or
+world-writable parents are refused. Root-owned administrator-group installation
+folders and trusted sticky folders retain their normal permissions behavior.
+These are ownership, POSIX-permission, and signature checks; native ACL and
+volume ownership-policy behavior has not been verified.
 
 This integration installs no certificate, network listener, PAC, or background
 watcher. It does not log the app's messages or environment. Status reports whether
 the running ChatGPT bundle process carries the expected launcher override.
+
+If app discovery or process inspection fails, `status` reports `unknown` rather
+than `not running`. `launch` and `restore` refuse to reopen an app whose exit
+cannot be confirmed; restore keeps the launcher. Resolve the inspection error
+and retry. Launch checks before writing its launcher, but a later inspection can
+still fail after that atomic update; the commands do not guarantee an all-or-nothing
+restart transaction.
 
 ## Failure behavior and known limits
 
@@ -107,6 +126,17 @@ app-server until you run one of them. A single output line longer than 8 MiB is
 passed through unparsed rather than buffered.
 
 This standalone shim does not rewrite conversation metadata or route model calls.
-Other app gates or upstream refusals can still prevent sending. Evidence reported
-on an exhausted Plus account also used an intercept, so it does not establish
-that this shim alone resolves every desktop send lock.
+Other app gates or upstream refusals can still prevent sending. An attached launcher
+or a passing filter self-test does not prove that the app's gate data crosses this pipe.
+
+Reporter observations in [#6196](https://github.com/lidge-jun/opencodex/issues/6196)
+on October 2 and 13, 2026 describe an attached shim with Send still disabled at
+natural quota exhaustion. On Desktop 26.1007.30912 with OpenCodex 2.84.0, the
+reporter observed no eligible rate-limit RPC messages while the renderer's gate
+used a separate usage transport. This shim cannot rewrite data that never reaches
+its stdout filter. These are build-specific field reports, not a new live
+verification or proof that every Desktop build uses the same transport.
+
+The remaining signed-in composer behavior stays tracked in #6196. Earlier success
+with a combined shim/intercept configuration does not establish shim-only
+sufficiency, and the closed, unmerged #6365 intercept is not a shipped remedy.

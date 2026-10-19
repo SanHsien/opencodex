@@ -1,5 +1,8 @@
+import { isAnthropicOAuthInstance, configuredAnthropicInstance, type AnthropicInstanceId } from "../../providers/anthropic-instance";
+import { resolveAnthropicAccountPoolConfig } from "../../oauth/anthropic-pool-config";
+import { persistAnthropicPoolPatch, writeAnthropicPoolSettings } from "./anthropic-pool-settings";
 import { parseAnthropicModelRoutes, readAnthropicModelRoutes } from "../../oauth/anthropic-model-routes";
-import { effectiveAnthropicAccountThreshold } from "../../oauth/anthropic-account-threshold";
+import { effectiveAnthropicAccountThresholdForInstance } from "../../oauth/anthropic-account-threshold";
 import { handleAnthropicAccountThreshold } from "./anthropic-account-threshold";
 import { randomBytes, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
@@ -20,12 +23,17 @@ import {
 import {
   clearLoginState,
   getLoginStatus,
+  isCodeLoginFlow,
   isPublicOAuthProvider,
   listOAuthProviders,
+  loginFlowAccountId,
   OAUTH_PROVIDERS,
   publicOAuthAuthenticationErrorMessage,
   startLoginFlow,
+  submitLoginCode,
   submitManualLoginCode,
+  supportsCodeLoginMode,
+  waitForLoginSettled,
 } from "../../oauth";
 import { OAuthMutationBusyError, removeCredential } from "../../oauth/store";
 import { cancelKiroDeviceLogin, kiroDeviceConfigBaseline, startKiroDeviceLogin, statusKiroDeviceLogin, type KiroDeviceMethod } from "../../oauth/kiro-device-login";
@@ -36,7 +44,7 @@ import { enrichProviderFromCatalog, listKeyLoginProviders } from "../../oauth/ke
 import { deriveProviderPresets } from "../../providers/derive";
 import { providerCodexAccountMode } from "../../providers/registry";
 import { routedSlug, slugEquals } from "../../providers/slug-codec";
-import { clearAccountQuotaCache, clearProviderQuotaCache, fetchProviderAccountQuotas, fetchProviderApiKeyQuotas, fetchProviderQuotaReports, providerOAuthAccountQuotaMode, providerApiKeyQuotaMode, readPassiveProviderAccountQuotas } from "../../providers/quota";
+import { clearAccountQuotaCache, clearProviderQuotaCache, clearProviderQuotaCacheFor, fetchProviderAccountQuotas, fetchProviderApiKeyQuotas, fetchProviderQuotaReports, providerOAuthAccountQuotaMode, providerApiKeyQuotaMode, readPassiveProviderAccountQuotas } from "../../providers/quota";
 import { isCanonicalOpenAiForwardProvider } from "../../providers/openai-tiers";
 import { clearThreadAccountMap } from "../../codex/routing";
 import {
@@ -96,6 +104,21 @@ import { codexAccountNamespaceProviderCollisionError } from "../../codex/account
  */
 function isDevinCloudDirectProvider(provider: string): boolean {
   return provider === "devin" || provider === "devin-cli";
+}
+
+/**
+ * Quota invalidation after an account mutation. A B mutation retires only B's provider-level
+ * report, routing row and per-account rows; A's cache, epochs and in-flight probes survive.
+ * Other providers keep the global clear; `accountRows` also drops that provider's account rows.
+ */
+function clearQuotaCachesAfterAccountMutation(provider: string, accountRows: boolean): void {
+  if (provider === "anthropic2") {
+    clearProviderQuotaCacheFor(provider);
+    clearAccountQuotaCache(provider);
+    return;
+  }
+  clearProviderQuotaCache();
+  if (accountRows) clearAccountQuotaCache(provider);
 }
 
 async function clearDevinCloudDirectCaches(): Promise<void> {
@@ -205,6 +228,7 @@ function metaMuseConsentRequired(provider: string, principal: ManagementContext[
 
 function genericOAuthProviderConfig(provider: string, config: ManagementContext["config"]) {
   const configured = config.providers[provider];
+  if (provider === "anthropic2" && !configuredAnthropicInstance(config, provider)) return undefined;
   if (configured) return configured;
   const definition = OAUTH_PROVIDERS[provider];
   return definition?.resolveProviderConfig?.(config) ?? definition?.providerConfig;
@@ -234,9 +258,17 @@ export async function handleOauthAccountRoutes(ctx: ManagementContext): Promise<
   // the provider's loopback callback server (inside this process) captures the redirect in the
   // background, then the credential is persisted. The GUI opens the URL and polls /api/oauth/status.
   if (url.pathname === "/api/oauth/login" && req.method === "POST") {
-    const body = await readManagementJsonBodyOr(req, {}) as { provider?: string; addAccount?: boolean; accountId?: string; reauth?: boolean; openBrowser?: unknown; method?: unknown };
+    const body = await readManagementJsonBodyOr(req, {}) as { provider?: string; addAccount?: boolean; accountId?: string; reauth?: boolean; openBrowser?: unknown; method?: unknown; mode?: unknown };
     const provider = (body.provider ?? "").trim().toLowerCase();
     if (!isPublicOAuthProvider(provider)) return jsonResponse({ error: "unknown oauth provider" }, 400);
+    // Omitted mode is the localhost-callback flow this route has always run.
+    if (body.mode !== undefined && body.mode !== "callback" && body.mode !== "code") {
+      return jsonResponse({ error: "mode must be \"callback\" or \"code\"" }, 400);
+    }
+    const codeMode = body.mode === "code";
+    if (codeMode && !supportsCodeLoginMode(provider)) {
+      return jsonResponse({ error: "code_mode_unsupported" }, 400);
+    }
     // Muse may import a local Keychain credential or start a device grant; add-account
     // and reauth skip the import. All management login paths require the dashboard
     // principal before credential acquisition. A raw token proves administration,
@@ -273,10 +305,15 @@ export async function handleOauthAccountRoutes(ctx: ManagementContext): Promise<
       // request may already have mutated live config and yielded before its save.
       const persistedBaseline = readConfigDiagnostics().config;
       // addAccount / reauth forces a fresh browser identity (skips local-CLI token import).
-      const { url: authUrl, instructions, deviceCode } = await startLoginFlow(provider, {
+      // Only code mode gets a flow id: it is what a later paste is pinned to. The callback
+      // flow's lifecycle argument stays exactly as it was.
+      const flowId = codeMode ? randomUUID() : undefined;
+      const { url: authUrl, instructions, deviceCode, expiresAt } = await startLoginFlow(provider, {
         forceLogin: body.addAccount === true || reauth,
         ...(accountId ? { reauthAccountId: accountId } : {}),
+        ...(codeMode ? { codeMode: true } : {}),
       }, {
+        ...(flowId ? { flowId } : {}),
         // startLoginFlow returns the authorization URL before background persistence completes.
         // Three-way reconcile settled disk changes so a failed login cannot leave a provider
         // live-only and an in-flight management mutation cannot be erased before it saves.
@@ -303,7 +340,13 @@ export async function handleOauthAccountRoutes(ctx: ManagementContext): Promise<
         const { openUrl } = await import("../../lib/open-url");
         browserLaunch = (await openUrl(authUrl)).status === "started" ? "started" : "failed";
       }
-      return jsonResponse({ url: authUrl, instructions, deviceCode, browserLaunch });
+      return jsonResponse({
+        url: authUrl,
+        instructions,
+        deviceCode,
+        browserLaunch,
+        ...(codeMode ? { mode: "code", flowId, expiresAt } : {}),
+      });
     } catch (err) {
       if (err instanceof OAuthMutationBusyError) throw err;
       const message = err instanceof Error ? err.message : String(err);
@@ -328,25 +371,69 @@ export async function handleOauthAccountRoutes(ctx: ManagementContext): Promise<
       return result ? jsonResponse(result) : jsonResponse({ error: "unknown login flow" }, 404);
     }
     const { cancelLoginFlow } = await import("../../oauth");
-    const cancelled = cancelLoginFlow(provider);
+    // Without a flow id this cancels the provider's newest in-flight login, which is what the
+    // single-user GUI has always meant by "Cancel". A host running concurrent code logins for
+    // several users passes the flowId it was given at /api/oauth/login.
+    const cancelled = cancelLoginFlow(provider, typeof body.flowId === "string" ? body.flowId : undefined);
     return jsonResponse({ ok: true, cancelled });
   }
 
   // Manual fallback for browser OAuth: paste the final redirect URL (or authorization code)
   // when the browser cannot reach the loopback callback (remote/SSH/blocked localhost).
+  //
+  // A code-display flow (started with mode:"code", or identified by its flowId) gets the
+  // richer contract instead: the paste is answered with the OUTCOME of the token exchange,
+  // not merely with "accepted". A hosted caller has one paste box and no second channel, so
+  // "accepted" is indistinguishable from "worked" to the person typing.
   if (url.pathname === "/api/oauth/login/code" && req.method === "POST") {
-    const body = await readManagementJsonBodyOr(req, {}) as { provider?: string; input?: string; code?: string };
+    const body = await readManagementJsonBodyOr(req, {}) as { provider?: string; input?: string; code?: string; flowId?: unknown };
     const provider = (body.provider ?? "").trim().toLowerCase();
     if (!isPublicOAuthProvider(provider)) return jsonResponse({ error: "unknown oauth provider" }, 400);
     const consentRequired = metaMuseConsentRequired(provider, principal);
     if (consentRequired) return consentRequired;
+    const flowId = typeof body.flowId === "string" ? body.flowId : undefined;
+    const maskEmails = emailMaskingEnabled(config);
+    // Only a code flow of THIS provider gets the outcome-waiting contract; that flow is single-use,
+    // so at most one request ever waits on it. A flow id naming anything else (a callback flow,
+    // another provider's flow, nothing) has no code login to complete.
+    const codeFlow = isCodeLoginFlow(provider, flowId);
+    if (flowId !== undefined && !codeFlow) return jsonResponse({ ok: false, error: "no_pending_login" }, 409);
     const input = typeof body.input === "string" ? body.input : typeof body.code === "string" ? body.code : "";
     // Authorization responses are measured in hundreds of bytes; never accept the
     // generic management-body allowance here.
-    if (input.length > 4096) return jsonResponse({ error: "input too long" }, 400);
-    const result = submitManualLoginCode(provider, input);
-    if (!result.ok) return jsonResponse({ error: result.error }, 409);
-    return jsonResponse({ ok: true });
+    if (input.length > 4096) {
+      return codeFlow
+        ? jsonResponse({ ok: false, error: "malformed_input" }, 400)
+        : jsonResponse({ error: "input too long" }, 400);
+    }
+    if (!codeFlow) {
+      const result = submitManualLoginCode(provider, input);
+      if (!result.ok) return jsonResponse({ error: result.error }, 409);
+      return jsonResponse({ ok: true });
+    }
+    const submitted = submitLoginCode(provider, input, flowId);
+    // Rejected before any token request: the flow stays alive so the user can paste again.
+    if (!submitted.ok) {
+      return jsonResponse({ ok: false, error: submitted.code }, submitted.code === "no_pending_login" ? 409 : 400);
+    }
+    // The exchange itself times out at 30s inside the provider client; this only has to
+    // outlast it so a hung socket surfaces as an answer rather than as a hung request.
+    // Pinned to the flow this paste actually landed in: with several code logins in flight for
+    // one provider, "the newest flow" by the time this resolves may be somebody else's.
+    const settled = await waitForLoginSettled(provider, 60_000, submitted.flowId);
+    const status = getLoginStatus(provider, maskEmails, submitted.flowId);
+    if (!settled) return jsonResponse({ ok: false, error: "provider_unreachable" }, 400);
+    if (status.error) {
+      const failure = status.errorCode ?? "invalid_or_expired_code";
+      return jsonResponse({ ok: false, error: failure }, failure === "no_pending_login" ? 409 : 400);
+    }
+    // A flow dropped while waiting (logout, clear) never completed, whatever the store now holds.
+    if (status.status !== "complete") return jsonResponse({ ok: false, error: "no_pending_login" }, 409);
+    // The account THIS flow wrote, which need not be the active one (reauth of an inactive account,
+    // or a concurrent login that finished later).
+    const savedId = loginFlowAccountId(provider, submitted.flowId);
+    const account = savedId === undefined ? undefined : status.accounts?.find(entry => entry.id === savedId);
+    return jsonResponse({ ok: true, ...(account ? { account: { id: account.id, email: account.email } } : {}) });
   }
 
   if (url.pathname === "/api/oauth/status" && req.method === "GET") {
@@ -381,9 +468,7 @@ export async function handleOauthAccountRoutes(ctx: ManagementContext): Promise<
     clearModelCache(provider);
     clearGatherRoutedModelsInflight();
     // Drop cached/last-good quota rows tied to the removed credential.
-    const { clearProviderQuotaCache, clearAccountQuotaCache } = await import("../../providers/quota");
-    clearProviderQuotaCache();
-    clearAccountQuotaCache(provider);
+    clearQuotaCachesAfterAccountMutation(provider, true);
     // The cached user_jwt's payload contains the api_key, and the catalog is
     // keyed by that key. Without this they outlive the credential in process
     // memory until the JWT's own ~24 minute expiry. `devin-cli` is a deprecated
@@ -404,7 +489,7 @@ export async function handleOauthAccountRoutes(ctx: ManagementContext): Promise<
     const { isGenericFailoverProvider, kiroAutoSelection } = await import("../../oauth/generic-account-failover");
     const effectiveProvider = genericOAuthProviderConfig(provider, config);
     const supportsPause = effectiveProvider !== undefined
-      && (provider === "anthropic" && effectiveProvider.authMode === "oauth"
+      && (isAnthropicOAuthInstance(provider) && effectiveProvider.authMode === "oauth"
         || isGenericFailoverProvider(provider, effectiveProvider));
     const {
       oauthAccountHealthFields,
@@ -415,7 +500,7 @@ export async function handleOauthAccountRoutes(ctx: ManagementContext): Promise<
       const set = getAccountSet(provider);
       const current = getLoginStatus(provider, emailMaskingEnabled(config));
       return {
-        activeAccountId: current.activeAccountId ?? null,
+        ...(provider === "anthropic2" ? { provider } : {}), activeAccountId: current.activeAccountId ?? null,
         accounts: (current.accounts ?? []).map(summary => {
           const full = set?.accounts.find(account => account.id === summary.id);
           const health = full
@@ -426,9 +511,9 @@ export async function handleOauthAccountRoutes(ctx: ManagementContext): Promise<
             });
           return { ...summary, ...oauthAccountHealthFields(provider, summary.id, health), quotaMode,
             ...(supportsPause ? { paused: full?.paused === true } : {}),
-            ...(provider === "anthropic" && supportsPause ? { autoSwitchThresholdOverride: full?.autoSwitchThresholdOverride ?? null,
-              effectiveAutoSwitchThreshold: effectiveAnthropicAccountThreshold(config, full),
-              autoSwitchThreshold: effectiveAnthropicAccountThreshold(config) } : {}),
+            ...(isAnthropicOAuthInstance(provider) && supportsPause ? { autoSwitchThresholdOverride: full?.autoSwitchThresholdOverride ?? null,
+              effectiveAutoSwitchThreshold: effectiveAnthropicAccountThresholdForInstance(provider as AnthropicInstanceId, config, full),
+              autoSwitchThreshold: effectiveAnthropicAccountThresholdForInstance(provider as AnthropicInstanceId, config) } : {}),
             ...(provider === "kiro" && full ? kiroAutoSelection(full) : {}) };
         }),
       };
@@ -448,11 +533,11 @@ export async function handleOauthAccountRoutes(ctx: ManagementContext): Promise<
     // from the post-probe store so the response is not stale.
     const rows = passiveQuota
       ? readPassiveProviderAccountQuotas(provider)
-      : await fetchProviderAccountQuotas(provider, forceRefresh, quotaProvider);
+      : await fetchProviderAccountQuotas(provider, forceRefresh, quotaProvider, config);
     const byId = new Map(rows.map(row => [row.accountId, row]));
     const projected = projectAccounts();
     return jsonResponse({
-      activeAccountId: projected.activeAccountId,
+      ...(provider === "anthropic2" ? { provider } : {}), activeAccountId: projected.activeAccountId,
       accounts: projected.accounts.map(account => {
         const row = byId.get(account.id);
         if (!row) return account;
@@ -473,6 +558,7 @@ export async function handleOauthAccountRoutes(ctx: ManagementContext): Promise<
     const body = await readManagementJsonBodyOr(req, {}) as { provider?: string; accountId?: string };
     const provider = (body.provider ?? "").trim().toLowerCase();
     if (!isPublicOAuthProvider(provider)) return jsonResponse({ error: "unknown oauth provider" }, 400);
+    if (provider === "anthropic2" && !configuredAnthropicInstance(config, provider)) return jsonResponse({ error: "Anthropic pool instance is not configured" }, 409);
     if (!body.accountId) return jsonResponse({ error: "missing accountId" }, 400);
     const { getAccountCredentialWithStatus, setActiveAccount } = await import("../../oauth/store");
     const current = getAccountCredentialWithStatus(provider, body.accountId);
@@ -491,16 +577,15 @@ export async function handleOauthAccountRoutes(ctx: ManagementContext): Promise<
     // side carries resetCodexRoutingForManualSelection for.
     const { genericPoolKey, seedPoolRotationAccount } = await import("../../oauth/pool-kernel");
     seedPoolRotationAccount(genericPoolKey(provider), body.accountId);
-    if (provider === "anthropic") {
-      const { resetAnthropicRoutingForManualSelection } = await import("../../oauth/anthropic-routing");
-      resetAnthropicRoutingForManualSelection(body.accountId);
+    if (isAnthropicOAuthInstance(provider)) {
+      const { anthropicRoutingFor } = await import("../../oauth/anthropic-routing");
+      anthropicRoutingFor(provider).resetAnthropicRoutingForManualSelection(body.accountId);
     }
     const { clearModelCache } = await import("../../codex/model-cache");
     const { clearGatherRoutedModelsInflight } = await import("../../codex/catalog");
     clearModelCache(provider);
     clearGatherRoutedModelsInflight();
-    const { clearProviderQuotaCache } = await import("../../providers/quota");
-    clearProviderQuotaCache();
+    clearQuotaCachesAfterAccountMutation(provider, false);
     return jsonResponse({ ok: true, provider, activeAccountId: body.accountId });
   }
 
@@ -517,7 +602,7 @@ export async function handleOauthAccountRoutes(ctx: ManagementContext): Promise<
 
     const { isGenericFailoverProvider } = await import("../../oauth/generic-account-failover");
     const effectiveProvider = genericOAuthProviderConfig(provider, config);
-    if (!effectiveProvider || !(provider === "anthropic" && effectiveProvider.authMode === "oauth"
+    if (!effectiveProvider || !(isAnthropicOAuthInstance(provider) && effectiveProvider.authMode === "oauth"
       || isGenericFailoverProvider(provider, effectiveProvider))) {
       return jsonResponse({ error: "account pause is not supported for this OAuth provider" }, 400);
     }
@@ -527,9 +612,9 @@ export async function handleOauthAccountRoutes(ctx: ManagementContext): Promise<
     if (result.status === "not-found") return jsonResponse({ error: "account not found" }, 404);
 
     if (result.activeAccountChanged) {
-      if (provider === "anthropic") {
-        const { resetAnthropicRoutingForManualSelection } = await import("../../oauth/anthropic-routing");
-        resetAnthropicRoutingForManualSelection(result.activeAccountId);
+      if (isAnthropicOAuthInstance(provider)) {
+        const { anthropicRoutingFor } = await import("../../oauth/anthropic-routing");
+        anthropicRoutingFor(provider).resetAnthropicRoutingForManualSelection(result.activeAccountId);
       } else {
         const { genericPoolKey, seedPoolRotationAccount } = await import("../../oauth/pool-kernel");
         seedPoolRotationAccount(genericPoolKey(provider), result.activeAccountId);
@@ -538,8 +623,7 @@ export async function handleOauthAccountRoutes(ctx: ManagementContext): Promise<
       const { clearGatherRoutedModelsInflight } = await import("../../codex/catalog");
       clearModelCache(provider);
       clearGatherRoutedModelsInflight();
-      const { clearProviderQuotaCache } = await import("../../providers/quota");
-      clearProviderQuotaCache();
+      clearQuotaCachesAfterAccountMutation(provider, false);
     }
 
     return jsonResponse({
@@ -565,7 +649,7 @@ export async function handleOauthAccountRoutes(ctx: ManagementContext): Promise<
     if (req.method !== "GET" && !isPlainRecord(rawBody)) {
       return jsonResponse({ error: "body must be an object" }, 400);
     }
-    const fields = rawBody as { provider?: unknown; enabled?: unknown; strategy?: unknown; stickyLimit?: unknown; autoSwitchThreshold?: unknown; quotaWindow?: unknown; maxConcurrentPerAccount?: unknown; routes?: unknown };
+    const fields = rawBody as { provider?: unknown; enabled?: unknown; strategy?: unknown; stickyLimit?: unknown; autoSwitchThreshold?: unknown; quotaWindow?: unknown; maxConcurrentPerAccount?: unknown; routes?: unknown; nativeMessages?: unknown };
     const provider = req.method === "GET"
       ? (url.searchParams.get("provider") ?? "").trim().toLowerCase()
       : (typeof fields.provider === "string" ? fields.provider.trim().toLowerCase() : "");
@@ -573,14 +657,23 @@ export async function handleOauthAccountRoutes(ctx: ManagementContext): Promise<
     if (!provider || !kind) {
       return jsonResponse({ error: "pool settings are only available for the codex, anthropic and generic OAuth pools" }, 400);
     }
+    if (Object.hasOwn(fields, "nativeMessages")) {
+      if (kind !== "anthropic") return jsonResponse({ error: "nativeMessages is only part of the anthropic pool contract" }, 400);
+      if (typeof fields.nativeMessages !== "boolean") return jsonResponse({ error: "nativeMessages must be a boolean" }, 400);
+    }
     // Validated by the SHARED parsers before any kind-specific write, so a bad strategy or
     // sticky limit is refused identically whichever pool is addressed.
     let strategy: string | undefined;
     if (fields.strategy !== undefined) {
-      const parsed = kind === "codex" ? parseCodexAccountPoolStrategy(fields.strategy) : parseGenericPoolStrategy(fields.strategy, provider);
-      if (parsed === null) return jsonResponse({ error: kind === "codex"
-        ? "strategy must be one of: quota, round-robin, fill-first, reset-first"
-        : `strategy must be one of: quota, round-robin, fill-first${provider === "kiro" ? ", least-loaded" : ""}` }, 400);
+      // reset-first is a Codex and generic strategy. The Anthropic runtime implements only
+      // quota, round-robin and fill-first, so that kind keeps refusing it rather than storing
+      // a strategy it would silently ignore.
+      const parsed = kind === "codex" ? parseCodexAccountPoolStrategy(fields.strategy)
+        : kind === "generic" ? parseGenericPoolStrategy(fields.strategy, provider)
+        : parseAccountPoolStrategy(fields.strategy);
+      if (parsed === null) return jsonResponse({ error: kind === "anthropic"
+        ? "strategy must be one of: quota, round-robin, fill-first"
+        : `strategy must be one of: quota, round-robin, fill-first, reset-first${kind === "generic" && provider === "kiro" ? ", least-loaded" : ""}` }, 400);
       strategy = parsed;
     }
     let stickyLimit: number | undefined;
@@ -625,17 +718,24 @@ export async function handleOauthAccountRoutes(ctx: ManagementContext): Promise<
         if (stickyLimit !== undefined) config.accountPoolStickyLimit = stickyLimit;
         if (autoSwitchThreshold !== undefined) config.autoSwitchThreshold = autoSwitchThreshold;
       } else if (kind === "anthropic") {
-        const pool = { ...(config.anthropicAccountPool ?? {}) };
-        if (fields.enabled !== undefined) pool.enabled = fields.enabled as boolean;
-        if (strategy !== undefined) pool.strategy = strategy as never;
-        if (stickyLimit !== undefined) pool.stickyLimit = stickyLimit;
-        if (autoSwitchThreshold !== undefined) pool.autoSwitchThreshold = autoSwitchThreshold;
-        if (quotaWindow !== undefined) pool.quotaWindow = quotaWindow as never;
-        if (Object.hasOwn(fields, "routes")) {
-          if (fields.routes === null) delete pool.routes;
-          else if (parsedRoutes?.ok) pool.routes = parsedRoutes.routes;
-        }
-        config.anthropicAccountPool = pool;
+        const patchPool = (target: OcxConfig) => {
+          const pool = { ...resolveAnthropicAccountPoolConfig(target, provider as AnthropicInstanceId) };
+          if (fields.nativeMessages !== undefined) pool.nativeMessages = fields.nativeMessages as boolean;
+          if (fields.enabled !== undefined) pool.enabled = fields.enabled as boolean;
+          if (strategy !== undefined) pool.strategy = strategy as never;
+          if (stickyLimit !== undefined) pool.stickyLimit = stickyLimit;
+          if (autoSwitchThreshold !== undefined) pool.autoSwitchThreshold = autoSwitchThreshold;
+          if (quotaWindow !== undefined) pool.quotaWindow = quotaWindow as never;
+          if (Object.hasOwn(fields, "routes")) {
+            if (fields.routes === null) delete pool.routes;
+            else if (parsedRoutes?.ok) pool.routes = parsedRoutes.routes;
+          }
+          writeAnthropicPoolSettings(target, provider as AnthropicInstanceId, pool);
+          return { changed: true, value: pool };
+        };
+        const saved = persistAnthropicPoolPatch(config, provider as AnthropicInstanceId, patchPool);
+        if (saved.status === "failed") return saved.response;
+        return jsonResponse({ ...unifiedPoolSettingsDto(config, provider, kind), ...(saved.warning ? { warning: saved.warning } : {}) });
       } else {
         const prov = config.providers[provider]!;
         const next = { ...(prov.oauthAccountFailover ?? {}) };
@@ -658,7 +758,7 @@ export async function handleOauthAccountRoutes(ctx: ManagementContext): Promise<
   // Opt-in Anthropic OAuth account pool (#294): enable/threshold/strategy + clear cooldown.
   if (url.pathname === "/api/oauth/accounts/pool" && req.method === "GET") {
     const provider = (url.searchParams.get("provider") ?? "").trim().toLowerCase();
-    if (provider !== "anthropic") {
+    if (!isAnthropicOAuthInstance(provider)) {
       // Generic OAuth pool-settings contract (#695 slice 1): persisted per provider. `strategy`
       // and `autoSwitchThreshold` stay inert until the selector consumes them; `enabled` already
       // governs the pre-dispatch account preference. Codex keeps /api/codex-auth; api-key
@@ -670,7 +770,8 @@ export async function handleOauthAccountRoutes(ctx: ManagementContext): Promise<
       }
       return jsonResponse(genericPoolSettingsDto(provider, prov, config.pool?.kernel === true));
     }
-    const pool = config.anthropicAccountPool ?? {};
+    if (provider === "anthropic2" && !configuredAnthropicInstance(config, provider)) return jsonResponse({ error: "Anthropic pool instance is not configured" }, 409);
+    const pool = resolveAnthropicAccountPoolConfig(config, provider);
     return jsonResponse({
       provider,
       enabled: pool.enabled === true,
@@ -679,6 +780,7 @@ export async function handleOauthAccountRoutes(ctx: ManagementContext): Promise<
       stickyLimit: normalizeAccountPoolStickyLimit(pool.stickyLimit),
       quotaWindow: normalizeAccountPoolQuotaWindow(pool.quotaWindow),
       ...readAnthropicModelRoutes(pool.routes),
+      nativeMessages: !Object.hasOwn(pool, "nativeMessages") || pool.nativeMessages === true,
       experimental: true,
     });
   }
@@ -696,9 +798,14 @@ export async function handleOauthAccountRoutes(ctx: ManagementContext): Promise<
       quotaWindow?: unknown;
       maxConcurrentPerAccount?: unknown;
       routes?: unknown;
+      nativeMessages?: unknown;
     };
     const provider = typeof body.provider === "string" ? body.provider.trim().toLowerCase() : "";
-    if (provider !== "anthropic") {
+    if (Object.hasOwn(body, "nativeMessages")) {
+      if (!isAnthropicOAuthInstance(provider)) return jsonResponse({ error: "nativeMessages is only part of the anthropic pool contract" }, 400);
+      if (typeof body.nativeMessages !== "boolean") return jsonResponse({ error: "nativeMessages must be a boolean" }, 400);
+    }
+    if (!isAnthropicOAuthInstance(provider)) {
       const {
         poolSettingsCapability, genericPoolSettingsDto, parseGenericPoolStrategy, parseGenericAutoSwitchThreshold,
         parseGenericStickyLimit, parseKiroAccountCap,
@@ -720,7 +827,7 @@ export async function handleOauthAccountRoutes(ctx: ManagementContext): Promise<
         if (body.strategy === null) delete next.strategy;
         else {
           const parsed = parseGenericPoolStrategy(body.strategy, provider);
-          if (parsed === null) return jsonResponse({ error: `strategy must be one of: quota, round-robin, fill-first${provider === "kiro" ? ", least-loaded" : ""}` }, 400);
+          if (parsed === null) return jsonResponse({ error: `strategy must be one of: quota, round-robin, fill-first, reset-first${provider === "kiro" ? ", least-loaded" : ""}` }, 400);
           next.strategy = parsed;
         }
       }
@@ -752,12 +859,13 @@ export async function handleOauthAccountRoutes(ctx: ManagementContext): Promise<
       saveConfigPreservingClaudeCode(config);
       return jsonResponse({ ok: true, ...genericPoolSettingsDto(provider, prov, config.pool?.kernel === true) });
     }
-    let enabled = config.anthropicAccountPool?.enabled === true;
+    if (provider === "anthropic2" && !configuredAnthropicInstance(config, provider)) return jsonResponse({ error: "Anthropic pool instance is not configured" }, 409);
+    let enabled = resolveAnthropicAccountPoolConfig(config, provider)?.enabled === true;
     if (body.enabled !== undefined) {
       if (typeof body.enabled !== "boolean") return jsonResponse({ error: "enabled must be a boolean" }, 400);
       enabled = body.enabled;
     }
-    let threshold = config.anthropicAccountPool?.autoSwitchThreshold ?? 80;
+    let threshold = resolveAnthropicAccountPoolConfig(config, provider)?.autoSwitchThreshold ?? 80;
     if (body.autoSwitchThreshold !== undefined) {
       if (
         typeof body.autoSwitchThreshold !== "number"
@@ -769,7 +877,7 @@ export async function handleOauthAccountRoutes(ctx: ManagementContext): Promise<
       }
       threshold = body.autoSwitchThreshold;
     }
-    let strategy = config.anthropicAccountPool?.strategy;
+    let strategy = resolveAnthropicAccountPoolConfig(config, provider)?.strategy;
     if (body.strategy !== undefined) {
       const parsed = parseAccountPoolStrategy(body.strategy);
       if (parsed === null) {
@@ -777,7 +885,7 @@ export async function handleOauthAccountRoutes(ctx: ManagementContext): Promise<
       }
       strategy = parsed;
     }
-    let stickyLimit = config.anthropicAccountPool?.stickyLimit;
+    let stickyLimit = resolveAnthropicAccountPoolConfig(config, provider)?.stickyLimit;
     if (body.stickyLimit !== undefined) {
       const parsed = parseAccountPoolStickyLimit(body.stickyLimit);
       if (parsed === null) {
@@ -785,7 +893,7 @@ export async function handleOauthAccountRoutes(ctx: ManagementContext): Promise<
       }
       stickyLimit = parsed;
     }
-    let quotaWindow = config.anthropicAccountPool?.quotaWindow;
+    let quotaWindow = resolveAnthropicAccountPoolConfig(config, provider)?.quotaWindow;
     if (body.quotaWindow !== undefined) {
       const parsed = parseAccountPoolQuotaWindow(body.quotaWindow);
       if (parsed === null) {
@@ -796,28 +904,36 @@ export async function handleOauthAccountRoutes(ctx: ManagementContext): Promise<
     const parsedLegacyRoutes = Object.hasOwn(body, "routes") && body.routes !== null
       ? parseAnthropicModelRoutes(body.routes) : null;
     if (parsedLegacyRoutes && !parsedLegacyRoutes.ok) return jsonResponse({ error: parsedLegacyRoutes.error }, 400);
-    const routes = Object.hasOwn(body, "routes")
-      ? (parsedLegacyRoutes?.ok ? parsedLegacyRoutes.routes : undefined)
-      : config.anthropicAccountPool?.routes;
-    config.anthropicAccountPool = {
-      enabled,
-      autoSwitchThreshold: threshold,
-      ...(strategy !== undefined ? { strategy } : {}),
-      ...(stickyLimit !== undefined ? { stickyLimit } : {}),
-      ...(quotaWindow !== undefined ? { quotaWindow } : {}),
-      ...(routes !== undefined ? { routes } : {}),
+    const legacyPatch = (target: OcxConfig) => {
+      const pool = { ...resolveAnthropicAccountPoolConfig(target, provider as AnthropicInstanceId) };
+      if (body.enabled !== undefined) pool.enabled = enabled;
+      else if (pool.enabled === undefined) pool.enabled = false;
+      if (body.nativeMessages !== undefined) pool.nativeMessages = body.nativeMessages as boolean;
+      if (body.autoSwitchThreshold !== undefined) pool.autoSwitchThreshold = threshold;
+      else if (pool.autoSwitchThreshold === undefined) pool.autoSwitchThreshold = 80;
+      if (body.strategy !== undefined) pool.strategy = strategy;
+      if (body.stickyLimit !== undefined) pool.stickyLimit = stickyLimit;
+      if (body.quotaWindow !== undefined) pool.quotaWindow = quotaWindow;
+      if (Object.hasOwn(body, "routes")) {
+        if (body.routes === null) delete pool.routes;
+        else if (parsedLegacyRoutes?.ok) pool.routes = parsedLegacyRoutes.routes;
+      }
+      writeAnthropicPoolSettings(target, provider as AnthropicInstanceId, pool);
+      return { changed: true, value: pool };
     };
-    saveConfigPreservingClaudeCode(config);
-    reconcileLiveStateStores();
+    const saved = persistAnthropicPoolPatch(config, provider as AnthropicInstanceId, legacyPatch);
+    if (saved.status === "failed") return saved.response;
     return jsonResponse({
       ok: true,
       provider,
-      enabled,
-      autoSwitchThreshold: threshold,
-      strategy: normalizeAccountPoolStrategy(strategy),
-      stickyLimit: normalizeAccountPoolStickyLimit(stickyLimit),
-      quotaWindow: normalizeAccountPoolQuotaWindow(quotaWindow),
-      routes: routes ?? null,
+      enabled: resolveAnthropicAccountPoolConfig(config, provider)?.enabled === true,
+      autoSwitchThreshold: resolveAnthropicAccountPoolConfig(config, provider)?.autoSwitchThreshold ?? 80,
+      strategy: normalizeAccountPoolStrategy(resolveAnthropicAccountPoolConfig(config, provider)?.strategy),
+      stickyLimit: normalizeAccountPoolStickyLimit(resolveAnthropicAccountPoolConfig(config, provider)?.stickyLimit),
+      quotaWindow: normalizeAccountPoolQuotaWindow(resolveAnthropicAccountPoolConfig(config, provider)?.quotaWindow),
+      routes: resolveAnthropicAccountPoolConfig(config, provider)?.routes ?? null,
+      nativeMessages: !Object.hasOwn(resolveAnthropicAccountPoolConfig(config, provider), "nativeMessages") || resolveAnthropicAccountPoolConfig(config, provider)?.nativeMessages === true,
+      ...(saved.warning ? { warning: saved.warning } : {}),
       experimental: true,
     });
   }
@@ -825,10 +941,11 @@ export async function handleOauthAccountRoutes(ctx: ManagementContext): Promise<
     const body = await readManagementJsonBodyOr(req, {}) as { provider?: unknown; accountId?: unknown };
     const provider = typeof body.provider === "string" ? body.provider.trim().toLowerCase() : "";
     const accountId = typeof body.accountId === "string" ? body.accountId.trim() : "";
-    if (provider !== "anthropic") return jsonResponse({ error: "clear-cooldown is only supported for anthropic" }, 400);
+    if (!isAnthropicOAuthInstance(provider)) return jsonResponse({ error: "clear-cooldown is only supported for anthropic" }, 400);
+    if (provider === "anthropic2" && !configuredAnthropicInstance(config, provider)) return jsonResponse({ error: "Anthropic pool instance is not configured" }, 409);
     if (!accountId) return jsonResponse({ error: "missing accountId" }, 400);
-    const { clearAnthropicAccountCooldown } = await import("../../oauth/anthropic-routing");
-    const cleared = clearAnthropicAccountCooldown(accountId);
+    const { anthropicRoutingFor } = await import("../../oauth/anthropic-routing");
+    const cleared = anthropicRoutingFor(provider).clearAnthropicAccountCooldown(accountId);
     return jsonResponse({ ok: true, cleared });
   }
 
@@ -870,8 +987,7 @@ export async function handleOauthAccountRoutes(ctx: ManagementContext): Promise<
         const { clearGatherRoutedModelsInflight } = await import("../../codex/catalog");
         clearModelCache(provider);
         clearGatherRoutedModelsInflight();
-        clearProviderQuotaCache();
-        clearAccountQuotaCache(provider);
+        clearQuotaCachesAfterAccountMutation(provider, true);
       }
       if (!imported.ok) return jsonResponse({ code: imported.code }, imported.status);
       return jsonResponse(imported.result);
@@ -903,19 +1019,17 @@ export async function handleOauthAccountRoutes(ctx: ManagementContext): Promise<
     const { removeAccount, getAccountSet } = await import("../../oauth/store");
     if (!(await removeAccount(provider, id))) return jsonResponse({ error: "account not found" }, 404);
     reconcileLiveStateStores();
-    if (provider === "anthropic") {
-      const { clearAnthropicAccountCooldown, clearAnthropicSessionAffinityForAccount } = await import("../../oauth/anthropic-routing");
-      clearAnthropicAccountCooldown(id);
-      clearAnthropicSessionAffinityForAccount(id);
+    if (isAnthropicOAuthInstance(provider)) {
+      const { anthropicRoutingFor } = await import("../../oauth/anthropic-routing");
+      anthropicRoutingFor(provider).clearAnthropicAccountCooldown(id);
+      anthropicRoutingFor(provider).clearAnthropicSessionAffinityForAccount(id);
     }
     if (!getAccountSet(provider)) clearLoginState(provider);
     const { clearModelCache } = await import("../../codex/model-cache");
     const { clearGatherRoutedModelsInflight } = await import("../../codex/catalog");
     clearModelCache(provider);
     clearGatherRoutedModelsInflight();
-    const { clearProviderQuotaCache, clearAccountQuotaCache } = await import("../../providers/quota");
-    clearProviderQuotaCache();
-    clearAccountQuotaCache(provider);
+    clearQuotaCachesAfterAccountMutation(provider, true);
     // Same reasoning as logout. Removing the last account for a provider used to
     // leave the JWT and catalog in memory, because only the logout route cleared
     // them.
@@ -1096,6 +1210,27 @@ export async function handleOauthAccountRoutes(ctx: ManagementContext): Promise<
       authMatrix: AUTH_MATRIX,
       ...endpoints,
     }, 200, req, config);
+  }
+
+  if (url.pathname === "/api/keys/reveal" && req.method === "POST") {
+    if (principal !== "gui-session") {
+      return jsonResponse({ error: "dashboard session required" }, 403, req, config);
+    }
+    // Local page bootstrap is sufficient for the dashboard, not stored-secret disclosure.
+    const authorized = () => ctx.sessionControl?.canRevealDataKeys?.(req, config) === true;
+    const denied = () => jsonResponse({ error: "operator-authorized dashboard session required" }, 403, req, config);
+    if (!authorized()) return denied();
+    const body = await readJsonBody(req);
+    // Body reception can outlive the session or its revocation; do not trust cached admission.
+    if (!authorized()) return denied();
+    if (!body || Object.keys(body).length !== 1 || typeof body.id !== "string" || !body.id) {
+      return jsonResponse({ error: "invalid body" }, 400, req, config);
+    }
+    const entry = config.apiKeys?.find(key => key.id === body.id);
+    if (!entry) return jsonResponse({ error: "key not found" }, 404, req, config);
+    const response = jsonResponse({ key: entry.key }, 200, req, config);
+    response.headers.set("Cache-Control", "no-store");
+    return response;
   }
 
   if (url.pathname === "/api/keys/rotate" && req.method === "POST") {

@@ -20,17 +20,21 @@
  * targeting it is the caller's explicit act.
  */
 import { homedir } from "node:os";
+import { gentleShellPaths } from "./gentle-shell-path";
+import { absoluteClientPath, ClientPathError, piAgentDir } from "./client-path";
+export { ClientPathError, piAgentDir } from "./client-path";
 import { existsSync, lstatSync, readFileSync, realpathSync, statSync } from "node:fs";
-import { basename, dirname, isAbsolute, join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve, win32 } from "node:path";
 import { shouldInjectApiAuthHeader, standaloneCodexRoutingTarget } from "../codex/inject";
 import { FORMAT_MEDIA_TYPE, serializeDocument, type ConfigFormat } from "../integrations/serialize";
+import { fileIO } from "../integrations/config-io";
 import { canonicalizeReasoningEfforts } from "../reasoning-effort";
 import { expandFastExportModels } from "./config-export/fast-models";
 import { probeHostname } from "../server/proxy-liveness";
 import type { OcxConfig } from "../types";
 
 export type { ConfigFormat } from "../integrations/serialize";
-export type { ManagedFragment, ManagedContribution, BuildContribution, OpencodeLaunchEnv, OpencodeCatalogModel, ExportModel, ExportContext, ExportClientId, ExportClientSpec, PiModelEntry } from "./config-export/contracts";
+export type { ManagedFragment, ManagedContribution, BuildContribution, OpencodeLaunchEnv, OpencodeCatalogModel, ExportModel, ExportContext, ExportClientId, ExportClientSpec, PiModelEntry, DroidReasoningDefaults } from "./config-export/contracts";
 export { OPENCODE_PROVIDER_ID, OPENCODE_CONFIG_SCHEMA, OPENCODE_API_KEY_ENV, OPENCODE_API_KEY_ENV_REF, KILO_API_KEY_ENV, KILO_API_KEY_ENV_REF, KILO_CONFIG_SCHEMA, HERMES_API_KEY_ENV, HERMES_API_KEY_ENV_REF, OPENCLAW_API_KEY_ENV, OPENCLAW_API_KEY_ENV_REF, LOOPBACK_API_KEY_PLACEHOLDER, GAJAE_API_KEY_ENV, SCHEMA_REQUIRED_OUTPUT_BUDGET, OPENCODE_PROVIDER_BLOCK_DEFAULT_CONFIG } from "./config-export/constants";
 export { normalizeExportModels } from "./config-export/model-metadata";
 export type { OmpModelEntry, OmpProviderBlock, OmpGeneratedConfig } from "./config-export/omp";
@@ -48,17 +52,19 @@ export {
   zcodeStoreSchemaEstablished,
 } from "./config-export/zcode-store";
 export type { DshReasoningEffort, DshWireReasoningEffort, DshModelEntry, DshProviderBlock, DshGeneratedConfig } from "./config-export/dsh";
+export { DSH_PROFILE_PROVIDER_PATH, dshProfilePatchEstablished, buildDshProfilePatchContribution } from "./config-export/dsh";
 export type { McodeProviderBlock, McodeModelEntry, McodeGeneratedConfig } from "./config-export/mcode";
 export type { RaycastAbility, RaycastAbilityName, RaycastModelEntry, RaycastProviderEntry, RaycastGeneratedConfig } from "./config-export/raycast";
 export { buildRaycastClientConfig, summarizeRaycast, buildRaycastContribution } from "./config-export/raycast";
-export { droidHomeDir, droidConfigPath, buildDroidClientConfig, summarizeDroid, buildDroidContribution } from "./config-export/droid";
+export { droidHomeDir, droidConfigPath, buildDroidClientConfig, summarizeDroid, buildDroidContribution, droidReasoningModels, droidDefaultsFromOwnedRows, validateDroidReasoningDefaults } from "./config-export/droid";
 export type { DroidModelEntry, DroidGeneratedConfig } from "./config-export/droid";
 
 import type { OpencodeLaunchEnv, OpencodeCatalogModel, ExportContext, PiModelEntry, ManagedContribution, ManagedFragment, ExportClientId, ExportClientSpec } from "./config-export/contracts";
 import { OPENCODE_API_KEY_ENV_REF, OPENCODE_PROVIDER_BLOCK_DEFAULT_CONFIG, OPENCODE_CONFIG_SCHEMA, OPENCODE_PROVIDER_ID, PI_API_DIALECT, LOOPBACK_API_KEY_PLACEHOLDER, HERMES_API_KEY_ENV_REF, OPENCLAW_API_KEY_ENV_REF, OPENCODE_API_KEY_ENV, HERMES_API_KEY_ENV, OPENCLAW_API_KEY_ENV, KILO_API_KEY_ENV } from "./config-export/constants";
-import { exportModelLabel, authoritativeContextWindow, outputBudgetFor, normalizeExportModels, inputModalitiesForClient, opencodeModelCapabilities, proxyAdmissionHeaders, singleFragment } from "./config-export/model-metadata";
+import { exportModelLabel, authoritativeContextWindow, outputBudgetFor, inputBudgetFor, normalizeExportModels, inputModalitiesForClient, opencodeModelCapabilities, proxyAdmissionHeaders, singleFragment } from "./config-export/model-metadata";
+import { exportReasoningEfforts, exportDefaultReasoningEffort, legacyReasoningMetadata, type LegacyEffortVariant } from "./config-export/reasoning-metadata";
 import { buildOmpClientConfig, summarizeOmp, buildOmpContribution } from "./config-export/omp";
-import { buildDshClientConfig, summarizeDsh, buildDshContribution } from "./config-export/dsh";
+import { buildDshClientConfig, summarizeDsh, buildDshContribution, DSH_DESKTOP_PROFILE } from "./config-export/dsh";
 import { buildMcodeClientConfig, summarizeMcode, buildMcodeContribution } from "./config-export/mcode";
 import { buildZcodeClientConfig, summarizeZcode, buildZcodeContribution } from "./config-export/zcode";
 import { buildClineClientConfig, summarizeCline, buildClineContribution } from "./config-export/cline";
@@ -67,12 +73,26 @@ import { buildKiloClientConfig, summarizeKilo, buildKiloContribution, kiloConfig
 export { kiloConfigPath, kiloHomeDir, kiloCandidatePath, KILO_CONFIG_CANDIDATES } from "./config-export/kilo";
 export type { KiloGeneratedConfig, KiloProviderBlock, KiloModelEntry } from "./config-export/kilo";
 import { droidConfigPath, buildDroidClientConfig, summarizeDroid, buildDroidContribution } from "./config-export/droid";
+import {
+  buildCommandCodeClientConfig,
+  summarizeCommandCode,
+  buildCommandCodeContribution,
+  commandCodeProviderRoot,
+  type CommandCodeGeneratedConfig,
+  type CommandCodeModelEntry,
+  type CommandCodeProviderBlock,
+} from "./config-export/commandcode";
+
+export type { CommandCodeGeneratedConfig, CommandCodeModelEntry, CommandCodeProviderBlock };
+export { buildCommandCodeClientConfig, summarizeCommandCode, buildCommandCodeContribution, commandCodeProviderRoot };
+import { buildQoderClientConfig, summarizeQoder, buildQoderContribution, qoderConfigPath } from "./config-export/qoder";
+export { buildQoderClientConfig, qoderConfigPath, qoderHomeDir, type QoderGeneratedConfig } from "./config-export/qoder";
 
 
 
 export interface OpencodeModelEntry {
   name: string;
-  limit?: { context: number; output: number };
+  limit?: { context: number; input?: number; output: number };
   /**
    * opencode's own capability fields, derived from the catalog row's declared input
    * modalities. Written only when the row declares at least one — an entry without them is
@@ -81,22 +101,30 @@ export interface OpencodeModelEntry {
    */
   attachment?: boolean;
   modalities?: { input: string[]; output: string[] };
+  tool_call?: boolean;
+  reasoning?: boolean;
+  interleaved?: { field: "reasoning_content" };
+  options?: { reasoningEffort: string };
+  variants?: Record<string, LegacyEffortVariant>;
 }
 
 /**
  * One selectable reasoning effort.
  *
- * opencode V2 applies these only from the `providers` block: a `variants` array under the
- * legacy `provider` block is parsed and then dropped, so the V1 block stays variant-free
- * rather than carrying fields that look configured but never reach a request.
+ * Native V2 variants use settings; legacy clients receive a separate options map.
  */
 export interface OpencodeModelVariant {
   id: string;
   settings: { reasoningEffort: string };
 }
 
-export interface OpencodeV2ModelEntry extends OpencodeModelEntry {
-  variants?: OpencodeModelVariant[];
+export interface OpencodeV2ModelEntry {
+  name: string;
+  limit?: { context: number; input?: number; output: number };
+  capabilities?: { tools: boolean; input?: string[]; output?: string[] };
+  compatibility?: { reasoningField: "reasoning_content" };
+  settings?: { reasoningEffort: string };
+  variants: OpencodeModelVariant[];
 }
 
 /** Endpoint and admission, spelled once and shared by both block generations. */
@@ -114,7 +142,7 @@ export interface OpencodeProviderBlock {
   models: Record<string, OpencodeModelEntry>;
 }
 
-/** opencode V2 provider block: `package` + `settings`. The only form whose variants apply. */
+/** opencode V2 provider block: `package` + `settings` and native variant arrays. */
 export interface OpencodeV2ProviderBlock {
   package: string;
   name: string;
@@ -147,16 +175,10 @@ export interface OpencodeGeneratedConfig {
 const OPENCODE_PROVIDER_NPM = "@ai-sdk/openai-compatible";
 
 /**
- * opencode V2's spelling of the same runtime. V2 resolves providers through its own
- * package table and ignores the V1 `npm` field, so a V2 block has to name this package
- * or the provider is not loaded at all.
- *
- * Verified end-to-end against opencode 0.0.0-beta-18684: `GET /api/model` resolves this
- * package for the provider and applies the per-model `variants`. opencode changes its
- * provider package table between releases, so re-verify the supported range whenever it
- * moves; a stale string breaks only the V2 block, silently.
+ * Canonical V2 runtime spelling. Current clients alias the old @opencode-ai scope,
+ * but exported documents use the documented package rather than depending on that alias.
  */
-const OPENCODE_V2_PROVIDER_PACKAGE = "@opencode-ai/ai/providers/openai-compatible";
+const OPENCODE_V2_PROVIDER_PACKAGE = "@opencode/ai/providers/openai-compatible";
 
 /** Display name for the provider block, identical in both generations. */
 const OPENCODE_PROVIDER_NAME = "OpenCodex";
@@ -194,21 +216,6 @@ function ompProfileName(env: OpencodeLaunchEnv): string | undefined {
   return profile;
 }
 
-/**
- * Pi resolves its agent directory from `PI_CODING_AGENT_DIR`, falling back to
- * `~/.pi/agent`. `ompAgentDir` below already reads that variable — OMP is a Pi
- * derivative — so Pi's own resolver honoring it is what makes the two agree
- * rather than a new claim about Pi's contract.
- *
- * A relative override is refused for the same reason MCode's and ZCode's are: a
- * background proxy and a foreground client can have different working
- * directories, and would otherwise disagree about which file is named.
- */
-export function piAgentDir(env: OpencodeLaunchEnv = process.env, home: string = homedir()): string {
-  const override = env.PI_CODING_AGENT_DIR?.trim();
-  if (override) return absoluteClientPath(override, home, "PI_CODING_AGENT_DIR");
-  return join(home, ".pi", "agent");
-}
 
 /** Pi's canonical custom-provider catalog. */
 export function piConfigPath(env: OpencodeLaunchEnv = process.env, home: string = homedir()): string {
@@ -268,35 +275,6 @@ export function hermesHomeDir(env: OpencodeLaunchEnv = process.env, home: string
 
 export function hermesConfigPath(env: OpencodeLaunchEnv = process.env, home: string = homedir()): string {
   return join(hermesHomeDir(env, home), "config.yaml");
-}
-
-/**
- * Expand `~` against the effective home; REFUSE anything still relative.
- *
- * A first attempt at this called `resolve()` and claimed the path would "mean
- * the same thing next time". It does not: `resolve()` only anchors the current
- * invocation, so applying from one directory and disabling from another still
- * resolved two different files — the second reported "not applied" and left
- * the managed block behind with nothing claiming it.
- *
- * There is no honest way to recover the other process's cwd, so a relative
- * selector is refused at the boundary instead of being silently anchored to
- * whichever directory we happened to start in. A `~` path IS stable, because
- * it anchors to the effective home rather than the cwd.
- */
-export class ClientPathError extends Error {}
-
-function absoluteClientPath(raw: string, home: string, variable: string): string {
-  const trimmed = raw.trim();
-  if (trimmed === "~") return home;
-  if (trimmed.startsWith("~/") || trimmed.startsWith("~\\")) return join(home, trimmed.slice(2));
-  if (!isAbsolute(trimmed)) {
-    throw new ClientPathError(
-      `${variable} must be an absolute path or start with ~; "${trimmed}" depends on the working directory, `
-      + "so opencodex and the client would disagree about which file it names.",
-    );
-  }
-  return trimmed;
 }
 
 /**
@@ -432,6 +410,11 @@ export function dshConfigPath(env: OpencodeLaunchEnv = process.env, home: string
   return join(dshHomeDir(env, home), "settings.yaml");
 }
 
+/** The Desktop profile's patch, where DSH 0.1.7+ reads provider routes (see `DSH_PROFILE_PROVIDER_PATH`). */
+export function dshProfilePatchPath(env: OpencodeLaunchEnv = process.env, home: string = homedir()): string {
+  return join(dshHomeDir(env, home), "profiles", DSH_DESKTOP_PROFILE, "cordis.patch.yml");
+}
+
 /**
  * MiniMax Code stores runtime state under `MINIMAX_DATA_DIR`, then the legacy
  * `MAVIS_DATA_DIR`, and finally `~/.minimax`. Relative overrides are refused
@@ -449,20 +432,86 @@ export function mcodeConfigPath(env: OpencodeLaunchEnv = process.env, home: stri
   return join(mcodeHomeDir(env, home), "config.yaml");
 }
 
-/**
- * ZCode (Z.ai's desktop client) keeps everything under `~/.zcode`; custom
- * providers live in `v2/config.json`. `ZCODE_DATA_DIR` mirrors the other
- * clients' override convention; relative overrides are refused for the same
- * reason as MCode's.
- */
-export function zcodeHomeDir(env: OpencodeLaunchEnv = process.env, home: string = homedir()): string {
-  const override = env.ZCODE_DATA_DIR?.trim();
-  if (override) return absoluteClientPath(override, home, "ZCODE_DATA_DIR");
-  return join(home, ".zcode");
+/** Bootstrap settings always stay at the default home, even after relocation. */
+export type ZcodePathIO = {
+  readText: (path: string) => { kind: "text"; text: string } | { kind: "missing" } | { kind: "failed"; code?: string };
+};
+const zcodePathIO: ZcodePathIO = {
+  /** Shares the integration reader's four-MiB limit and regular-file-only bootstrap contract. */
+  readText: path => fileIO().readText(path),
+};
+export class ZcodeSettingsPathError extends ClientPathError {}
+
+export function zcodeBootstrapSettingsPath(home: string = homedir()): string {
+  return join(home, ".zcode", "v2", "setting.json");
 }
 
-export function zcodeConfigPath(env: OpencodeLaunchEnv = process.env, home: string = homedir()): string {
-  return join(zcodeHomeDir(env, home), "v2", "config.json");
+/** The pre-relocation path is retained solely to recognize historical ownership. */
+export function zcodeLegacyHomeDir(env: OpencodeLaunchEnv = process.env, home: string = homedir()): string {
+  const override = env.ZCODE_DATA_DIR?.trim();
+  return override ? absoluteClientPath(override, home, "ZCODE_DATA_DIR") : join(home, ".zcode");
+}
+
+/** ZCODE_DATA_DIR names the .zcode root; dataBaseDir names its parent. */
+export function zcodeHomeDir(env: OpencodeLaunchEnv = process.env, home: string = homedir(), io: ZcodePathIO = zcodePathIO): string {
+  if (env.ZCODE_DATA_DIR?.trim()) return zcodeLegacyHomeDir(env, home);
+  const bootstrap = zcodeBootstrapSettingsPath(home);
+  const read = io.readText(bootstrap);
+  if (read.kind === "missing") return join(home, ".zcode");
+  const unknown = () => new ZcodeSettingsPathError(
+    `ZCode's active data root is unknown: ${bootstrap} must be readable JSON with an absolute dataBaseDir (or no dataBaseDir). Repair the bootstrap setting before enabling or refreshing; no legacy provider will be applied.`,
+  );
+  if (read.kind !== "text") throw unknown();
+  let settings: unknown;
+  try { settings = JSON.parse(read.text); } catch { throw unknown(); }
+  if (settings === null || typeof settings !== "object" || Array.isArray(settings)) throw unknown();
+  const base = (settings as Record<string, unknown>).dataBaseDir;
+  if (base === undefined) return join(home, ".zcode");
+  // Match the native path's value, without cwd or tilde expansion. The native
+  // ZCODE_DATA_BASE_DIR selector is not an alias for our ZCODE_DATA_DIR.
+  if (typeof base !== "string" || !isAbsolute(base) || base.includes("\0")) throw unknown();
+  return join(base, ".zcode");
+}
+
+export function zcodeConfigPath(env: OpencodeLaunchEnv = process.env, home: string = homedir(), io?: ZcodePathIO): string {
+  return join(zcodeHomeDir(env, home, io), "v2", "config.json");
+}
+
+/**
+ * The home directory Command Code itself resolves: `env.HOME ?? env.USERPROFILE`
+ * (`homeDir15` in the published `command-code@1.66.0` bundle).
+ *
+ * On POSIX `os.homedir()` already reads `$HOME`, so the two agree and `home` is
+ * returned as is. On Windows `os.homedir()` reads `%USERPROFILE%` and ignores
+ * `HOME`, which Git for Windows, MSYS2 and Cygwin set, so a user whose `HOME` differs
+ * would get a provider block in a store Command Code never opens. Only the OS-default
+ * home is replaced: a caller that injects a different root (a test, the writer's
+ * `input.home`) keeps it, and a blank or relative value falls back to `home`.
+ */
+export function commandCodeUserHome(env: OpencodeLaunchEnv = process.env, home: string = homedir(), platform: NodeJS.Platform = process.platform): string {
+  if (platform !== "win32" || home !== homedir()) return home;
+  const value = env.HOME ?? env.USERPROFILE;
+  return typeof value === "string" && value.trim() && win32.isAbsolute(value) ? value : home;
+}
+
+/**
+ * Command Code's provider store directory — `.commandcode` under the home the client
+ * resolves (see {@link commandCodeUserHome}), with no override.
+ *
+ * There is deliberately no `COMMANDCODE_HOME` here, unlike the other clients in this
+ * file: `grep -c COMMANDCODE_HOME` over the shipped `dist/cli.mjs` and
+ * `dist/index.mjs` returns 0. An override we honour but the client ignores is worse
+ * than none: `enable` would report success and write a provider block at a path no
+ * Command Code process ever opens, and the user would see an empty model list with no
+ * error anywhere. An apply against a relocated home is instead refused by `detectDir`
+ * not existing.
+ */
+export function commandCodeHomeDir(env: OpencodeLaunchEnv = process.env, home: string = homedir(), platform: NodeJS.Platform = process.platform): string {
+  return join(commandCodeUserHome(env, home, platform), ".commandcode");
+}
+
+export function commandCodeConfigPath(env: OpencodeLaunchEnv = process.env, home: string = homedir(), platform: NodeJS.Platform = process.platform): string {
+  return join(commandCodeHomeDir(env, home, platform), "providers.json");
 }
 
 /**
@@ -474,8 +523,7 @@ export function zcodeConfigPath(env: OpencodeLaunchEnv = process.env, home: stri
  * an install that has ever run, the import has already happened and never runs
  * again — every later write to `v2/config.json` is read by nobody (#5348).
  *
- * This project does not write this file; it names it so the integration can
- * tell whether its own write can still reach the client. The env override is
+ * The integration writes this store through its existing schema-aware writer. The env override is
  * ZCode's own (`ZCODE_PERSONAL_PROVIDER_CONFIG_FILE`), so an operator who
  * relocated the store is measured against the file their client actually opens
  * rather than the default location. A relative override is refused for the same
@@ -483,10 +531,10 @@ export function zcodeConfigPath(env: OpencodeLaunchEnv = process.env, home: stri
  * which file it names, and here that disagreement decides whether an apply is
  * reported as effective.
  */
-export function zcodeProviderStorePath(env: OpencodeLaunchEnv = process.env, home: string = homedir()): string {
+export function zcodeProviderStorePath(env: OpencodeLaunchEnv = process.env, home: string = homedir(), io?: ZcodePathIO): string {
   const override = env.ZCODE_PERSONAL_PROVIDER_CONFIG_FILE?.trim();
   if (override) return absoluteClientPath(override, home, "ZCODE_PERSONAL_PROVIDER_CONFIG_FILE");
-  return join(zcodeHomeDir(env, home), "v2", "provider_config.json");
+  return join(zcodeHomeDir(env, home, io), "v2", "provider_config.json");
 }
 
 /**
@@ -672,35 +720,11 @@ function opencodeProviderConnection(baseURL: string, config: OcxConfig): Opencod
 }
 
 /**
- * Selectable reasoning efforts for one model, in canonical ladder order.
- *
- * No model-level `settings.reasoningEffort` default is emitted: the proxy already applies
- * its own configured default when a request carries no effort, and pinning one here would
- * override a default the user controls in opencodex. Variants are opt-in per selection,
- * which is the same reason we never emit `defaultModel` for MCode.
- *
- * `none` is dropped even when a ladder declares it.
- *
- * The original reason no longer holds and is recorded here so it is not repeated: the chat
- * ingress `OUTPUT_CONFIG_EFFORTS` allowlist DID omit `none`, so selecting it sent no effort
- * at all and fell back to the proxy default. That allowlist now accepts `none` (audit F7),
- * because it is the runtime's disable sentinel and dropping it let a provider default
- * re-enable thinking a caller had turned off.
- *
- * The variant stays filtered anyway, deliberately and narrowly: emitting it would change
- * what this exporter writes into a user's opencode config, and whether opencode's own
- * picker round-trips `reasoningEffort: "none"` to the wire this proxy reads has not been
- * verified here. Re-enabling it is a scoped follow-up that needs that check first, not a
- * side effect of an ingress fix. MCode and ZCode filter `none` for their own separate
- * reasons, documented at their call sites.
+ * Exact declared choices. An empty array is intentional: omitting variants lets OpenCode
+ * synthesize low/medium/high, even for a model whose upstream declares no adjustable effort.
  */
-function opencodeEffortVariants(model: OpencodeCatalogModel): OpencodeModelVariant[] | undefined {
-  if (model.reasoningEfforts === undefined) return undefined;
-  // Canonical order (none, minimal, then low..ultra) and dedupe, so the picker order does
-  // not depend on whatever order a provider listed its efforts in.
-  const efforts = canonicalizeReasoningEfforts(model.reasoningEfforts).filter(effort => effort !== "none");
-  if (efforts.length === 0) return undefined;
-  return efforts.map(effort => ({ id: effort, settings: { reasoningEffort: effort } }));
+function opencodeEffortVariants(model: OpencodeCatalogModel): OpencodeModelVariant[] {
+  return (exportReasoningEfforts(model) ?? []).map(effort => ({ id: effort, settings: { reasoningEffort: effort } }));
 }
 
 /**
@@ -712,7 +736,7 @@ function opencodeEffortVariants(model: OpencodeCatalogModel): OpencodeModelVaria
  * the pair) clamped to the context window.
  *
  * Two blocks instead of one because opencode V2 reads the `providers` map and V1 reads
- * `provider`, and only the V2 form applies `variants`. Emitting both keeps V1 installs
+ * `provider`, with native arrays versus legacy maps for variants. Emitting both keeps V1 installs
  * working: V2 merges them by provider id and model id, so a model listed in both blocks
  * appears once, with the V2 entry's name, connection, and variants.
  */
@@ -725,36 +749,37 @@ export function opencodeProviderBlocks(
   const v2Models: Record<string, OpencodeV2ModelEntry> = {};
   for (const model of expandFastExportModels(catalogModels)) {
     const key = model.namespaced;
-    const entry: OpencodeModelEntry = { name: exportModelLabel(model) };
+    const entry: OpencodeModelEntry = { name: exportModelLabel(model), ...legacyReasoningMetadata(model) };
     const context = authoritativeContextWindow(model.contextWindow);
     if (context !== undefined) {
       entry.limit = { context, output: outputBudgetFor(context, model) };
+      const input = inputBudgetFor(context, model);
+      if (input !== undefined) entry.limit.input = input;
     }
-    // `attachment` / `modalities` are fields of opencode's V1 model schema — the shape its
-    // published config.json defines and the one its loader reads (verified against opencode
-    // 1.18.30, src/provider/provider.ts: `model.attachment ?? …` / `model.modalities?.input`).
-    // They ride on both generations anyway: the two blocks are two spellings of one model list,
-    // and the V2 model schema (capabilities.{tools,input,output}, which opencode fills by
-    // migrating this same `modalities` field) ignores keys it does not define — its loader
-    // decodes with `onExcessProperty: "ignore"`. Same values on both, so a merge cannot make
-    // the two entries disagree.
+    // Native V2 decoders ignore legacy attachment/modalities fields. Emit each generation's
+    // actual capability shape rather than relying on migration of the other provider block.
     const capabilities = opencodeModelCapabilities(model.inputModalities);
     if (capabilities) {
       entry.attachment = capabilities.attachment;
       entry.modalities = capabilities.modalities;
     }
+    if (typeof model.supportsTools === "boolean") entry.tool_call = model.supportsTools;
     v1Models[key] = entry;
-    const variants = opencodeEffortVariants(model);
-    // Own `limit` and `modalities` objects, not shared references: the two blocks are
-    // serialized and reasoned about separately, and an in-place edit of one must never move
-    // the other.
+    const defaultEffort = exportDefaultReasoningEffort(model);
+    // V2 requires tools whenever capabilities exists. A partial object discards the entire
+    // native block, losing explicit variants. Unknown tools use the legacy modality migration
+    // rather than inventing a tools flag to make the native schema accept the declaration.
+    const v2Capabilities: OpencodeV2ModelEntry["capabilities"] = typeof model.supportsTools === "boolean" ? {
+      tools: model.supportsTools,
+      ...(capabilities ? { input: [...capabilities.modalities.input], output: [...capabilities.modalities.output] } : {}),
+    } : undefined;
     v2Models[key] = {
-      ...entry,
+      name: entry.name,
       ...(entry.limit ? { limit: { ...entry.limit } } : {}),
-      ...(entry.modalities
-        ? { modalities: { input: [...entry.modalities.input], output: [...entry.modalities.output] } }
-        : {}),
-      ...(variants ? { variants } : {}),
+      ...(v2Capabilities ? { capabilities: v2Capabilities } : {}),
+      ...(entry.interleaved ? { compatibility: { reasoningField: "reasoning_content" } } : {}),
+      ...(defaultEffort !== undefined ? { settings: { reasoningEffort: defaultEffort } } : {}),
+      variants: opencodeEffortVariants(model),
     };
   }
   return {
@@ -1332,7 +1357,7 @@ function buildAsideContribution(ctx: ExportContext): ManagedContribution {
  * the keyed `providers`, the `models` ARRAY whose identity is `id`, the
  * `openai-completions` dialect, the loopback placeholder, and the
  * `thinkingLevelMap` levels. Evidence:
- * `devlog/_plan/260912_omo_client_integration/001_omo_contract.md`.
+ * `devlog/_fin/260912_omo_client_integration/001_omo_contract.md`.
  *
  * The flag is passed HERE as well as in the spec's `build`, which is the one
  * thing Prime and Aside do not do. They pass the default on both paths, so they
@@ -1364,6 +1389,18 @@ export function clineSettingsDir(env: OpencodeLaunchEnv = process.env, home: str
 }
 
 export const EXPORT_CLIENTS: Record<ExportClientId, ExportClientSpec> = {
+  qoder: {
+    id: "qoder",
+    filename: "qoder-settings.json",
+    destination: env => qoderConfigPath(env),
+    apiKeyEnv: "",
+    exportHint: "Qoder reads a non-secret placeholder from settings.json; loopback needs no key.",
+    build: buildQoderClientConfig,
+    format: "json",
+    summarize: summarizeQoder,
+    buildContribution: buildQoderContribution,
+    loopbackOnly: true,
+  },
   opencode: {
     id: "opencode",
     filename: "opencode.json",
@@ -1501,6 +1538,20 @@ export const EXPORT_CLIENTS: Record<ExportClientId, ExportClientSpec> = {
     // remote binds refuse — same reasoning as MCode.
     loopbackOnly: true,
   },
+  commandcode: {
+    id: "commandcode",
+    filename: "providers.json",
+    destination: env => commandCodeConfigPath(env),
+    // No env var exists behind this integration: buildCommandCodeClientConfig
+    // writes `apiKey: false`, the documented keyless form for a loopback endpoint.
+    apiKeyEnv: "",
+    exportHint: "The provider is written with `apiKey: false` — Command Code treats a keyless loopback endpoint as already authenticated. No key is stored or referenced.",
+    build: buildCommandCodeClientConfig,
+    format: "json",
+    summarize: summarizeCommandCode,
+    buildContribution: buildCommandCodeContribution,
+    loopbackOnly: true,
+  },
   prime: {
     id: "prime",
     filename: "prime-models.json",
@@ -1617,6 +1668,21 @@ export const EXPORT_CLIENTS: Record<ExportClientId, ExportClientSpec> = {
     format: "json",
     summarize: summarizeDroid,
     buildContribution: buildDroidContribution,
+    loopbackOnly: true,
+  },
+  "gentle-shell": {
+    id: "gentle-shell",
+    filename: "gentle-shell-models.json",
+    destination: env => gentleShellPaths(env).configPath,
+    apiKeyEnv: "",
+    exportHint: "Gentle Shell uses its persistent selected home; restart the shell to load the catalog. Link/shared homes use the Pi integration.",
+    build: ctx => buildPiClientConfig(ctx, PI_EXPORT_OPTIONS),
+    format: "json",
+    summarize: summarizePi,
+    buildContribution: ctx => {
+      const doc = buildPiClientConfig(ctx, PI_EXPORT_OPTIONS);
+      return singleFragment("gentle-shell", ["providers", OPENCODE_PROVIDER_ID], doc.providers[OPENCODE_PROVIDER_ID]);
+    },
     loopbackOnly: true,
   },
 };

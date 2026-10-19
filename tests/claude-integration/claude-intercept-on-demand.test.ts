@@ -1,11 +1,14 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createClaudeInterceptLifecycle } from "../../src/server/index/claude-intercept-lifecycle";
 import { startConnectProxy } from "../../src/claude/intercept/connect-proxy";
+import { claudeInterceptCaCertPath } from "../../src/claude/intercept/local-ca";
 import { handleManagementAPI } from "../../src/server/management-api";
 import { saveConfig, loadConfig } from "../../src/config";
+import { flushConfigDirHardeningAndReaps } from "../../src/config/paths";
+import { removeTreeWithRetry } from "../helpers/remove-tree";
 import { initializeManagementAuthState, requireManagementAuth } from "../../src/server/management-auth";
 import type { OcxConfig } from "../../src/types";
 
@@ -25,10 +28,11 @@ beforeEach(() => {
 });
 afterEach(async () => {
   for (const owner of owners.splice(0)) await owner.stop();
+  await flushConfigDirHardeningAndReaps(root);
   if (previousHome === undefined) delete process.env.OPENCODEX_HOME; else process.env.OPENCODEX_HOME = previousHome;
   if (previousClaude === undefined) delete process.env.CLAUDE_CONFIG_DIR; else process.env.CLAUDE_CONFIG_DIR = previousClaude;
   if (previousDesktop === undefined) delete process.env.OPENCODEX_CLAUDE_DESKTOP_CONFIG_DIR; else process.env.OPENCODEX_CLAUDE_DESKTOP_CONFIG_DIR = previousDesktop;
-  rmSync(root, { recursive: true, force: true });
+  removeTreeWithRetry(root);
 });
 function config(): OcxConfig {
   return { port: 10100, providers: { mock: { adapter: "openai-chat", baseUrl: "https://example.test/v1", models: ["test"], liveModels: false } }, defaultProvider: "mock", claudeCode: { enabled: false } } as OcxConfig;
@@ -59,7 +63,7 @@ test("late ensure reuses dispatch ownership, serializes and stays idempotent", a
   expect(await response.text()).toBe("ok");
   expect(owned).toBe(true);
   expect(await lifecycle.ensure()).toEqual(result);
-  expect(binds).toBe(2);
+  expect(binds).toBe(1);
 });
 
 test("stopped lifecycle refuses new work and joins a pending startup", async () => {
@@ -73,11 +77,16 @@ test("stopped lifecycle refuses new work and joins a pending startup", async () 
 test("CONNECT bind EADDRINUSE records its occupied port", async () => {
   const blocker = await startConnectProxy(0, { interceptPort: 1 });
   try {
+    const settingsPath = join(root, "claude", "settings.json");
+    mkdirSync(join(root, "claude"));
+    const original = JSON.stringify({ env: { HTTPS_PROXY: "http://127.0.0.1:10200", NODE_EXTRA_CA_CERTS: claudeInterceptCaCertPath(root) } });
+    writeFileSync(settingsPath, original);
     const live = config(); live.claudeCode = { enabled: true, intercept: { port: blocker.port } };
     const lifecycle = owner();
     lifecycle.start({ config: live, publicPort: 10100, configDir: root, dispatch: async () => new Response() });
     expect(await lifecycle.ensure()).toEqual({ ok: false, reason: "port_in_use", port: blocker.port });
     expect(lifecycle.lastOutcome()).toEqual({ ok: false, reason: "port_in_use", port: blocker.port });
+    expect(readFileSync(settingsPath, "utf8")).toBe(original);
   } finally { await blocker.close(); }
 });
 
@@ -156,7 +165,7 @@ test("CLI first-party save starts a previously unbound pair", async () => {
   }), url, live, { ensureClaudeIntercept: () => lifecycle.ensure() }, "admin-token", undefined, { trustedLoopback: true });
   expect(response!.status).toBe(200);
   expect(loadConfig().claudeCode?.cliFirstParty).toBe(true);
-  expect(binds).toBe(2);
+  expect(binds).toBe(1);
 });
 
 test("remote management never starts interception; routing intent can still persist", async () => {
@@ -208,7 +217,7 @@ test("ensure arriving during null startup joins it before starting with the live
   const pending = lifecycle.ensure();
   expect(lifecycle.ensure()).toBe(pending);
   expect((await pending).ok).toBe(true);
-  expect(binds).toBe(2);
+  expect(binds).toBe(1);
 });
 
 

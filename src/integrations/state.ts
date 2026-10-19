@@ -10,7 +10,7 @@
  */
 import { createClineIO } from "./cline-io";
 import { parseClineDocument } from "./cline-document";
-import { ClientPathError, EXPORT_CLIENTS, opencodeProxyBaseUrl, type ExportModel, type ManagedContribution } from "../clients/config-export";
+import { ClientPathError, EXPORT_CLIENTS, opencodeProxyBaseUrl, droidDefaultsFromOwnedRows, type ExportModel, type ManagedContribution } from "../clients/config-export";
 import type { ConfigFormat } from "../clients/config-export";
 import type { OcxConfig } from "../types";
 import { PARSE_FAILED, loadTarget, parseConfig, type IntegrationIO } from "./config-io";
@@ -25,6 +25,8 @@ import {
 } from "./merge";
 import { canonicalContribution, fingerprint, semanticContribution, type OwnershipRecord } from "./ownership";
 import {
+  droidNormalizedContributionMatchesRecord,
+  droidNormalizedFileMatchesRecord,
   isHermesAffinityUpgrade,
   protectedContributionFingerprint,
   refreshablePathsOf,
@@ -37,10 +39,11 @@ import {
   assertDroidPathsUnambiguous,
   assertDroidRecordedSettingsUnambiguous,
   resolveIntegrationPaths,
+  type ResolvedIntegrationPaths,
   unresolvedPathHintFor,
   type IntegrationClientId,
 } from "./registry";
-import { resolveIntegrationTarget, type IntegrationTarget } from "./target";
+import { resolveIntegrationTarget, type IneffectiveWriteReason, type IntegrationTarget } from "./target";
 import { inspectKiloCandidates } from "./kilo-candidates";
 import { createIntegrationStateStore, type IntegrationStateStore } from "./store";
 
@@ -84,6 +87,13 @@ export interface IntegrationStatus {
    * `current` has to be able to report this beside it.
    */
   supersededBy?: string;
+  /** Why `supersededBy` is not written; present exactly when it is. */
+  supersededReason?: IneffectiveWriteReason;
+  /**
+   * `missing-store` only: the document that recreates the store. A surface that localizes the
+   * remedy needs the content to name, not the writer's English sentence.
+   */
+  missingStoreDocument?: string;
   /** Snapshot files retained for this client; -1 when they cannot be inspected. */
   snapshotCount: number;
   /** Pruning is behind, so older (possibly credential-bearing) snapshots remain. */
@@ -208,6 +218,18 @@ function recordedContribution(
   };
 }
 
+function observedContributionMatchesRecord(
+  observed: ManagedContribution,
+  record: OwnershipRecord,
+): boolean {
+  if (fingerprint(canonicalContribution(observed)) === record.blockFingerprint) return true;
+  if (
+    typeof record.semanticBlockFingerprint === "string"
+    && fingerprint(semanticContribution(observed)) === record.semanticBlockFingerprint
+  ) return true;
+  return droidNormalizedContributionMatchesRecord(observed, record);
+}
+
 /**
  * Prove that every protected field still matches what OpenCodex wrote.
  *
@@ -223,13 +245,8 @@ function recordedBlockIsOwned(
 ): boolean {
   const observed = recordedContribution(doc, record);
   if (!observed) return false;
-  if (fingerprint(canonicalContribution(observed)) === record.blockFingerprint) return true;
-
+  if (observedContributionMatchesRecord(observed, record)) return true;
   const observedSemanticFingerprint = fingerprint(semanticContribution(observed));
-  if (
-    typeof record.semanticBlockFingerprint === "string"
-    && observedSemanticFingerprint === record.semanticBlockFingerprint
-  ) return true;
 
   const desiredFingerprint = fingerprint(canonicalContribution(desired));
   if (
@@ -304,6 +321,12 @@ export function classifyIntegration(input: {
    * the wrong way.
    */
   format?: ConfigFormat;
+  /**
+   * Whether the file being classified is patched in place, which makes a
+   * sibling edit harmless. Like `format`, it belongs to the target; omitted, the
+   * client's config-file declaration answers.
+   */
+  sourcePreservingYaml?: boolean;
 }): { state: IntegrationState; reason?: StateReason } {
   if (input.fileText !== null && !input.fileIsRegular) {
     return { state: "unsafe", reason: "not-regular-file" };
@@ -405,12 +428,16 @@ export function classifyIntegration(input: {
     && !isHermesAffinityUpgrade(input.parsed, input.record, input.contribution)) {
     return { state: "conflict", reason: "foreign-edit" };
   }
-  if (!INTEGRATION_CLIENTS[clientId].sourcePreservingYaml
-    && fingerprint(input.fileText ?? "") !== input.record.fileFingerprint) {
+  if (!(input.sourcePreservingYaml ?? INTEGRATION_CLIENTS[clientId].sourcePreservingYaml !== undefined)
+    && fingerprint(input.fileText ?? "") !== input.record.fileFingerprint
+    && !droidNormalizedFileMatchesRecord(input.parsed, input.record)) {
     /*
-     * The file changed since we wrote it, but every fragment we own is still
-     * byte-for-byte what we put there — a sibling edit, not tampering. Apply
-     * rewrites the WHOLE document, so for comment-capable formats (yaml,
+     * The file changed since we wrote it. Every fragment we own is still
+     * byte-for-byte what we put there, so this is a sibling edit rather than
+     * tampering. Known Droid row normalization is accepted before this branch
+     * only when removing its two client fields reproduces the recorded file.
+     * Other drift reaches this branch. Apply rewrites the WHOLE document, so
+     * for comment-capable formats (yaml,
      * json5, toml) it would drop comments the user wrote next to us: fail
      * closed there. Strict JSON cannot carry comments — a commented file
      * never reaches this branch because parsing already failed — so the only
@@ -449,20 +476,23 @@ export interface IntegrationStateInput {
   models: readonly ExportModel[];
   config: OcxConfig;
   port: number;
+  droidReasoningDefaults?: Record<string, string>;
   env?: NodeJS.ProcessEnv;
   home?: string;
   /** The whole integration state store, bound to one root. */
   store?: IntegrationStateStore;
   io?: IntegrationIO;
   /** Internal explicit profile target; never accepted as a caller-provided path. */
-  resolvedPaths?: { configPath: string; detectDir: string };
+  resolvedPaths?: ResolvedIntegrationPaths;
 }
 
 export function exportContextOf(input: {
   models: readonly ExportModel[];
   config: OcxConfig;
   port: number;
-}): { baseUrl: string; models: readonly ExportModel[]; config: OcxConfig } {
+  droidReasoningDefaults?: Record<string, string>;
+  document?: unknown;
+}): { baseUrl: string; models: readonly ExportModel[]; config: OcxConfig; droidReasoningDefaults?: Record<string, string>; document?: unknown } {
   return {
     /*
      * Composed through the SAME helper `ocx export` uses. Interpolating the
@@ -476,7 +506,39 @@ export function exportContextOf(input: {
     baseUrl: opencodeProxyBaseUrl(input.port, input.config.hostname, input.config),
     models: input.models,
     config: input.config,
+    ...(input.droidReasoningDefaults === undefined ? {} : { droidReasoningDefaults: input.droidReasoningDefaults }),
+    // Forwarded only when the caller parsed a target: a client that resolves
+    // between two document roots (Command Code) needs the bytes on disk.
+    ...(input.document === undefined ? {} : { document: input.document }),
   };
+}
+
+export function buildIntegrationContribution(
+  input: IntegrationStateInput,
+  effective: IntegrationTarget,
+  parsed: unknown,
+  record: OwnershipRecord | null,
+): ManagedContribution {
+  // The parsed target travels with the context: a client whose reader picks
+  // between two document roots (Command Code) must see the bytes on disk, and
+  // routing it through this one builder keeps classify, plan and write agreeing.
+  const context = exportContextOf({ ...input, document: parsed });
+  if (input.clientId === "droid" && input.droidReasoningDefaults === undefined && record?.configPath === effective.configPath) {
+    const inherited = recordedDroidContributionMatches(parsed, record)
+      ? droidDefaultsFromOwnedRows(context, parsed, record.fragmentPaths)
+      : {};
+    if (Object.keys(inherited).length > 0) context.droidReasoningDefaults = inherited;
+  }
+  return effective.buildContribution(context);
+}
+
+function recordedDroidContributionMatches(document: unknown, record: OwnershipRecord): boolean {
+  try {
+    const observed = recordedContribution(document, record);
+    return observed !== null && observedContributionMatchesRecord(observed, record);
+  } catch {
+    return false;
+  }
 }
 
 let retriedThisProcess = false;
@@ -531,13 +593,11 @@ export function readIntegrationState(input: IntegrationStateInput): IntegrationS
    */
   let installed: boolean;
   let effective: IntegrationTarget;
-  let record: OwnershipRecord | null;
+  let record: OwnershipRecord | null = null;
   try {
     // One resolution for both, so a client whose paths come from mutable state
     // cannot report one account's install beside another account's config path.
-    const context = exportContextOf(input);
-    const paths = input.resolvedPaths ?? resolveIntegrationPaths(input.clientId, input.env, input.home, context);
-    if (input.clientId === "droid" && input.resolvedPaths) assertDroidPathsUnambiguous(paths.detectDir, context);
+    const paths = resolveStatePaths(input, io);
     installed = io.statKind(paths.detectDir) === "dir";
     if (input.clientId === "cline") io = createClineIO(io, paths.configPath, store);
     /*
@@ -552,7 +612,7 @@ export function readIntegrationState(input: IntegrationStateInput): IntegrationS
       statKind: io.statKind, env: input.env, home: input.home,
     });
     effective = resolveIntegrationTarget({
-      clientId: input.clientId, configPath: recordedPath, io, record, env: input.env, home: input.home,
+      clientId: input.clientId, configPath: recordedPath, io, record, env: input.env, home: input.home, resolvedPaths: paths,
     });
   } catch (error) {
     if (!(error instanceof ClientPathError)) throw error;
@@ -567,6 +627,10 @@ export function readIntegrationState(input: IntegrationStateInput): IntegrationS
      * yet. A client that can name where its config would go gets `installed:
      * false` and that location, which reads as "not installed" in the UI.
      */
+    if (input.clientId === "zcode" && record) return {
+      clientId: input.clientId, state: "unsafe", installed: false, configPath: record.configPath,
+      reason: "unresolvable-path", appliedAt: record.appliedAt, lastOpId: record.opId, ...retention,
+    };
     const hint = unresolvedPathHintFor(input.clientId, input.env, input.home);
     return {
       clientId: input.clientId,
@@ -579,6 +643,12 @@ export function readIntegrationState(input: IntegrationStateInput): IntegrationS
   }
 
   const configPath = effective.configPath;
+  if (effective.pathError) return {
+    clientId: input.clientId, state: "unsafe", installed, configPath,
+    reason: "unresolvable-path",
+    ...(record?.configPath === configPath ? { appliedAt: record.appliedAt, lastOpId: record.opId } : {}),
+    ...retention,
+  };
   if (input.clientId === "kilo") {
     const candidates = inspectKiloCandidates({ io, selectedPath: configPath, env: input.env, home: input.home });
     if (candidates.kind !== "ok") return {
@@ -608,7 +678,7 @@ export function readIntegrationState(input: IntegrationStateInput): IntegrationS
   const parsed = input.clientId === "cline"
     ? parseClineDocument(loaded.before)
     : parseConfig(loaded.before, effective.format, EXPORT_CLIENTS[input.clientId].jsonc ? { jsonc: true } : undefined);
-  const contribution = effective.buildContribution(exportContextOf(input));
+  const contribution = buildIntegrationContribution(input, effective, parsed, record);
   if (input.clientId === "droid" && input.models.length > 0 && contribution.fragments.length === 0
     && (!record || record.configPath !== configPath)) {
     return { clientId: input.clientId, state: "unsafe", installed, configPath,
@@ -623,6 +693,7 @@ export function readIntegrationState(input: IntegrationStateInput): IntegrationS
     configPath,
     clientId: input.clientId,
     format: effective.format,
+    sourcePreservingYaml: effective.sourcePreservingYaml !== null,
   });
   if (input.clientId === "droid" && record && (state === "current" || state === "stale")) {
     try { assertDroidRecordedSettingsUnambiguous(spec.detectDir(input.env, input.home), parsed, record); }
@@ -644,9 +715,44 @@ export function readIntegrationState(input: IntegrationStateInput): IntegrationS
      * about. A store we are writing needs no notice; the path already names it.
      */
     ...(effective.ineffective && effective.ineffective.store !== configPath
-      ? { supersededBy: effective.ineffective.store }
+      ? {
+          supersededBy: effective.ineffective.store,
+          supersededReason: effective.ineffective.why,
+          ...(effective.ineffective.emptyDocument === undefined ? {} : { missingStoreDocument: effective.ineffective.emptyDocument }),
+        }
       : {}),
     ...(record ? { appliedAt: record.appliedAt, lastOpId: record.opId } : {}),
     ...retention,
   };
+}
+
+function resolveStatePaths(input: IntegrationStateInput, io: IntegrationIO): ResolvedIntegrationPaths {
+  const context = exportContextOf(input);
+  const paths = input.clientId === "zcode" || !input.resolvedPaths
+    ? resolveIntegrationPaths(input.clientId, input.env, input.home, context, io) : input.resolvedPaths;
+  if (input.clientId === "droid" && input.resolvedPaths) assertDroidPathsUnambiguous(paths.detectDir, context);
+  return paths;
+}
+
+export function readOwnedDroidReasoningDefaults(input: IntegrationStateInput): Record<string, string> {
+  if (input.clientId !== "droid") return {};
+  const store = input.store ?? createIntegrationStateStore();
+  const io = input.io ?? store.io();
+  try {
+    const paths = resolveStatePaths(input, io);
+    const record = store.readRecords().droid;
+    if (!record || record.clientId !== "droid" || record.configPath !== paths.configPath) return {};
+    const effective = resolveIntegrationTarget({
+      clientId: "droid", configPath: paths.configPath, io, record, env: input.env, home: input.home,
+    });
+    const loaded = loadTarget(io, effective.configPath);
+    if (!loaded.ok) return {};
+    const parsed = parseConfig(loaded.before, "json");
+    if (parsed === PARSE_FAILED) return {};
+    if (!recordedDroidContributionMatches(parsed, record)) return {};
+    return droidDefaultsFromOwnedRows(exportContextOf(input), parsed, record.fragmentPaths);
+  } catch (error) {
+    if (error instanceof ClientPathError) return {};
+    throw error;
+  }
 }

@@ -65,7 +65,7 @@ Session 簽發在需要 data-plane 認證時停用，這包含遠端綁定。遠
 | `PUT /api/grok/selection` | 持久化排除的 Grok 模型 | 400 無效或過大選擇 |
 | `POST /api/grok/apply` | 透過受管同步套用持久化的 Grok 設定 | 409 `grok_apply_busy`；400/500 套用失敗 |
 | `GET /api/grok/reset-coupons?accountId=...` | 讀取活躍或指定 xAI 帳號剩餘的 Grok 計費重置 token 與有效期間 | 400 缺失帳號；401 未認證；502 上游 gRPC-Web 錯誤 |
-| `POST /api/grok/reset-coupons/consume` | 兌換一個合格的 reset coupon。請求主體為 `{ accountId?, tokenId?, operationId? }`。選用的 `operationId`（UUIDv4）可讓兌換具備冪等性：重複相同 id 會重播持久化結果，而不會重複兌換。 | 400 無效的 JSON/UUID；401 未認證；409 `identity_mismatch`；502 上游錯誤；503 ledger 容量 |
+| `POST /api/grok/reset-coupons/consume` | 兌換一個合格的 reset coupon。請求主體為 `{ accountId?, tokenId?, operationId? }`。選用的 `operationId`（UUIDv4）可讓兌換具備冪等性：重複相同 id 會重播持久化結果，而不會重複兌換。 | 400 無效的 JSON/UUID；401 未認證；409 `operation_id_owned_by_another_account` / `coupon_unavailable` / `operation_token_mismatch` / `operation_state_changed` / `attempt_in_progress` / `attempt_unresolved`；502 上游錯誤；503 ledger 容量 / `ledger_unavailable`; 500 `attempt_mark_failed` |
 | `GET /api/anthropic/reset-grants?accountId=...` | 讀取單一 Anthropic OAuth 帳號的 Claude 用量額度重設機會：資格、每次重設的剩餘次數、有效期間及可清除的用量視窗，以及任何尚未確認但仍可重試的使用嘗試 | 400 找不到相符帳號；401 需要重新認證；502 上游無法使用 |
 | `POST /api/anthropic/reset-grants/consume` | 使用一次重設機會。請求主體為 `{ accountId, grantId, operationId }`；`operationId` 是傳送至上游作為請求 ID 的 UUIDv4，重複傳送即可重試同一次使用請求。需要儀表板工作階段。 | 400 無效的請求主體；401 需要重新認證；403 `session_required`；409 `grant_not_usable`、`in_flight`、`unresolved_prior_operation`、`unknown_outcome_expired`、`operation_identity_mismatch`；500 `journal_write_failed`；502 `unknown_outcome`；503 日誌忙碌、無法使用或已滿 |
 | `GET, PUT /api/claude-desktop` | 讀取或持久化 Claude Desktop 路由／原生設定檔 | 400 無效或不可用指派 |
@@ -73,7 +73,13 @@ Session 簽發在需要 data-plane 認證時停用，這包含遠端綁定。遠
 | `GET /api/claude-desktop/status` | 檢查已儲存 vs 已套用設定檔與 Desktop 健康 | 400 狀態讀取失敗 |
 | `GET, PUT /api/claude-code` | 讀取或更新 Claude Code 閘道、auth-mode、model-map、context、agent 與 sidecar 設定 | 400 無效欄位或結構 |
 
-儀表板從 **Providers > xAI Grok > Accounts** 驅動這兩條 coupon 路徑：每個已登入帳號列都帶有票券徽章，顯示剩餘的 reset coupon 數量，徽章會開啟對話框，列出有效期間並兌換最接近到期的 reset coupon。該對話框會送出由客戶端鑄造的 `operationId`，並在逾時後停止送出而不重試，因為日誌記錄仍為開啟的兌換會再次執行。`ocx account grok-reset-coupons` 仍是終端機等價指令。
+若提供 `tokenId`，它必須是非空字串；無效值會在讀取憑證或開啟帳本前回傳 `400 invalid_token_id`。在 30 天保留期內，以相同 `operationId` 重試且省略 `accountId` 時，即使目前帳號已變更，也會使用記錄的帳號。可執行的 `open` 操作重試且省略 `tokenId` 時，會使用記錄的權杖。明確指定不同帳號或權杖仍會被拒絕。收到確定的失敗後，儀表板會清除該待處理請求對應的暫時保留狀態，允許明確確認新的嘗試；真正未知的結果仍維持保留。
+
+兌換前會將嘗試持久記錄在帳本中。只有收到上游確認兌換成功的回應，才會記錄 `redeemed`；券從清單中消失不能證明本次操作成功。逾時或結果儲存失敗後，重試只查詢可用性，不會再次兌換，並回傳 `attempt_unresolved`；近期嘗試回傳 `attempt_in_progress`。遲到的檢查拒絕只能寫入仍處於 `open` 的操作。在同一交易中，帳號與券識別碼相符的已確定最終結果會以 HTTP 200 和原始代碼重播。結果未確定或識別資訊不符時回傳 `operation_state_changed`，請保留相同操作 ID 以進行復原。帳本無法讀取或鎖定時回傳 `ledger_unavailable`，不執行兌換。
+
+無法確認兌換結果時，回傳 HTTP 502、`error.code: "attempt_unresolved"` 和實際的 `operationId`。請保留此 ID；新 ID 會啟動另一項操作。CLI 在送出前產生 ID，並在請求送達或回應不確定時提示保留相同的 `--operation-id`。第一版帳本的舊 `open` 記錄與結果未確認的 `redeem_failed` 記錄會隔離為不確定嘗試，不允許再次兌換。
+
+在 **Providers > xAI Grok > Accounts** 中，每個帳號的票券徽章可查看剩餘優惠券及有效期間。對話框送出客戶端產生的 `operationId`。請求送達或結果不確定時，儀表板會在瀏覽器分頁工作階段期間保留同一次嘗試，關閉並重新開啟對話框、切換頁面或重新載入後也會保留。該記錄在送出請求之前寫入，只有收到同一 `operationId` 的確定回應時才會清除。重新整理只送出 GET，不允許額外的兌換 POST。對應的終端指令是 `ocx account grok-reset-coupons`。
 
 Claude 用量重設也可從 **Providers > Anthropic > Accounts** 以相同方式操作。每個已登入帳號列都有票券徽章，顯示剩餘重設次數；對話框會在第二次確認後使用一次重設機會。重設會補滿 5 小時與每週額度，但不會改變每週重設日。如果使用請求未收到回應，對話框會保留其 `operationId`，並在十分鐘內提供使用相同 ID 重試的選項；Claude Code 用戶端也以此方式復原。在此期間，系統會拒絕對同一重設機會發起新操作。重設機會只能透過儀表板使用：僅持有管理員權杖會收到 `403 session_required`。
 
@@ -455,6 +461,8 @@ OpenAI 也遵循此規則：開關不會選擇特殊的 922k 模式。生效中�
 
 ### 系統生命週期
 
+`POST /api/system/restart` 在沒有請求本文或本文為 `{}` 時，保留預設的 60 秒排空等待。使用管理工作階段或管理員權杖的呼叫端可透過 `{"drainGraceMs":2000}` 明確選擇短等待；值必須是 1–60000 毫秒的整數。無效 JSON 或參數回傳 400，且不會開始重新啟動；綁定目標行程的本機 restart capability 不允許設定此參數（403）。回應中的 `drainTimeoutMs` 表示第一次接受的等待時間，重複呼叫不會變更已接受的時間或截止點。等待時間包含傳送接受回應前的延遲；清理與替代行程就緒仍分別保留獨立的 60 秒及 70 秒預算。被中斷的請求可能已經執行，重新傳送前應核對結果；此選項不會增加自動重新傳送。
+
 | 方法與路徑 | 用途 | 主要錯誤 |
 | --- | --- | --- |
 | `GET /api/system/memory` | 回傳純量的 process、heap、串流、回應狀態、看門狗與活躍回合指標。回應狀態診斷包含溢寫狀態、連續失敗次數、固定且不洩漏隱私的失敗分類，以及最後一次失敗／成功的時間戳記。`spillLastWriteFailureOrigin` 是 `retry_returned_timeout`、`timeout_memo_refusal` 或 null；累計的 `spillAclRetryReturnedTimeouts` 與 `spillAclTimeoutMemoRefusals` 計算終止失敗的發布次數。process-local 語義見 [Windows 溢寫診斷](/zh-tw/troubleshooting/windows-memory/)。絕不回傳原始錯誤與路徑。 | — |
@@ -478,7 +486,7 @@ OpenAI 也遵循此規則：開關不會選擇特殊的 922k 模式。生效中�
 | --- | --- | --- |
 | `GET, POST, DELETE /api/codex-auth/accounts` | 列出／重新整理或刪除 Codex 帳號。POST 僅保留為已停用的相容 endpoint；成功的 DELETE 回應包含 `catalogRefreshPending`。 | POST 一律回傳 403 `manual_import_disabled`；DELETE 輸入無效時回傳 400 |
 | `PUT /api/codex-auth/accounts/alias` | 設定或清除帳號別名 | 400 無效帳號／別名 |
-| `PUT /api/codex-auth/accounts/pause` | 暫停或恢復一個帳號 | 400 無效帳號／狀態；404 缺失帳號 |
+| `PUT /api/codex-auth/accounts/pause` | 手動暫停或恢復帳號及身分相符的既有主帳號／帳號池項目；回傳 `affectedAccountIds` | 400 無效帳號／狀態；404 找不到帳號；503 主帳號身分資料使用中或無法讀取 |
 | `PUT /api/codex-auth/accounts/pause-exhausted` | 暫停配額耗盡的帳號 | 變更鎖失敗變為 503 |
 | 帶 `codexQuotaAutoRefresh: { id, window, enabled }` 的 `PUT /api/settings` | 為一個帳號啟用或停用 5 小時或每週的自動視窗啟用 | 400 無效 id/window/狀態；404 缺失帳號；409 視窗不可用 |
 | `POST /api/codex-auth/accounts/clear-cooldown` | 清除一個或所有帳號的 runtime 冷卻 | 400 無效 id |
@@ -501,6 +509,92 @@ OpenAI 也遵循此規則：開關不會選擇特殊的 922k 模式。生效中�
 收到完成與否的布林值。刪除一個帳號會保留其選擇器綁定，因此在該帳號缺席期間，精確路由會
 顯式失敗；若之後同一個帳號 id 再次被加入，同一個選擇器就會被還原。
 
+## Windows compatibility certificate setup
+
+`GET /api/codex/desktop-compatibility/certificate` returns public certificate status:
+support, state, fingerprint, expiry, renewal notice, trust observation and any active operation.
+It never generates a key, decrypts private material or registers OS trust. Certificate trust alone
+does not mean a compatibility relay is running or the private key has been verified in this process.
+
+POST accepts `action: "prepare" | "trust" | "remove-trust" | "renew"` and `confirmed: true`.
+Trust actions also require the exact uppercase SHA-256 `fingerprint` returned by status.
+These mutations require a GUI-session principal from trusted loopback ingress; an admin token alone
+receives 403. They are intended for a local confirmation flow, not unattended certificate enrollment.
+
+Prepare stores a constrained 30-day authority with a Windows CurrentUser-DPAPI-protected private key.
+Subsequent preparations reuse it. Trust actions never create missing state or silently replace an
+expired root. Removal refuses while Codex is running or process ownership cannot be established.
+Cancellation or uncertain OS command completion is checked against the actual certificate store.
+Unknown state remains an error rather than authorizing an automatic retry. Replies contain no PEM,
+private keys, account data or subprocess output.
+
+Renewal requires the current fingerprint and an absent Codex app. It verifies removal of
+the old certificate's trust before publishing a validated encrypted replacement. Refused
+or uncertain removal preserves the old identity. The replacement is prepared but untrusted;
+register it with a separate `trust` confirmation using its new fingerprint. A stale retry
+cannot replace the new identity again. No certificate backup chain is retained.
+
+This setup API does not enable a relay, change login, alter usage, restart Codex or install a watcher.
+CurrentUser protection does not isolate secrets from other processes running as the same OS user.
+
+## Experimental Windows compatibility runtime
+
+`GET /api/codex/desktop-compatibility/runtime` is an inert status read. POST requires a
+local GUI session and `{ action, confirmed: true }`, where action is `start`, `stop`,
+`observe`, `launch`, or `apply`. Only `apply` additionally requires `accountWideConsent: true`.
+The endpoint is experimental. The dashboard exposes it under **Codex Set → Desktop compatibility**;
+the **Resume observation when OpenCodex starts** toggle saves the optional
+`desktopCompatibility.startOnProxyStart` preference. OpenCodex managed client mode does not offer these
+local controls or forward them to the shared hub.
+
+Start requires an already prepared, trusted certificate, a freshly verified native file-based
+ChatGPT login and the assessed Codex Windows build `26.924.2738.0`. It begins in Observe mode.
+HTTP/HTTPS and authenticated SOCKS5 outbound proxies use the same explicit selection for HTTP,
+identity verification and upgraded sockets. NO_PROXY is honored; failures never retry directly.
+An invalid or unsupported setting returns `egress_proxy_invalid`. Start never registers a certificate or changes
+login. Launch preserves package identity and refuses an app that is already running.
+PAC and CONNECT ports are persisted after successful first binding and reused on restart.
+`connection_unavailable` means binding failed; `connection_invalid` or `connection_changed`
+means stored endpoint identity could not be accepted. These failures never silently rotate
+ports or overwrite the existing connection record. Restart returns to Observe, not Apply.
+`native_routing_unverified` means the native root/profile routing cannot be matched to this
+process's bound OpenCodex listener. Runtime status may expose `contextFailure` for this condition
+or `build_unverified`. These states disable response correction without claiming an app repair.
+
+A status response can also carry `buildAssessment`, the public metadata of the last completed
+build check: `assessedVersion` (the exact package this runtime was assessed against),
+`observedVersion`, `verified` and `completedAt`. It records a past observation, not a live
+install reading: a stopped runtime, an app update or a pending or interrupted check can leave it
+older than the installed package, and only a completed check replaces it. `observedVersion` is
+null unless discovery matched the assessed package family and entry point; an identified newer
+build keeps its own version with `verified` false, and `verified` always describes the package
+observed at `completedAt`, never whatever is installed later. The field is absent until the
+service creates its probe during start and `null` until that probe finishes a check; reading
+status never starts one.
+
+Apply requires a recently observed eligible exhaustion snapshot and lasts at most three minutes
+at the response layer. It changes two account-UI gate flags, not usage percentages, credits,
+spending restrictions or server limits. The usage response does not identify the selected model:
+this trial cannot promise an effect limited to external models. An accepted activation or produced
+response does not prove the app accepted the new snapshot or enabled its composer.
+An available or protected original usage record returns the controller to Observe and
+invalidates pending corrections. Later exhaustion requires another explicit Apply request.
+Changed root TOML or configured model/provider/fallback routing invalidates the runtime's
+observation context until stop/start; reverting those settings does not reactivate it.
+
+Observe disarms correction and refreshes only validated usage streams. Stop closes this runtime's
+listeners and connections; the PAC includes `DIRECT` fallback. The certificate stays installed for
+reuse. Stop the runtime and close Codex before removing trust or renewing the certificate.
+Failed cleanup reports `cleanup-required`; it does not claim that the runtime is off. OS login,
+system proxy settings and application files are not modified by these runtime commands.
+
+The separate settings endpoint returns `{ startOnProxyStart, revision }`. POST requires
+`{ startOnProxyStart: boolean, revision, confirmed: true }` from a local GUI session. A stale
+revision refuses the write; a valid update preserves unrelated config fields and verifies
+the persisted result. This preference affects the next proxy start, never current runtime
+state, app launch or an Apply trial. An uncertain response must be followed by GET, not an
+automatic POST retry. Invalid or missing configuration is preserved rather than recreated.
+
 ## 選擇客戶端
 
 對於普通管理，[網頁儀表板](/zh-tw/guides/web-dashboard/)提供最安全的引導工作流程。對於無頭主機與自動化，請使用對應的 `ocx` 指令：它們呼叫此相同的即時 API，並在代理不可達或操作失敗時回傳非零結果。直接 HTTP 對需要上述精確端點契約的整合最為有用。
@@ -518,3 +612,15 @@ OpenAI 也遵循此規則：開關不會選擇特殊的 922k 模式。生效中�
 DTO 包含 `autoSwitchThresholdOverride`（整數/null）、`autoSwitchThreshold`（集區預設值）、`effectiveAutoSwitchThreshold`。0 只停用依用量切換；暫停和 429 復原不變。
 
 HTTP: 400 invalid/unsupported; 404 missing account; `oauth_mutation_busy` on lock contention.
+
+### Forced Claude Code subagent model
+
+The Subagents page offers **Force all subagents onto one model**, off by default. Select an exposed roster-style id, such as `combo/tev-auto`, then enable the switch. The roster is offered first; unavailable saved roster entries cannot be force targets.
+
+`ocx agent subagents force combo/tev-auto` sets `claudeCode.subagentModelForce`; `ocx agent subagents force -` clears it. `ocx agent status` reports the setting. `GET /api/subagent-models` returns `force`, `forceAvailable`, and `forceStatus`; `PUT` accepts `{ "force": "combo/tev-auto" }` or `{ "force": null }` without changing the roster. Omitting `force` leaves it unchanged. Invalid or unexposed targets are rejected on write; stale targets are reported and skipped at launch.
+
+This takes effect on the **next routed `ocx claude` launch**, injecting `CLAUDE_CODE_SUBAGENT_MODEL` as an explicit proxy alias (with `[1m]` only for an authoritative million-token window; native Claude targets use a reversible native alias) and `CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1`. Each nonempty shell-exported variable independently wins. Native launches inject neither variable; plain `claude` is not affected. No plugin files or `settings.json` are modified by this setting.
+
+Claude Code **2.1.257 or newer** is required for FORCE. Plugin and built-in agents (including Explore/Plan) and per-call model arguments are overridden. Forks and subagent skills with `model: inherit` keep the main conversation model. The main loop and Haiku/small-fast sidecars are unaffected. Existing roster files remain available.
+
+The dashboard warns about old or unknown CLI versions, unavailable targets, and either variable already present in `settings.json` → `env` (which overrides launch env). Detection is read-only and server-local: it cannot inspect another launch shell, another machine, or project-local settings. An unknown result is not proof of force support.

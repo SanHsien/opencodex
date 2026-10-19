@@ -25,6 +25,14 @@ HTTP 400，會在 800 毫秒後獲得一次重試。代理重用相同的序列�
 其他 400 錯誤、自訂目的地、取消動作與重複的上傳拒絕仍維持失敗。這不會重試被過濾的模型回應
 或中斷的串流。
 
+## Codex-native ordinary Lite hosted-search history
+
+Ordinary requests retain structural hosted-search history by default, including Responses Lite requests. To opt in to lossy reference notes, set `providers.openai.projectResponsesLiteHostedSearchHistory: true` in `config.json` (an actual boolean, not the string `"true"`). The per-provider setting defaults to off; omission or `false` keeps structural history. Even when enabled, projection applies only to ordinary requests whose final destination is exact canonical ChatGPT Codex `/responses` and whose effective request intent explicitly selects Responses Lite. It converts unreferenced remaining `web_search_call` history into labeled assistant reference notes. The final `x-openai-internal-codex-responses-lite` header selects Lite only when its value is exactly `true`; an explicit `false` overrides frame metadata. Without a recognized header value, a valid string-map `client_metadata.ws_request_header_x_openai_internal_codex_responses_lite` value of `true` is used, matching the existing WS metadata handling. Non-Lite or unrecognized effective intent retains structural history; malformed metadata does not override an explicit HTTP `true`. Model names, subscription authentication, missing hosted declarations and `additional_tools` alone do not select this policy; no header or metadata is rewritten to make it apply. Once enabled, it applies to new threads/forks, cross-model continuations and cache misses/restarts, without diagnostic settings. Only a valid same-scope bridge memo proves an original function call/result that can be restored first; an ID prefix, model name or missing memo cannot determine the issuer. A hosted cell exactly referenced by a same-input `item_reference.id` is retained. `store:false` removes references earlier, and its remaining hosted history can be projected. Tool declarations/Lite `additional_tools`, choices, client call/result pairs, reasoning/native ciphertext, non-hosted order and caller raw history retain their existing contracts.
+
+Within that opted-in Lite boundary, this is an explicit **lossy history policy**, not a claim that hosted calls are invalid schema or that all upstream errors are fixed. Notes carry untrusted status/action metadata and allowlisted URL/title/type from both action and top-level sources, never instructions or fetched page bodies: 2,048 UTF-16 units per string, 20 entries per list, 65,536 serialized bytes for all projected notes, then an omission note. IDs and unknown fields are dropped from converted cells. HTTP/SSE and WS share the final ordinary builder.
+
+Public OpenAI API and other destinations do not gain ordinary or native-compact projection. Native `/responses/compact` remains its existing endpoint/account-scrub/official opaque-output path and retains structural hosted history. Portable/routed summaries reuse their existing projection trigger and default reference behavior; the shared renderer additionally retains allowlisted top-level sources there. No new retry, source classification or compaction summarizer is introduced.
+
 ## 搜尋回答為空
 
 hosted search 之後，若移除工具、保留既有結果重試一次仍得到乾淨但空的強制回答，會再嘗試一次
@@ -51,6 +59,41 @@ Cursor 第一次裸的 context 溢出會直接呈現給用戶端。之後在同�
 以 502 失敗；十秒的 handshake 逾時回傳 504，用戶端取消回傳 499。Bun 不會暴露確切的上游
 handshake 狀態，因此目前無法精確轉發上游的 404/410。成功的連線會依序保留最初的 session
 frame。此 handshake 政策與 Responses WebSocket 傳輸是分開的。
+## Undeclared tool calls
+
+On the Responses endpoint, when a request declares a tool catalog, a native passthrough reply
+that calls a client-executed tool outside that catalog fails the turn instead of relaying the
+call: a `response.failed` event with error code `undeclared_tool_call`, then `data: [DONE]`;
+buffered JSON returns HTTP 502 with the same code. The refusal runs before the response can
+enter continuation state, and it stands down only for `authMode: "forward"` providers or a
+request with no declared catalog.
+
+The Chat Completions and Messages endpoints honor deferred tool catalogs: those clients may
+declare a partial catalog and discover the rest at runtime through their own tool registry,
+which — not the translated catalog snapshot — owns the full declaration boundary. A call
+outside the declared list is relayed for the client to validate; a call invented against an
+explicitly empty `tools: []` is still refused, because no deferred registry exists under an
+empty declaration. This applies to managed native routes and translated responses, including
+client tool calls in final hosted-search, image or video responses. Only the current turn's declaration applies;
+omitted, partial, and hosted-only catalogs keep their existing behavior. Caller-forward routes
+retain their exemption, and internal hosted operations are unaffected. Those refusals keep the
+`undeclared_tool_call` code on every wire:
+
+- **Chat Completions:** a `data:` frame containing an OpenAI-style `error` object carrying the
+  code, then the stream closes without a success completion or `[DONE]`; buffered JSON returns
+  HTTP 502 with the code.
+- **Messages:** an Anthropic `event: error` frame whose body is
+  `{ "type": "error", "error": { "type": "api_error", "code": "undeclared_tool_call", ... } }`,
+  without a successful `message_stop` or `[DONE]`; buffered JSON returns HTTP 502 `api_error`
+  with the code. A deterministic catalog violation is never reported as a retryable
+  `overloaded_error` (HTTP 529).
+
+Native Messages also recognizes inline system-message tool definitions alongside `tools: []`.
+Those names remain callable until permanently removed; an inline declaration does not authorize
+unrelated client tools. Hosted MCP calls and server-tool argument streams retain their native shape.
+
+Separately, on every inbound wire, a provider's `default.`-namespaced call is normalized back
+to the bare tool name the request declared (`default.Read` → `Read`).
 
 ## 端點概覽
 
@@ -136,6 +179,44 @@ utterance 的 revision 增加時，請取代先前的文字；不要把各版本
 ## `POST /v1/responses`
 
 這是原生 opencodex data-plane 結構。請求 body 必須是帶有非空 `model` 的 JSON 物件。`input` 可為字串或 Responses 項目陣列。
+
+### Caller conversation header
+
+For HTTP `POST /v1/responses`, `POST /v1/messages`, and `POST /v1/chat/completions`, a client can send a stable
+`x-session-id` for each conversation. When no `session_id`, `session-id`, or `thread-id`
+header is present, opencodex promotes the marker to `session_id`. Managed Grok identity
+on Responses takes precedence too. Even an empty explicit header suppresses promotion.
+
+Use 1–128 ASCII letters, digits, `.`, `_`, `:`, or `-`, starting with a letter or digit.
+Surrounding whitespace is trimmed; missing or invalid markers are ignored. Loopback
+admission preserves the marker. Authenticated admission derives an opaque identifier
+from the marker and the admitted credential principal, so different credentials do not
+share a newly promoted identifier. Rotation changes this identifier; authenticated
+requests without a trusted principal are left unchanged.
+
+Use distinct markers for distinct conversations. This preserves conversation continuity
+for downstream consumers, but does not guarantee an upstream cache hit or measured savings.
+WebSocket frames, compact, and count_tokens do not use this promotion.
+
+On canonical ChatGPT-backed Responses dispatch, a non-empty explicit `session_id` wins.
+Otherwise, the first non-empty alias among `session-id`, then `thread-id`, supplies
+`session_id` if its value is safe; an invalid winning alias suppresses weaker identity.
+Empty header values are dropped before this step on every path (Responses auth header
+selection and the Claude Messages and Chat Completions bridges), so an empty header counts as
+absent: an empty `session-id` lets a valid `thread-id` win. The Claude metadata-derived
+session applies only when no non-empty canonical header or alias remains.
+Aliases keep their original names on the wire; their validated raw caller values are forwarded
+like an explicit `session_id`, without the principal scoping used for promoted `x-session-id`.
+This egress conversion does not change ingress affinity. Custom and API-key destinations are
+unchanged, and no identity is invented for requests without a conversation marker.
+
+For third-party clients, keep one caller-owned marker per conversation, including repeated
+`curl` requests. A shared `prompt_cache_key` or identical system/tools prefix is a cache cohort,
+not proof that two requests belong to one conversation. Requests without a conversation marker
+receive no invented stable session. OpenCodex also does not impersonate Codex by synthesizing
+an `originator`; a caller-supplied originator retains its normal forwarding rules. Header
+continuity does not establish a cache hit: compare the upstream's reported cached input tokens
+for your own repeated-prefix requests. An omitted cache-write count is not evidence of no write.
 
 ### 接受的請求欄位
 
@@ -485,6 +566,8 @@ Compaction 為需要縮短長 Responses 對話的客戶端回傳取代歷史。
 | 路由型別 | 行為 |
 | --- | --- |
 | 規範 ChatGPT 或官方 OpenAI 路由 | 以解析的帳號與模型認證嘗試原生的 `/responses/compact` 端點；HTTP 404 會退回一次一般的 Responses 壓縮回合 |
+
+| Explicitly opted-in custom `openai-responses` gateway | `supportsNativeCompactEndpoint: true` tries the native v1 endpoint for key/local/forward auth using the provider's normal Responses transport; HTTP 404 uses portable fallback; OAuth retains routed compaction and credential resolution |
 | 其他路由模型 | 執行一個內部、非串流、無工具的 compaction 回合，帶有 `compaction_trigger`；需要恰好一個合成的 `compaction` 項目，其 `encrypted_content` 為 `ocx1:` 封裝；將該摘要解碼為 v1 取代歷史 |
 
 若原生 compact 端點回傳 HTTP 404，OpenCodex 會透過一個一般的 Responses 回合、使用相同的模型
@@ -520,6 +603,10 @@ Decompressed request body exceeds 268435456 bytes [measurement=decoded_lower_bou
 不會被解析來計算項目數，也不會為了診斷而被保留。沒有量測來源的舊版錯誤，維持只有上限的訊息。
 Bun 的監聽器可能在應用層診斷執行之前，就先拒絕一個過大的 wire 主體，所以不是每一個 413 都帶有
 這個後綴。一個下限診斷無法確立完整 compact payload 的大小。准入上限與重試行為不變。
+The custom v1 capability is independent of v2 `supportsNativeCompactionTrigger` and
+`decodesNativeCompactionBlobs` for replay. None grants canonical identity or caller credential
+forwarding; cross-provider overrides remain portable. See the canonical
+[provider configuration](/zh-tw/reference/configuration/providers/) before opting in.
 
 原生 compact 回應以 32 MiB 上限緩衝，包含其宣告的 `Content-Length` 已超過限制的回應。Compact 專屬失敗包含：
 
@@ -582,3 +669,10 @@ Anthropic 來源的失敗以 Anthropic 的錯誤封裝渲染，因此該方言�
 重放的推理項攜帶的 `encrypted_content` 只有產生它的供應商與憑證才能讀取。若 opencodex 知道該對話上一次由另一個供應商處理，它會在送出前移除這個 blob，並保留該項的摘要。若那個供應商還使用了不同的 endpoint 或憑證，該項的 `rs_…` id 也會被移除，因為它指向新目標查不到的項目。若 opencodex 無從得知，例如代理重新啟動之後，新目標會拒絕這個 blob：OpenAI 與 Azure OpenAI 回傳 `400 invalid_encrypted_content`。此時 opencodex 會去掉上一個供應商的推理狀態（blob 與 `rs_…` id）後只重送一次請求；保留 id 會導致 `Item with id 'rs_…' not found`。
 
 這項復原適用於所有使用 Responses 協定的 adapter，因此 `openai-responses` 與 `azure-openai` 的行為相同。復原成功後，該對話在同一目標上的後續輪次會在接下來五分鐘內於首次送出前移除這些狀態。重送計入請求的一般傳送預算。一般的 400 與 429 不會以這種方式重送，5xx 也不會，只有一個狹窄的例外：對於攜帶加密工具輸出的請求，回應本文恰好是該解密拒絕的 502 會得到同樣的一次重送。第二次拒絕會原樣回傳給客戶端。遇到這種情況，請在目標供應商上開始新的對話。
+
+### Malformed tool-call history
+
+Routed requests tolerate malformed serialized function arguments as an empty object.
+Two bounded history repairs preserve usable arguments: a missing JSON object prefix,
+and MiMo's trailing `</function></tool_call>` envelope with a missing closing quote or brace.
+A repair must decode to a JSON object. Valid JSON values containing those tags are preserved.

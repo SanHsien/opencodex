@@ -1,5 +1,7 @@
+import { canInferVendorContext } from "./vendor-context";
 import { effectiveProviderAlias, effectiveProviderAliasDecision } from "../../providers/default-aliases";
 import { initialModelSelectionPending } from "../../providers/initial-model-selection";
+import { supportsConfiguredUltraFast } from "./configured-tiers";
 import { execFileSync } from "node:child_process";
 import { createHash, createHmac, randomBytes } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, realpathSync } from "node:fs";
@@ -33,7 +35,6 @@ import {
 import type { OcxConfig, OcxProviderConfig } from "../../types";
 import { modelInList } from "../../types";
 import { CODEX_REASONING_LEVELS, codexEffortRank, configuredReasoningEfforts, modelRecordValue, sanitizeCodexReasoningEfforts } from "../../reasoning-effort";
-import { isModelVisionSidecarConsumer } from "../../vision/eligibility";
 import { getModelMetadata, getModelMetadataCaseInsensitive, listModelMetadata, resolveMetadataProvider, type ModelMetadata } from "../../generated/model-metadata";
 import { enrichProviderFromRegistry, shouldCaseFoldMetadataModelId } from "../../providers/derive";
 import {
@@ -101,7 +102,7 @@ import type {
   CatalogTrustedOpenAiApiPolicySnapshot,
 } from "../convergence-types";
 import type { CatalogGatherProviderAuthOutcome, CatalogGatherProviderModelOutcome, GatherFlightCapture, ModelsAuthResolverFactory } from "./gather-capture";
-import { applyProviderConfigHints, configuredAutoCompactTokenLimit, configuredMaxInputTokens, configuredReasoningSummarySupport, modelInputModalities, routedMaxOutputTokens } from "./model-hints";
+import { applyProviderConfigHints, configuredAutoCompactTokenLimit, configuredMaxInputTokens, configuredModelDisplayName, configuredReasoningSummarySupport, modelInputModalities, routedMaxOutputTokens, withVisionSidecarInput } from "./model-hints";
 import { resolveComboCatalogMember } from "./combo-member";
 import { captureGatherFlight, captureTrustedOpenAiApiPolicy, gatherFlightKey, keyedGatherBytesIdentity, withCanonicalOpenAiForwardAuthDefault } from "./gather-capture";
 import { fetchProviderModelsWithAuth, observedModelsAuthResolver, refreshingModelsAuthResolver } from "./provider-models";
@@ -318,6 +319,7 @@ function boundCustomNativeReasoning(
   return bounded;
 }
 
+/** Gather discovered and custom rows under one captured provider policy, including speed capabilities. */
 async function gatherRoutedModelsUncached(
   config: OcxConfig,
   capture: GatherFlightCapture,
@@ -327,6 +329,7 @@ async function gatherRoutedModelsUncached(
   const localProviderAuthOutcomes = capture.providerAuthOutcomes;
   const resolveAuth = capture.authResolver;
   const ttlMs = config.modelCacheTtlMs ?? DEFAULT_MODEL_CACHE_TTL_MS;
+  const visionSidecarEnabled = config.visionSidecar?.enabled !== false;
   // Persisted provider entries can predate newer registry fields (noVisionModels,
   // modelInputModalities, ...). The ROUTER merges registry seeds at request time
   // (routedProviderConfig), so the proxy behaves correctly — the catalog listing must see the
@@ -334,6 +337,8 @@ async function gatherRoutedModelsUncached(
   // vision-sidecar model advertised text-only, blocking image attachments app-side).
   // Enrich a CLONE: hydrated defaults must never leak into the persisted config.
   const activeProviders = capture.providers;
+  // Use admission-time provider clones for sidecar advertisement, custom rows and combo members.
+  const enrichedByName = new Map(activeProviders.map(provider => [provider.name, provider.provider]));
   const providerResults = await Promise.all(
     activeProviders.map(provider => fetchProviderModelsWithAuth(
       provider,
@@ -347,6 +352,7 @@ async function gatherRoutedModelsUncached(
     lists.flat(),
     config,
     capture.openAiApiPolicy,
+    activeProviders.find(provider => provider.name === OPENAI_API_PROVIDER_ID)?.metadataConfigDir,
   );
   const apiProvider = activeProviders.find(provider => provider.name === OPENAI_API_PROVIDER_ID);
   // Trusted reconstruction replaces whole rows, including the earlier Fast hints.
@@ -357,11 +363,15 @@ async function gatherRoutedModelsUncached(
       const policy = fastPolicyForModel(apiProvider.provider, model.id, apiProvider.name);
       const supported = serviceTierSupportFromPolicy(policy);
       if (supported !== undefined) model.supportsServiceTier = supported;
+      model.supportsUltraFastTier = supportsConfiguredUltraFast(policy);
       if (supported === true && policy.fastTierDescription !== undefined) model.fastTierDescription = policy.fastTierDescription;
     }
   }
   const metadataModelIdCaseFoldByProvider = new Map(
     activeProviders.map(provider => [provider.name, provider.metadataModelIdCaseFold]),
+  );
+  const metadataConfigDirByProvider = new Map(
+    activeProviders.map(provider => [provider.name, provider.metadataConfigDir]),
   );
   const all = augmentRoutedModelsWithMetadata(
     apiAugmented,
@@ -369,7 +379,10 @@ async function gatherRoutedModelsUncached(
     config.providers,
     config,
     metadataModelIdCaseFoldByProvider,
+    metadataConfigDirByProvider,
+    false,
   )
+    .map(model => withVisionSidecarInput(model, enrichedByName.get(model.provider), visionSidecarEnabled))
     // Drop image/video generation models (e.g. Grok image/video) by default. Cursor's static catalog
     // intentionally mirrors Cursor's public model table, including Gemini image preview, so the
     // exposure decision goes through shouldExposeRoutedModel (single choke point).
@@ -462,7 +475,7 @@ async function gatherRoutedModelsUncached(
       ...inherited,
       catalogKind: CODEX_CUSTOM_MODEL_CATALOG_KIND,
       ...(typeof custom.contextWindow === "number" && custom.contextWindow > 0
-        ? { contextWindow: custom.contextWindow }
+        ? { contextWindow: custom.contextWindow, contextWindowInference: undefined }
         : {}),
       ...(Array.isArray(custom.inputModalities)
         ? { inputModalities: [...custom.inputModalities] }
@@ -473,9 +486,6 @@ async function gatherRoutedModelsUncached(
       ...(custom.codexToolMode !== undefined ? { codexToolMode: custom.codexToolMode } : {}),
     });
   }
-  // Enriched (registry-hydrated) provider clones — shared by combo member synthesis and
-  // custom-model vision-sidecar inheritance so both see the same merged registry view.
-  const enrichedByName = new Map(activeProviders.map(provider => [provider.name, provider.provider]));
   for (const id of listComboIds(config)) {
     const combo = getCombo(config, id);
     if (!combo) continue;
@@ -511,6 +521,8 @@ async function gatherRoutedModelsUncached(
         providerContextCap(config, target.provider),
         nativeAliasFallback,
         metadataModelIdCaseFoldByProvider.get(target.provider),
+        metadataConfigDirByProvider.get(target.provider),
+        visionSidecarEnabled,
       ))
       .filter((member): member is CatalogModel => member !== undefined);
     const derived = deriveComboCatalogModel(id, combo, members);
@@ -591,7 +603,7 @@ async function gatherRoutedModelsUncached(
         id: cm.modelId,
         provider: cm.provider,
         ...(nativeAliasMaxOutputTokens !== undefined ? { maxOutputTokens: nativeAliasMaxOutputTokens } : {}),
-      }, cm.modelId, metadataModelIdCaseFoldByProvider.get(cm.provider))
+      }, cm.modelId, metadataModelIdCaseFoldByProvider.get(cm.provider), metadataConfigDirByProvider.get(cm.provider))
       : nativeAliasMaxOutputTokens;
     const configuredAutoCompact = configuredAutoCompactTokenLimit(rawProvider, cm.modelId);
     const customAutoCompactTokenLimit = codexForwardNativeCapabilityAlias
@@ -648,6 +660,7 @@ async function gatherRoutedModelsUncached(
       ...(Array.isArray(cm.reasoningEfforts) ? { reasoningEfforts: [...cm.reasoningEfforts] } : {}),
       ...(cm.defaultReasoningEffort ? { defaultReasoningEffort: cm.defaultReasoningEffort } : {}),
       ...(typeof supportsServiceTier === "boolean" ? { supportsServiceTier } : {}),
+      supportsUltraFastTier: supportsConfiguredUltraFast(fastPolicy),
       ...(supportsServiceTier === true && fastPolicy?.fastTierDescription !== undefined
         ? { fastTierDescription: fastPolicy.fastTierDescription }
         : {}),
@@ -680,7 +693,8 @@ async function gatherRoutedModelsUncached(
       : undefined;
     const merged: CatalogModel = replaced ? {
       ...base,
-      ...(base.contextWindow === undefined && replaced.contextWindow !== undefined ? { contextWindow: replaced.contextWindow } : {}),
+      ...(base.contextWindow === undefined && replaced.contextWindow !== undefined
+        ? { contextWindow: replaced.contextWindow, ...(replaced.contextWindowInference ? { contextWindowInference: replaced.contextWindowInference, contextCap: replaced.contextCap, contextCapped: replaced.contextCapped } : {}) } : {}),
       ...(mergedMaxInput !== undefined ? { maxInputTokens: mergedMaxInput } : {}),
       ...(mergedMaxOutput !== undefined ? { maxOutputTokens: mergedMaxOutput } : {}),
       ...(base.autoCompactTokenLimit === undefined && replaced.autoCompactTokenLimit !== undefined
@@ -697,17 +711,29 @@ async function gatherRoutedModelsUncached(
       ...(base.codexToolMode === undefined && replaced.codexToolMode !== undefined ? { codexToolMode: replaced.codexToolMode } : {}),
       ...(base.capabilities === undefined && replaced.capabilities !== undefined ? { capabilities: replaced.capabilities } : {}),
     } : base;
+    // A custom-only model may never appear in /models or the provider's configured roster.
+    // Fill only its absent context; a full hint overlay would overwrite custom capabilities.
+    const customContextHints = merged.contextWindow === undefined && effectiveProvider && canInferVendorContext(cm.provider, effectiveProvider)
+      ? applyProviderConfigHints(cm.provider, effectiveProvider, { provider: cm.provider, id: cm.modelId },
+        providerContextCap(config, cm.provider), metadataModelIdCaseFoldByProvider.get(cm.provider),
+        undefined, metadataConfigDirByProvider.get(cm.provider), false)
+      : undefined;
+    const contextResolved: CatalogModel = customContextHints?.contextWindow !== undefined
+      ? { ...merged, contextWindow: customContextHints.contextWindow,
+        ...(customContextHints.contextWindowInference ? { contextWindowInference: customContextHints.contextWindowInference } : {}),
+        ...(customContextHints.contextCap !== undefined ? { contextCap: customContextHints.contextCap, contextCapped: customContextHints.contextCapped } : {}) }
+      : merged;
     // Catalog-advertised efforts are bounded whenever the model id is a pinned native
     // slug. Desktop validates that id, so a gateway such as YYLJ/gpt-6-astra still cannot
     // advertise none/minimal. Full native identity stays behind the alias predicate.
     const nativeEffortSource = hasNativeOpenAiCapabilityMetadata(cm.modelId);
     const reasoningBounded = nativeEffortSource
       ? boundCustomNativeReasoning(
-        merged,
+        contextResolved,
         nativeReasoningEfforts(cm.modelId),
         nativeAliasDefaultEffort ?? nativeDefaultReasoningEffort(cm.modelId),
       )
-      : merged;
+      : contextResolved;
     // Vision-sidecar coverage only: when the enriched provider's shared predicate matches
     // noVisionModels or text-without-image modelInputModalities, advertise image input so the
     // Codex app lets images reach the sidecar (#349/#344). Deliberately NOT the full
@@ -738,13 +764,7 @@ async function gatherRoutedModelsUncached(
       : mergedWithHardBounds;
     const enrichedProvider = enrichedByName.get(cm.provider) ?? rawProvider;
     // Reuse the request-time consumer predicate so custom rows cannot drift from catalog hints.
-    if (enrichedProvider && isModelVisionSidecarConsumer(enrichedProvider, mergedWithAutoCompact.id)) {
-      const current = mergedWithAutoCompact.inputModalities ?? ["text"];
-      if (!current.includes("image")) {
-        return { ...mergedWithAutoCompact, inputModalities: [...current, "image"] };
-      }
-    }
-    return mergedWithAutoCompact;
+    return withVisionSidecarInput(mergedWithAutoCompact, enrichedProvider, visionSidecarEnabled);
   });
   // Custom rows override discovered rows that encode to the same Codex-facing slug. A provider whose
   // captured discovery declares an order (preferFirst) keeps each replacement in the discovered row's
@@ -827,6 +847,7 @@ function augmentRoutedModelsWithCapturedOpenAiApiRows(
   models: CatalogModel[],
   config: OcxConfig,
   policy: CatalogTrustedOpenAiApiPolicySnapshot,
+  metadataConfigDir?: string,
 ): CatalogModel[] {
   if (policy.state !== "captured" || !policy.models) return models;
   const configured = config.providers[OPENAI_API_PROVIDER_ID];
@@ -862,11 +883,15 @@ function augmentRoutedModelsWithCapturedOpenAiApiRows(
         ? { provider: OPENAI_API_PROVIDER_ID, id, maxOutputTokens: policy.modelMaxOutputTokens[id] }
         : existingById.get(id) ?? { provider: OPENAI_API_PROVIDER_ID, id },
       policy.virtualModels?.[id]?.wireModelId ?? id,
+      undefined,
+      metadataConfigDir,
     );
+    const displayName = configuredModelDisplayName(configured, id);
     return {
       provider: OPENAI_API_PROVIDER_ID,
       id,
       owned_by: OPENAI_API_PROVIDER_ID,
+      ...(displayName ? { displayName } : {}),
       ...(contextWindow ? { contextWindow } : {}),
       ...(maxInputTokens ? { maxInputTokens } : {}),
       ...(maxOutputTokens !== undefined ? { maxOutputTokens } : {}),
@@ -920,6 +945,8 @@ export function augmentRoutedModelsWithMetadata(
   providers?: Record<string, OcxProviderConfig>,
   caps?: Pick<OcxConfig, "providerContextCaps">,
   metadataModelIdCaseFoldByProvider?: ReadonlyMap<string, boolean>,
+  metadataConfigDirByProvider?: ReadonlyMap<string, string>,
+  includeVisionSidecar = true,
 ): CatalogModel[] {
   const out = [...models];
   const indexByKey = new Map(out.map((model, index) => [`${model.provider}/${model.id}`, index]));
@@ -947,6 +974,9 @@ export function augmentRoutedModelsWithMetadata(
             seeded,
             contextCap,
             metadataModelIdCaseFoldByProvider?.get(provider),
+            undefined,
+            metadataConfigDirByProvider?.get(provider),
+            includeVisionSidecar,
           )
           : seeded;
         continue;
@@ -969,6 +999,9 @@ export function augmentRoutedModelsWithMetadata(
             model,
             contextCap,
             metadataModelIdCaseFoldByProvider?.get(provider),
+            undefined,
+            metadataConfigDirByProvider?.get(provider),
+            includeVisionSidecar,
           )
           : {}),
       });

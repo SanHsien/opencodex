@@ -2,7 +2,7 @@
  * Claude Desktop picker mode: the one server-side controller for every picker mutation.
  *
  * While a server runs, enable, disable and Desktop mode transitions run here, serialized by one
- * lock (devlog/_plan/260924_claude_desktop_picker_mode/030_wp4_picker_activation.md, D11).
+ * lock (devlog/_fin/260924_claude_desktop_picker_mode/030_wp4_picker_activation.md, D11).
  */
 import type { OcxConfig } from "../types";
 import { claudeDesktopIntegrationEnabled } from "../codex/desired-state";
@@ -10,6 +10,8 @@ import { getConfigDir } from "../config/paths";
 import { readFileSync, existsSync } from "node:fs";
 import { acceptsPickerAuthority, pickerCaCertPath, pickerCaFingerprints, ensurePickerCa, issuePickerLeaf, pickerLeafCertPath, publishedPickerCaSha256 } from "./intercept/picker-ca";
 import { inspectPickerTrust, trustPickerCa, untrustPickerCa } from "./intercept/picker-trust";
+import { preparePersistentPickerAuthority } from "./intercept/picker-ca-startup";
+import type { PickerCaStore } from "./intercept/picker-ca-store";
 import type { PickerRuntime } from "./intercept/picker-runtime";
 import type { PickerTrustState, SecurityRunner } from "./intercept/picker-trust";
 import {
@@ -21,6 +23,7 @@ import {
   type DesktopPickerProfileOptions,
 } from "./desktop-picker-profile";
 import { resolveClaudeDesktopMode, observeClaudeDesktopMode } from "./desktop-first-party";
+import { supportsDesktopPicker } from "./desktop-picker-platform";
 
 /** Desktop no longer selects the picker profile, so removing the CA's trust cannot strand it. */
 function profileReleased(profile: DesktopPickerProfileInspection): boolean {
@@ -52,6 +55,8 @@ export interface DesktopPickerEnableOptions {
   persist: boolean;
   context: "cli-trusted" | "server";
   callerAddedTrust?: boolean;
+  /** Normal restart only inspects trust; explicit enable keeps the consent flow. */
+  allowTrustPrompt?: boolean;
 }
 
 export interface DesktopPickerOps {
@@ -73,7 +78,10 @@ export interface DesktopPickerControllerDeps {
   persistPreference: (value: boolean) => boolean;
   /** Bound picker CONNECT proxy port (Desktop's egress), or null when it is not running. */
   proxyPort: () => number | null;
+  /** Bind a dormant relay on explicit enable, under the controller's mutation lock. */
+  ensureProxy?: () => Promise<void>;
   configDir: string;
+  persistentAuthority?: { store?: PickerCaStore };
   security?: SecurityRunner;
   platform?: NodeJS.Platform;
   applyProfile?: typeof applyDesktopPickerProfile;
@@ -86,7 +94,7 @@ function profileOptions(deps: DesktopPickerControllerDeps): DesktopPickerProfile
 }
 
 function statusReasonForConfig(config: OcxConfig, platform: NodeJS.Platform, proxyBound: boolean): DesktopPickerReason {
-  if (platform !== "darwin") return "unsupported_platform";
+  if (!supportsDesktopPicker(platform)) return "unsupported_platform";
   if (resolveClaudeDesktopMode(config, observeClaudeDesktopMode(config)) !== "first-party") return "not_first_party";
   if (!claudeDesktopIntegrationEnabled(config)) return "integration_off";
   if (config.claudeCode?.intercept?.picker === false) return "disabled";
@@ -96,11 +104,11 @@ function statusReasonForConfig(config: OcxConfig, platform: NodeJS.Platform, pro
 
 function emptyStatus(config: OcxConfig, platform: NodeJS.Platform, reason: DesktopPickerReason): DesktopPickerStatus {
   return {
-    desired: platform === "darwin"
+    desired: supportsDesktopPicker(platform)
       && claudeDesktopIntegrationEnabled(config)
       && resolveClaudeDesktopMode(config, observeClaudeDesktopMode(config)) === "first-party"
       && config.claudeCode?.intercept?.picker !== false,
-    supported: platform === "darwin",
+    supported: supportsDesktopPicker(platform),
     trust: "unknown",
     profile: "absent",
     listenerReady: false,
@@ -137,7 +145,7 @@ export function createDesktopPickerController(deps: DesktopPickerControllerDeps)
     const trust = trustOverride ?? runtime.trust;
     const effective = runtime.effective && profileCurrent && trust === "trusted";
     let reason: DesktopPickerReason;
-    if (platform !== "darwin") reason = "unsupported_platform";
+    if (!supportsDesktopPicker(platform)) reason = "unsupported_platform";
     else if (!runtime.desired) reason = statusReasonForConfig(deps.readConfig(), platform, deps.proxyPort() !== null);
     else if (deps.proxyPort() === null) reason = "proxy_unavailable";
     else if (trust !== "trusted") reason = "trust_pending";
@@ -173,7 +181,7 @@ export function createDesktopPickerController(deps: DesktopPickerControllerDeps)
 
   async function untrustCurrentCa(): Promise<boolean> {
     const caPath = pickerCaCertPath(deps.configDir);
-    if (platform !== "darwin" || !existsSync(caPath)) return true;
+    if (!supportsDesktopPicker(platform) || !existsSync(caPath)) return true;
     try {
       const sha1 = pickerCaFingerprints(readFileSync(caPath, "utf8")).sha1;
       return (await untrustPickerCa(caPath, sha1, deps.security, platform)).ok;
@@ -185,13 +193,8 @@ export function createDesktopPickerController(deps: DesktopPickerControllerDeps)
     // An already selected owned profile proves that another successful enable still relies on
     // this CA. Keep its trust even when the current request is refused.
     if (inspect().kind === "applied") return true;
-    try {
-      const ca = ensurePickerCa(deps.configDir);
-      const result = await untrustPickerCa(
-        pickerCaCertPath(deps.configDir), pickerCaFingerprints(ca.certPem).sha1, deps.security, platform,
-      );
-      return result.ok;
-    } catch { return false; }
+    // Compensation needs only the published public root, never a signing identity.
+    return untrustCurrentCa();
   }
 
   function withTrustFailure(status: DesktopPickerStatus, trustFailed: boolean): DesktopPickerStatus {
@@ -207,11 +210,11 @@ export function createDesktopPickerController(deps: DesktopPickerControllerDeps)
       return withTrustFailure({ ...runtimeStatus(observedTrust), reason }, trustFailed);
     };
     const check = (config: OcxConfig, includePreference: boolean): DesktopPickerReason | null => {
-      if (platform !== "darwin") return "unsupported_platform";
+      if (!supportsDesktopPicker(platform)) return "unsupported_platform";
       if (resolveClaudeDesktopMode(config, observeClaudeDesktopMode(config)) !== "first-party") return "mode_not_committed";
       if (!claudeDesktopIntegrationEnabled(config)) return "integration_off";
       if (includePreference && config.claudeCode?.intercept?.picker === false) return "disabled";
-      if (deps.proxyPort() === null) return "proxy_unavailable";
+      if (deps.proxyPort() === null && !deps.ensureProxy) return "proxy_unavailable";
       return null;
     };
 
@@ -224,11 +227,17 @@ export function createDesktopPickerController(deps: DesktopPickerControllerDeps)
     }
     const second = check(deps.readConfig(), true);
     if (second) return refuse(second);
+    if (deps.proxyPort() === null) {
+      try { await deps.ensureProxy?.(); } catch { return refuse("proxy_unavailable"); }
+    }
+    if (deps.proxyPort() === null) return refuse("proxy_unavailable");
 
     let caPath: string;
     let caSha1: string;
     try {
-      const ca = ensurePickerCa(deps.configDir);
+      const ca = deps.persistentAuthority
+        ? await preparePersistentPickerAuthority({ configDir: deps.configDir, store: deps.persistentAuthority.store, security: deps.security, platform })
+        : ensurePickerCa(deps.configDir);
       // The CLI path gates trust on the same profile check; a published root whose bytes do not
       // match the profile this process mints must not reach the keychain through the server
       // path either, even when a live peer published it.
@@ -238,7 +247,7 @@ export function createDesktopPickerController(deps: DesktopPickerControllerDeps)
       caSha1 = pickerCaFingerprints(ca.certPem).sha1;
       let trust = await inspectPickerTrust(pickerLeafCertPath(deps.configDir), caSha1, deps.security, platform);
       observedTrust = trust;
-      if (trust !== "trusted" && options.context === "server") {
+      if (trust !== "trusted" && options.context === "server" && options.allowTrustPrompt !== false) {
         const added = await trustPickerCa(caPath, deps.security, platform, { pem: ca.certPem });
         trustedByAttempt = added.ok;
         trust = await inspectPickerTrust(pickerLeafCertPath(deps.configDir), caSha1, deps.security, platform);
@@ -334,7 +343,7 @@ export async function removeDesktopPickerArtifacts(options: { configDir?: string
     return { ok: false, residual };
   }
   const caPath = pickerCaCertPath(configDir);
-  if (platform === "darwin" && existsSync(caPath)) {
+  if (supportsDesktopPicker(platform) && existsSync(caPath)) {
     try {
       const sha1 = pickerCaFingerprints(readFileSync(caPath, "utf8")).sha1;
       if (!(await untrustPickerCa(caPath, sha1, options.security, platform)).ok) residual.push("trust");

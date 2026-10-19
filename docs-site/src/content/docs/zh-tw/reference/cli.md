@@ -11,7 +11,87 @@ opencodex 的命令列工具是 `ocx`。它依第一個命令名稱分派，有�
 執行 `ocx help <command>`、`ocx <command> --help` 或 `ocx <command> -h`。幫助與版本
 命令均為只讀：它們不會啟動、停止、安裝、解除安裝或改寫 Codex／opencodex 狀態。
 
+## Nested help
+
+Family help such as `ocx help models` preserves the family's usage and details, then
+lists known declared child paths with summaries. These lists describe declared children;
+they do not guarantee exhaustive runtime coverage. Alias help retains the alias's own usage
+and details and points to its canonical family: `ocx help model` leads to `ocx help models`.
+Models help also links the curated `models context` topic separately from declared capabilities.
+
+Help accepts a path with more than one command word:
+
+```bash
+ocx help models context
+ocx models context --help
+ocx model context --help
+ocx help account list
+ocx help account main
+```
+
+The first three forms show the same context-cap topic, including the `model` alias:
+
+```text
+ocx models context <status|value <tokens> [--set-all]|provider <name> on [--value <tokens>]|provider <name> off|all <on|off>> [--json]
+```
+
+`ocx models context status --json` reads the current settings. `value <tokens>` sets the
+default for future toggles; adding `--set-all` applies it to all routed providers.
+`provider <name> on` enables a provider cap, optionally with `--value <tokens>`; `off`
+disables it. `all on|off` changes all routed providers together.
+
+Declared capability topics such as `account list` show their summary, known flags and
+details, with a pointer to parent help. This metadata does not cover every operand or runtime
+subcommand, so a topic can show `Command: ocx ...` without claiming a complete `Usage:` grammar.
+A prefix such as `account main` lists its declared children and marks that coverage as incomplete.
+An undeclared explicit topic (`ocx help <path>`) exits 1 with a concise detailed-help-unavailable
+message and a known-parent or full-reference pointer on standard error. Standard output stays
+empty, and no full help banner is printed. Missing detail does not establish whether the runtime command is valid.
+Appended `--help`/`-h` preserves existing command-help behavior: when detailed metadata is unavailable,
+it displays known parent help successfully, without executing the command.
+
+In the Bun CLI head, bare `help` is recognized only at the root or immediately after the root
+command. Use `--help` or `-h` for nested paths. Later values such as the `help` in
+`ocx alias set demo help` remain command arguments. An exact `--` ends head help scanning,
+so `ocx claude -- --help` preserves the arguments for command dispatch.
+
+## Recovering from command typos
+
+Unknown root commands and unresolved explicit help paths exit 1 with a short diagnostic and
+navigation guidance on standard error, leaving standard output empty. Close typos can receive
+conservative suggestions drawn from visible command names and the current help family's documented
+children. Suggestions are guidance only: the CLI never executes them or retries the command.
+
+| Input | Guidance |
+| --- | --- |
+| `ocx modles` or `ocx help modles` | Suggests `ocx help models`. |
+| `ocx help account lisst` | Suggests `ocx help account list` within the account family. |
+| `ocx help qzxv` | Offers `ocx help --all` without guessing a command. |
+| `ocx help models qzxv` | Reports unavailable detailed help and points to the known models family. |
+
+The Bun CLI rejects an unknown root before shim auto-restore or other command preflight.
+Recognized commands retain their existing preflight; hidden commands and the internal runner
+remain valid dispatch targets but are excluded from discovery and suggestions. Appended flag-help
+fallback, capability JSON, and provider-specific error handling retain their existing behavior.
+
 ## 命令家族
+
+### `ocx message`
+
+`ocx message sessions [--json]` discovers loaded local Codex sessions.
+`ocx message send (--thread <uuid> | --name <exact-name>) --stdin [--json]`
+submits one correlated peer message, without starting a daemon or resuming a thread.
+See [Local Codex Messaging](/zh-tw/reference/cli/messaging/) for sender context, kinds,
+the tested runtime and `not_sent`/`queued`/`unknown` receipts. No remote transport is included.
+
+### `ocx provider`
+
+`ocx provider`, `ocx help provider`, `ocx provider help`, `ocx provider --help`, and
+`ocx provider -h` show the same provider help, with command syntax, examples, preset/custom
+guidance, and declared topic pointers. Successful help prints to standard output and exits 0.
+Bare `ocx provider` still follows ordinary command preflight; explicit head-help forms exit
+before that preflight. An unknown provider action prints its diagnostic and provider help
+to standard error, leaves standard output empty, and exits 1.
 
 ### `ocx alias`
 
@@ -35,7 +115,7 @@ opencodex 的命令列工具是 `ocx`。它依第一個命令名稱分派，有�
 設定路徑。停止或無法連線的代理以 HTTP 503 呈現，並產生非零的 CLI 離開碼。明確記載為
 離線設定操作的命令，可以在沒有執行中代理的情況下驗證與編輯設定檔。
 
-`ocx system codex-cli-update check` 不需要執行中的代理，也不會向套件 registry 發出請求。它只會在限定範圍內檢查設定中的安裝候選項來源中繼資料，包括經過遮罩的可執行檔位置與所有權證據。正式發布的 launcher 所提供的可信內容只會驗證該候選項快照，並不證明 Codex 已成功執行。由於這個單次檢查命令絕不會執行 Codex，來自環境變數與持久化記錄的候選項只供報告（`managed: false`，通常為 `selection_unattested`）；JSON 輸出包含 `candidateAvailable`、`candidateVersion` 與 `candidateSource`，而 `selectionAttested` 維持 `false`。檢查設定中的安裝候選項時，必須有正式發布的 launcher 所提供的可信內容；直接使用 Bun 啟動或從原始碼執行時不具備這項證明，因此會忽略來自環境與持久化記錄的候選項狀態，並可能報告 POSIX 下的 `candidate_unavailable` 或 Windows 下的 `windows_inspection_deferred`。在 Windows 上，這個首個切片不會對候選路徑或設定路徑執行任何檔案系統 I/O。只有由可信 launcher 擷取的絕對環境候選項可以取得應用程式封裝或版本管理工具的純詞彙標籤；其他所有 Windows 候選項都會以失敗關閉方式處理。此命令不會安裝或修復軟體、不會執行 Codex 或 npm、不會控制執行中的程序，也不會寫入設定或快取狀態。
+`check` 不查詢註冊表，也不執行 Codex。在 POSIX 上，當已發布啟動器擷取的環境候選項與執行階段解析器選擇的正規路徑相同時，`selectionAttested` 可以為 `true`；若關聯的 npm-global 套件資訊清單證明了所有權，`managed` 可以為 `true`。持久化候選項仍不獲認證。Windows 不讀取候選項或設定檔，而是延後檢查。直接透過 Bun 或原始碼執行時沒有啟動器證明。`plan` 使用隔離的暫存 npm 設定、快取和日誌查詢官方註冊表，並拒絕活動工作階段或不完整的程序觀測。它不安裝軟體，也不向程序傳送訊號。請參閱[完整命令與拒絕原因（英文）](/zh-tw/reference/cli/agents/#read-only-codex-cli-update-plan)。
 
 觀測 Windows x64 安裝的方式請參閱 [`attest` 命令](/zh-tw/reference/cli/agents/)。未提供明確路徑時，該命令會觀測由受證明約束的啟動器快照識別出的已選候選項；它不授予更新權限，也不證明執行階段選擇。
 
@@ -52,7 +132,7 @@ opencodex 的命令列工具是 `ocx`。它依第一個命令名稱分派，有�
 ## 離開碼與確認
 
 成功的命令離開 0。無效用法、未知命令或資源、失敗的 API 操作以及無法使用的必要服務
-會以非零離開。`ocx health` 特別只在代理健康時離開 0，否則離開 1，因此可作為服務探針。
+會以非零離開。`ocx health` 特別只在代理健康時離開 0，找不到健康的代理時離開 1，參數無效時離開 2，因此可作為服務探針。
 腳本應測試離開碼，而不是解析人類可讀的輸出。
 
 具體的離開碼集中定義在單一位置，因此每個管理命令的結果一致：
@@ -74,15 +154,48 @@ opencodex 的命令列工具是 `ocx`。它依第一個命令名稱分派，有�
 
 ## 從 agent 驅動 CLI
 
-`ocx capabilities --json` 是每個命令、它所驅動的管理路由、其旗標，以及是否會變更狀態的機器可讀索引。請從這裡開始，而不是解析說明文字：
+Discover progressively, without starting a proxy:
+
+```bash
+ocx help
+ocx help models
+ocx help models preset show
+```
+
+Read the corresponding chapter in the repository's `skills/ocx/references/01_management_surface.md`
+or one of the public command-family pages above. Full `ocx help --all` is an
+escape to the top-level reference. A broad machine inventory is optional:
 
 ```bash
 ocx capabilities --json
 ocx capabilities --mutating-only --json
-ocx capabilities --route /api/logs
+ocx capabilities --route '/api/providers/{provider}/model-costs' --json
 ```
 
-不相符的 `--route` 會離開 4，而不是回報空的成功。儲存庫在 `skills/ocx/` 出貨了更完整的操作指南，其介面對照表由同一份資料產生。
+Route lookup matches the literal declared template, not concrete provider IDs or
+an HTTP method. A miss exits 4 and does not prove that a runtime command is absent.
+Declarations include local commands as well as management commands; only the
+latter need a live target. Before live operations, run `ocx ready --json` and
+`ocx status --json`, inspect the target and `versionSkew.relation`, and resolve
+version mismatch. `unknown` does not confirm matching builds. Offline help,
+local configuration and local Lab inspection do not require startup.
+
+`ocx status --json` includes `cliCommand`: configured Desktop intent, the expected executable, observed PATH candidates, `pathFirst`, `desktopFirstOnPath`, issue codes, and `shellResolution: "unobserved"`. The human status report prints one command-selection line. `ocx doctor` adds an “ocx command selection” section: invalid, unsafe (`record-unsafe`) or enabled-pending records and missing/unusable Desktop targets fail the check, while disabled cleanup-pending records, PATH ordering conflicts and incomplete scans warn. `OCX_NO_DESKTOP_HANDOFF=1` suppresses package-launcher handoff for one invocation; it leaves the Desktop shim and PATH configuration in place. These read-only observations do not execute candidates, resolve parent-shell aliases/functions, or identify the proxy’s runtime owner. On Windows, package-launcher handoff is disabled; user `Path` order selects the Desktop `ocx.exe`. Status and doctor still read the record and report the first PATH candidate. A possible cmd current-directory candidate is reported separately from PATH order.
+
+Output flags are per command. `doctor` rejects `--json` with exit 2;
+[`v2` (family reference)](/zh-tw/reference/cli/agents/)
+supports `--json` for local and `--live` targets. Even for JSON-capable management commands, API failures
+normally use stderr prose with optional `reason:` and `hint:` lines, not a JSON
+error envelope. Keep stdout, stderr and exit status separate.
+
+Coverage is measured by named workflows, not by shared route prefixes. Existing
+model presets, visibility, account controls and routing-profile reads do not imply
+support for discovered-model display-name edits or routing-profile writes.
+Session-only consent actions and browser presentation remain separate boundaries.
+Access-key creation and rotation-start return plaintext credentials: agents must
+hand those steps to a human-operated terminal outside the session and accept only
+non-secret IDs and confirmation. Never ask for credentials in chat or bypass a
+session-only action with another API client.
 
 ## 近期行為變更
 
@@ -119,3 +232,21 @@ PID、恢復 worker 已死但仍在進行中的任務、把超過十分鐘且沒
 ## 預設別名列表
 
 `ocx alias --json` 等同於 `ocx alias list --json`。輸出旗標可以放在明確的別名動作之前或之後。
+
+## Local config output and validation
+
+`ocx config validate [path|-] [--json]` exits 1 when validation fails. JSON mode emits one `{ok:false,error}` payload; human mode names the validation failure.
+
+When saved config is invalid or unreadable, `ocx config`, `ocx config show`, and `ocx config get` warn on stderr that defaults are being shown for invalid settings and exit nonzero. Stdout retains its existing format. Run `ocx config validate` to inspect the error, or `ocx config show --source` for the config and source diagnostics. The explicit `--source` inspection exits 0 when it successfully reports a fallback and still emits the warning.
+
+`ocx config export <file> --json` writes the raw config to the file and emits only `{ok:true,path}` on stdout. Export to `-` always emits the raw config document, including credentials; keep it out of agent transcripts.
+
+Local `ocx provider add` validates the full candidate config before saving. A validation failure leaves the saved file unchanged. Intentionally local providers require `--allow-private-network` unless their registry entry already permits private destinations. The flag does not permit blocked metadata endpoints.
+
+`ocx health` accepts only one optional `--json` flag. Unknown arguments or repeated flags return exit 2 before probing. Alias usage errors also return exit 2 with a readable error; unknown actions name `ocx help alias`.
+
+### Log model selectors
+
+`ocx logs --model` accepts either a bare model ID or the full `provider/model` label printed in human rows, including models whose bare IDs contain slashes. Failover attempts are matched as complete destinations. Filtering occurs before `--limit`, and `--follow` uses the same server filter. An empty filtered human result says no log entry matched; `--json` and `--jsonl` keep their machine-readable output.
+
+`ocx hub disable [--revoke-clients --client-key <id> ...] [--json]` returns a hub to standalone in one validated config write. Client key revocation requires explicit IDs because key names do not prove origin. See [Return a hub to standalone](/zh-tw/guides/remote-hub/#return-a-hub-to-standalone).

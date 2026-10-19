@@ -11,6 +11,7 @@ export interface ProvidersConfig {
     liveModels?: boolean;
     upstreamHttpVersion?: "auto" | "http1.1" | "h1" | "http2" | "h2";
     reasoningWireFormat?: "gateway-object";
+    preserveResponsesReasoningContent?: boolean;
     authMode?: string;
     keyOptional?: boolean;
     disabled?: boolean;
@@ -50,6 +51,7 @@ export interface OAuthAccount {
 const OAUTH_LABELS: Record<string, string> = {
   xai: "xAI (Grok)",
   anthropic: "Anthropic (Claude)",
+  anthropic2: "Anthropic · Pool 2",
   kimi: "Kimi (Moonshot)",
   "meta-muse": "Meta Muse Code (CLI)",
   "google-antigravity": "Google Antigravity",
@@ -62,6 +64,7 @@ const OAUTH_LABELS: Record<string, string> = {
   // it is a deprecated alias that startup migration rewrites to `devin`, so a
   // stored row can never reach this map under the old id.
   devin: "Devin",
+  "dsh-account": "DeepSeek Account (DSH)",
 };
 
 export const oauthLabel = (id: string) => OAUTH_LABELS[id] ?? id;

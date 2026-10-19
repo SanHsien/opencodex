@@ -1,0 +1,139 @@
+name: Fork release (Windows MSI)
+
+# Fork-only: builds the unsigned Windows MSI and attaches it to the SanHsien/opencodex GitHub
+# release for the tag. No upstream secrets are used (no code-signing certificate, no updater
+# private key); updater artifacts are disabled, and the app ships with no updater endpoint.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to build and publish, e.g. v2.88.0 (numeric x.y.z only)"
+        required: true
+        type: string
+  push:
+    tags: ["v*"]
+
+# The build job installs and runs third-party npm/crates code, so it only gets a read token;
+# the write token exists solely in the publish job, which runs nothing but `gh`.
+permissions:
+  contents: read
+
+concurrency:
+  group: fork-release-windows-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  msi:
+    if: github.repository == 'SanHsien/opencodex'
+    runs-on: windows-latest
+    timeout-minutes: 60
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
+    steps:
+      - name: Resolve numeric version
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "$TAG" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+            echo "::error::Tag '$TAG' must look like v2.88.0; MSI versions are purely numeric."
+            exit 1
+          fi
+          echo "RELEASE_VERSION=${BASH_REMATCH[1]}" >> "$GITHUB_ENV"
+
+      - name: Checkout tag
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          ref: refs/tags/${{ env.TAG }}
+          persist-credentials: false
+
+      - name: Refuse a tag that is not a fork commit
+        shell: bash
+        run: |
+          # An upstream tag of the same name has no fork overlay; publishing it would ship upstream code.
+          [ -f FORK.md ] && [ -f tools/upstream_baseline.json ] || {
+            echo "::error::$TAG does not point at a SanHsien fork commit (FORK.md / tools/upstream_baseline.json missing)."
+            exit 1
+          }
+
+      - name: Setup project Bun
+        uses: ./.github/actions/setup-project-bun
+
+      - name: Verify every version source matches the tag
+        shell: bash
+        run: bun scripts/release-version-sources.ts check "$RELEASE_VERSION"
+
+      - name: Install project dependencies
+        run: bun install --frozen-lockfile --os=win32 --cpu=x64
+
+      - name: Build dashboard
+        run: bun run build:gui
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+        with:
+          toolchain: stable
+
+      - name: Install desktop dependencies
+        working-directory: desktop
+        run: bun install --frozen-lockfile
+
+      - name: Prepare sidecar
+        run: bun desktop/scripts/prepare-sidecar.ts --target x86_64-pc-windows-msvc
+
+      - name: Prepare Windows installer version
+        shell: bash
+        run: bun desktop/scripts/windows-installer-config.ts "$RELEASE_VERSION" "$RUNNER_TEMP/opencodex-msi.json"
+
+      - name: Build MSI (unsigned, no updater artifacts)
+        working-directory: desktop
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '{"bundle":{"createUpdaterArtifacts":false}}' > "$RUNNER_TEMP/no-updater.json"
+          bunx tauri build --ci --target x86_64-pc-windows-msvc --bundles msi \
+            --config "$RUNNER_TEMP/opencodex-msi.json" --config "$RUNNER_TEMP/no-updater.json"
+
+      - name: Collect MSI
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          found=(desktop/src-tauri/target/x86_64-pc-windows-msvc/release/bundle/msi/*.msi)
+          [ "${#found[@]}" -eq 1 ] || { echo "::error::Expected exactly one MSI, found ${#found[@]}."; exit 1; }
+          mkdir -p dist
+          cp "${found[0]}" "dist/OpenCodex-${RELEASE_VERSION}-windows-x64.msi"
+          (cd dist && sha256sum "OpenCodex-${RELEASE_VERSION}-windows-x64.msi" > "OpenCodex-${RELEASE_VERSION}-windows-x64.msi.sha256")
+
+      - name: Upload MSI for the publish job
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: fork-msi
+          path: dist/
+          if-no-files-found: error
+          retention-days: 3
+
+  publish:
+    needs: msi
+    if: github.repository == 'SanHsien/opencodex'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Download MSI
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: fork-msi
+          path: dist
+
+      - name: Publish to the SanHsien/opencodex release
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! gh release view "$TAG" --repo SanHsien/opencodex >/dev/null 2>&1; then
+            gh release create "$TAG" --repo SanHsien/opencodex --verify-tag --title "$TAG" --notes "Windows MSI build of upstream ${TAG} plus the SanHsien fork overlay. Unsigned; no auto-update."
+          fi
+          gh release upload "$TAG" --repo SanHsien/opencodex --clobber dist/*.msi dist/*.sha256

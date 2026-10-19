@@ -25,6 +25,8 @@ import {
   refreshUserCostOverlays,
   userCostOverlayVersion,
 } from "../../src/usage/user-cost-overlays";
+import { summarizeUsage } from "../../src/usage/summary";
+import type { PersistedUsageAttempt } from "../../src/usage/log";
 import type { OcxConfig } from "../../src/types";
 
 const RATE = { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 };
@@ -169,11 +171,11 @@ describe("resolveMatchedPrice", () => {
     }
   });
 
-  // Claude Sonnet 5.5 (2026-09-28): the Sonnet 5 tuple, 2 / 10 / 2.50 cache write / 0.20 cache hit.
+  // Claude Sonnet 5.5 (2026-09-28): the Sonnet 5 tuple, 2 / 10 / 2.50 cache write / 0.10 cache hit (2026-10-08 cut).
   // Live Anthropic discovery listed it before any row existed; published aggregator rows, Bedrock's
   // 1.1x regional endpoints and the preemptive rows for providers that have not listed it yet.
   test("claude-sonnet-5-5 resolves to the official Sonnet 5.5 price on every exposing surface", () => {
-    const COST4 = { input: 2, output: 10, cacheRead: 0.2, cacheWrite: 2.5 };
+    const COST4 = { input: 2, output: 10, cacheRead: 0.1, cacheWrite: 2.5 };
     for (const provider of ["anthropic", "anthropic-apikey"]) {
       expect(resolveMatchedPrice(provider, "claude-sonnet-5-5"), provider).toMatchObject({
         modelId: "claude-sonnet-5-5",
@@ -200,15 +202,15 @@ describe("resolveMatchedPrice", () => {
       ["github-copilot", "claude-sonnet-5-5"],
       ["opencode-zen", "claude-sonnet-5-5"],
       ["cloudflare-ai-gateway", "anthropic/claude-sonnet-5-5"],
-      ["amazon-bedrock", "global.anthropic.claude-sonnet-5-5"],
     ] as const) {
       expect(resolveMatchedPrice(provider, id)?.cost4, provider).toEqual(COST4);
     }
+    expect(resolveMatchedPrice("amazon-bedrock", "global.anthropic.claude-sonnet-5-5")?.cost4).toEqual({ ...COST4, cacheRead: 0.2 });
     expect(resolveMatchedPrice("amazon-bedrock", "us.anthropic.claude-sonnet-5-5")?.cost4)
       .toEqual({ input: 2.2, output: 11, cacheRead: 0.22, cacheWrite: 2.75 });
-    // Providers without a runtime bundle of their own (Venice's snapshot row is not bundled, like its
-    // Opus 5.5 row), kiro and the live-only rosters follow the vendor row.
-    for (const [provider, id] of [["venice", "claude-sonnet-5-5"], ["kiro", "claude-sonnet-5.5"], ["command-code", "claude-sonnet-5-5"], ["opper", "claude-sonnet-5-5"]] as const) {
+    expect(resolveMatchedPrice("venice", "claude-sonnet-5-5")?.cost4).toEqual({ input: 2.5, output: 12.5, cacheRead: 0.125, cacheWrite: 3.125 });
+    // Kiro and live-only rosters follow the Anthropic vendor row.
+    for (const [provider, id] of [["kiro", "claude-sonnet-5.5"], ["command-code", "claude-sonnet-5-5"], ["opper", "claude-sonnet-5-5"]] as const) {
       expect(resolveMatchedPrice(provider, id)?.cost4, provider).toEqual(COST4);
     }
   });
@@ -462,10 +464,10 @@ describe("resolveMatchedPrice", () => {
     }
   });
 
-  test("16. shipped overlay membership: 152 keys, including canonical Fable 5.1, Opus 5, Opus 5.5, Sonnet 5.5, GPT-6.1 Sol, OpenCode Go and compatibility prices", () => {
-    expect(EXPECTED_PRICE_OVERLAYS.length).toBe(152);
+  test("16. shipped overlay membership: unique keys, including canonical Fable 5.1, Opus 5, Opus 5.5, Sonnet 5.5, GPT-6.1 Sol, OpenCode Go and compatibility prices", () => {
     expect(EXPECTED_PRICE_OVERLAYS.some(row => row.status === "unverified")).toBe(false);
     const keys = new Set(EXPECTED_PRICE_OVERLAYS.map(row => `${row.provider}/${row.modelId}`));
+    expect(keys.size).toBe(EXPECTED_PRICE_OVERLAYS.length);
     for (const expected of [
       "openai-apikey/gpt-6.1-sol",
       "openai/gpt-6.1-sol",
@@ -507,6 +509,11 @@ describe("resolveMatchedPrice", () => {
       "meta-muse/muse-spark-1.3-contributor",
       "google-antigravity/gemini-3.8-flash-high",
       "google/gemini-3.8-flash",
+      "google/gemini-4-argon",
+      "google-antigravity/gemini-4-argon",
+      "google-antigravity/gemini-4-argon-low",
+      "google-antigravity/gemini-4-argon-medium",
+      "google-antigravity/gemini-4-argon-high",
       "google-antigravity/gemini-3.1-pro-low",
       "google-antigravity/gemini-3.1-pro-high",
       "google-antigravity/gemini-pro-agent",
@@ -522,6 +529,14 @@ describe("resolveMatchedPrice", () => {
       "google-antigravity/gemini-3.5-flash-high",
       "google-antigravity/gemini-3-flash-agent",
       "google-antigravity/gemini-3.1-pro-preview",
+      "google-antigravity/claude-sonnet-5-5",
+      "google-antigravity/claude-sonnet-5-5-low",
+      "google-antigravity/claude-sonnet-5-5-medium",
+      "google-antigravity/claude-sonnet-5-5-high",
+      "google-antigravity/claude-opus-5-5",
+      "google-antigravity/claude-opus-5-5-low",
+      "google-antigravity/claude-opus-5-5-medium",
+      "google-antigravity/claude-opus-5-5-high",
       "google-antigravity/claude-sonnet-4-6",
       "google-antigravity/claude-opus-4-6-thinking",
       "google-antigravity/claude-opus-4-6",
@@ -749,6 +764,74 @@ describe("estimateRequestCost", () => {
     const est = estimateRequestCost({ provider: "p", model: "m", usageStatus: "estimated", usage: { inputTokens: 10, outputTokens: 5, estimated: true } }, overlays);
     expect(est?.estimated).toBe(true);
     expect(estimateRequestCost({ provider: "p", model: "m", usageStatus: "unreported" }, overlays)).toBeNull();
+  });
+
+  test("usage that was only partly measured gets no confident price", () => {
+    const overlays: ExpectedPriceOverlay[] = [
+      { provider: "p", modelId: "m", cost4: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0 }, source: "s", verifiedAt: "2026-07-20", status: "verified" },
+    ];
+    // A combo row whose first leg failed without usage is `unreported` while still carrying the
+    // second leg's tokens; pricing those tokens reports an understated cost as if complete.
+    const usage = { inputTokens: 10, outputTokens: 5 };
+    for (const usageStatus of ["unreported", "unsupported"] as const) {
+      expect(estimateRequestCost({ provider: "p", model: "m", usageStatus, usage }, overlays)).toBeNull();
+      expect(estimateAttemptCost({ ordinal: 1, provider: "p", model: "m", usageStatus, usage }, overlays)).toBeNull();
+    }
+  });
+});
+
+describe("summary price coverage on partly measured requests", () => {
+  const attempt = (ordinal: number, usage?: { inputTokens: number; outputTokens: number }, sendCount = 1) => ({
+    ordinal, provider: "openai", model: "gpt-5.5", adapter: "openai-responses",
+    status: usage ? 200 : 429, durationMs: 10, sendCount, recoveryKinds: [],
+    usageStatus: usage ? "reported" as const : "unreported" as const,
+    ...(usage ? { usage } : {}),
+  });
+  const row = (requestId: string, attempts: PersistedUsageAttempt[]) => ({
+    requestId, timestamp: Date.UTC(2026, 5, 28), provider: "openai", model: "gpt-5.5",
+    status: 200, durationMs: 20, usageStatus: "unreported" as const, attempts,
+  });
+  const gpt = (entries: ReturnType<typeof row>[]) =>
+    summarizeUsage(entries, "30d", Date.UTC(2026, 5, 28, 12)).models.find(model => model.model === "gpt-5.5")!;
+
+  test("a request with an unpriceable part counts unpriced, never both", () => {
+    const partial = { ...attempt(2, { inputTokens: 100, outputTokens: 10 }), usageStatus: "unreported" as const };
+    expect(gpt([row("mixed", [attempt(1, { inputTokens: 100, outputTokens: 10 }), partial])]))
+      .toMatchObject({ requests: 1, pricedRequests: 0, unpricedRequests: 1 });
+  });
+
+  test("a leg that cost nothing is a known zero and does not unprice the request", () => {
+    const served = attempt(2, { inputTokens: 100, outputTokens: 10 });
+    const priced = { requests: 1, pricedRequests: 1, unpricedRequests: 0 };
+    expect(gpt([row("no-send", [{ ...attempt(1, undefined, 0), status: 0 }, served])])).toMatchObject(priced);
+    expect(gpt([row("local", [{ ...attempt(1), status: 200, locallyAnswered: true }, served])])).toMatchObject(priced);
+    // Sent, refused with an HTTP error before any output: providers do not bill it.
+    expect(gpt([row("refused", [attempt(1), served])])).toMatchObject(priced);
+  });
+
+  test("a leg that may have generated tokens without reporting usage unprices the request", () => {
+    const served = attempt(2, { inputTokens: 100, outputTokens: 10 });
+    const unpriced = { requests: 1, pricedRequests: 0, unpricedRequests: 1 };
+    // Mid-stream failure after the 200 head, a stream that began before its error, and a 200 that
+    // simply never carried a usage frame.
+    expect(gpt([row("aborted", [{ ...attempt(1), status: 502, streamAborted: true }, served])])).toMatchObject(unpriced);
+    expect(gpt([row("began", [{ ...attempt(1), status: 503, firstOutputMs: 40 }, served])])).toMatchObject(unpriced);
+    expect(gpt([row("silent", [{ ...attempt(1), status: 200 }, served])])).toMatchObject(unpriced);
+  });
+
+  test("a retry row reported from its last leg does not total a cost an earlier leg may have added", () => {
+    // Non-combo retry: the row's status and usage come from the served leg alone, so the row reads
+    // `reported` while an earlier leg died mid-stream without usage.
+    const usage = { inputTokens: 100, outputTokens: 10 };
+    const entry = {
+      ...row("retry", [{ ...attempt(1), status: 502, streamAborted: true }, attempt(2, usage)]),
+      usageStatus: "reported" as const, usage,
+    };
+    expect(summarizeUsage([entry], "30d", Date.UTC(2026, 5, 28, 12)).summary)
+      .toMatchObject({ requests: 1, pricedRequests: 0, unpricedRequests: 1, estimatedCostUsd: 0 });
+    const refused = { ...entry, attempts: [attempt(1), attempt(2, usage)] };
+    expect(summarizeUsage([refused], "30d", Date.UTC(2026, 5, 28, 12)).summary)
+      .toMatchObject({ requests: 1, pricedRequests: 1, unpricedRequests: 0 });
   });
 });
 

@@ -42,6 +42,7 @@ held while a usage window reads 100%: the long window (weekly, or monthly on 30-
 while its reset is still ahead, the burst window through `isTerminalShortWindow`. A held account
 receives no traffic and therefore no new observation, so the reading has to end on its own; a long
 window without a reset is not trusted.
+Fresh spendable-credit evidence follows the [WHAM credit contract](providers/openai-tiers.md#spendable-codex-credits); included-plan refusal is not a credit-spending veto.
 
 The hold is checked wherever plan exclusion is checked in `src/codex/routing/selection.ts`: the
 eligible list (its pool filter and its main branch), `isCodexAccountSelectable`, and
@@ -60,8 +61,8 @@ login for reauthentication, including when the window fills during the awaited t
 
 `PUT /api/codex-auth/accounts/credits` writes one account (`{ id, creditsAfterLimit }`, pool
 accounts and `__main__`) or the whole list (`{ all }`: on lists `__main__` and every selectable
-pool account, off clears it). It has no CLI verb yet (`deferred-verb`, owner "#6334 follow-up");
-`ocx config set creditCodexAccountIds` covers scripted use. The dashboard control is
+pool account, off clears it). `ocx account credits openai` exposes explicit one/all on/off scope through
+`src/cli/account-policy.ts`, with validated target identities and the same narrow API body. The dashboard control is
 `gui/src/components/CodexCreditSpend.tsx`: one global switch in the Codex Auth header beside the
 "Codex credits" display switch, derived from the rows (off when none may spend, mixed when some
 may, on when all may, matching the quota auto-refresh control), and one switch per account inside
@@ -71,3 +72,43 @@ marks an account allowed to spend, independent of the display switch, which stil
 routing. Coverage: `tests/codex-integration/codex-credits-after-limit.test.ts`,
 `tests/codex-integration/codex-credits-after-limit-main.test.ts` and
 `gui/tests/codex-credit-spend.test.tsx`.
+
+
+## Hard-lock fallback routing
+
+`codexMainAccountHardLockFallback` extends the main-account hard lock: while the lock reads
+`blocked` and no Codex account can serve a request, `src/server/responses/main-hard-lock-routing.ts`
+rewrites that request to the configured model (plus an optional reasoning effort) before combo
+dispatch reads `model`. The rewrite is bounded on every side so it can never widen what the lock
+protects:
+
+- `getEligiblePoolAccounts` is consulted under the request model's quota scope whenever canonical
+  `openai` is in Pool mode, so "the Pool can serve it" shares the dispatch's own eligibility and
+  scoped-cooldown rules. An empty eligible list (or Direct mode, which never consults stored Pool
+  accounts) is what makes the fallback the request's only way through; the lock excludes the main
+  account there itself.
+- Only bare Codex-native selectors qualify. Provider-qualified rows, combos, account namespaces
+  (including `nativeAlias` combos), compaction triggers, shadow-intercepted helper calls and policy
+  routes name their own destination on purpose, and Luna Reserve keeps its own admission. A
+  Codex-native fallback target (bare `gpt-*` or canonical `openai/gpt-*`) never applies — rerouting
+  to the same blocked route would re-enter the refusal, so the honest behavior is the refusal.
+- Rewritten turns mark a credential-domain rewrite, strip foreign reasoning ciphertext, preserve
+  the caller's inbound selector for API-key scope checks and `requestedModel` logging (including
+  combo fallback targets), and do not overwrite the session lane's remembered combo.
+- A malformed section (blank or padded model, undeclared effort) disables the reroute entirely —
+  the same disable-don't-widen reading as the compaction override — while the load and write
+  boundaries report the malformation. The lock's own refusal behavior is untouched either way.
+
+The dashboard row mirrors the shadow-call row: the model pick, the effort and the switch each
+save immediately, and the switch writes `enabled: false` — a remembered pause that keeps the
+model — rather than clearing it. Settings projection and writes live beside the hard-lock keys in
+`src/server/management/config-routes.ts`; `null` clears the section. Coverage:
+`tests/codex-integration/main-account-hard-lock-fallback-routing.test.ts` and the fallback cases in
+`tests/config/settings-main-account-hard-lock.test.ts` plus
+`gui/tests/main-account-hard-lock-setting.test.tsx`.
+
+## Stored-account authentication policy
+
+Exact pool selectors also honor the credits-after-limit policy. `pool-credit-policy.ts` reads cached usage and configured plan metadata without credential I/O. Authentication checks before and after credential acquisition; provider overrides, materialization and recovery rechecks retain the live policy privately by context identity. `createCodexAuthDispatchGuard` rechecks live credit policy at HTTP and Responses WebSocket dispatch after pacing or retry backoff, alongside the independent Reserve guard. A policy refusal releases unused probes and never quarantines a valid credential. Coverage: `tests/codex-integration/codex-pool-credit-policy.test.ts`.
+
+`src/providers/openai-sidecar-credit.ts` carries the resolved stored-account policy into direct vision and search sends. Every physical helper send, including reset and 429 replays, rechecks the live policy before contacting the provider. The alpha/search relay uses the same callback and returns a reset-bound 429 on refusal. Optional helpers return a policy error without recording a connection failure; an unused probe is released. Caller-owned Direct authentication and native-main policy remain separate. Coverage: `tests/codex-integration/codex-sidecar-credit-policy.test.ts`.

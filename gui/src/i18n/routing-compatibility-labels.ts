@@ -61,4 +61,9 @@ export const ROUTING_COMPATIBILITY_FIELD_LABELS: Record<string, CompatibilityFie
     unknownEvidence: "Bằng chứng không xác định",
     degradedEvidence: "Bằng chứng bị suy giảm",
   },
+  pt: {
+    maxEvidenceAgeMs: "Idade máxima da evidência (ms)",
+    unknownEvidence: "Evidência desconhecida",
+    degradedEvidence: "Evidência degradada",
+  },
 };

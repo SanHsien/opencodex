@@ -2,14 +2,13 @@ import { beforeAll, describe, expect, spyOn, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import {
   existsSync,
+  lstatSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
   readdirSync,
   realpathSync,
   statSync,
-  symlinkSync,
-  utimesSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -47,10 +46,7 @@ import {
   type TestRunRuntimeFileSystem,
 } from "../../scripts/test-run-lock";
 import {
-  recoverStaleTestTempArtifacts,
-  removeTestTempTree,
   TEST_TEMP_OWNER_FILE,
-  TEST_TEMP_RECOVERY_AGE_MS,
 } from "../../scripts/test-temp";
 import {
   decodeWindowsIdentityPowerShellOutputForTests,
@@ -314,13 +310,14 @@ describe("test runner captured output", () => {
 
 describe("test runner isolation", () => {
   test("redirects user homes to a disposable root", () => {
-    const isolated = createIsolatedTestEnvironment({ PATH: "/test/bin", HOME: "/real/home" });
+    const isolated = createIsolatedTestEnvironment({ PATH: "/test/bin", HOME: "/real/home", OCX_OWNER_REGISTRY_DIR: "/real/registry" });
     try {
       expect(isolated.env).toMatchObject({
         PATH: "/test/bin",
         HOME: isolated.root,
         USERPROFILE: isolated.root,
         OPENCODEX_HOME: join(isolated.root, ".opencodex"),
+        OCX_OWNER_REGISTRY_DIR: join(isolated.root, ".opencodex", "ocx-homes"),
         CODEX_HOME: join(isolated.root, ".codex"),
         TEMP: join(isolated.root, "tmp"),
         TMP: join(isolated.root, "tmp"),
@@ -410,158 +407,6 @@ describe("test runner isolation", () => {
   );
 });
 
-describe("Windows test TEMP recovery", () => {
-  const age = (path: string, milliseconds: number) => {
-    const date = new Date(milliseconds);
-    utimesSync(path, date, date);
-  };
-
-  /** Stamp a candidate the way `writeTestTempOwner` does, then age the marker and the directory. */
-  const ownRoot = (path: string, createdAtMs: number, pid = 4_294_967_295) => {
-    writeFileSync(join(path, TEST_TEMP_OWNER_FILE), JSON.stringify({
-      schemaVersion: 1,
-      kind: "opencodex-test-root",
-      root: realpathSync(path),
-      createdAtMs,
-      pid,
-    }) + "\n");
-    age(join(path, TEST_TEMP_OWNER_FILE), createdAtMs);
-    age(path, createdAtMs);
-  };
-
-  test("removes a root it can prove it owns and leaves an unstamped look-alike alone", () => {
-    // The distinction this pins is the whole safety property: reclamation is decided by the
-    // ownership marker, never by the name. The thousands of directories already sitting in a
-    // user's TEMP were written by versions that stamped nothing, so they are scanned, skipped,
-    // and left for the user to clear. This release changes future runs.
-    const tempRoot = mkdtempSync(join(tmpdir(), "opencodex-recovery-fixture-"));
-    const nowMs = Date.now();
-    const stale = nowMs - TEST_TEMP_RECOVERY_AGE_MS - 1_000;
-    const owned = join(tempRoot, "opencodex-test-Ab12Cd");
-    const unstamped = join(tempRoot, "opencodex-test-Zx98Yw");
-    const young = join(tempRoot, "opencodex-test-Qq11Ww");
-    const legacyName = join(tempRoot, "ocx-runtime-Rr22Tt");
-    const unrelated = join(tempRoot, "application-cache-Ab12Cd");
-    for (const path of [owned, unstamped, young, legacyName, unrelated]) mkdirSync(path);
-    ownRoot(owned, stale);
-    ownRoot(young, nowMs - TEST_TEMP_RECOVERY_AGE_MS + 60_000);
-    age(unstamped, stale);
-    age(legacyName, stale);
-    age(unrelated, stale);
-
-    try {
-      const result = recoverStaleTestTempArtifacts({
-        tempRoot,
-        platform: "win32",
-        nowMs,
-        processIsAlive: () => false,
-      });
-      // Only the three `opencodex-test-*` names are candidates at all; the legacy `ocx-*` shape
-      // never carried a marker, so widening the scan to it could only ever produce skips.
-      expect(result).toMatchObject({ scanned: 3, removed: 1, skipped: 2, errors: 0 });
-      expect(existsSync(owned)).toBe(false);
-      expect(existsSync(unstamped)).toBe(true);
-      expect(existsSync(young)).toBe(true);
-      expect(existsSync(legacyName)).toBe(true);
-      expect(existsSync(unrelated)).toBe(true);
-    } finally {
-      removeTreeWithRetry(tempRoot);
-    }
-  });
-
-  test("fails closed for invalid ownership metadata and linked trees", () => {
-    const tempRoot = mkdtempSync(join(tmpdir(), "opencodex-recovery-fixture-"));
-    const nowMs = Date.now();
-    const invalidOwner = join(tempRoot, "opencodex-test-Aa11Bb");
-    const linked = join(tempRoot, "opencodex-test-Cc22Dd");
-    const liveOwner = join(tempRoot, "opencodex-test-Ee33Ff");
-    const linkTarget = join(tempRoot, "link-target");
-    mkdirSync(invalidOwner);
-    mkdirSync(linked);
-    mkdirSync(liveOwner);
-    mkdirSync(linkTarget);
-    writeFileSync(join(invalidOwner, TEST_TEMP_OWNER_FILE), JSON.stringify({ schemaVersion: 1 }));
-    writeFileSync(join(liveOwner, TEST_TEMP_OWNER_FILE), JSON.stringify({
-      schemaVersion: 1,
-      kind: "opencodex-test-root",
-      root: realpathSync(liveOwner),
-      createdAtMs: nowMs - TEST_TEMP_RECOVERY_AGE_MS - 1_000,
-      pid: process.pid,
-    }));
-    symlinkSync(linkTarget, join(linked, "redirect"), process.platform === "win32" ? "junction" : "dir");
-    // Stamped and long dead, so the only thing left to refuse it is the link in its tree.
-    ownRoot(linked, nowMs - TEST_TEMP_RECOVERY_AGE_MS - 1_000);
-    age(invalidOwner, nowMs - TEST_TEMP_RECOVERY_AGE_MS - 1_000);
-    age(join(liveOwner, TEST_TEMP_OWNER_FILE), nowMs - TEST_TEMP_RECOVERY_AGE_MS - 1_000);
-    age(liveOwner, nowMs - TEST_TEMP_RECOVERY_AGE_MS - 1_000);
-
-    try {
-      const result = recoverStaleTestTempArtifacts({
-        tempRoot,
-        platform: "win32",
-        nowMs,
-        processIsAlive: pid => pid === process.pid,
-      });
-      expect(result).toMatchObject({ scanned: 3, removed: 0, skipped: 3, errors: 0 });
-      expect(existsSync(invalidOwner)).toBe(true);
-      expect(existsSync(linked)).toBe(true);
-      expect(existsSync(liveOwner)).toBe(true);
-      expect(existsSync(linkTarget)).toBe(true);
-    } finally {
-      removeTreeWithRetry(tempRoot);
-    }
-  });
-
-  test("bounds recovery and leaves remaining candidates for a later run", () => {
-    const tempRoot = mkdtempSync(join(tmpdir(), "opencodex-recovery-fixture-"));
-    const nowMs = Date.now();
-    for (const name of ["opencodex-test-Aa11Bb", "opencodex-test-Cc22Dd"]) {
-      const path = join(tempRoot, name);
-      mkdirSync(path);
-      ownRoot(path, nowMs - TEST_TEMP_RECOVERY_AGE_MS - 1_000);
-    }
-
-    try {
-      const result = recoverStaleTestTempArtifacts({
-        tempRoot,
-        platform: "win32",
-        nowMs,
-        maxCandidates: 1,
-        processIsAlive: () => false,
-      });
-      expect(result).toMatchObject({ scanned: 1, removed: 1, errors: 0, truncated: true });
-      expect(readdirSync(tempRoot)).toHaveLength(1);
-    } finally {
-      removeTreeWithRetry(tempRoot);
-    }
-  });
-
-  test("retries transient release races and preserves terminal failures", () => {
-    let attempts = 0;
-    const sleeps: number[] = [];
-    removeTestTempTree("fixture", {
-      delays: [7, 7],
-      remove: () => {
-        attempts += 1;
-        if (attempts < 3) throw Object.assign(new Error("busy"), { code: "EBUSY" });
-      },
-      sleep: milliseconds => { sleeps.push(milliseconds); },
-    });
-    expect(attempts).toBe(3);
-    expect(sleeps).toEqual([7, 7]);
-    expect(() => removeTestTempTree("fixture", {
-      remove: () => { throw Object.assign(new Error("denied"), { code: "EACCES" }); },
-    })).toThrow("denied");
-  });
-});
-
-/**
- * Without `--parallel`, `--isolate` re-evaluates the module graph once per file on a single
- * core. Past ~900 files that stops reading as slow and starts reading as hung: measured at
- * 1 h 29 m with zero output, ~57 % CPU and 8.5 MB RSS. Four workers keep the suite inside a
- * few minutes without the deadline-sensitive failures observed when Bun selected all ten cores.
- * These pin the argv so the bound cannot be dropped again silently.
- */
 describe("bun test argv", () => {
   test("a filter-less run gets isolate, bounded parallelism and the suite path", () => {
     expect(resolveBunTestArgs([])).toEqual(["--isolate", "--parallel=4", "./tests/"]);

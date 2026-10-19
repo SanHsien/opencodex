@@ -213,7 +213,7 @@ export interface ProviderRegistryEntry {
    */
   chatCompletionsPath?: string;
   /**
-   * Endpoints this entry used to live at, kept so a saved custom provider that still points
+   * Canonical or historical endpoints, kept so a saved custom provider that still points
    * at one keeps receiving this row's metadata through `registryEntryForProviderDestination`.
    * Destination matching is by adapter plus normalized base URL, so moving a row's wire or
    * prefix would otherwise orphan every config a user wrote against the old address.
@@ -278,6 +278,10 @@ export interface ProviderRegistryEntry {
   modelServiceTierCapabilityBaseUrlGuard?: (baseUrl: string) => boolean;
   /** Registry default for plaintext reasoning replay; see `OcxProviderConfig.preserveResponsesReasoningContent`. Registry-only like `supportsServiceTier`. */
   preserveResponsesReasoningContent?: boolean;
+  /** Registry default for preserving input item IDs; see `OcxProviderConfig.preserveResponsesInputItemIds`. */
+  preserveResponsesInputItemIds?: boolean;
+  /** Registry default for preserving per-item chat metadata; see `OcxProviderConfig.preserveResponsesMessageMetadata`. */
+  preserveResponsesMessageMetadata?: boolean;
   /** Registry default for dropping replayed reasoning items for Responses upstreams that reject them. */
   dropResponsesReasoningItems?: boolean;
   /** Registry defaults for per-model Codex reasoning propagation; explicit user keys win during enrichment. */
@@ -357,6 +361,8 @@ export interface ProviderRegistryEntry {
   thinkingBudgetModels?: string[];
   escapeBuiltinToolNames?: boolean;
   oauthId?: string;
+  /** OAuth implementation family; instance identity remains the exact id/oauthId. */
+  oauthFamily?: "anthropic";
   virtualModels?: Record<string, { wireModelId: string; reasoningMode: "pro" }>;
   modelMaxInputTokens?: Record<string, number>;
   jawcodeBundle?: string;
@@ -369,6 +375,7 @@ export interface ProviderRegistryEntry {
 
 export type ProviderConfigSeed = Pick<
   OcxProviderConfig,
+  "anthropicOAuthInstance" |
   "adapter" | "baseUrl" | "apiKeyTransport" | "responsesPath" | "chatCompletionsPath" | "authMode" | "keyOptional" | "freeTier" | "modelSuffixBracketStrip" | "defaultModel" | "models"
   | "liveModels" | "contextWindow" | "modelContextWindows" | "modelInputModalities"
   | "modelDisplayNames"

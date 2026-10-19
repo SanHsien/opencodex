@@ -43,6 +43,36 @@ ocx gui
 
 Codex Remote Workspace 使用目前的 App Server 權限設定檔。若 Hub 選用的 Codex 設定仍包含舊版 `sandbox_mode` 或 `sandbox_workspace_write`，儀表板會回報 Codex 不可用，而不會用較弱的邊界啟動。使用此功能前，請遷移該 Codex 設定檔；不要同時設定舊版 sandbox 與權限設定檔。
 
+## Inspect the Hub without starting a session
+
+```bash
+ocx remote-workspace hub --help
+ocx remote-workspace hub status --json
+ocx remote-workspace hub runtimes --json
+ocx remote-workspace hub sessions --json
+```
+
+These use the selected running management Hub. Existing `remote-workspace status`
+continues to read local Executor state. Status returns
+`{available:true,devices,runtimes,sessions}`; runtimes returns
+`{runtimes:{codex:{available,...},claude:{available,...},pi:{available,...}}}`;
+sessions returns `{sessions:[...]}`. Runtime availability is an object, not an
+array, and checking it may probe executable availability. Device roots expose IDs
+and labels, not Executor filesystem paths. Sessions include public recent events;
+human terminal output escapes control characters.
+
+An available Hub with empty device/session lists exits 0. When Hub activation is
+off, the outer dispatcher can return HTTP 200 with `available:false`, empty devices
+and sessions, and `runtimes:{}`. The CLI emits that narrow unavailable observation
+with a fixed Hub/activation instruction and exits 1. It does not present unavailable
+as empty success. An inner non-Hub HTTP 409 returns exit 5 with stderr guidance;
+client-role, transport and malformed replies also remain failures.
+
+Check the intended Hub and its `OCX_REMOTE_WORKSPACE_ENABLED=1` activation when
+unavailable; do not silently change configuration as recovery. These observations
+do not authorize or perform pairing, session creation, prompts, revocation or
+trust changes. Those remain the separate dashboard/session workflows below.
+
 ## 配對 Executor
 
 1. 在 Hub 儀表板開啟 **Remote Workspace**。
@@ -102,6 +132,29 @@ ocx remote-workspace status
 提交提示時，系統會立即確認已接受；儀表板會輪詢工作階段的進度與完成狀態。若確認回應遺失，草稿會保留並顯示提交狀態不明的通知。重新送出前請先檢查工作階段進度；儀表板絕不會自動重試提示。
 
 提示執行期間仍可使用 **Stop**。它會中斷 Hub 上程式碼代理的回合、取消進行中的 Executor 指令，並防止較晚到達的回應重新開啟已停止的工作階段。
+
+## Work with sessions side by side
+
+The session list on the left opens a session in the focused pane. Drag a session to the left,
+right, top, or bottom edge of another pane to split the conversation area. You can show up to
+four different sessions at once. An already visible session moves between panes instead of
+opening a duplicate composer.
+
+Use **Split right** or **Split below** next to a session for the keyboard-accessible alternative.
+Drag a divider to resize the panes, or focus the divider and use its arrow keys. **Home** and
+**End** set the divider to its minimum and maximum size. Each session
+keeps its own draft, submission state, and Stop action, so a pending turn in one pane does not
+block a different session. **Close pane** changes the layout only; it does not stop the session.
+
+The pane layout is restored for this Hub in the same browser. Only session identifiers and pane
+positions and divider sizes are saved; draft text and model output are not written to browser storage. Reloading
+the page clears unsent drafts. On screens up to 760px wide, panes stack vertically without
+resize dividers; the saved split positions and sizes return when the screen is wider.
+
+This view is shared by the browser dashboard and the OpenCodex desktop dashboard. CLI users
+can open the dashboard with `ocx gui` and select **Remote Workspace** after its normal Hub setup.
+It does not change the terminal interface of `codex` or the conversation layout inside the
+separate official ChatGPT/Codex desktop app.
 
 ## 重新啟動與重新連接行為
 

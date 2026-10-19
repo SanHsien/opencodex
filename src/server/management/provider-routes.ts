@@ -1,6 +1,8 @@
 import { contextTierRecordConfigError, modelCapabilitiesConfigError, mergeModelCapabilities } from "../../config/provider-validation";
 import { DECLARABLE_HOSTED_TOOL_TYPES } from "../../responses/hosted-tool-policy";
 import { randomUUID } from "node:crypto";
+import { cleanupRemovedGcpCredentials, providerGcpCredentialMarkers, snapshotProviderGcpCredentialMarkers } from "../../providers/gcp-credential-cleanup";
+import { providerGcpCredentialInputResponse, removeProviderWithGcpCredentials } from "./provider-gcp-credential-routes";
 import { readFileSync } from "node:fs";
 import { isDeepStrictEqual } from "node:util";
 import type { CatalogModel } from "../../codex/catalog";
@@ -40,6 +42,7 @@ import { commitProviderPatch } from "./provider-patch-transaction";
 import { captureConfigTopLevelRollback } from "../../config/rebase-provenance";
 import { canonicalAutoReviewModelKey, mergeModelPinnedEfforts, modelPinnedEffortsConfigError, pinnedReasoningEffortConfigError } from "../../config/provider-validation";
 import { replaceProviderAccountSet } from "../../oauth/store";
+import { captureModelsOAuthTarget, mayResolveModelsOAuth, modelsOAuthTargetMatches } from "../../oauth/model-discovery-auth";
 import { providerDestinationResolvedError } from "../../lib/destination-policy";
 import { reconcileLiveStateStores } from "../../lib/state-store-registrations";
 import { ProviderOutboundPolicyError, providerOutboundGet, providerOutboundPost, providerRedirectError } from "../../lib/provider-outbound";
@@ -77,7 +80,7 @@ import { cachedProviderQuotaIsExhausted } from "../../combos/resolve";
 import { probeJevDecisionProvider } from "../../combos/jev";
 import { comboDependsOnProviderRoute } from "./decision-model-validation";
 import { clearKeyCooldowns, forgetApiKeyRotationCursor } from "../../providers/key-failover";
-import { providerRequestPacingStatus } from "../../providers/request-pacing";
+import { handleProviderKeyPacingRoutes } from "./provider-key-pacing-routes";
 import { CODEX_FORWARD_BASE_URL, isCanonicalOpenAiForwardProvider } from "../../providers/openai-tiers";
 import { codexAccountNamespaceProviderCollisionError } from "../../codex/account-namespace-match";
 import { clearThreadAccountMap } from "../../codex/routing";
@@ -115,7 +118,6 @@ import {
   publicProviderBaseUrl,
   safeConfigDTO,
   type ProviderEditorConfigDTO,
-  type ProviderEditorProviderDTO,
 } from "../auth-cors";
 import { providerCatalogCapabilityConfigError } from "./provider-capability-config";
 import { providerEmptyToolOutputConfigError } from "../../config/provider-validation";
@@ -138,6 +140,7 @@ import { isPlainRecord, parseDebugLogQuery, tokPerSecondResult, unavailableCostR
 import type { MetricUnavailableReason, TokPerSecondResult, CostEstimateReason, CostResult, MetricSource } from "./shared";
 import type { ManagementContext } from "./context";
 import { readManagementJsonBody, rethrowManagementBodyTooLarge } from "./body";
+import { anthropicInstancePublicationError, mergeProviderEditorRow, preserveAnthropicInstanceMarker } from "./provider-instance-ownership";
 import { providerTlsProfileDiagnostic } from "../../lib/provider-tls-profile";
 
 type ProviderPatchApplication =
@@ -213,28 +216,6 @@ type ProviderEditorCandidateResult =
 
 type ProviderEditorMutationValue = ProviderEditorCandidateResult;
 
-function mergeProviderEditorRow(
-  persisted: OcxProviderConfig | undefined,
-  baseline: ProviderEditorProviderDTO | undefined,
-  next: ProviderEditorProviderDTO,
-): OcxProviderConfig {
-  const merged = structuredClone(persisted ?? {}) as Record<string, unknown>;
-  const fields = new Set([...Object.keys(baseline ?? {}), ...Object.keys(next)]);
-  for (const field of fields) {
-    const baselineHasField = baseline !== undefined && Object.hasOwn(baseline, field);
-    const nextHasField = Object.hasOwn(next, field);
-    if (
-      baselineHasField === nextHasField
-      && (!baselineHasField || isDeepStrictEqual(baseline[field], next[field]))
-    ) {
-      continue;
-    }
-    if (nextHasField) merged[field] = structuredClone(next[field]);
-    else delete merged[field];
-  }
-  return merged as unknown as OcxProviderConfig;
-}
-
 /** Build and validate a complete candidate without mutating the caller's snapshot. */
 function providerEditorCandidate(
   persisted: OcxConfig,
@@ -273,6 +254,8 @@ function providerEditorCandidate(
     const namespaceCollision = codexAccountNamespaceProviderCollisionError(candidate.codexAccountNamespaces, name);
     if (namespaceCollision) return { ok: false, status: 409, error: namespaceCollision, code: "provider_namespace_conflict" };
     const merged = mergeProviderEditorRow(persisted.providers[name], baseline.providers[name], publicProvider);
+    const markerCollision = anthropicInstancePublicationError(name, merged, persisted.providers[name]);
+    if (markerCollision) return { ok: false, status: 409, error: markerCollision, code: "anthropic_instance_collision" };
     const transportCandidate = providerTransportValidationCandidate(merged as unknown as Record<string, unknown>);
     // The editor merges onto the persisted row, so stored operator overlays (selectedModels,
     // disabled, …) ride along in the candidate. They are owned by their own write boundaries;
@@ -872,7 +855,7 @@ function providerRoutingQuota(config: OcxConfig, name: string, now: number): Pro
 
   // Removing search/MCP windows may leave only a timestamp. That is not inference evidence.
   const percentages = [quota.fiveHourPercent, quota.weeklyPercent, quota.monthlyPercent,
-    ...(quota.customWindows ?? []).map(window => window.percent)];
+    ...(quota.customWindows ?? []).filter(window => window.modelId === undefined).map(window => window.percent)];
   const hasPercentage = percentages.some(value => typeof value === "number" && Number.isFinite(value) && value >= 0);
   const credits = quota.creditsUsd;
   const hasCredits = credits !== undefined && Number.isFinite(credits.percent)
@@ -883,7 +866,7 @@ function providerRoutingQuota(config: OcxConfig, name: string, now: number): Pro
   let validUntil = quota.updatedAt + PROVIDER_QUOTA_MAX_AGE_MS;
   if (state === "exhausted") {
     const resets = [quota.fiveHourResetAt, quota.weeklyResetAt, quota.monthlyResetAt,
-      ...(quota.customWindows ?? []).map(window => window.resetAt)]
+      ...(quota.customWindows ?? []).filter(window => window.modelId === undefined).map(window => window.resetAt)]
       .filter((reset): reset is number => typeof reset === "number" && Number.isFinite(reset)
         && reset > now && reset < validUntil)
       .sort((left, right) => left - right);
@@ -914,21 +897,8 @@ export async function handleProviderRoutes(ctx: ManagementContext): Promise<Resp
     });
   }
 
-  if (url.pathname === "/api/provider-request-pacing" && req.method === "GET") {
-    const name = url.searchParams.get("name")?.trim();
-    if (name) {
-      if (!isValidProviderName(name) || !hasOwnProvider(config.providers, name)) {
-        return jsonResponse({ error: "unknown provider" }, 404);
-      }
-      return jsonResponse(providerRequestPacingStatus(name, config.providers[name]!));
-    }
-    return jsonResponse(Object.fromEntries(
-      Object.entries(config.providers).map(([providerName, provider]) => [
-        providerName,
-        providerRequestPacingStatus(providerName, provider),
-      ]),
-    ));
-  }
+  const keyPacingResponse = handleProviderKeyPacingRoutes(ctx);
+  if (keyPacingResponse) return keyPacingResponse;
 
   if (url.pathname === "/api/providers" && req.method === "GET") {
     return jsonResponse(Object.entries(config.providers).map(([name, p]) => ({
@@ -936,10 +906,12 @@ export async function handleProviderRoutes(ctx: ManagementContext): Promise<Resp
       // Presence only (#959 review): header names and values never leave the process.
       hasHeaders: !!p.headers && Object.keys(p.headers).length > 0,
       allowPrivateNetwork: p.allowPrivateNetwork === true,
+      preserveResponsesReasoningContent: p.preserveResponsesReasoningContent,
       liveModels: p.liveModels !== false,
       requestPacing: p.requestPacing,
       models: p.models ?? [],
       contextWindow: p.contextWindow,
+      inferContextWindow: p.inferContextWindow,
       modelContextWindows: p.modelContextWindows,
       modelContextTiers: p.modelContextTiers,
       modelCapabilities: p.modelCapabilities,
@@ -1091,6 +1063,7 @@ export async function handleProviderRoutes(ctx: ManagementContext): Promise<Resp
       if (resolvedError) return jsonResponse({ error: resolvedError, code: "invalid_provider_destination" }, 400);
     }
 
+    let removedCredentials: string[] = [];
     const outcome = mutatePersistedConfig<ProviderEditorMutationValue>(persisted => {
       if (!isDeepStrictEqual(providerEditorConfigDTO(persisted), baselineResult.value)) {
         return {
@@ -1113,6 +1086,7 @@ export async function handleProviderRoutes(ctx: ManagementContext): Promise<Resp
           initializeProviderModelSelection(name, provider, undefined, candidate.config);
         }
       }
+      removedCredentials = Object.values(persisted.providers).flatMap(providerGcpCredentialMarkers);
       persisted.defaultProvider = candidate.config.defaultProvider;
       persisted.providers = structuredClone(candidate.config.providers);
       persisted.disabledModels = candidate.config.disabledModels;
@@ -1138,6 +1112,7 @@ export async function handleProviderRoutes(ctx: ManagementContext): Promise<Resp
       return jsonResponse({ error: outcome.value.error, code: outcome.value.code }, outcome.value.status);
     }
 
+    cleanupRemovedGcpCredentials(removedCredentials);
     adoptProviderEditorCandidate(config, outcome.value.config);
     reconcileLiveStateStores();
     refreshConfigDerivedRegistries(outcome.value.config);
@@ -1155,16 +1130,15 @@ export async function handleProviderRoutes(ctx: ManagementContext): Promise<Resp
     return jsonResponse({ success: true, catalogRefresh });
   }
 
-  // Add (or overwrite) a single provider. Merges into the live in-memory config and
-  // persists — existing providers' real keys are never round-tripped (unlike PUT /api/config,
-  // which would re-save the masked keys from GET). Live routing picks it up immediately.
+  // Provider POST merges directly; existing secrets never round-trip through masked DTOs.
   if (url.pathname === "/api/providers" && req.method === "POST") {
     let body: { name?: unknown; provider?: unknown; setDefault?: boolean };
     try { body = await readManagementJsonBody(req); } catch (error) { rethrowManagementBodyTooLarge(error); return jsonResponse({ error: "invalid JSON body" }, 400); }
     const name = typeof body.name === "string" ? body.name.trim() : "";
     if (!isPlainRecord(body.provider)) return jsonResponse({ error: "provider must be a plain object" }, 400);
-    // Same prohibition as PATCH: the canonical OpenAI row never carries these fields, and a clear
-    // form would otherwise be normalized away before the merged-row guard could see it.
+    const credentialResponse = providerGcpCredentialInputResponse(body.provider);
+    if (credentialResponse) return credentialResponse;
+    // Reject canonical-row clears before normalization hides their ownership.
     if (name === "openai" && (Object.hasOwn(body.provider, "autoReviewModel") || Object.hasOwn(body.provider, "autoReviewModelOverrides"))) {
       return jsonResponse({ error: "provider openai must not include autoReviewModel or autoReviewModelOverrides" }, 400);
     }
@@ -1172,6 +1146,9 @@ export async function handleProviderRoutes(ctx: ManagementContext): Promise<Resp
     const aliasOwnershipError = providerAliasOverlayOwnershipError(body.provider, existing);
     if (aliasOwnershipError) return jsonResponse({ error: aliasOwnershipError }, 400);
     const transportCandidate = providerTransportValidationCandidate(body.provider);
+    preserveAnthropicInstanceMarker(name, transportCandidate as unknown as OcxProviderConfig, existing);
+    const markerCollision = anthropicInstancePublicationError(name, transportCandidate as unknown as OcxProviderConfig, existing);
+    if (markerCollision) return jsonResponse({ error: markerCollision }, 409);
     const pinError = applyProviderPinFields(transportCandidate as unknown as OcxProviderConfig, body.provider, existing);
     if (pinError) return jsonResponse({ error: pinError }, 400);
     const providerError = providerManagementConfigError(name, transportCandidate)
@@ -1328,6 +1305,9 @@ export async function handleProviderRoutes(ctx: ManagementContext): Promise<Resp
     // DNS validation above awaits. Re-read the live row so a dedicated alias write that
     // completed during that wait remains authoritative instead of being overwritten by the
     // older ownership snapshot used to admit this POST.
+    const lateMarkerCollision = anthropicInstancePublicationError(name, prov, config.providers[name]);
+    if (lateMarkerCollision) return jsonResponse({ error: lateMarkerCollision }, 409);
+    preserveAnthropicInstanceMarker(name, prov, config.providers[name]);
     restorePersistedAliasOverlays(prov, config.providers[name]);
     const capabilities = Object.hasOwn(body.provider, "modelCapabilities")
       ? mergeModelCapabilities(undefined, prov.modelCapabilities)
@@ -1369,12 +1349,20 @@ export async function handleProviderRoutes(ctx: ManagementContext): Promise<Resp
     const candidate = stripRegistryOnlyStaticHeaders(name, prov);
     const previous = Object.getOwnPropertyDescriptor(config.providers, name);
     const rollback = pinsOwned ? captureConfigTopLevelRollback(config, ["defaultProvider", "modelDiscovery", "disabledModels"]) : undefined;
-    let validationError: string | undefined;
+    let validationError: string | undefined, removedCredentials: string[] = [];
     withConfigMutationLockSync(() => {
+      validationError = anthropicInstancePublicationError(name, candidate, config.providers[name]);
+      if (validationError) return;
       const liveTiers = config.providers[name]?.modelContextTiers;
       if (submittedModelContextTiers && liveTiers) candidate.modelContextTiers = Object.assign(Object.create(null), liveTiers, candidate.modelContextTiers ?? {});
       else if (!submittedModelContextTiers && liveTiers) candidate.modelContextTiers = { ...liveTiers };
       else if (!submittedModelContextTiers) delete candidate.modelContextTiers;
+      // Full forms omit the opt-in; preserve the latest value, including a concurrent clear.
+      if (!Object.hasOwn(rawProvider, "inferContextWindow")) {
+        const liveInference = config.providers[name]?.inferContextWindow;
+        if (liveInference === undefined) delete candidate.inferContextWindow;
+        else candidate.inferContextWindow = liveInference;
+      }
       const draft = { ...(registrationDraft ?? config), providers: { ...config.providers, [name]: candidate }, ...(body.setDefault === true ? { defaultProvider: name } : {}) };
       const validation = validateConfigCandidate(draft); if (!validation.ok) { validationError = validation.error; return; }
       try {
@@ -1385,6 +1373,7 @@ export async function handleProviderRoutes(ctx: ManagementContext): Promise<Resp
             });
           }
         }
+        removedCredentials = snapshotProviderGcpCredentialMarkers(name, config.providers[name]);
         config.providers[name] = candidate;
         if (body.setDefault === true) config.defaultProvider = name;
         (deps.saveConfigPreservingClaudeCode ?? save)(config);
@@ -1398,6 +1387,7 @@ export async function handleProviderRoutes(ctx: ManagementContext): Promise<Resp
       }
     });
     if (validationError !== undefined) return jsonResponse({ error: validationError }, 400);
+    cleanupRemovedGcpCredentials(removedCredentials);
     reconcileLiveStateStores();
     if (prov.apiKey && prov.apiKeyPool) {
       const { addProviderApiKey } = await import("../../providers/api-keys");
@@ -1621,7 +1611,8 @@ export async function handleProviderRoutes(ctx: ManagementContext): Promise<Resp
     if (!name || !isValidProviderName(name) || !hasOwnProvider(config.providers, name)) {
       return jsonResponse({ error: "unknown provider" }, 404);
     }
-    const prov = config.providers[name]!;
+    const prov = { ...config.providers[name]! };
+    const authorizedTarget = captureModelsOAuthTarget(name, prov);
     if (prov.disabled) {
       return jsonResponse({ ok: false, error: "Provider is disabled", latencyMs: 0 });
     }
@@ -1646,10 +1637,10 @@ export async function handleProviderRoutes(ctx: ManagementContext): Promise<Resp
       // credential resolution/network access for providers such as Antigravity.
       return jsonResponse({ applicable: false, reason: "static_catalog", latencyMs: 0 });
     }
-    const { buildModelsRequest, getValidAccessTokenSnapshot, resolveModelsAuthToken } = await import("../../oauth");
+    const { buildModelsRequest, getModelsOAuthAccessSnapshot, resolveModelsAuthToken } = await import("../../oauth");
     const antigravity = effectiveGoogleMode(name, prov) === "cloud-code-assist";
-    const snapshot = prov.authMode === "oauth"
-      ? await getValidAccessTokenSnapshot(name).catch(() => undefined)
+    const snapshot = prov.authMode === "oauth" && mayResolveModelsOAuth(name, config.providers[name])
+      ? await getModelsOAuthAccessSnapshot(name, prov).catch(() => undefined)
       : undefined;
     const apiKey = prov.authMode === "oauth" ? snapshot?.accessToken : await resolveModelsAuthToken(name, prov);
     if (prov.authMode === "oauth" && !apiKey) {
@@ -1735,7 +1726,10 @@ export async function handleProviderRoutes(ctx: ManagementContext): Promise<Resp
       // Same canonical-URL TUN transparency as catalog discovery: the registry's
       // own fixed discovery URL survives purely-benchmark (Clash/Surge/Mihomo
       // fake-IP) DNS without proxy env.
-      const outboundDependencies = { isCanonicalUrl: isRegistryModelDiscoveryUrl };
+      const outboundDependencies = { isCanonicalUrl: isRegistryModelDiscoveryUrl,
+        beforeSend: () => prov.authMode !== "oauth" || (mayResolveModelsOAuth(name, config.providers[name])
+          && modelsOAuthTargetMatches(name, config.providers[name], authorizedTarget)
+          && (name !== "anthropic2" || new URL(modelsUrl).href === authorizedTarget)) };
       const res = method === "POST"
         ? await providerOutboundPost(name, prov, modelsUrl, {
           headers,
@@ -1854,12 +1848,7 @@ export async function handleProviderRoutes(ctx: ManagementContext): Promise<Resp
     const { saveConfigPreservingClaudeCode: save } = await import("../../config");
     // Deleting still succeeds; the response names the shadow-call target left without a provider.
     const shadowDependency = shadowInterceptProviderDependency(config, name);
-    if (fallbackDefault) config.defaultProvider = fallbackDefault;
-    delete config.providers[name];
-    const { dropProviderCustomModels } = await import("../../providers/provider-id-rewrite");
-    const droppedCustomModels = dropProviderCustomModels(config, name);
-    forgetProviderContextCap(config, name);
-    save(config);
+    const droppedCustomModels = removeProviderWithGcpCredentials(config, name, fallbackDefault, save);
     await replaceProviderAccountSet(name, null);
     reconcileLiveStateStores();
     const { clearModelCache: clearCache } = await import("../../codex/model-cache");

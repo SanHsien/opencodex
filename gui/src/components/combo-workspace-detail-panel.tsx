@@ -48,6 +48,8 @@ export function DetailPanel({
   providerQuotaStates,
   providers,
   models,
+  capabilityModels = models,
+  visionEnabled,
   onBack,
   onSaved,
   onRequestRemove,
@@ -68,6 +70,9 @@ export function DetailPanel({
   providerQuotaStates: ProviderQuotaStates;
   providers: ProviderOption[];
   models: ModelOption[];
+  capabilityModels?: ModelOption[];
+  /** Vision Sidecar enabled state; undefined = unknown, renders no warning. */
+  visionEnabled?: boolean;
   onBack?: () => void;
   onSaved: (item: ComboItem) => void;
   onRequestRemove?: () => void;
@@ -104,11 +109,11 @@ export function DetailPanel({
   const baselineSyncKey = JSON.stringify([baseline.id, baseline.alias, baseline.nativeAlias, baseline.displayName, baseline.strategy, baseline.stickyLimit, baseline.defaultEffort, baseline.imageInput, baseline.reasoningEffortMode, baseline.decisionProvider, baseline.decisionModel, baseline.decisionTimeoutMs, baseline.targets.map(t => [t.provider, t.model, t.weight, t.reasoningEfforts, t.modelProfile])]);
   const effortMap = useMemo(() => {
     const map = new Map<string, string[] | undefined>();
-    for (const model of models) {
+    for (const model of capabilityModels) {
       map.set(`${model.provider}/${model.id}`, model.reasoningEfforts);
     }
     return map;
-  }, [models]);
+  }, [capabilityModels]);
   const allowedEfforts = useMemo(
     () => intersectComboEfforts(draft.targets, effortMap, draft.reasoningEffortMode ?? "strict"),
     [draft.targets, effortMap, draft.reasoningEffortMode],
@@ -396,6 +401,7 @@ export function DetailPanel({
                 strategy={draft.strategy}
                 providers={providers}
                 models={models}
+                capabilityModels={capabilityModels}
                 providerQuotaStates={providerQuotaStates}
                 onChange={(targets) => updateDraft((d) => ({ ...d, targets }))}
               />
@@ -405,9 +411,10 @@ export function DetailPanel({
             </div>
             <ComboCapabilities
               targets={draft.targets}
-              models={models}
+              models={capabilityModels}
               imageInput={draft.imageInput ?? "auto"}
               reasoningEffortMode={draft.reasoningEffortMode ?? "strict"}
+              visionEnabled={visionEnabled}
               disabled={busy}
               onChange={(patch) => updateDraft((d) => ({ ...d, ...patch }))}
             />

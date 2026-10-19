@@ -1,5 +1,7 @@
 import type { DataPlaneAdmission } from "./auth-cors";
+import { isApiAuthRequired } from "./auth-cors";
 import type { OcxApiKeyEntry, OcxConfig } from "../types";
+import { markResponseNonReplayable } from "../lib/upstream-retry";
 
 /**
  * Per-admission-key model and provider scope.
@@ -74,6 +76,22 @@ export function resolveAdmissionModelScope(
   if (!admission || admission.kind !== "configured") return undefined;
   const entry = (config.apiKeys ?? []).find(key => key.id === admission.keyId);
   return entry ? admissionModelScopeOf(entry) : undefined;
+}
+
+/** Consent comes from stored operator config, never request headers. Use the full listener config. */
+export function admissionMayUseMeteredComboTargets(
+  config: Pick<OcxConfig, "apiKeys" | "hostname">,
+  admission: DataPlaneAdmission | undefined,
+  combo?: { allowMeteredTargets?: boolean },
+): boolean {
+  if (admission?.kind === "configured") {
+    const entry = (config.apiKeys ?? []).find(key => key.id === admission.keyId);
+    return entry?.allowMeteredComboTargets === true;
+  }
+  // Linked ingress always carries keyed admission, even when the primary bind is loopback.
+  // A secondary loopback listener on a public proxy does not qualify either.
+  return (!admission || admission.kind === "loopback")
+    && !isApiAuthRequired(config) && combo?.allowMeteredTargets === true;
 }
 
 /**
@@ -155,10 +173,12 @@ export function admissionModelDeniedBody(error: AdmissionModelDeniedError): {
  * indistinguishable from a typo in the model name.
  */
 export function admissionModelDeniedResponse(error: AdmissionModelDeniedError): Response {
-  return new Response(JSON.stringify(admissionModelDeniedBody(error)), {
+  const response = new Response(JSON.stringify(admissionModelDeniedBody(error)), {
     status: 403,
     headers: { "Content-Type": "application/json" },
   });
+  markResponseNonReplayable(response);
+  return response;
 }
 
 /**

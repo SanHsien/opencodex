@@ -7,11 +7,13 @@
  * it never sets proxy env, relocates state dirs, mutates quota, or changes
  * networking. See devlog/_plan/260630_wsl-account-autoswitch/30_*.
  */
+import { cliCommandDoctorChecks, collectCliPathDiagnostics } from "./cli-path-diagnostics";
 import { accessSync, constants, existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { getConfigDir, getConfigPath, readConfigDiagnostics } from "../config";
 import { readPid } from "../config/process-state";
+import { inspectDesktopSupervision } from "../service/desktop-supervision.mjs";
 import { fetchLiveStartupHealth, probeUncleanExitState, selectStatusStartupHealth } from "./status";
 import { findLiveProxy, probeHostname, type LiveProxy } from "../server/proxy-liveness";
 import { directLocalHttpFetch } from "../server/direct-local-http";
@@ -33,6 +35,7 @@ import {
 } from "../codex/subagent-model-fallback";
 import { readCatalog, readCodexCatalogPath, readConfiguredDefaultModel } from "../codex/catalog/parsing";
 import { diagnoseCodexShim, findCodexOnPath, isWindowsInteropDir, type CodexShimDiagnostic } from "../codex/shim";
+import { overlayActivationHint } from "../codex/shim-overlay";
 import { providerTableString, rootTomlString } from "../codex/injected-marker";
 import { countPendingOpencodexHistory } from "../codex/history-provider";
 import {
@@ -481,10 +484,18 @@ export function collectProviderApiKeyDiagnostics(
 
 export type CodexEnvKeyReadinessDiagnostic = {
   envName: string;
-  shimState: "missing" | "unhealthy";
+  shimState: "missing" | "unhealthy" | "inactive";
   detail: string;
   action: string;
 };
+
+/** Shell activation and legacy migration are independent of admission-token readiness. */
+export function formatCodexShimDoctorLines(shim: CodexShimDiagnostic, platform = process.platform): string[] {
+  if (platform === "win32" || !shim.installed) return [];
+  const inactiveOverlay = shim.runnable === true && shim.active === false;
+  const healthyLegacy = shim.healthy && shim.runnable === undefined;
+  return inactiveOverlay || healthyLegacy ? shim.summary.split("\n").map(line => `       ${line}`) : [];
+}
 
 /** Warn when routed Codex cannot obtain its configured admission token at launch. */
 export function collectCodexEnvKeyReadiness(
@@ -492,17 +503,22 @@ export function collectCodexEnvKeyReadiness(
   env: EnvMap,
   shim: CodexShimDiagnostic,
   serviceTokenPresent: boolean,
+  shimActivationShown = false,
 ): CodexEnvKeyReadinessDiagnostic | null {
   if (!configText || rootTomlString(configText, "model_provider") !== "opencodex") return null;
   const envName = providerTableString(configText, "opencodex", "env_key")?.trim();
   const envValue = envName ? ownEnvValue(env, envName) : undefined;
   if (!envName || envValue?.trim() || shim.healthy || !serviceTokenPresent) return null;
-  const shimState = shim.installed ? "unhealthy" : "missing";
+  const shimState = shim.runnable && shim.active === false ? "inactive" : shim.installed ? "unhealthy" : "missing";
   return {
     envName,
     shimState,
     detail: `Codex uses env_key ${envName}, but that variable is unset and the OpenCodex shim is ${shimState}; the service token file exists but plain Codex does not load it`,
-    action: `Run 'ocx codex-shim install' to repair launch-time token injection, or export ${envName} in the process that starts Codex`,
+    action: shimState === "inactive"
+      ? shimActivationShown
+        ? `Activate the PATH shim as shown under Codex restart safety, or export ${envName} in the process that starts Codex`
+        : `${overlayActivationHint()} Or export ${envName} in the process that starts Codex`
+      : `Run 'ocx codex-shim install' to repair launch-time token injection, or export ${envName} in the process that starts Codex`,
   };
 }
 
@@ -1144,6 +1160,11 @@ async function fetchExposedModelIds(live: LiveProxy, fetchFn: ExposedModelsFetch
       if (id.length === 0) continue;
       if (id.length > EXPOSED_MODEL_ID_MAX_LENGTH) return null;
       ids.add(id);
+      const nativeId = (row as { native_id?: unknown }).native_id;
+      if (nativeId !== undefined) {
+        if (typeof nativeId !== "string" || nativeId.length > EXPOSED_MODEL_ID_MAX_LENGTH) return null;
+        if (nativeId.length > 0) ids.add(nativeId);
+      }
     }
     return ids;
   } catch {
@@ -1310,6 +1331,12 @@ export async function runDoctor(args: string[] = []): Promise<void> {
     console.log(`  ${row.exists ? "ok " : "-- "} ${row.label}: ${row.path}${flags ? `  (${flags})` : ""}`);
   }
 
+  console.log("\nocx command selection");
+  for (const check of cliCommandDoctorChecks(collectCliPathDiagnostics())) {
+    console.log(`  ${check.level === "OK" ? "ok " : "!! "} ${check.message}`);
+    if (check.level === "FAIL") recordDoctorFailure();
+  }
+
   // Runs without the proxy on purpose: the worst accumulation happens when the proxy will
   // not start, which is exactly when the in-process periodic reclaim never ticks.
   const reclaimTemps = args.includes(RECLAIM_RESPONSE_TEMPS_FLAG);
@@ -1349,11 +1376,14 @@ export async function runDoctor(args: string[] = []): Promise<void> {
     try { return readFileSync(codexConfigPath, "utf8"); } catch { return null; }
   })();
   const serviceTokenPresent = Boolean(readInstalledServiceToken()?.trim());
+  const codexShim = diagnoseCodexShim();
+  const codexShimLines = formatCodexShimDoctorLines(codexShim);
   const codexEnvKeyReadiness = collectCodexEnvKeyReadiness(
     codexConfigText,
     process.env,
-    diagnoseCodexShim(),
+    codexShim,
     serviceTokenPresent,
+    codexShimLines.length > 0,
   );
   // Use the same attested live startup verdict as `ocx status` when the proxy is already
   // identity-verified. A shell-local systemd probe can be a false negative for a system-wide
@@ -1362,10 +1392,12 @@ export async function runDoctor(args: string[] = []): Promise<void> {
     configFn: () => ({ port: doctorConfig.port, hostname: doctorConfig.hostname }),
   });
   const liveStartup = live ? await fetchLiveStartupHealth(live) : null;
-  const startup = selectStatusStartupHealth(liveStartup, () => collectStartupHealth(doctorConfig));
+  const { startup } = selectStatusStartupHealth(liveStartup, () => collectStartupHealth(doctorConfig),
+    live?.pid != null ? () => inspectDesktopSupervision({ targetPid: live.pid! }) : undefined, live?.pid);
   console.log("\nCodex restart safety");
   console.log(`  ${startup.rebootSafe ? "ok " : "!! "} ${startupHealthSummary(startup)}`);
   console.log(`       ${formatStartupRoutingDetail(startup)}`);
+  for (const line of codexShimLines) console.log(line);
 
   console.log("\nCodex runtime selection");
   {
@@ -1401,6 +1433,15 @@ export async function runDoctor(args: string[] = []): Promise<void> {
     }
   }
 
+  // #2999: which process refreshes the native main login in CODEX_HOME.
+  console.log("\nNative main refresh");
+  {
+    const { loadConfig } = await import("../config");
+    const { formatNativeMainRefreshDoctorLines, resolveNativeMainRefreshMode } = await import("../codex/native-main-refresh-mode");
+    const resolution = await resolveNativeMainRefreshMode(loadConfig());
+    for (const line of formatNativeMainRefreshDoctorLines(resolution)) console.log(line);
+  }
+
   // Mirrors `ocx status` through the same comparison rather than a second implementation:
   // two diagnostics disagreeing about whether an install is stale is worse than one (#2701).
   // No extra probe -- findLiveProxy already carried the version back.
@@ -1431,7 +1472,7 @@ export async function runDoctor(args: string[] = []): Promise<void> {
 
   // Observe-only and warning-level: a bypassed Desktop first-party install still serves the
   // CLI and every non-Desktop client, so this never records a doctor failure.
-  const desktopSystemProxyLines = formatDesktopSystemProxyLines(collectDesktopSystemProxy(doctorConfig));
+  const desktopSystemProxyLines = formatDesktopSystemProxyLines(await collectDesktopSystemProxy(doctorConfig));
   if (desktopSystemProxyLines.length > 0) {
     console.log("\nClaude Desktop first-party vs Windows system proxy");
     for (const line of desktopSystemProxyLines) console.log(line);
@@ -1667,8 +1708,12 @@ export async function runDoctor(args: string[] = []): Promise<void> {
   const anyDrvfs = paths.some(p => detectFsType(p.path, mounts).isDrvfs || detectFsType(p.path, mounts).isMntDrive);
   const noProxy = currentProxyEnv.every(p => !p.present) && !configuredProxy.present;
   if (!startup.rebootSafe) {
-    const command = startup.recommendedCommand ?? startup.commands.restoreNative;
-    hints.push(`Codex is pinned to the local proxy without persistent startup protection. After restart, requests can reconnect indefinitely. Run '${command}'.`);
+    if (startup.recommendedAction || startup.desktop?.supervisor) {
+      hints.push(`Codex is pinned to the local proxy without persistent startup protection. ${startup.recommendedAction ?? "Reopen OpenCodex and check Start at Login."}`);
+    } else {
+      const command = startup.recommendedCommand ?? startup.commands.restoreNative;
+      hints.push(`Codex is pinned to the local proxy without persistent startup protection. After restart, requests can reconnect indefinitely. Run '${command}'.`);
+    }
   }
   if (anyDrvfs) {
     hints.push("State dir is on a Windows-mounted (/mnt) drive. Prefer the Linux home (~) under WSL for token/lock reliability.");

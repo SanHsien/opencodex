@@ -1,12 +1,14 @@
 /**
- * omo (Codex / LazyCodex)'s per-role model setting, `codex.agents.<role>.model` in `~/.omo/omo.jsonc`.
+ * omo (Codex / LazyCodex)'s per-role model setting, `"[codex]".agents.<role>.model` in `~/.omo/omo.jsonc`.
+ * The section name carries its brackets: LazyCodex reads `[codex]`, and its strict loader drops a
+ * bare `codex` key as unknown, so a pick written there never reaches a role.
  *
  * LazyCodex 5.1.1 and later reads it, and callers reach this only after `detectLazyCodex`
  * says LazyCodex is installed. The file is omo's, so this writes only on an explicit
  * dashboard or CLI pick, never creates the file, and refuses a file with comments: the write
  * re-serializes JSON, and a comment the user wrote would be lost without a word.
  */
-import { lstatSync, readFileSync } from "node:fs";
+import { closeSync, constants, fstatSync, lstatSync, openSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { atomicWriteFileNoFollowUnclaimed } from "../config/atomic-write";
@@ -30,6 +32,17 @@ export function omoJsoncPath(env: NodeJS.ProcessEnv = process.env, home: string 
 
 type JsonObject = Record<string, unknown>;
 
+const CODEX_SECTION = "[codex]";
+
+/** The reasoning levels LazyCodex accepts for a role; it names Codex's `none` `off`. */
+const LAZYCODEX_REASONING = new Set(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
+
+/** The `reasoning` value LazyCodex reads for a Codex effort, or null when it has no such level. */
+export function omoReasoningFor(effort: string): string | null {
+  const level = effort === "none" ? "off" : effort;
+  return LAZYCODEX_REASONING.has(level) ? level : null;
+}
+
 function isObject(value: unknown): value is JsonObject {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -40,12 +53,26 @@ type Loaded =
 
 function load(path: string): Loaded {
   let text: string;
+  let fd: number | undefined;
   try {
-    if (!lstatSync(path).isFile()) return { kind: "invalid" };
-    text = readFileSync(path, "utf8");
+    // POSIX FIFOs must not block before fstat can reject them. Windows omits
+    // these flags and retains the descriptor/path identity checks below.
+    const flags = process.platform === "win32"
+      ? constants.O_RDONLY
+      : constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK;
+    fd = openSync(path, flags);
+    const opened = fstatSync(fd, { bigint: true });
+    const current = lstatSync(path, { bigint: true });
+    if (!opened.isFile() || !current.isFile() || opened.dev !== current.dev || opened.ino !== current.ino) {
+      return { kind: "invalid" };
+    }
+    text = readFileSync(fd, "utf8");
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return { kind: "absent" };
+    if ((error as NodeJS.ErrnoException).code === "ELOOP") return { kind: "invalid" };
     throw error;
+  } finally {
+    if (fd !== undefined) closeSync(fd);
   }
   if (hasJsoncComments(text)) return { kind: "comments" };
   try {
@@ -57,7 +84,7 @@ function load(path: string): Loaded {
 }
 
 function agentsOf(doc: JsonObject): JsonObject | null | undefined {
-  const codex = doc.codex;
+  const codex = doc[CODEX_SECTION];
   if (codex === undefined) return undefined;
   if (!isObject(codex)) return null;
   const agents = codex.agents;
@@ -90,21 +117,36 @@ function serialize(text: string, doc: JsonObject): string {
   return text.startsWith("\ufeff") ? `\ufeff${out}` : out;
 }
 
-export function writeOmoRoleModel(role: string, model: string, path: string = omoJsoncPath()): OmoRoleModelWriteStatus {
+/**
+ * `reasoning` left undefined keeps the entry's level; null removes it, so a level LazyCodex cannot
+ * express does not leave a stale one behind for its next install to apply.
+ * `model` left undefined keeps the entry's model, so an effort-only save of a role that inherits
+ * its model never adds a pin here. LazyCodex declares both keys optional, so an entry may carry
+ * `reasoning` alone; an absent entry is created only when there is a value to put in it.
+ */
+export function writeOmoRoleModel(
+  role: string,
+  model: string | undefined,
+  path: string = omoJsoncPath(),
+  reasoning?: string | null,
+): OmoRoleModelWriteStatus {
   const loaded = load(path);
   if (loaded.kind !== "document") return loaded.kind === "comments" ? "skipped_comments" : loaded.kind;
   const { doc, text } = loaded;
   // Only an absent key is created; an explicit null is a value the reader calls invalid.
-  const codex = doc.codex === undefined ? {} : doc.codex;
+  const codex = doc[CODEX_SECTION] === undefined ? {} : doc[CODEX_SECTION];
   if (!isObject(codex)) return "invalid";
   const agents = codex.agents === undefined ? {} : codex.agents;
   if (!isObject(agents)) return "invalid";
   const entry = agents[role] === undefined ? {} : agents[role];
   if (!isObject(entry)) return "invalid";
-  if (entry.model === model) return "unchanged";
-  agents[role] = { ...entry, model };
+  const next: JsonObject = model === undefined ? { ...entry } : { ...entry, model };
+  if (reasoning === null) delete next.reasoning;
+  else if (reasoning !== undefined) next.reasoning = reasoning;
+  if (entry.model === next.model && entry.reasoning === next.reasoning) return "unchanged";
+  agents[role] = next;
   codex.agents = agents;
-  doc.codex = codex;
+  doc[CODEX_SECTION] = codex;
   assertIntegrationWriteOwnership(path);
   atomicWriteFileNoFollowUnclaimed(path, serialize(text, doc));
   return "written";

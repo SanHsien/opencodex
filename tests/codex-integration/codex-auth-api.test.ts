@@ -16,7 +16,7 @@ import {
 } from "../../src/server/lifecycle";
 import { fallbackCodexAccountLogLabel } from "../../src/codex/account-label";
 import {
-  handleCodexAuthAPI, updateAccountQuota, getAccountQuota,
+  updateAccountQuota, getAccountQuota,
   checkAccountIdCollision, getMainChatgptAccountId,
   markAccountNeedsReauth, isAccountNeedsReauth, clearAccountNeedsReauth, clearAccountQuota,
   clearMainAccountInfoCache, maskEmail, fetchMainAccountInfo, fetchMainAccountInfoSnapshot,
@@ -25,6 +25,7 @@ import {
   listCodexAuthAccounts,
   setAccountQuotaFromParsed,
 } from "../../src/codex/auth-api";
+import { handleCodexAuthAPI } from "../../src/codex/auth-api/routes";
 import {
   getCodexAccountCredential,
   listCodexAccountIds,
@@ -478,7 +479,7 @@ describe("main quota refresh diagnostics", () => {
       expect(reads).toBe(1);
       if (invalidation === "none") {
         const expected = outcome === "http" ? { status: "http_error", httpStatus: 503 }
-          : outcome === "terminal_http" ? { status: "http_error", httpStatus: 403 }
+          : outcome === "terminal_http" ? { status: "http_error", httpStatus: 403, code: "invalid_workspace_selected" }
           : { status: outcome === "body" ? "network_error" : "ok" };
         expect(result.quotaRefresh).toEqual(expected);
       } else {
@@ -1060,6 +1061,7 @@ describe("codex-auth API", () => {
   });
 
   test("account DTO exposes the routing plan exclusion and clears it on renewal", async () => {
+    globalThis.fetch = (async () => new Response(null, { status: 503 })) as typeof fetch; // Metadata assertions do not depend on quota transport.
     const cfg = makeConfig({ codexPool: { excludedPlans: ["free"] } });
     seedPoolAccount(cfg, { id: "plan-row", email: "plan@example.test", plan: "free" });
     const read = async () => {
@@ -4004,6 +4006,7 @@ describe("codex-auth API", () => {
   });
 
   test("the account list reports selection order, defaulting to zero", async () => {
+    globalThis.fetch = (async () => new Response(null, { status: 503 })) as typeof fetch; // Keep synthetic credentials off the quota network path.
     const config = makeConfig({ codexAccountPriorities: { work: 2 } });
     seedPoolAccount(config, { id: "work", email: "work@example.test" });
     seedPoolAccount(config, { id: "side", email: "side@example.test" });
@@ -4143,6 +4146,28 @@ describe("codex-auth API", () => {
     expect(config.pausedCodexAccountIds).toEqual(["already-paused", "exhausted", "upgraded-plus"]);
     expect(config.activeCodexAccountId).toBe("free-weekly-only");
     expect(resolveCodexAccountForThread("bulk-pause-thread", config)).toBe("free-weekly-only");
+  });
+
+  test("bulk pause preserves spendable-credit accounts at 100% but pauses empty and reset-only accounts", async () => {
+    const config = makeConfig({ activeCodexAccountId: "paid", creditCodexAccountIds: ["paid"] });
+    for (const id of ["paid", "paid-off", "empty", "reset-only"]) {
+      seedPoolAccount(config, { id, email: `${id}@example.test`, plan: "pro", chatgptAccountId: id });
+    }
+    globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const id = new Headers(init?.headers).get("ChatGPT-Account-Id");
+      return Response.json({
+        plan_type: "pro",
+        rate_limit: { allowed: (id === "paid" || id === "paid-off"), primary_window: { used_percent: 100, limit_window_seconds: 604800 } },
+        rate_limit_reset_credits: { available_count: id === "reset-only" ? 3 : 0 },
+        credits: { has_credits: (id === "paid" || id === "paid-off"), unlimited: false, balance: (id === "paid" || id === "paid-off") ? "42.5" : "0" },
+      });
+    }) as typeof fetch;
+    const req = new Request("http://localhost/api/codex-auth/accounts/pause-exhausted", { method: "PUT" });
+    const resp = await handleCodexAuthAPI(req, new URL(req.url), config);
+    expect(resp!.status).toBe(200);
+    expect(await resp!.json()).toMatchObject({ pausedAccountIds: ["paid-off", "empty", "reset-only"], pausedCount: 3 });
+    expect(config.pausedCodexAccountIds).toEqual(["paid-off", "empty", "reset-only"]);
+    expect(config.activeCodexAccountId).toBe("paid");
   });
 
   test("bulk pause preserves a known Free main plan when WHAM omits plan_type", async () => {

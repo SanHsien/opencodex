@@ -4,14 +4,17 @@ import { createAnthropicAdapter } from "./anthropic";
 import { createGoogleAdapter } from "./google";
 import { createOpenAIChatAdapter } from "./openai-chat";
 import { createResponsesPassthroughAdapter } from "./openai-responses";
+import { createAdapterPhysicalSend } from "./physical-send";
 import type { AdapterEvent, OcxParsedRequest, OcxProviderConfig } from "../types";
-import { createTranslatorBudget, type TranslatorBudget } from "../lib/translator-budget";
+import { createTranslatorBudget, releaseTranslatedEvent, retainTranslatedEvent, type TranslatorBudget } from "../lib/translator-budget";
+import { releaseCompactionCiphertextLease } from "../responses/compaction";
 import { redactSecretString } from "../lib/redact";
 import {
   normalizeZedProvider,
   resolveZedModels,
   scrubZedCredentials,
   zedLlmFetch,
+  ZED_CLOUD_BASE_URL,
   ZED_HEADERS,
   type ZedCredentials,
 } from "../providers/zed";
@@ -50,7 +53,9 @@ function delegateProvider(provider: OcxProviderConfig, zedProvider: ZedProvider)
     return { ...common, adapter: "google", baseUrl: "https://generativelanguage.googleapis.com", googleMode: "ai-studio" };
   }
   if (zedProvider === "open_ai") {
-    return { ...common, adapter: "openai-responses", baseUrl: "https://api.openai.com/v1" };
+    // The builder targets Zed's /completions envelope. Keep its destination set to Zed as well,
+    // so OpenAI-private Responses fields are stripped instead of being sent through to Zed.
+    return { ...common, adapter: "openai-responses", baseUrl: provider.baseUrl };
   }
   return { ...common, adapter: "openai-chat", baseUrl: "https://api.x.ai/v1" };
 }
@@ -297,6 +302,29 @@ export function createZedAdapter(provider: OcxProviderConfig): ProviderAdapter {
       }
     }
     if (!isRecord(providerRequest)) throw new Error("Zed delegate produced a non-object request body");
+    if (zedProvider === "open_ai" && Array.isArray(providerRequest.input)) {
+      // Zed's OpenAI Responses parser accepts user/assistant/system/tool roles but rejects
+      // OpenAI's newer developer role. System is the closest supported role for instructions.
+      providerRequest.input = providerRequest.input.map(item =>
+        isRecord(item) && item.type === "message" && item.role === "developer"
+          ? { ...item, role: "system" }
+          : item,
+      );
+    }
+    if (zedProvider === "open_ai" && Array.isArray(providerRequest.tools)) {
+      // Zed's Responses decoder supports function/custom tools, not Codex's built-in web_search.
+      const supported = (tool: unknown) => isRecord(tool) && (tool.type === "function" || tool.type === "custom");
+      const tools = providerRequest.tools.filter(supported);
+      providerRequest.tools = tools;
+      const choice = providerRequest.tool_choice;
+      if (isRecord(choice) && choice.type === "allowed_tools" && Array.isArray(choice.tools)) {
+        const allowed = choice.tools.filter(supported);
+        providerRequest.tool_choice = allowed.length ? { ...choice, tools: allowed } : "none";
+      } else if ((isRecord(choice) && !supported(choice)) || (choice === "required" && tools.length === 0)) {
+        // Match the shared hosted-tool policy when no supported selection remains.
+        providerRequest.tool_choice = "none";
+      }
+    }
     delegate = { provider: zedProvider, adapter: selected };
     const requestUrl = `${provider.baseUrl.replace(/\/+$/, "")}/completions`;
     return {
@@ -339,8 +367,21 @@ export function createZedAdapter(provider: OcxProviderConfig): ProviderAdapter {
     async fetchResponse(request, ctx) {
       if (!credentials) throw new Error("Zed request credentials were not initialized");
       const fetchFn = ctx?.executor ?? globalThis.fetch;
+      const send = createAdapterPhysicalSend(ctx);
+      let completionAttempts = 0;
       return zedLlmFetch(credentials, "/completions", {
-        fetchFn,
+        fetchFn: (async (input, init) => {
+          const url = input instanceof Request ? input.url : new URL(String(input)).href;
+          // Token exchange/account lookup are support traffic; both completion attempts
+          // share admission and physical ordinals, including the provider's 401 replay.
+          if (url === `${ZED_CLOUD_BASE_URL}/client/users/me`
+            || url === `${ZED_CLOUD_BASE_URL}/client/llm_tokens`) return fetchFn(input, init);
+          const recovery = completionAttempts++ > 0;
+          return send({ url, sendClass: recovery ? "auth-recovery" : "initial",
+            ...(recovery ? { recovery: "oauth-401" } : {}),
+            dispatch: executor => executor(input, init),
+          });
+        }) as typeof globalThis.fetch,
         signal: ctx?.abortSignal,
         baseUrl: provider.baseUrl,
         fetchInit: {
@@ -365,12 +406,33 @@ export function createZedAdapter(provider: OcxProviderConfig): ProviderAdapter {
         status: response.status,
         headers: { "Content-Type": "text/event-stream" },
       });
-      yield* delegate.adapter.parseStream(translated, budget);
+      try {
+        yield* delegate.adapter.parseStream(translated, budget);
+      } finally {
+        // Some delegates only unlock their reader when a collector stops early.
+        try { await translated.body?.cancel(); } catch { /* already closed/errored */ }
+      }
     },
     async parseResponse(response: Response, budget: TranslatorBudget): Promise<AdapterEvent[]> {
       const events: AdapterEvent[] = [];
-      for await (const event of adapter.parseStream(response, budget)) events.push(event);
-      return events;
+      try {
+        for await (const event of adapter.parseStream(response, budget)) {
+          try {
+            retainTranslatedEvent(event, budget, events.at(-1));
+          } catch (error) {
+            releaseCompactionCiphertextLease(event, budget);
+            throw error;
+          }
+          events.push(event);
+        }
+        return events;
+      } catch (error) {
+        for (const event of events) {
+          releaseTranslatedEvent(event, budget);
+          releaseCompactionCiphertextLease(event, budget);
+        }
+        throw error;
+      }
     },
   };
   return adapter;

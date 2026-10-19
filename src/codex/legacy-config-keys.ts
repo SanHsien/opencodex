@@ -21,7 +21,7 @@ export interface LegacyCodexConfigKeyDiagnostic {
 
 export type LegacyCodexConfigKeyDiagnosticsResult =
   | { readonly status: "available"; readonly path: string; readonly diagnostics: readonly LegacyCodexConfigKeyDiagnostic[] }
-  | { readonly status: "unavailable"; readonly path: string; readonly reason: "read_failed" | "not_a_file" };
+  | { readonly status: "unavailable"; readonly path: string; readonly reason: "read_failed" | "not_a_file" | "too_large" };
 
 function resolveCodexConfigPath(codexConfigPath?: string): string {
   if (codexConfigPath) return codexConfigPath;
@@ -39,6 +39,9 @@ export function collectLegacyCodexConfigKeyDiagnostics(
   try {
     content = readBoundedCodexConfig(path);
   } catch (error) {
+    if ((error as NodeJS.ErrnoException | undefined)?.code === "EFBIG") {
+      return { status: "unavailable", path, reason: "too_large" };
+    }
     const notAFile = error instanceof Error && error.message.includes("not a bounded regular file");
     return { status: "unavailable", path, reason: notAFile ? "not_a_file" : "read_failed" };
   }

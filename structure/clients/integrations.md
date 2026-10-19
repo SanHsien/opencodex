@@ -2,20 +2,7 @@
 
 Shared parsing and streaming follow the [request-copy](../transports/byte-accounting.md#request-copy-accounting) and [stream-buffer accounting](../transports/byte-accounting.md#stream-buffer-accounting) contracts.
 
-The client-integration subsystem writes one generated OpenCodex provider contribution into a
-third-party client's existing config without taking ownership of the rest of that file. Its core
-promise is reversibility: apply snapshots first, writes atomically, records exactly what it owns,
-and refuses refresh, disable, or restore when the current file cannot be classified safely.
-Managed client targets are inspected without following a final symbolic link, and their atomic
-replacement addresses the named directory entry rather than resolving that link again at commit.
-Uninstall runs the same coordinated disable path for every strict ownership record before removing
-OpenCodex state, including the legacy Aside owner and every child profile store under
-`integrations/aside-profiles/<profileId>/`. `src/cli/uninstall-integrations.ts` validates all stores
-and registered Aside paths before mutation; `src/integrations/aside-profile-context.ts` supplies
-the guarded child stores. An unreadable record, conflict, or failed compensation aborts config
-removal and retains remaining recovery state. Earlier successful disables are not rolled back;
-failed compensation can leave an intermediate client file. Inspect the reported client files and
-retained snapshots before retrying; preserved recovery state does not prove restoration completed.
+The client-integration subsystem writes one generated OpenCodex provider contribution into a third-party client's existing config without taking ownership of the rest of that file. Its core promise is reversibility: apply snapshots first, writes atomically, records exactly what it owns, and refuses refresh, disable, or restore when the current file cannot be classified safely. Qoder specifics live in [`clients/qoder.md`](qoder.md). Managed client targets are inspected without following a final symbolic link, and their atomic replacement addresses the named directory entry rather than resolving that link again at commit. Uninstall runs the same coordinated disable path for every strict ownership record before removing OpenCodex state, including the legacy Aside owner and every child profile store under `integrations/aside-profiles/<profileId>/`. `src/cli/uninstall-integrations.ts` validates all stores and registered Aside paths before mutation; `src/integrations/aside-profile-context.ts` supplies the guarded child stores. An unreadable record, conflict, or failed compensation aborts config removal and retains remaining recovery state. Earlier successful disables are not rolled back; failed compensation can leave an intermediate client file. Inspect the reported client files and retained snapshots before retrying; preserved recovery state does not prove restoration completed.
 
 > Decision record: [ADR-0107](../decisions/ADR-0107-uninstall-integration-recovery.md)
 
@@ -31,7 +18,7 @@ parsing and ownership rules below.
 | `src/clients/config-export.ts` | Pure per-client config builders and the exact managed fragments each client receives. It never writes files. |
 | `src/integrations/registry.ts` | Canonical config/detection paths, current-provider-store declarations, source-preserving YAML declarations, writer-lock behavior, and client IDs. |
 | `src/integrations/target.ts` | Which file one operation reads, writes and records, and whether a write there reaches the client. |
-| `src/integrations/config-io.ts` | Bounded file loading and parsing. Values that cannot round-trip through the target serializer are rejected before mutation. |
+| `src/integrations/config-io.ts` | Bounded regular-file loading and parsing; production reads reject symlinks and stop after 4 MiB, and writes past the same bound are refused so a mutation cannot strand a file it cannot read back. `src/lib/bounded-file-read.ts` starts its buffer from the opened size and grows only as needed, retaining the limit-plus-one overflow probe when a file grows concurrently and returning only bytes actually read. Values that cannot round-trip through the target serializer are rejected before mutation. |
 | `src/integrations/kilo-candidates.ts` | Inspects all Kilo global config candidates for unsafe files and a competing `provider.opencodex` block before status or any operation that adds or replaces a block. |
 | `src/integrations/state.ts` | The single `absent` / `current` / `stale` / `conflict` / `unsafe` classifier used by status and every writer operation. |
 | `src/integrations/ownership.ts` | Durable ownership records: file, generated contribution, protected contribution, exact fragment paths, and operation identity. |
@@ -51,8 +38,7 @@ would need an admission header. When a previously managed catalog becomes empty
 or wholly unaddressable, classification still checks recorded fragment paths and
 their fingerprints so disable can remove owned rows without deleting foreign edits.
 The legacy settings guard also checks the recorded model IDs and endpoints when
-those rows leave the current catalog.
-Apply and refresh still refuse an empty managed contribution.
+those rows leave the current catalog. Apply and refresh still refuse an empty managed contribution.
 The builder omits `apiKey` and unsupported metadata. The shared writer snapshots
 prior bytes and refuses changed managed rows or unsafe paths. `src/integrations/droid-settings.ts` refuses
 legacy `config.json` rows that share the exported endpoint, a generated model ID, or an
@@ -62,6 +48,37 @@ Apply and refresh repeat that competing-settings check after the target-file
 compare and before taking a snapshot. Droid has no writer lock, so a competing
 settings file can still appear after this check and before the write.
 No Droid file is written by detection or on the proxy request path.
+
+### Droid reasoning defaults
+
+The Droid page stores a sparse model-to-effort map in its owned model rows through
+`extraHeaders.x-opencodex-droid-default-effort`. There is no separate proxy-wide
+default. The single-client status projects the owned defaults and the current
+export roster's declared effort choices into `droidReasoning`. Defaults use the
+same path and competing-settings checks as status, including pre-resolved paths;
+an ambiguous legacy model ID or managed endpoint suppresses the projected map.
+Factory Droid may add top-level `id` and `index` while normalizing `customModels`.
+`ownership-policy.ts` drops only those two fields from observations when matching an existing record, so
+legacy rows preserve their saved `extraHeaders` default while the endpoint, `apiKey`, other
+headers, effort values, and unknown row fields remain protected.
+
+Preview and apply accept optional `droidReasoningDefaults`. Omission preserves
+compatible owned defaults; an empty map clears them. A supplied map is validated against the
+same roster used to build the contribution, and the contribution participates in
+the preview fingerprint and frozen mutation input. Refresh preserves defaults only
+while the exact namespaced selector remains in the roster and its current effort
+list includes the saved value. Unsupported defaults are omitted from status and
+removed from owned rows on refresh. Provider, model, and
+combo alias names are mutable selectors rather than stable identities, so renaming
+one removes the old managed row and its default; the replacement row starts without
+a default. Refresh and Save / review changes omit the map unless the user has edited it, so an
+unsupported saved value does not block unrelated refresh. Removing models uses the
+ordinary removal preview. Disable and restore remove or restore the rows and their
+defaults as one owned value.
+
+The request preference is interpreted after initial Chat route selection and before
+concrete dispatch under the [inbound effort contract](../data-planes/inbound-compat.md#droid-request-defaults).
+It never authenticates a client or changes admission policy.
 
 ## Cursor installed capability reads
 
@@ -76,8 +93,7 @@ size; the returned table always uses the current install version, including on a
 is found, `src/integrations/cursor-local-installer.ts` resolves the Private Inference installer that
 Cursor's `cursor-local` update channel advertises for the host platform and architecture (only
 `x64` and `arm64` on Windows, macOS and Linux map; any other host resolves to `unsupported-platform`
-with no request)
-(`<updateHost>/updates/api/update/<platform>/cursor-local/0.0.0/manual-check/stable`, 4 s timeout).
+with no request) (`<updateHost>/updates/api/update/<platform>/cursor-local/0.0.0/manual-check/stable`, 4 s timeout).
 The decoded manifest is capped at 64 KiB before JSON parsing. Only a bounded
 `https://downloads.cursor.com/local-mode/` URL with a bounded version is accepted (a Linux
 `.AppImage.zsync` delta-metadata URL is mapped to its sibling `.AppImage`); anything else
@@ -102,7 +118,7 @@ client registry + export context
   -> build managed contribution
   -> load and parse current config
   -> classify exact recorded fragments
-  -> snapshot prior bytes
+  -> snapshot prior bytes (on a size refusal before mutation, the store discards its unused snapshot by validated client/operation IDs; committed, owned, or uncertain evidence survives; report cleanup failures with its recovery path)
   -> merge or remove only recorded paths
   -> compare current bytes again
   -> atomic write
@@ -115,9 +131,9 @@ added only to a writer would let a mutation bypass the state users saw.
 
 ## Read-only mutation plans
 
-An operator confirming apply, overwrite, disable or undo is agreeing to consequences they were
-never shown. A plan is what shows them, and it is only trustworthy if it describes the operation
-that will actually run.
+The CLI owner `src/cli/integration-preview.ts` exposes the same preview and optional flat operation/planFingerprint binding. `src/cli/integration-plan-dto.ts` validates structural plans at the wire boundary; `src/cli/integration-input.ts` preserves exact profile/default-map intent. Droid map omission inherits, explicit entries replace, and clear sends an empty map. `src/cli/integration-journal.ts` retires confirmed history entries through existing owners and reports snapshot cleanup separately; `src/cli/integration-aside-sync.ts` uses the established attested sync helper unchanged. Neither command creates new management authority.
+
+An operator confirming apply, overwrite, disable or undo is agreeing to consequences they were never shown. A plan is what shows them, and it is only trustworthy if it describes the operation that will actually run.
 
 One observation serves both. `mutation-plan.ts` owns the read, parse, contribution build, record
 selection and classification that the writer used to perform itself, so a preview and the mutation
@@ -138,8 +154,7 @@ the resulting configuration for projection and retention. A superseded gather ap
 to its detached projection and retains no snapshot; a failed discovery commit refuses the export.
 The identity a caller carries between a preview and the
 mutation that confirms it is process-local and opaque, and describes nothing about the
-configuration. The
-Integrations collection read populates one when discovery succeeds and the configuration can be
+configuration. The Integrations collection read populates one when discovery succeeds and the configuration can be
 identified, so the page an operator opens before confirming anything is the usual way back rather
 than a guarantee.
 
@@ -147,8 +162,7 @@ Each operation is decided the way that operation decides it. Apply checks instal
 admission before the classifier and reports a conflict ahead of unsafe; disable asks neither,
 because removing what we wrote from a file that still exists is meaningful regardless of
 installation; restore reads the journal row and the target's bytes and never parses, so a file
-that is readable but unparseable is still restorable. An operation that would write nothing says
-so and names no places.
+that is readable but unparseable is still restorable. An operation that would write nothing says so and names no places.
 
 Published paths are declared, not inferred. Every client states where its managed fragments live,
 a path is emitted only on an exact template match, and the string emitted is the template rather
@@ -187,10 +201,10 @@ their existing visibility rules.
 
 ## Owned catalog convergence
 
-Visibility, selected-model and preset writes refresh already-owned Pi/Aside contributions after
-persisting the selection. Explicit sync refreshes MCode, Pi and Aside. The shared catalog-refresh
+Visibility, selected-model and preset writes refresh already-owned catalog contributions (including OpenCode, Kilo and
+Command Code) after persisting the selection. Explicit sync also refreshes owned OpenCode, Kilo and Command Code blocks. The shared catalog-refresh
 fan-out loads the filtered roster lazily once, leaves unowned clients alone, and reports each
-refusal independently. Existing coordinated writers retain all no-clobber and ownership checks.
+refusal independently. Existing coordinated writers retain all no-clobber and ownership checks. A background catalog auto-refresh that changes the served set calls `syncEnabledClientIntegrations` unattended from `src/server/background-lifecycle.ts`: it refreshes only an existing Grok fence, a Desktop gateway profile that is still selected and byte-identical to the last applied write (keeping its static, hybrid or discovery mode), and owned file and Aside blocks without a first apply; it skips Cline, honours the hub and sibling gate, and the coordinated writer's synchronous `guard` refuses any write once the scheduler generation has stopped or the owner captured for that delivery has revoked fan-out admission or released its lease; a later delivery may select a surviving owner. Each write also requires the projection's configuration snapshot to remain current, ignoring only Desktop's applied fingerprint and timestamp; Grok rechecks its complete fence and refuses symlinked config or backup paths inside the synchronous injector, then revalidates admission and unchanged regular-file bytes in the no-follow writer's pre-rename hook without copying a backup.
 Implicit refresh operations use distinct flight keys: overlapping desired catalogs return busy
 rather than joining a write of a different catalog and reporting false success.
 On a sibling instance ([Codex home](../codex-home.md#codex-home)), including one identified from another home's managed client destination, `src/integrations/catalog-refresh.ts`
@@ -211,11 +225,35 @@ is available; otherwise the operator refreshes the integration or client catalog
 
 ## Model output limits
 
-OpenCode, Pi-family clients, OMP and Gajae export the explicit model `maxTokens` when valid (a catalog
+OpenCode, Kilo, Pi-family clients, OMP and Gajae export the explicit model `maxTokens` when valid (a catalog
 row's `maxOutputTokens`, carried by `toExportModel` in `src/server/management/model-rows.ts` and by
 `opencodeCatalogFromProxyRows` in `src/cli/opencode.ts`), otherwise the generated metadata limit for the provider and model ID (including provider aliases).
 Only unknown limits fall back to 32000. Every output limit is clamped to the authoritative
 context window; absent context still omits both limits. Fast rows preserve these limits.
+
+`src/clients/config-export/model-metadata.ts` carries a valid explicit input budget without a guessed fallback,
+clamping it to context. `src/clients/config-export/reasoning-metadata.ts` preserves the distinction between
+an unknown effort ladder and an explicit empty ladder, canonicalizes declared efforts (including `none`),
+and carries only an authoritative valid default. A default outside an explicit ladder is omitted rather
+than reviving a cleared capability. Exporters do not invent a medium default for reasoning models.
+
+`src/server/management/model-row-export-metadata.ts` resolves custom-row inheritance without
+backfilling the stored override fields the editor reads. Management rows attach `exportMetadata`;
+its presence makes even an absent default authoritative, so export/launcher projections cannot
+fall back to the picker's synthesized medium/low preference. Declared empty ladders survive.
+OpenCode V1 and Kilo use model `options` defaults and variant maps; OpenCode V2 uses model
+`settings` defaults and native variant arrays with `@opencode/ai/providers/openai-compatible`.
+Declared variants, including `none`, override those defaults. V2 always writes an array, empty
+when no choices are declared; legacy OpenCode and Kilo reasoners without adjustable efforts disable
+every synthesized rung. An unrelated disabled sentinel cannot remove generated IDs from their
+merged variant maps. Neither adds selectable choices. Known reasoning uses the proxy's
+`reasoning_content` compatibility field for streaming and replay. Upstream effort pinning remains
+proxy-owned and is not bypassed by client variants.
+V2 emits native capabilities only with a known tools boolean (required by its schema); unknown
+tools leave capabilities absent and known image input survives through legacy modality migration.
+`tests/clients/client-export-live-wire.test.ts` opts into real binaries through
+`OCX_TEST_OPENCODE_BIN` / `OCX_TEST_KILO_BIN`, using isolated homes and local mock upstreams;
+it verifies wire efforts, suppression, tools, reasoning replay, images and the real proxy chain.
 
 ## Model input capability exports
 
@@ -223,7 +261,8 @@ All registered integrations consume the shared catalog, including [Anthropic see
 
 | Client | Per-model output |
 | --- | --- |
-| OpenCode, Kilo | `attachment`, `modalities.input` |
+| OpenCode V1, Kilo | `attachment`, `modalities.input` |
+| OpenCode V2 | native `capabilities.input`, `capabilities.output`, and known `capabilities.tools` |
 | Pi, OMP, Prime, Aside, omo, Gajae, DSH | `input` (text/image only) |
 | ZCode | `modalities.input` (text/image only) |
 | Cline | `modalities.input`, `supportsVision` |
@@ -286,8 +325,7 @@ runtime-derived fields back into an owned fragment may additionally record:
 - `protectedBlockFingerprint`: the contribution fingerprint after only those paths are removed.
 
 The paths are stored with the operation instead of recomputed from the latest catalog. That keeps a
-later catalog expansion from silently widening what an older ownership record allows. Malformed or
-incomplete policy records fail closed.
+later catalog expansion from silently widening what an older ownership record allows. Malformed or incomplete policy records fail closed.
 
 ## ZCode Runtime Metadata
 
@@ -322,16 +360,17 @@ location: it carries the text format of that file, the contribution shape its re
 and the predicate that decides whether a document on disk is a version whose shape has been
 observed. Naming the store without the last three would be naming a file we cannot write.
 
-`src/integrations/target.ts` turns that declaration into the one answer every surface uses: which
-file this operation reads, writes, journals and records, and whether a write there reaches the
-client. It decides from three facts, in order:
+`src/integrations/target.ts` turns that declaration into the one answer every surface uses: which file this operation reads, writes, journals and records, and whether a write there reaches the client. It decides from three facts, in order:
 
-1. No declared store, or no store on disk — the config file, unchanged. A client that has never run
-   still imports what we write there, which is why the rule keys on the store's presence rather
-   than on a client version.
-2. This project's own block already in one of the two files — that file. Disable removes what we
-   wrote from where we wrote it, and no apply leaves a block in one file while writing another.
+1. No declared store, or no store on disk — the config file, unchanged, unless the declaration's `missingStore` says the client still reads the absent store; that is an ineffective write carrying its remedy; status rows and refused previews also publish `supersededReason` and the store's `missingStoreDocument`, so the dashboard names what to create in its own language. A client that has never run still imports what we write there, which is why the rule keys on the store's presence rather than on a client version.
+2. This project's own block already in one of the two files — that file. Disable removes what we wrote from where we wrote it, and no apply leaves a block in one file while writing another.
 3. Otherwise the store, and only when its schema establishes.
+
+ZCode resolves absolute `dataBaseDir` from the default-home `~/.zcode/v2/setting.json` through the caller's `IntegrationIO`, moving data to `<base>/.zcode/v2`. `ZCODE_DATA_DIR` overrides the `.zcode` root directly; `ZCODE_PERSONAL_PROVIDER_CONFIG_FILE` overrides the store. Native `ZCODE_DATA_BASE_DIR` is not an alias.
+The registry resolves config, detection and store from one bootstrap read. Synchronous observations re-read after coordinator awaits; store-lock and restore probes share the injected IO. Malformed, unreadable or relative settings refuse apply/overwrite/refresh as an unknown active root. Only a present explicit provider file can establish the store independently.
+Default ZCode bootstrap path resolution uses the same bounded regular-file reader as integration operations. A final symlink, FIFO or file above 4 MiB leaves the active root unknown. A missing bootstrap file or valid settings without `dataBaseDir` uses the default root; failed reads never fall back. An explicit `ZCODE_DATA_DIR` still bypasses bootstrap discovery.
+
+Owned legacy config and default-root store paths retain their fingerprints and recovery evidence after relocation: refresh refuses, disable and undo use the original file, and an older undo refuses while a different path owns the record. Unknown settings retain recognized historical recovery targets; an unrecognized prior selector must be restored before mutation. Contract: `tests/clients/integrations-current-store.test.ts`.
 
 Four properties are load-bearing:
 
@@ -345,14 +384,11 @@ Four properties are load-bearing:
   before the client created its store cannot be committed afterwards — and neither can one taken
   before the store's schema version moved under an unchanged path.
 - Disable is never gated on it. Removing bytes this project wrote from the file it wrote them to is
-  unaffected by where the client reads, and refusing it would leave the block unremovable through
-  the tool.
+  unaffected by where the client reads, and refusing it would leave the block unremovable through the tool.
 
 Writing the store does not relax ownership anywhere. The store keys a model rule by the pair
 `(providerId, modelId)`, so the managed path names both: a selector naming only the model would
-match another provider's rule for the same model and replace it. A rule carrying this project's
-provider id that no record accounts for — including one the client's own migration created — is a
-conflict, and the explicit overwrite remains the only way past it.
+match another provider's rule for the same model and replace it. A rule carrying this project's provider id that no record accounts for — including one the client's own migration created — is a conflict, and the explicit overwrite remains the only way past it.
 
 Persisted selector segments have two disjoint grammars owned by `src/integrations/merge.ts`.
 An unversioned `[field=value]` segment is permanently a one-criterion selector; commas and later
@@ -362,14 +398,23 @@ the shared formatter. A segment beginning with that reserved marker but failing 
 grammar is unreadable rather than a plain key or a v1 selector, so malformed persisted bytes cannot
 silently select a different element.
 
-A store whose schema cannot be established is reported, never merged into. That file holds the
-user's other providers and the client rewrites it on its own, so asserting a nesting we have not
+A store whose schema cannot be established is reported, never merged into. That file holds the user's other providers and the client rewrites it on its own, so asserting a nesting we have not
 observed would trade a silent no-op for a silent loss. Status reports the store beside the file
 state rather than folding it into the state: `current` remains the truth about the file, and the
 notice appears only when the client reads some other file than the one the state is about.
 
 Deleting the client's store to re-trigger its own import is not implemented and must not be. It
 discards every provider the client keeps there.
+
+DSH is the second instance: from 0.1.7 it imports `$DSH_HOME/settings.yaml` once into the first
+booted profile and hot reloads routes from the `llm-pi-ai` row of the store, the Desktop profile's
+`profiles/desktop/cordis.patch.yml` (a home patch row would replace that row's whole `config`). The
+file is a top-level list of loader rows, so the managed path starts with `[id=llm-pi-ai]`: `merge.ts`
+keeps a sequence root, the source patcher rewrites that entry with its `- ` and indent restored byte
+for byte, `[]` is the only flow form adopted or written back, and a created row pruned to its selector
+is removed. `IntegrationTarget` carries its own `sourcePreservingYaml`. Writes hold `settings.yaml.lock`,
+then the profile's `package.json.lock`, re-probing the profile after each revalidation await; refresh
+keeps the selected row in place, and restore refuses to recreate a missing profile directory unlocked. A profile with `package.json` but no patch is refused: DSH renames `settings.yaml` to `settings.yaml.imported` on startup, which would orphan the ownership record.
 
 ## Verification
 
@@ -421,9 +466,17 @@ connection defaults all profiles on; explicit per-profile changes materialize th
 pin one legacy root owner before changing it. Sibling stores remain independent. Policy saves
 precede coordinated writes under one scoped flight, and actual file state/refusals remain
 separate. Restore reconciles target intent from validated snapshot ownership without changing
-sibling policy. Profile journal views retain source-store provenance for older legacy entries.
+sibling policy. Profile journal views retain source-store provenance for older legacy entries. A profile that is off beside a stale block is never re-enabled automatically; the CLI names its preview-then-enable recovery (`src/cli/aside-profile-recovery.ts`), and a malformed policy that falls back to all-off produces a load-time warning.
 
 The shared atomic replacement publisher also identifies explicit Remote Workspace file writes as `remote-workspace`; its isolated owner and support limits are documented in [Remote Workspace](../remote-workspace.md).
+
+## Gentle Shell home discovery
+
+The `gentle-shell` client reuses Pi's serializer/options but stamps its own ownership identity for `providers.opencodex`. The registry resolves config and detect paths from one bootstrap read per observation; export uses that same resolver. Owned-catalog refresh includes this client, while Pi's existing path and behavior remain unchanged.
+
+`src/clients/gentle-shell-path.ts` resolves the persistent launcher home from `GENTLE_SHELL_CONFIG` (default `~/.gentle-shell/config.json`) and its `home` selector. Saved custom paths win over `GENTLE_SHELL_HOME`; isolated/default selection uses that variable or `~/.gentle-shell/agent`. Malformed JSON follows the launcher's isolated fallback, but an unreadable, unsafe or oversized bootstrap refuses discovery. Relative paths (including literal `~`) refuse: a proxy cannot infer another process's working directory. One-off launcher flags are not observable by this integration.
+
+Link mode and destinations aliasing Pi's default, configured or preserved original home refuse with a Pi-integration remedy. Canonical existing ancestors and existing file identities catch directory aliases and hard-linked catalogs. The resolver never changes launcher preferences or client files. The existing writer retains responsibility for target validation, ownership, snapshots and atomic replacement.
 
 ## omo variants
 
@@ -432,7 +485,7 @@ The shared atomic replacement publisher also identifies explicit Remote Workspac
 | Variant | Its own evidence | opencodex surface |
 | --- | --- | --- |
 | Pi-based omo (senpi engine) | `~/.omo/agent`, or `OMO_CODING_AGENT_DIR` / `SENPI_CODING_AGENT_DIR` / `PI_CODING_AGENT_DIR` (`omoAgentDir()`) | the `omo` file integration and tab, `providers.opencodex` in `models.json` |
-| Codex-based omo (LazyCodex) | `[plugins."omo@sisyphuslabs"] enabled = true` in `$CODEX_HOME/config.toml` plus `lazycodex-install.json` in an installed copy under `$CODEX_HOME/plugins/cache/sisyphuslabs/omo/<version>/` (`detectLazyCodex()` in `src/clients/lazycodex.ts`) | role model pins and the omo.jsonc mirror below, on the Codex tab |
+| Codex-based omo (LazyCodex) | `[plugins."omo@sisyphuslabs"] enabled = true` in `$CODEX_HOME/config.toml` plus `lazycodex-install.json` in an installed copy under `$CODEX_HOME/plugins/cache/sisyphuslabs/omo/<version>/` (`detectLazyCodex()` in `src/clients/lazycodex.ts`) | role model pins and the omo.jsonc mirror below, in their own section of the omo tab |
 | OpenCode-based omo (oh-my-opencode) | its config under OpenCode | none; nothing here reads or writes it |
 
 `~/.omo` alone identifies none of them: Pi-based omo and LazyCodex both use it.
@@ -441,24 +494,29 @@ The shared atomic replacement publisher also identifies explicit Remote Workspac
 
 Separate from the `models.json` provider integration above, and only when `detectLazyCodex()`
 reports LazyCodex installed, `src/clients/omo-role-models.ts`
-mirrors a dashboard or `ocx agent roles set` pick into `codex.agents.<role>.model` of
+mirrors a dashboard or `ocx agent roles set` pick into `[codex].agents.<role>.model` of
 `~/.omo/omo.jsonc`, which LazyCodex 5.1.1 and later reads. The home is resolved the way omo
 resolves it: `HOME`, then `USERPROFILE`, then the OS home. This write has no ownership record,
-snapshot, or journal. It changes one value the user just chose and leaves every other key as it
+snapshot, or journal. It changes the role's `model` when the request carries one (an effort-only save keeps it, and creates an absent entry only to hold `reasoning`) and, when the request carries an effort, its `reasoning` (Codex `none` becomes `off`; a level LazyCodex lacks, such as `ultra`, removes a stale `reasoning`; an effort of JSON `null` removes `reasoning` along with the role file's `model_reasoning_effort`; a model-only save keeps it), and leaves every other key as it
 was, re-serialized with the file's indentation, line endings, and BOM.
 
 It never creates the file and never writes one it would damage: a missing file reports
-`absent`, a document that is not an object or whose `codex`, `codex.agents`, or role entry is
+`absent`, a document that is not an object or whose `[codex]`, `[codex].agents`, or role entry is
 not an object reports `invalid`, and a file containing any `//` or block comment reports
 `skipped_comments`, because re-serializing JSONC would drop those comments. The management
 response carries that status and the dashboard shows it; the role TOML write described in
 [subagents](../subagents.md#per-role-model-pins) is not rolled back by a skipped mirror.
+The loader binds validation and reading to one file descriptor and rejects a path whose
+directory entry no longer identifies that opened regular file. Device and inode comparisons use
+bigint stats to preserve exact identities. On POSIX, `O_NOFOLLOW` rejects
+symlinks at open and `O_NONBLOCK` lets the regular-file check reject a FIFO without waiting
+for a writer. Windows omits those POSIX flags and retains the descriptor/path identity checks;
+those checks do not claim POSIX no-follow open semantics.
 An explicit `null` in any of those three places counts as not an object. A file that exists but
 cannot be read lists as `unreadable`, so the role table still loads, and a save reports
 `write_failed` for the mirror.
 Without LazyCodex, `GET /api/codex-agent-roles` answers `lazycodex.detected: false` with no roles
-and without opening omo.jsonc, and `PUT` answers 409 `lazycodex_not_detected` before touching a
-role file.
+and without opening omo.jsonc, and `PUT` answers 409 `lazycodex_not_detected` before touching a role file.
 
 ## Kilo global JSONC
 
@@ -467,7 +525,7 @@ Kilo owns only `provider.opencodex` in the first existing global file among `kil
 (`XDG_CONFIG_HOME` relocates that directory); when none exists, the destination is
 `kilo.jsonc`. Parse accepts JSONC comments and trailing
 commas; serialize rewrites the whole file as pretty JSON, so comments in other keys are
-not preserved. Kilo is not on the implicit owned-catalog fan-out. Remote admission uses
+not preserved. Kilo and OpenCode participate in the implicit owned-catalog fan-out; unowned, removed or hand-edited blocks are never claimed or overwritten. Remote admission uses
 the same `{env:OPENCODEX_KILO_API_KEY}` / `x-opencodex-api-key` rule as OpenCode.
 All candidate files are inspected through the no-follow, bounded parser before status or
 any operation that adds or replaces a block. If another candidate defines
@@ -498,6 +556,16 @@ holds the single ownership record. Committing the older row's prior record would
 ownership back at the old file and leave the active block on disk with nothing to
 disable it.
 
+## Command Code
+
+Command Code owns one block in `~/.commandcode/providers.json`. Shipped `command-code@1.66.0`
+resolves `env.HOME ?? env.USERPROFILE` plus that path with no relocation variable, so
+`commandCodeHomeDir` takes no override. On Windows, `commandCodeUserHome` resolves the default home as `HOME ?? USERPROFILE` (non-blank and Windows-absolute) to match the client, preserving an injected home (tests or writer `input.home`). Reader `e.provider ?? e.providers` prefers singular:
+`commandCodeProviderRoot` mirrors that against the target and writes under the existing root
+(singular for fresh files); both roots are in `CLIENT_MANAGED_PATHS` so Disable removes either.
+Uses keyless `apiKey: false`; no service-token is read. Contract: `tests/clients/command-code-client-contract.test.ts`.
+`src/cli/integrations.ts` pins Command Code restore requests to `/api/client-integrations/commandcode/restore` and its `/preview` path, including fingerprint-bound calls through `src/cli/integration-preview.ts`. The path supplies the fixed client; a conflicting body identity is refused. Old servers reject these paths, and scoped CLI calls neither follow redirects nor retry a generic endpoint. The management restore and restore-preview endpoints validate this optional identity against the journal before profile delegation or mutation; invalid identities return 400, absent root operations 404, and different clients 409. Generic calls without the field retain their existing restore semantics. Client-specific restore rejects client/profile selector overrides. `tests/server/management-integration-routes.test.ts` and `tests/cli/cli-integration-preview.test.ts` cover the binding and unchanged state on refusal.
+
 ## Cline paired files
 
 Cline CLI uses `providers.json` for connection settings and sibling `models.json` for its
@@ -523,3 +591,5 @@ complete ownership, exact Cline paths and result fingerprints before either nati
 Native pair writes replace the named directory entries without following final symlinks. A symlink
 present at validation is refused, and one exchanged into place during a mutation is refused rather
 than redirecting OpenCodex's write outside Cline's settings directory.
+
+Routed `ocx claude` launches apply opt-in `claudeCode.subagentModelForce` via independent user-wins defaults for `CLAUDE_CODE_SUBAGENT_MODEL` and `CLAUDE_CODE_SUBAGENT_MODEL_FORCE`. Native launches add neither; plain Claude and persistent settings remain unchanged. Claude Code 2.1.257+ implements force, excluding forks and inherit-model skills; main and small-fast models remain separate.

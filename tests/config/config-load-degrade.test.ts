@@ -1,3 +1,4 @@
+import { resolveProtocolSettings } from "../../src/protocols/settings";
 import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -183,6 +184,24 @@ test("load preserves valid auto-review selectors and trims boundary whitespace",
 
   expect(loaded.providers.xai.autoReviewModel).toBe("openai/gpt-test");
   expect(loaded.providers.xai.autoReviewModelOverrides).toEqual({ "glm-5.2": "gpt-test" });
+});
+
+test("load drops a malformed global auto-review override and keeps a valid one", () => {
+  const defaults = getDefaultConfig();
+  const write = (autoReviewOverride: unknown) => writeFileSync(getConfigPath(), JSON.stringify({
+    ...defaults,
+    defaultProvider: "xai",
+    providers: { xai: { adapter: "openai-responses", baseUrl: "https://api.x.ai/v1", note: "keep me" } },
+    autoReviewOverride,
+  }), "utf8");
+
+  write({ enabled: "yes", model: "bad selector" });
+  const dropped = loadConfig();
+  expect(dropped.autoReviewOverride).toBeUndefined();
+  expect(dropped.providers.xai.note).toBe("keep me");
+
+  write({ enabled: true, model: "9router/ocg-muse-spark-1.3-contributor" });
+  expect(loadConfig().autoReviewOverride).toEqual({ enabled: true, model: "9router/ocg-muse-spark-1.3-contributor" });
 });
 
 test("Fast rows default on for fresh and omitted config; explicit false and malformed values disable", () => {
@@ -452,4 +471,82 @@ test("an ambiguous credentialGroups declaration is rejected on write, never orde
   ]));
   expect(valid.ok).toBe(true);
   expect(valid.ok === true && valid.config.pool?.credentialGroups).toHaveLength(1);
+});
+
+
+test("malformed native pool preferences preserve providers on file load but reject candidate writes", () => {
+  for (const nativeMessages of ["false", null, 0]) {
+    const config = {
+      ...candidate(undefined),
+      providers: { xai: { ...candidate(undefined).providers.xai, apiKey: "fixture-key-preserved" } },
+      anthropicAccountPool: { enabled: true, nativeMessages, stickyLimit: 3 },
+    };
+    writeFileSync(getConfigPath(), JSON.stringify(config), "utf8");
+    const loaded = loadConfig();
+    expect(loaded.providers.xai).toMatchObject({ note: "keep me", baseUrl: "https://api.x.ai/v1", apiKey: "fixture-key-preserved" });
+    expect(loaded.anthropicAccountPool).toMatchObject({ enabled: true, nativeMessages: false, stickyLimit: 3 });
+    expect(readConfigDiagnostics().config.providers.xai).toMatchObject({ note: "keep me" });
+    const rejected = validateConfigCandidate(config);
+    expect(rejected.ok).toBe(false);
+    if (!rejected.ok) expect(rejected.error).toContain("anthropicAccountPool.nativeMessages");
+  }
+});
+
+test("malformed native pool blocks preserve unrelated providers on file load", () => {
+  for (const anthropicAccountPool of [null, "false", 0]) {
+    const config = { ...candidate(undefined), anthropicAccountPool };
+    writeFileSync(getConfigPath(), JSON.stringify(config), "utf8");
+    expect(loadConfig().providers.xai).toMatchObject({ note: "keep me", baseUrl: "https://api.x.ai/v1" });
+    expect(readConfigDiagnostics().config.providers.xai).toMatchObject({ note: "keep me" });
+    expect(validateConfigCandidate(config).ok).toBe(false);
+  }
+});
+
+
+test("malformed protocol containers and siblings retain disabled native policy and providers on load", () => {
+  for (const protocols of [null, "on", [], { rollout: null }, { rollout: [] },
+    { unrepresentable: "bad", rollout: { managedMessagesNative: false, managedMessagesNativeOAuth: true } },
+    { rollout: { managedMessagesNative: false, shadowPlan: "true" } },
+    { rollout: { managedMessagesNative: "true", managedMessagesNativeOAuth: true } },
+    { extra: true, rollout: { managedMessagesNative: false } },
+  ]) {
+    const raw = { ...candidate(undefined), protocols, anthropicAccountPool: { enabled: true, stickyLimit: 4 } };
+    writeFileSync(getConfigPath(), JSON.stringify(raw), "utf8");
+    for (const loaded of [loadConfig(), readConfigDiagnostics().config]) {
+      expect(loaded.providers.xai).toMatchObject({ note: "keep me" });
+      expect(loaded.anthropicAccountPool).toMatchObject({ enabled: true, stickyLimit: 4 });
+      expect(resolveProtocolSettings(loaded, "anthropic").rollout).toMatchObject({ managedMessagesNative: false, managedMessagesNativeOAuth: false });
+      expect(loaded.protocols?.rollout?.managedMessagesNative).toBe(false);
+    }
+    expect(validateConfigCandidate(raw).ok).toBe(false);
+  }
+});
+
+test("a malformed Aside profile sync policy warns once without echoing it and keeps the all-off fallback", () => {
+  const warn = spyOn(console, "warn").mockImplementation(() => {});
+  try {
+    const raw = { ...candidate(undefined), asideProfileSync: { profiles: { "0": "secret-shaped-aside-off" } } };
+    const bytes = JSON.stringify(raw);
+    writeFileSync(getConfigPath(), bytes, "utf8");
+    const loaded = loadConfig();
+    expect(loaded.asideProfileSync).toEqual({ allProfiles: false });
+    expect(loaded.providers.xai).toMatchObject({ note: "keep me" });
+    const messages = warn.mock.calls.flat().join("\n");
+    expect(messages.match(/asideProfileSync is invalid/g)).toHaveLength(1);
+    expect(messages).toContain("ocx integration client status --client aside");
+    expect(messages).not.toContain("secret-shaped-aside-off");
+    expect(readFileSync(getConfigPath(), "utf8")).toBe(bytes);
+    for (const invalid of [null, [], "on", { allProfiles: "yes" }, { profiles: { "01": true } }, { legacyProfileId: -1 }]) {
+      warn.mockClear();
+      writeFileSync(getConfigPath(), JSON.stringify({ ...candidate(undefined), asideProfileSync: invalid }), "utf8");
+      expect(loadConfig().asideProfileSync).toEqual({ allProfiles: false });
+      expect(warn.mock.calls.flat().join("\n").match(/asideProfileSync is invalid/g)).toHaveLength(1);
+    }
+    for (const valid of [undefined, { allProfiles: true }, { profiles: { "0": false } }, { allProfiles: false, futureKey: "kept" }]) {
+      warn.mockClear();
+      writeFileSync(getConfigPath(), JSON.stringify({ ...candidate(undefined), asideProfileSync: valid }), "utf8");
+      loadConfig();
+      expect(warn.mock.calls.flat().join("\n")).not.toContain("asideProfileSync");
+    }
+  } finally { warn.mockRestore(); }
 });

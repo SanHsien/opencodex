@@ -435,7 +435,7 @@ test("convergence preserves one configured soft budget on bare and account-nativ
   for (const slug of ["gpt-5.6-sol", "desktop/gpt-5.6-sol", "team/gpt-5.6-sol"]) {
     expect(models.find(entry => entry.slug === slug)).toMatchObject({
       context_window: 272_000,
-      max_context_window: 272_000,
+      max_context_window: 922_000,
       auto_compact_token_limit: 120_000,
     });
   }
@@ -505,7 +505,7 @@ test("convergence projects the observed Daybreak row onto its selector and one b
     visibility: "list",
     opencodex_catalog_kind: CODEX_ACCOUNT_BOUND_CATALOG_KIND,
     context_window: 272_000,
-    max_context_window: 272_000,
+    max_context_window: 922_000,
     auto_compact_token_limit: 244_800,
     comp_hash: "3000",
     tool_mode: "code_mode_only",
@@ -705,6 +705,9 @@ test("retained and convergence writers resolve, clear, reject, and recover auto-
 
   for (const writer of ["retained", "convergence"] as const) {
     const write = async (nextConfig: OcxConfig): Promise<RawCatalog> => {
+      // A refresh may clear every routed row only while config.json is a readable file (#6529),
+      // and the provider-emptied step below does exactly that, as a real save would.
+      saveConfig(nextConfig);
       if (writer === "retained") {
         const result = await syncCatalogModels(nextConfig);
         expect(result.catalogWritten).toBe(true);

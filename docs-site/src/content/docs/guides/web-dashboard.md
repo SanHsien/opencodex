@@ -71,6 +71,8 @@ host and port over a LAN IP or an alias.
 
 ## Dashboard layout
 
+The sidebar has eight rows, in order: **Dashboard**, **Connect**, **Codex**, **Providers**, **Models**, **Subagents**, **Usage & Logs**, and **Remote Link**. **Connect** opens the page headed **Connect**, with its tab strip ordered **Codex**, **Claude**, **Claude Desktop**, **Grok Build**, then the remaining integrations. Claude has no sub-tabs; it shows the Claude Code settings directly. Claude Desktop is a separate Connect tab at `#claude/desktop`. Connect has no section switcher. **Subagents** opens Subagents and groups Subagents and Advisor (`#advisor`) with a pill-shaped section switcher. **Usage & Logs** opens Usage and groups Usage, Logs & Debug, and Storage with a pill-shaped section switcher. The last row, **Remote Link**, groups Remote Link (`#remote`) and Remote Workspace (`#remote-workspace`, when available) with the same switcher. **Codex** is the renamed **Codex Set** row; the preserved URLs include `#codex-set`, `#claude`, `#claude/code`, and `#claude/desktop`; the former `#claude/settings` bookmark opens Code. The former `#claude/account` bookmark redirects to `#providers?provider=anthropic&tab=accounts`. Startup (`#startup`) stays outside the sidebar.
+
 Responses first-output timing includes streamed function arguments and custom-tool input, as well
 as text and reasoning. A tool-only turn can therefore have a first-output time even without prose.
 Empty deltas and tool-start notifications do not start this timer. It measures the proxy's first
@@ -109,6 +111,7 @@ is visible) and never forces an upstream refresh.
 | Area | What it does |
 | --- | --- |
 | **Dashboard summary** | Multi-agent mode, online state, version, uptime, provider count, 30-day token total, active providers, and available native/routed models. |
+| **Native reasoning retention** | Independently opt into reasoning ciphertext forwarding on native model or account changes. Both default off; account retention is experimental. See [the configuration scope](/reference/configuration/server/#native-reasoning-retention). |
 | **Sub-agent delegation** | Choose a native or routed model and optional reasoning effort shared by OpenCodex delegation guidance and the separate native-default opt-in. This is not a proxy-side per-spawn router; see below. |
 | **Sidecars** | Choose the web-search model and effort plus the vision-description model. Changes apply on the next request. |
 | **Maintenance** | Resync the Codex model catalog, inspect project-local config bypass warnings, check the latest or preview release, and run an update with optional proxy restart. In the desktop shell, its update entry opens the native app update page instead of running the package updater. |
@@ -141,10 +144,22 @@ timer. Requests already sent upstream retain their original credentials.
 
 ### Filtering request logs
 
+A proxy replay refusal keeps HTTP 429 and error code `upstream_reset_replay_refused`, but
+its request and attempt failure cause is `transport-ambiguous`, with resend permission
+`refused-ambiguous`: the upstream may already have processed the turn. A genuine provider
+429 remains `rate-limit` with resend permission `permitted`.
+
+A Codex move to another account after HTTP 402 appears as **Account quota exhausted (402)**
+in the attempt's recovery details and counts as a quota recovery in exported metrics.
+
 Logs filters combine surface, intercepted requests, provider, exact model, status, time,
 speed, and conversation ID over the currently loaded request ring. Provider and model
 choices also include fallback attempts; model matching ignores case and surrounding spaces
 but does not match partial names. Choices that disappear from the ring reset to All.
+The conversation field also accepts a pasted `codex://threads/<id>` deep link, the form a
+Codex "copy session link" puts on the clipboard — the wrapper and any link metadata such
+as `?hostId=…` are ignored and the bare thread id is matched, the same value an
+`ocx logs filter --conversation` search unwraps.
 
 Time windows cover the last 15 minutes, hour, or day and refresh every 30 seconds while the
 Logs tab is active, even with auto-refresh off. Windows use the proxy timestamp from
@@ -154,10 +169,26 @@ fallback until a valid sample is available. Speed uses output tokens per second 
 full request duration: below 15, 15 to below 50, or at least 50. Unavailable speed values are
 excluded when a speed filter is active. Success means 2xx; errors mean 4xx or 5xx.
 
+Logs labels each decode estimate **Generation window** or **After visible output** in the list
+and attempt table, and uses **Output rate during generation (est.)** or
+**Output rate after first visible output (est.)** in request details. Older cached responses
+without a timing method show **Timing unknown** and **Output rate (est.; timing method unknown)**
+in details. A visible caption below the detail rate explains the timing method; an unavailable
+rate has no caption. When the proxy observed both ends, it is
+output tokens over the generation window: from the first output item or block, reasoning included,
+to the last output delta. Older rows without that window use the time after the first visible
+token until the end of the request instead. Both are proxy-side observations, not the provider's internal token timing, so the
+value is always an estimate, and a window under one second shows as unavailable. Both numerators
+include reported reasoning output tokens, so the two timing bases are not directly comparable.
+Historical logs are not rewritten and missing generation timestamps are not invented. The end-to-end
+tok/s column and speed filter above are not affected.
+
 Active filters show the matching count out of the loaded total. Reset filters restores all
 rows and returns keyboard focus to the All surface control; “No matching requests”
 differs from an empty log ring. Use arrow keys or Home/End in
 the surface selector. These controls do not query historical records beyond the loaded ring.
+
+The language picker includes **Português** (Brazilian Portuguese, `pt-BR`). Portuguese browser languages select it automatically unless a supported language preference is already saved.
 
 ### Linking to a section
 
@@ -172,9 +203,17 @@ For a custom usage interval, the server must confirm the exact requested start a
 If an older running proxy does not support those bounds, the dashboard and CLI reject its report;
 upgrade and restart that proxy before retrying. Resetting a manual model price affects only that
 model, preserving other rates saved independently.
+The **Usage** summary and Models/Providers tables show end-to-end output throughput from usage history for the selected range and filters: summed output tokens divided by summed wall-clock seconds, not an average of individual rates. The sample count is measured attempts (or requests for legacy rows without attempts); samples lacking positive finite output tokens or duration are excluded. An em dash means no sample qualified or the server returned an unusable rate. This includes pre-decode waiting and is not estimated decode speed.
+
 The **Usage** Models and Providers tables show the estimated priced portion for each row. Requests
 without a matching price or usable usage are counted as excluded beside that amount when the proxy
-reports pricing coverage fields. A row with only excluded requests shows an em dash with that count
+reports pricing coverage fields. Usage that was only partly measured (`unreported` or `unsupported`)
+is not priced, and one excluded part excludes the whole request from that row's priced count. A
+leg that reached no upstream, or that upstream refused with an HTTP error before any output, spent
+nothing and does not; a client cancellation (499), or a leg whose response began or ended without
+a status but reported no usage, may have been billed, so it does. A refusal followed by a measured
+successful send contributes that send's cost to the summary even when the aggregate usage status
+is `unreported`. A row with only excluded requests shows an em dash with that count
 instead of a zero-dollar estimate, and a displayed zero-dollar value is a confirmed priced estimate.
 An older proxy that reports no coverage fields keeps a bare em dash with no count, so missing
 coverage stays distinct from an all-excluded row and from a confirmed zero estimate.
@@ -200,6 +239,11 @@ new or that every upstream measurement was refreshed.
 ## Model visibility
 
 The **Models** switches show final Codex visibility: a routed model is on only when its provider allowlist includes it (or no allowlist is set) and it is not disabled. Turning a model on reconciles both filters atomically; **All on** clears the provider allowlist so newly discovered models are also on.
+
+Switches respond immediately so you can keep changing models while saves run in the background in
+click order. Saved feedback appears after the queue finishes and the list is reconciled with the
+server. Failed saves restore the server's state when it can be read and show an error. Wait for that
+feedback before leaving Models or changing servers: unsent queued changes are discarded on departure.
 
 ### Managing models in a provider workspace
 
@@ -243,7 +287,35 @@ they have been synchronized. See
 
 ## Remote Hub sessions, keys, and usage
 
-The dashboard's management plane is separate from direct client→hub model traffic. **Integrations → API Keys** shows pending rotations, displays a replacement secret only once, and requires explicit commit or abort. Browser logout invalidates only the current remote session. Connected usage is the hub store filtered by the client's `apiKeyId`; disconnected usage is local, with no mirroring.
+In **Connect → API Keys**, every row of the key table has its own delete button, which asks for confirmation in place. Clicking a key can show its full value with a **Copy** button only from an independently authorized session.
+
+### Reading an existing API key
+
+Showing a stored key's full value requires a dashboard session established by explicit pairing or
+trusted Tailscale identity. An automatic local dashboard session can still show the masked key list,
+but cannot reveal existing values; a raw admin token cannot call this session-only action either.
+Use the existing [dashboard pairing flow](/guides/remote-hub/#pairing-this-browser-with-a-hub) to establish an
+operator-authorized session before requesting a stored value; a refused reveal states the requirement
+on the page. The local pairing form is offered only by a same-origin standalone dashboard opened
+over HTTP at the literal `127.0.0.1` or `[::1]` address. The origin must match the server's
+configured literal loopback bind. On `http://localhost:<port>` (or another localhost alias),
+check the server's bind: reopen `http://127.0.0.1:<port>` for a `127.0.0.1` bind or
+`http://[::1]:<port>` for a `::1` bind, then pair there. A server configured with hostname
+`localhost` has no eligible local pairing origin. The dashboard cannot infer the configured
+bind from an alias URL, so it shows the generic denial without suggesting a replacement URL.
+Use the existing remote-hub pairing flow or trusted Tailscale sign-in where available.
+Pair again if the authorized session expires or is revoked. Ordinary dashboard sign-in,
+key creation, rotation, and deletion are unchanged.
+
+After pairing, click the key again to request its value. Pairing itself never reveals a key.
+Displayed key values and copy feedback are cleared when the shared session is cleared or replaced,
+pairing starts, you leave this panel, hide the browser tab or desktop window, or switch servers.
+This also clears newly created and replacement values, so copy a one-time value before leaving
+the panel. If creation or rotation succeeds after the session or view changes, its one-time
+value stays hidden. After switching servers, returning to the
+original server revalidates its key list. Pending rotations remain available for explicit commit or abort.
+
+The dashboard's management plane is separate from direct client→hub model traffic. **Connect → API Keys** shows pending rotations, displays a replacement secret only once, and requires explicit commit or abort. Browser logout invalidates only the current remote session. Connected usage is the hub store filtered by the client's `apiKeyId`; disconnected usage is local, with no mirroring.
 
 The spawn override guarantee applies to the **built-in** v2 guidance text. A custom
 `injectionPrompt` replaces that text entirely and must include `{{model}}` and `{{effort}}`
@@ -278,6 +350,10 @@ maintainers do not provide policy advice and cannot resolve provider enforcement
   request, and only requests already in flight keep the account they captured. A manual choice is also
   pinned: the card shows a **PINNED** badge, and a higher selection order cannot preempt that account
   until it is drained, you select another account, or you change any account's selection order.
+  Selecting the badge again asks to release the pin: confirming clears the selection, bound threads
+  keep their captured account, and new or unbound requests return to the selection order and
+  thresholds.
+  If the pin changes while confirmation is open, that confirmation cannot release the newer pin. After a refused or uncertain release, the account view is refreshed; review the current selection before confirming again.
 - Each account card carries a **Selection order** control (First, Earlier, Normal, Later, Last).
   Higher order is used first, and the pool drops to a lower order only once every account above it is
   drained or unavailable. A changed order applies from the next unbound request and never moves a
@@ -393,6 +469,14 @@ Usage heatmap days have one Tab entry point. Use Up/Down for adjacent days and L
 
 ### Claude
 
-The **Claude** sidebar page sits directly below **Codex**. One header and tab strip stay in place while you switch tabs, ordered Account, Code, Desktop, Settings. The Account tab shows what the Anthropic provider's **Accounts** tab shows on **Providers**: login, the browser option, the Claude account roster with switch, pause, remove, and reauthentication, the paste-code field, account pool settings, and quota. Provider-level controls such as the default provider, removal, and the enabled switch stay on **Providers**. When Anthropic is not configured, **Add Anthropic** starts Claude sign-in directly, after the same risk notice the Add provider dialog shows. Opening Claude without a tab selects Account when Anthropic is configured, otherwise Code. Code holds the Claude connection switch; Settings shows that connection as On or Off, interception as Running or Stopped, and the intercept port. When interception is stopped, Settings shows why and offers **Start interception**, which starts it in place without restarting OpenCodex. On Desktop, one status row shows whether Claude Desktop runs the profile and whether it is saved, with Save and Save & apply beside it. Compatibility, agent instructions, and context controls remain on Code.
+**Claude** is a tab inside **Connect**, whose tab strip places Codex, Claude, Claude Desktop, and Grok Build in that order. Claude has no sub-tabs: it shows the Claude Code settings directly. The page starts with **Claude Code CLI first-party**, followed by **Get started**, **General**
+(compatibility, agent instructions, and context controls), **Background helper model**,
+**Model interception**, **Available models**, and finally **Claude connection**. A sticky Save bar
+shows **No changes** or **Unsaved changes**, with **Revert** to discard edits and **Save** to commit
+them. Both switches apply immediately; **Save** never changes them. When interception is stopped, the page shows why and offers **Start interception**, which starts it in place without restarting OpenCodex. The former Code, Settings, and Account sub-tabs are gone; everything the read-only Settings view showed except the intercept port number is on this page.
 
-Bookmarks select a tab directly: `#claude/account`, `#claude/code`, `#claude/desktop`, and `#claude/settings`. The former `#integrations/claude` and `#integrations/claude/desktop` bookmarks redirect to Code and Desktop. Arrow keys move between tabs; Home and End select the first and last tab.
+**Claude Desktop** is its own Connect tab at `#claude/desktop`. It contains the Desktop mode picker and model families. One status row shows whether Claude Desktop runs the profile and whether it is saved, with **Save** and **Save & apply** beside it.
+
+Claude/Anthropic accounts are managed only on **Providers > Anthropic > Accounts**: login and the browser option, the account roster with switch, pause, remove, and reauthentication, the paste-code field, account pool settings, and quota. Claude no longer has an Account sub-tab. Provider-level controls such as the default provider, removal, and the enabled switch stay on Providers.
+
+The bookmarks `#claude` and `#claude/code` open this page, and the former `#claude/settings` redirects to `#claude/code`; `#claude/desktop` selects the separate Claude Desktop tab. The old `#claude/account` bookmark redirects to `#providers?provider=anthropic&tab=accounts`. Legacy `#integrations/claude` and `#integrations/claude/desktop` bookmarks still redirect to `#claude/code` and `#claude/desktop`, respectively. Arrow keys move between tabs; Home and End select the first and last tab.

@@ -2,6 +2,11 @@ import { closeSync, constants, fstatSync, openSync, readSync, statSync, type Sta
 
 const MAX_CODEX_CONFIG_BYTES = 1024 * 1024;
 
+/** An oversize config is a different failure from a non-regular one; `EFBIG` is the code the other config probes use for it. */
+function configTooLarge(): Error {
+  return Object.assign(new Error("config.toml exceeds the 1 MiB read limit"), { code: "EFBIG" });
+}
+
 /**
  * Read config.toml the way Codex and the injector resolve it — a symlink's target IS the
  * config — without blocking on a special file or buffering without bound.
@@ -22,9 +27,8 @@ export function readBoundedCodexConfig(path: string): string | null {
       if (code === "ENOENT" || code === "ENOTDIR") return null;
       throw error;
     }
-    if (!namedBefore.isFile() || namedBefore.size > MAX_CODEX_CONFIG_BYTES) {
-      throw new Error("config.toml is not a bounded regular file");
-    }
+    if (!namedBefore.isFile()) throw new Error("config.toml is not a bounded regular file");
+    if (namedBefore.size > MAX_CODEX_CONFIG_BYTES) throw configTooLarge();
     // Deliberately no O_NOFOLLOW: Codex and the injector read through a symlinked
     // config.toml, so refusing the link here would disagree with the writes this probe
     // stands in front of. O_NONBLOCK is what keeps a FIFO — linked or direct — from
@@ -37,9 +41,8 @@ export function readBoundedCodexConfig(path: string): string | null {
     if (before.dev !== namedBefore.dev || before.ino !== namedBefore.ino) {
       throw new Error("config.toml changed while it was read");
     }
-    if (!before.isFile() || before.size > MAX_CODEX_CONFIG_BYTES) {
-      throw new Error("config.toml is not a bounded regular file");
-    }
+    if (!before.isFile()) throw new Error("config.toml is not a bounded regular file");
+    if (before.size > MAX_CODEX_CONFIG_BYTES) throw configTooLarge();
 
     const buffer = Buffer.allocUnsafe(before.size + 1);
     let bytesRead = 0;

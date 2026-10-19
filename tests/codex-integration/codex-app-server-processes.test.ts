@@ -1,8 +1,9 @@
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
-import { spawn } from "node:child_process";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, spyOn, test } from "bun:test";
+import { execFileSync, spawn } from "node:child_process";
+import * as childProcess from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { setTrustedWindowsElevationExecutablesForTests } from "../../src/lib/windows-elevation";
+import { resolveTrustedWindowsPowerShellExe, setTrustedWindowsElevationExecutablesForTests } from "../../src/lib/windows-elevation";
 import {
   createWindowsPowerShellFixture,
   probeWindowsPowerShellFixture,
@@ -17,12 +18,14 @@ import {
   collectCodexAppServerCatalogStateForRequest,
   formatStaleCodexAppServerWarning,
   isCodexAppServerCommandLine,
+  isCodexSessionCommandLine,
   isWindowsCodexCandidateCommandLine,
   listCodexAppServerProcesses,
   listWindowsSnapshots,
   parseWindowsSnapshotOutput,
   resetCodexAppServerCatalogStateCache,
   restartCodexAppServers,
+  scanCodexSessionProcesses,
   STALE_CODEX_APP_SERVER_HINT,
   warnIfStaleCodexAppServersAfterStartupWrite,
   WINDOWS_CODEX_BASENAME_CANDIDATE_RE,
@@ -851,6 +854,94 @@ describe("Codex app-server process matching (#476)", () => {
   });
 });
 
+describe("Codex session process matching (#2811)", () => {
+  test("any live codex session counts, regardless of the subcommand", () => {
+    expect(isCodexSessionCommandLine("codex")).toBe(true);
+    expect(isCodexSessionCommandLine("codex resume --last")).toBe(true);
+    expect(isCodexSessionCommandLine("codex exec \"debug app-server behavior\"")).toBe(true);
+    // "--" ends option parsing, but the prompt after it is still a live TUI session.
+    expect(isCodexSessionCommandLine("codex -- app-server")).toBe(true);
+    expect(isCodexSessionCommandLine("codex login")).toBe(true);
+    expect(isCodexSessionCommandLine("/usr/local/bin/codex --profile prod")).toBe(true);
+    expect(isCodexSessionCommandLine("codex-x86_64-unknown-linux-musl")).toBe(true);
+    expect(isCodexSessionCommandLine("codex-code-mode-host --session 1")).toBe(true);
+  });
+
+  test("matches the npm wrapper pair and the shim backup sessions", () => {
+    expect(isCodexSessionCommandLine("node /usr/local/bin/codex")).toBe(true);
+    expect(isCodexSessionCommandLine("bun /usr/local/bin/codex exec hi")).toBe(true);
+    expect(isCodexSessionCommandLine("/home/ubuntu/.local/bin/codex.opencodex-real")).toBe(true);
+    // A snapshot that reports the executable separately still identifies the session.
+    expect(isCodexSessionCommandLine("codex resume --last", "/usr/local/bin/codex")).toBe(true);
+  });
+
+  test("codex-shaped names in arguments or unrelated binaries stay unmatched", () => {
+    expect(isCodexSessionCommandLine("node worker.js codex")).toBe(false);
+    expect(isCodexSessionCommandLine("bash -c codex")).toBe(false);
+    expect(isCodexSessionCommandLine("opencodex")).toBe(false);
+    expect(isCodexSessionCommandLine("codex-bridge serve")).toBe(false);
+    expect(isCodexSessionCommandLine("hermes-codex-x86_64-unknown-linux-gnu")).toBe(false);
+    expect(isCodexSessionCommandLine("")).toBe(false);
+  });
+
+  function withDarwinProcessFixture(check: (uid: number) => void) {
+    const uid = process.getuid!();
+    const ps = spyOn(childProcess, "execFileSync").mockImplementation((file, args) => {
+      expect(file).toBe("/bin/ps");
+      const argv = Array.isArray(args) ? args : [];
+      const scoped = argv.includes("-u");
+      if (scoped) expect(argv[1]).toBe(String(uid));
+      const executable = argv.includes("pid=,comm=");
+      if (executable) return (scoped
+        ? "321 /usr/local/bin/codex\n"
+        : "321 /usr/local/bin/codex\n322 /usr/local/bin/codex\n") as never;
+      return (scoped ? "321 /usr/local/bin/codex app-server\n"
+        : `321 ${uid} /usr/local/bin/codex app-server\n322 ${uid + 1} /usr/local/bin/codex exec fixture\n`) as never;
+    });
+    try { check(uid); } finally { ps.mockRestore(); }
+  }
+
+  test.skipIf(typeof process.getuid !== "function")("read-only session scan includes other readable users by default", () => {
+    withDarwinProcessFixture(() => {
+      for (const io of [{ platform: "darwin" as const }, { platform: "darwin" as const, getuid: undefined }]) {
+        const scan = scanCodexSessionProcesses(io);
+        expect(scan.kind).toBe("observed");
+        if (scan.kind === "observed") expect(scan.processes.map(item => item.pid)).toEqual([321, 322]);
+      }
+    });
+  });
+
+  test.skipIf(typeof process.getuid !== "function")("explicit uid scan and kill-path enumeration retain their user boundary", () => {
+    withDarwinProcessFixture(uid => {
+      const scan = scanCodexSessionProcesses({ platform: "darwin", getuid: () => uid });
+      expect(scan.kind).toBe("observed");
+      if (scan.kind === "observed") expect(scan.processes.map(item => item.pid)).toEqual([321]);
+      expect(listCodexAppServerProcesses({ platform: "darwin" }).map(item => item.pid)).toEqual([321]);
+    });
+  });
+
+  test("scanCodexSessionProcesses fails closed and dedupes", () => {
+    const unavailable = scanCodexSessionProcesses({
+      platform: "linux",
+      listSnapshots: () => { throw new Error("procfs unreadable"); },
+    });
+    expect(unavailable.kind).toBe("unavailable");
+    const scan = scanCodexSessionProcesses({
+      platform: "linux",
+      listSnapshots: () => [
+        { pid: 11, commandLine: "vim notes.txt" },
+        { pid: 12, commandLine: "codex" },
+        { pid: 12, commandLine: "codex" },
+        { pid: 13, commandLine: "codex app-server" },
+      ],
+    });
+    expect(scan.kind).toBe("observed");
+    if (scan.kind === "observed") {
+      expect(scan.processes.map(process => process.pid)).toEqual([12, 13]);
+    }
+  });
+});
+
 describe("CLI /api sync wiring for stale app-servers (#476)", () => {
   const dispatchSource = readFileSync(repoPath("src", "cli", "dispatch.ts"), "utf8");
   const configRoutesSource = readFileSync(
@@ -1054,36 +1145,46 @@ describe("Windows Win32_Process owner enumeration (#476)", () => {
     () => {
       // Keep a live process whose CommandLine contains a Codex basename token.
       const child = spawn(
-        "powershell.exe",
+        resolveTrustedWindowsPowerShellExe(),
         [
           "-NoProfile", "-NoLogo", "-NonInteractive",
           "-Command",
-          "Start-Sleep -Seconds 120 # codex app-server integration-probe",
+          "Start-Sleep -Seconds 90 # codex app-server integration-probe",
         ],
         { stdio: "ignore", windowsHide: true },
       );
       try {
         expect(child.pid).toBeGreaterThan(1);
-        // Brief settle so Win32_Process can observe the child. A loaded Windows
-        // runner can also exhaust several CIM enumeration deadlines or briefly
-        // omit GetOwner for the new process, so poll within a test-local deadline
-        // while keeping the production timeout unchanged.
-        Bun.sleepSync(250);
-        const enumerate = (): ReturnType<typeof listWindowsSnapshots> | undefined => {
-          try {
-            return listWindowsSnapshots();
-          } catch {
-            return undefined; // transient CIM deadline on a contended runner
+        // This verifies native enumeration, not the product's 8s latency bound.
+        // Limit the native query to this fixture; host job count must not set its cost.
+        // Keep the trusted executable, owner/candidate checks and parser unchanged;
+        // the fixture's explicit finally owns its lifetime, and lookup errors propagate.
+        const deadline = performance.now() + 55_000;
+        const enumerate = () => listWindowsSnapshots(psCommand => {
+          const query = "Get-CimInstance Win32_Process -ErrorAction Stop";
+          expect(psCommand).toContain(query);
+          const fixtureCommand = psCommand.replace(query,
+            `Get-CimInstance Win32_Process -Filter "ProcessId=${child.pid}" -ErrorAction Stop`);
+          const executable = resolveTrustedWindowsPowerShellExe();
+          const remaining = Math.floor(deadline - performance.now());
+          if (remaining <= 0) throw new Error("native enumeration fixture deadline expired");
+          return execFileSync(
+            executable,
+            ["-NoProfile", "-NoLogo", "-NonInteractive", "-Command", fixtureCommand],
+            { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"], timeout: Math.min(45_000, remaining), windowsHide: true },
+          );
+        });
+        let snapshots = enumerate();
+        let match = snapshots.find(snapshot => snapshot.pid === child.pid);
+        // Only a successful scan missing this PID is retried; errors propagate.
+        // Both scans and the visibility delay share the same monotonic budget.
+        if (!match && performance.now() < deadline) {
+          Bun.sleepSync(Math.min(250, Math.max(0, Math.floor(deadline - performance.now()))));
+          if (performance.now() < deadline) {
+            snapshots = enumerate();
+            match = snapshots.find(snapshot => snapshot.pid === child.pid);
           }
-        };
-        const deadline = Date.now() + 60_000;
-        let snapshots: ReturnType<typeof listWindowsSnapshots> = [];
-        let match: (typeof snapshots)[number] | undefined;
-        do {
-          snapshots = enumerate() ?? [];
-          match = snapshots.find(snapshot => snapshot.pid === child.pid);
-          if (!match && Date.now() < deadline) Bun.sleepSync(500);
-        } while (!match && Date.now() < deadline);
+        }
         expect(match).toBeDefined();
         expect(match!.owner).toMatch(/\\/);
         expect(match!.commandLine.toLowerCase()).toContain("codex app-server");
@@ -1096,7 +1197,7 @@ describe("Windows Win32_Process owner enumeration (#476)", () => {
         }
       }
     },
-    { timeout: 75_000 },
+    { timeout: 60_000 },
   );
 });
 

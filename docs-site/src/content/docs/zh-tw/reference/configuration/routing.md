@@ -13,6 +13,16 @@ description: 預設供應商選擇、模型解析順序、combo 別名、目標�
 | `combos?` | `Record<string, OcxComboConfig>` | `{}` | 由有序 provider/model 目標建構的虛擬 `combo/<id>` 模型。 |
 | `routingProfiles?` | `Record<string, OcxRoutingProfileConfig>` | `{}` | 以硬性能力需求與確定性計分，在明確的候選允許清單中選擇的虛擬 `policy/<id>` 模型。 |
 
+### Model alias discovery
+
+Set `preferModelAliasIds: true` to publish configured or enabled built-in model aliases
+as the `id` in `GET /v1/models`. The default is `false`. Promoted rows retain their
+previous qualified ID in `native_id` and keep `alias_of`; both IDs remain routable.
+Models without aliases keep their existing IDs. If a short alias is ambiguous across
+providers or is shadowed by another route, the row keeps its qualified ID so selecting
+it still reaches the intended model. The qualified ID also stays when a built-in short
+alias would produce an unparseable synthetic Fast selector. Codex's own model catalog is unchanged.
+
 ### Codex Pool 低額度保護
 
 `codexPool.lowQuotaProtection` 只適用於已儲存的 Codex Pool 帳號。Desktop／主帳號保有它獨立的 98% 硬鎖定。選用的結構如下：

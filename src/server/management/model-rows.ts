@@ -9,7 +9,9 @@
  * Bodies are unchanged from their previous home; only `export` was added.
  */
 import type { CatalogModel } from "../../codex/catalog";
+import { antigravityFamilyDisabled } from "../../providers/antigravity-effort-families";
 import { observeModelCacheRevision } from "../../codex/model-cache";
+import { isPassiveRead } from "../../lib/passive-read";
 import {
   captureExportConfigAdmission,
   detachedConfigSnapshot,
@@ -30,7 +32,13 @@ import {
   catalogModelEfforts,
 } from "../../codex/catalog";
 import { SUPPORTED_NATIVE_OPENAI_SLUGS } from "../../codex/catalog/native-models";
-import type { ExportModel } from "../../clients/config-export";
+import {
+  knownReasoningSupport,
+  knownToolsSupport,
+  type EffectiveModelExportMetadata,
+  type ExportModel,
+} from "../../clients/config-export/contracts";
+import { customRowExportMetadata } from "./model-row-export-metadata";
 import { providerContextCap } from "../../providers/context-cap";
 import { isVisionReasoningEffort, modelRecordValue, sanitizeCodexReasoningEfforts } from "../../reasoning-effort";
 import { routedSlug, slugEquals } from "../../providers/slug-codec";
@@ -44,6 +52,7 @@ import { reconcileSuccessfulModelDiscoveries } from "../../providers/new-model-p
 import { initialModelSelectionPending, pendingModelSelectionProviders } from "../../providers/initial-model-selection";
 import { catalogFastRowEligible, fastRowId } from "../fast-row";
 import { knownEffortRowIds } from "../effort-row";
+import { visionSidecarConsumerClassifier } from "../../vision/eligibility";
 
 /**
  * One row of the `/api/models` list. Routed rows spread a `CatalogModel`, so the shape is
@@ -70,6 +79,15 @@ export type ManagementModelRow = Partial<CatalogModel> & {
    * one thing and saves another, so its own writes never appear to take.
    */
   inputModalitiesDeclared?: string[];
+  /**
+   * The runtime's verdict on whether the Vision Sidecar describes this model's images, from
+   * the same predicate the request path consults (legacy `noVisionModels`, registry
+   * enrichment, explicit declarations, custom rows). `inputModalitiesDeclared` cannot answer
+   * this: a model covered ONLY by legacy `noVisionModels` has no declaration while its
+   * advertised modalities are widened to image, so a client inferring consumer status from
+   * declared-vs-advertised modalities misclassifies the row after reload.
+   */
+  visionSidecarConsumer?: boolean;
   /** Exact stored context override, distinct from the effective catalog window. */
   contextWindowDeclared?: number;
   /**
@@ -78,6 +96,28 @@ export type ManagementModelRow = Partial<CatalogModel> & {
    * config — so this compares values against what the model would inherit anyway.
    */
   reasoningOverridden?: boolean;
+  /**
+   * Tool support a canonical source positively asserts (native identity, a catalog row's
+   * `"tools"` capability, or the parallel-call opt-in — the same evidence
+   * `src/routing/capability.ts` counts). A row without positive evidence stays absent:
+   * unknown is not false.
+   */
+  supportsTools?: boolean;
+  /**
+   * True when a canonical source positively asserts reasoning (a non-empty effective ladder
+   * or delivered reasoning summaries). Absent means unknown, never "cannot reason": an empty
+   * ladder only says the effort is not adjustable.
+   */
+  supportsReasoning?: boolean;
+  /**
+   * Effective export projection for a row, resolved from canonical sources only — for a
+   * custom row the full effective view (the raw override fields above stay exactly what the
+   * editor wrote), for routed and native rows the authoritative declared default where the
+   * row's own `defaultReasoningEffort` is the picker's preference order instead. Additive on
+   * `/api/models`, and its PRESENCE is the authority signal: an absent field inside it means
+   * "no declared value", never "fall back to the row".
+   */
+  exportMetadata?: EffectiveModelExportMetadata;
 };
 
 /** Resolve the exact text and source shown for one routed discovered model. */
@@ -277,8 +317,9 @@ export async function listManagementModelRows(
    * that brings its own roster still sees exactly what a writer would, and the two cannot
    * disagree about the roster for any reason except the roster itself.
    */
+  // A passive read (#6959) also skips the entitlement refresh, which reaches the Codex accounts.
   const models = options.models === undefined
-    ? (await Promise.all([
+    ? isPassiveRead() ? [] : (await Promise.all([
       fetchAllModels(config, options.providerContentRevisions, projection => { config = projection; }),
       ensureCodexEntitlementFreshness(config, {
         waitMs: options.entitlementWaitMs ?? 3_000,
@@ -322,6 +363,13 @@ export async function listManagementModelRows(
       ...(row.autoCompactTokenLimit !== undefined
         ? { autoCompactTokenLimit: row.autoCompactTokenLimit }
         : {}),
+      // The pinned default above IS the declared default for a native row — no heuristic
+      // touches it — so the authoritative projection carries it verbatim and exists even
+      // when empty, which is what tells an export consumer "absence means no default"
+      // rather than "fall back to the row".
+      exportMetadata: {
+        ...(defaultReasoningEffort !== undefined ? { defaultReasoningEffort } : {}),
+      },
     };
   });
   const customModels: ManagementModelRow[] = (config.customModels ?? []).map(cm => {
@@ -374,6 +422,34 @@ export async function listManagementModelRows(
   // the guard and the value) re-read the same file thousands of times on a large roster.
   const routedSlugs = publicModels.filter(m => m.provider !== "combo").map(m => routedSlug(m.provider, m.id));
   const catalogLadders = catalogModelEfforts([...new Set(routedSlugs)]);
+  // The gathered roster, keyed once by Codex-facing slug. A custom row looks itself up here —
+  // the gather materializes custom rows with the provider/native inheritance the catalog
+  // publishes, so this is the canonical resolved metadata the export must preserve, and no
+  // per-model fetch ever happens to obtain it.
+  const rosterByNamespaced = new Map(publicModels.map(model => [catalogModelSlug(model), model] as const));
+  const customRowsWithExportMetadata = visibleCustomModels.map(model => {
+    const catalogRow = rosterByNamespaced.get(model.namespaced);
+    // The gathered materialization's ladder is authoritative when it has one: it already
+    // folded the explicit override in and then applied the canonical bounds (the native
+    // clamp for a capability-backed id, learned refusals), so re-declaring the raw override
+    // here would undo a bound. Two raw values still win: the explicit empty ladder — "no
+    // rungs" is an operator statement no normalization may fill in, even against a stale
+    // gathered row — and any override with no gathered ladder behind it.
+    const declaredEfforts = Array.isArray(model.reasoningEfforts) && model.reasoningEfforts.length === 0
+      ? model.reasoningEfforts
+      : catalogRow?.reasoningEfforts !== undefined
+        ? catalogRow.reasoningEfforts
+        : model.reasoningEfforts;
+    return {
+      ...model,
+      exportMetadata: customRowExportMetadata(
+        config,
+        model,
+        catalogRow,
+        effectiveModelReasoningEfforts(config, model.provider, model.id, declaredEfforts, catalogLadders),
+      ),
+    };
+  });
   const dedupedRouted = publicModels.map((m): ManagementModelRow | null => {
     // Codex-facing slug (one "/", slug-codec); disabledModels compares tolerate both forms.
     const namespaced = catalogModelSlug(m);
@@ -395,7 +471,7 @@ export async function listManagementModelRows(
       ...m,
       ...displayName,
       namespaced,
-      disabled: [...disabled].some(stored => (
+      disabled: antigravityFamilyDisabled(config, m, models) || [...disabled].some(stored => (
         (!nativeAlias && stored === namespaced) || slugEquals(stored, m.provider, m.id)
       )),
       ...(contextCap !== undefined ? { contextCap, contextCapped: m.contextCapped === true } : {}),
@@ -407,34 +483,107 @@ export async function listManagementModelRows(
       ...(routed ? { reasoningOverridden: reasoningOverrideFor(config, m.provider, m.id, catalogLadders) } : {}),
       ...(inputModalitiesDeclared !== undefined ? { inputModalitiesDeclared } : {}),
       ...(contextWindowDeclared !== undefined ? { contextWindowDeclared } : {}),
+      // The authoritative export default is the GATHERED row's own declared default — never
+      // the picker value above, whose medium → low → first fallback invents a default no
+      // source declared. The object exists even when empty: its presence is what tells
+      // `toExportModel` and the CLI that an absent default means "no default", not "fall
+      // back to the row". A default outside the effective ladder is dropped for the same
+      // reason the settings route rejects one: the proxy would never send it.
+      exportMetadata: {
+        ...(m.defaultReasoningEffort !== undefined
+          && (reasoningEfforts === undefined || reasoningEfforts.includes(m.defaultReasoningEffort))
+          ? { defaultReasoningEffort: m.defaultReasoningEffort }
+          : {}),
+      },
     };
   }).filter((row): row is ManagementModelRow => row !== null);
   // Manual OpenAI rows retain their routed selector but replace the bare dashboard row.
   // Account-qualified rows remain distinct, explicitly selected routes.
   const visibleNative = native.filter(model => model.id.includes("/")
     || !customNamespaced.has(routedSlug(model.provider, model.id)));
-  const rows = [...visibleNative, ...dedupedRouted, ...visibleCustomModels];
+  const rows = [...visibleNative, ...dedupedRouted, ...customRowsWithExportMetadata];
   // Include disabled rows and configured aliases before the export visibility filter:
   // a hidden real `x--fast` must never become a synthetic selector for another model.
   const knownIds = config.fastRows === false ? new Set<string>() : knownEffortRowIds(config);
   for (const row of rows) knownIds.add(row.namespaced);
+  const isVisionSidecarConsumer = visionSidecarConsumerClassifier(config);
   return rows.map(row => {
     const pending = initialModelSelectionPending(config.providers[row.provider]);
     const modelCosts = Object.hasOwn(config.providers, row.provider)
       ? config.providers[row.provider]?.modelCosts : undefined;
+    // Derived once here so the wire row carries the same booleans the export projection
+    // serializes; the CLI reads /api/models and cannot re-derive them without duplicating
+    // this policy. Custom rows read their effective view from `exportMetadata`; routed and
+    // native rows read their own evidence.
+    const supportsTools = row.exportMetadata?.supportsTools
+      ?? row.supportsTools
+      ?? knownToolsSupport({
+        capabilities: row.capabilities,
+        parallelToolCalls: row.parallelToolCalls,
+        native: row.native,
+      });
+    const supportsReasoning = row.exportMetadata?.supportsReasoning
+      ?? row.supportsReasoning
+      ?? knownReasoningSupport({
+        reasoningEfforts: row.reasoningEfforts,
+        supportsReasoningSummaries: row.supportsReasoningSummaries,
+      });
     return {
       ...row,
+      // One shared definition with the request path: the GUI must not re-derive consumer
+      // status from declared-vs-advertised modalities (see the field doc above).
+      visionSidecarConsumer: isVisionSidecarConsumer(row.provider, row.id),
       ...(!row.native && modelCosts !== undefined && Object.hasOwn(modelCosts, row.id)
         ? { manualPricing: true } : {}),
       ...(pending ? { disabled: true, initialSelectionPending: true } : {}),
       fastRowAvailable: !row.disabled && !pending
         && !knownIds.has(fastRowId(row.namespaced)) && catalogFastRowEligible(config, row),
+      // An explicit false survives; derivation itself is true-or-nothing.
+      ...(typeof supportsTools === "boolean" ? { supportsTools } : {}),
+      ...(typeof supportsReasoning === "boolean" ? { supportsReasoning } : {}),
     };
   });
 }
 
-/** `/api/models` row → the narrower input the client-config serializers accept. */
+/**
+ * `/api/models` row → the narrower input the client-config serializers accept.
+ *
+ * A row's `exportMetadata`, when present, is the authority: custom rows project through it
+ * because their own fields are stored overrides (an absent field means "not overridden"),
+ * and routed/native rows carry the declared default in it because the row-level
+ * `defaultReasoningEffort` is the picker's preference order, whose medium → low → first
+ * fallback fabricates a default no source declared.
+ */
 export function toExportModel(row: ManagementModelRow): ExportModel {
+  const effective = row.exportMetadata;
+  const contextWindow = effective?.contextWindow ?? row.contextWindow;
+  const maxTokens = effective?.maxTokens ?? row.maxOutputTokens;
+  const maxInputTokens = effective?.maxInputTokens ?? row.maxInputTokens;
+  const inputModalities = effective?.inputModalities ?? row.inputModalities;
+  const reasoningEfforts = effective?.reasoningEfforts ?? row.reasoningEfforts;
+  // The projection is the authority on the default. When it exists, an absent default means
+  // NO declared default — falling back to the row would reintroduce the picker's synthetic
+  // medium/low value, which is exactly what this projection exists to keep out of exports.
+  // Rows without a projection (native-era shapes, hand-built rows) keep the row's own value.
+  const defaultReasoningEffort = effective !== undefined
+    ? effective.defaultReasoningEffort
+    : row.defaultReasoningEffort;
+  const supportsReasoningSummaries = effective?.supportsReasoningSummaries ?? row.supportsReasoningSummaries;
+  // Projection first, then the row's own explicit boolean (an external producer may state
+  // false, which is evidence), and only then derivation from positive evidence.
+  const supportsTools = effective?.supportsTools
+    ?? row.supportsTools
+    ?? knownToolsSupport({
+      capabilities: row.capabilities,
+      parallelToolCalls: row.parallelToolCalls,
+      native: row.native,
+    });
+  const supportsReasoning = effective?.supportsReasoning
+    ?? row.supportsReasoning
+    ?? knownReasoningSupport({
+      reasoningEfforts: row.reasoningEfforts,
+      supportsReasoningSummaries: row.supportsReasoningSummaries,
+    });
   return {
     namespaced: row.namespaced,
     provider: row.provider,
@@ -442,11 +591,17 @@ export function toExportModel(row: ManagementModelRow): ExportModel {
     fastRowAvailable: row.fastRowAvailable === true,
     ...(row.native ? { native: true } : {}),
     ...(row.displayName && row.displayNameSource !== "fallback" ? { displayName: row.displayName } : {}),
-    ...(row.contextWindow !== undefined ? { contextWindow: row.contextWindow } : {}),
-    ...(row.maxOutputTokens !== undefined ? { maxTokens: row.maxOutputTokens } : {}),
-    ...(row.inputModalities ? { inputModalities: row.inputModalities } : {}),
-    ...(row.reasoningEfforts ? { reasoningEfforts: row.reasoningEfforts } : {}),
-    ...(row.defaultReasoningEffort ? { defaultReasoningEffort: row.defaultReasoningEffort } : {}),
+    ...(contextWindow !== undefined ? { contextWindow } : {}),
+    ...(maxTokens !== undefined ? { maxTokens } : {}),
+    ...(maxInputTokens !== undefined ? { maxInputTokens } : {}),
+    ...(inputModalities ? { inputModalities } : {}),
+    // An empty array is a declaration ("no rungs"), and `[]` is truthy: it survives here.
+    ...(reasoningEfforts ? { reasoningEfforts } : {}),
+    ...(defaultReasoningEffort ? { defaultReasoningEffort } : {}),
+    // An explicit false is evidence and survives; only derivation is true-or-nothing.
+    ...(typeof supportsTools === "boolean" ? { supportsTools } : {}),
+    ...(typeof supportsReasoning === "boolean" ? { supportsReasoning } : {}),
+    ...(supportsReasoningSummaries !== undefined ? { supportsReasoningSummaries } : {}),
   };
 }
 

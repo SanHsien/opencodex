@@ -797,7 +797,7 @@ describe("thread-limit-preserving v1/v2 transition", () => {
     expect(transitionMultiAgentV2(true, flipTableFlag(path), { configPath: path }).ok).toBe(true);
     expect(readFileSync(path, "utf8")).toContain("max_concurrent_threads_per_session = 101 # tuned");
     expect(transitionMultiAgentV2(false, flipTableFlag(path), { configPath: path }).ok).toBe(true);
-    expect(readFileSync(path, "utf8")).toContain("max_threads = 100 # tuned");
+    expect(readFileSync(path, "utf8")).toContain("max_concurrent_threads_per_session = 100 # tuned");
   });
 
   test("same-state repair prefers active storage when duplicate values disagree", () => {
@@ -1754,7 +1754,7 @@ describe("cli surface", () => {
         const content = readFileSync(path, "utf8");
         writeFileSync(path, content.replace(/^enabled\s*=\s*(?:true|false)$/m, `enabled = ${enabled}`));
       },
-      sync: async () => {},
+      sync: async () => ({ status: "applied", ok: true, added: 0, catalogPath: null, catalogExists: true, catalogWritten: false, cacheSynced: false, message: "fixture" }),
       log: { log: (message?: unknown) => { logs.push(String(message)); }, error: (message?: unknown) => { logs.push(String(message)); } },
     };
     try {

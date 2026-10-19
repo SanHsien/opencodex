@@ -63,6 +63,20 @@ ocx status
 
 若某個資料夾無法刪除，代表仍有行程在使用它。登出或重新啟動 Windows 會釋放該鎖定。
 
+## If the update reports an UNSUPERVISED proxy
+
+When the background service cannot be refreshed after an update, the updater first asks launchd
+(macOS) or the systemd user manager (Linux) to restart the service it already has. If that does not
+bring back a proxy owned by the service, the updater starts the proxy directly so you are not left
+without one, prints a warning that the proxy is running UNSUPERVISED, and exits with a non-zero
+status. That proxy works, but nothing restarts it after a crash, and a later service start can
+compete with it for the port. Run `ocx service repair` to hand it back to the background service,
+then check `ocx status`.
+
+Updates started from the dashboard follow the same order. If only the direct start brings the proxy
+back, the dashboard reports the update as failed with the same UNSUPERVISED message even though the
+new version is installed and answering; run the same repair to clear it.
+
 ## 手動安裝後代理回應 503
 
 在執行中的代理上安裝，會讓它以 `package_tree_changed` 回應 `503`，直到它重啟。2.64.0
@@ -77,3 +91,32 @@ ocx status
 日誌隱去了路徑，因此無法得知是哪個元件，上述殘留資料夾也未被證實會導致這個問題。若持續發生，
 請開 issue 並附上 `ocx update` 的完整終端機輸出，以及 `npm config get prefix` 與
 `npm config get cache` 的輸出（例如快取位於不同磁碟的情況）。
+
+## Desktop app update stalls or fails on "Installing update…"
+
+In the OpenCodex desktop app, **Install update** downloads the installer from GitHub
+Releases before replacing the app and restarting. A failed download or installation with
+a known version shows a manual-download hint and a link to that version's release page.
+
+If `Installing update…` stalls or times out, GitHub release downloads may be slow or
+blocked by your network. Use the release link in the error, or find the same version on
+the [OpenCodex releases page](https://github.com/lidge-jun/opencodex/releases), and download
+the installer for your operating system and architecture. Preview versions have their own
+release pages; choose the version the app offered.
+
+Before running the installer, stop the proxy through its owner and confirm it has stopped:
+
+1. Quit the OpenCodex desktop app from its tray menu to stop an app-owned proxy.
+2. If a service owns the proxy, stop it through the service's controls (`ocx stop` for an
+   OpenCodex-managed service). For an unmanaged terminal proxy, stop it in that terminal.
+3. On Windows, use this process listing to help identify any remaining runtime:
+
+   ```powershell
+   Get-Process -Name ocx, opencodex-desktop, bun, bunx -ErrorAction SilentlyContinue
+   ```
+
+   The listing does not establish which app owns a process. Identify the OpenCodex runtime
+   and stop it through its owning app or service; a `bun` process may belong to another app.
+   Wait for the owning app and proxy to exit before installing.
+
+Run the downloaded installer, then reopen the desktop app or restart the owning service.

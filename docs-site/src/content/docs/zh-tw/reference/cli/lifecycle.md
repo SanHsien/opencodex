@@ -5,6 +5,34 @@ description: 安裝、啟動、停止、服務、診斷、同步與更新指令�
 
 這些指令安裝、執行、檢查、修復並更新本機 opencodex 代理及其 Codex 整合。
 
+## Discover before starting services
+
+`ocx help`, `ocx help <family>` and `ocx help <family> <leaf>` are offline.
+Use `ocx help --all` when the compact root is insufficient. Help, local config
+validation and local Lab inspection do not require starting a proxy.
+
+Before a live management workflow, run `ocx ready --json` and `ocx status --json`.
+Readiness distinguishes `pending`, `failed` and `unreachable`; only `ready: true`
+confirms readiness. Check the target and `versionSkew.relation`: `unknown` is not
+proof of matching versions. A version mismatch calls for resolving the intended
+installation, not repeatedly trying a newer flag against an older server.
+
+Output and exit conventions are command-specific. `ready` and `resolve` reject
+invalid arguments with 64, while `doctor --json` is unsupported and exits 2.
+A successful local save or accepted restart request does not prove convergence;
+read the command receipt and re-check status after the requested operation.
+
+When live target discovery finds no proxy, policy/catalog commands, key-scoped usage and
+Aside profile sync report: “Proxy is not running. Start the intended proxy with: ocx start.
+No request was sent.” A management request that was sent can still have an uncertain write
+outcome; read back from the intended target before retrying. Legacy client-integration
+refusals add fixed recovery guidance keyed on the refusal reason (never the writer's own text);
+backup and residual-recovery notices remain available.
+
+`ocx system update run --yes` prints the accepted job ID and observed job state. Follow it
+with `ocx system update status <job-id>`; acceptance does not establish successful installation
+or restart. `--json` retains the complete server response.
+
 ## 安裝
 
 ### `ocx init` · `ocx setup`
@@ -83,7 +111,7 @@ ocx eject back
 
 ### `ocx recover-history --ocx-compaction <thread-id> --yes`
 
-在透過原生 Codex 恢復曾由路由提供方壓縮的工作前，修復該工作的歷史記錄。此命令依 UUID 精確選取一個工作，先儲存私有的逐位元組備份，然後只把 OpenCodeX 自有的 `ocx1:` 壓縮狀態轉換成原生 Codex 可重播的普通摘要。原生加密內容與其他工作不會變更。執行前請關閉所選工作；若 rollout 在處理期間發生變化，復原會停止且不會取代原始檔案。
+在透過原生 Codex 恢復曾由路由提供方壓縮的工作前，修復該工作的歷史記錄。此命令依 UUID 精確選取一個工作，先儲存私有的逐位元組備份，然後只把 OpenCodeX 自有的 `ocx1:`/`ocx2:` 壓縮狀態轉換成原生 Codex 可重播的普通摘要。原生加密內容與其他工作不會變更。執行前請關閉所選工作；若 rollout 在處理期間發生變化，復原會停止且不會取代原始檔案。
 
 ### `ocx uninstall` · `ocx remove`
 
@@ -159,9 +187,31 @@ ocx status --json
 
 實際物件還包含 `listen`（連接埠、主機名稱、runtime/config 來源）、設定載入診斷，以及 bundled Codex plugin 診斷。JSON schema 為附加式：未來版本可能新增欄位，但既有欄位應保持穩定。它刻意排除 API 金鑰、OAuth token、授權標頭、請求內容、電子郵件與帳號身分。
 
+即時讀取會等待有時間上限的服務探測完成：診斷快取為空或已過期時，macOS/Linux 最多等待 6.5 秒，Windows 最多等待 16.5 秒。從快取讀取的結果會迅速回傳。逾時仍會退回本機診斷；僅憑 `/healthz` 健康，無法確認重新啟動保護已生效。
+
 ### `ocx health [--json]`
 
 對即時代理進行身分檢查。人類可讀輸出回報 PID/連接埠；`--json` 輸出 `{ok, pid, port}`。此指令僅在健康時離開 0，否則離開 1，使其適合服務探測。
+
+### `ocx system health [--json]`
+
+```bash
+ocx health --json
+ocx system health --json
+```
+
+Root health is the liveness probe. System health is a separate management
+observation: `{status:"ok",service:"opencodex",version,uptime,pid,spendLedger}`,
+with uptime in seconds. `system status` remains its settings/startup/memory aggregate.
+A valid system-health observation exits 0 even if the spend ledger is degraded.
+Read ownership held/unheld, initialized, configured, degraded, persistFailures and
+corruptRecords; status ok does not certify every subsystem healthy. Failed/malformed
+reads remain nonzero with safe stderr, not fabricated healthy data.
+
+For bounded diagnostics, [request/injection follow](/zh-tw/reference/cli/agents/#follow-request-windows-or-injection-sequences)
+stops on error or detected target change instead of reconnecting automatically.
+SIGINT exits 130 and SIGTERM 143. Versioned log events reconstruct observed windows,
+not traffic missed between polls; injection seq cannot exclude restart/eviction gaps.
 
 ### `ocx ready [--json] [--wait [--timeout <seconds>]]`
 
@@ -217,7 +267,30 @@ ocx sync
 
 ## 目錄同步
 
+### Read saved state separately from synchronization
+
+Model, provider, settings and v2 receipts have different completion contracts.
+Local custom-model changes opportunistically sync: no proxy means a successful
+save, `needsSync:true`, `sync.status:"not-attempted"` and exit 0. An explicit local
+provider `--sync` without a proxy instead returns nonzero after saving.
+
+Settings writes use `catalogRefreshPending`, while live v2/catalog writes use a
+full `catalogRefresh` disposition. Local v2 mode/keep-native and changed on/off
+still attempt their established sync even when no port was discovered. JSON
+reports actual changed state and sync evidence; unverified/failed sync is nonzero.
+Threads/hints and unchanged on/off do not introduce a new sync attempt.
+
+Inspect the same target with `ocx v2 status --json` or `ocx v2 status --live --json`,
+and use `ocx system settings --json` for settings read-back. A saved-but-pending or
+unknown outcome does not prove rollback and is not permission to replay a write.
+See [v2 outcomes](/zh-tw/reference/cli/agents/#explicit-v2-target-and-outcome) and
+[account policy](/zh-tw/reference/cli/providers-accounts/#pool-policy-account-thresholds-and-paid-credit-intent)
+for target, scope and spending boundaries. A reset-grant status read can contact
+upstream status but never consumes or resumes a grant.
+
 ### `ocx sync [--restart-codex] [--restart-app-server-only]`
+
+明確指定重新啟動旗標後，即使目錄和快取的位元組未變，成功提交 `config.toml` 變更也會觸發重新啟動。僅處理設定的操作若沒有變更、遭拒、只做預先檢查或寫入已回復，則不會觸發重新啟動。未指定重新啟動旗標時，sync 不會自動重新啟動 Codex。
 
 從每個已設定的供應商擷取即時模型清單，並將合併後的目錄重新注入 Codex。在新增供應商後或要重新整理可用模型時執行它。
 
@@ -236,6 +309,23 @@ ocx sync
 ### `ocx sync-cache [--restart-codex] [--restart-app-server-only]`
 
 使 Codex 的本機模型選擇器快取失效，使其從現用的 opencodex 目錄重建。與 `ocx sync` 相同的過時 `app-server` 警告與可選重啟旗標適用。
+
+### Catalog write diagnostics
+
+Catalog write auditing records bounded diagnostics in `opencodex-catalog-audit.jsonl` under
+`CODEX_HOME`. An unchanged catalog or cache produces no event; an audit failure does not fail
+catalog publication.
+
+On Windows, **at most the successful new-file creation event is recorded**. The file is created
+empty and hardened before diagnostic data is written. All later events skip the existing file,
+both in the same process and after restart. A hardening failure may leave an empty file, which
+later events also skip. Existing files and their ACLs are not changed for auditing, including
+when another OpenCodex home owns the catalog. This is a privacy-first fallback, not a complete
+Windows audit stream; native NTFS behavior for this audit path has not yet been validated.
+
+POSIX auditing continues to append and retain bounded records. The Windows limitation does not
+disable catalog protection or owner healing. Audit files in a separate `CODEX_HOME` remain
+cleanup residuals because the config uninstall manifest cannot claim paths outside its own root.
 
 ### `ocx catalog pull <https-url> [--auth-env <NAME>] [--json] [--restart-codex] [--restart-app-server-only]`
 
@@ -293,36 +383,130 @@ URL 必須指名主機根目錄下的 `/v1/catalog`；此指令不支援把端�
 
 ### `ocx service [install|repair|restart|start|stop|status|uninstall|remove]`
 
-將 opencodex 作為登入管理的背景服務執行（macOS **launchd**、Linux **systemd user unit**、Windows **Task Scheduler**），在登入時自動啟動並在崩潰時自動重啟。服務執行時設定 `OCX_SERVICE=1`，使重啟不會折騰 Codex 設定。
+On Windows Task Scheduler, the service wrapper restarts the proxy after five seconds
+even when an external tool terminates it with exit code 0. If another opencodex proxy
+already owns the port, the wrapper exits deliberately. Use `ocx stop` or
+`ocx service stop` to stop the service and its restart loop. After upgrading an
+existing installation, run `ocx service repair` to refresh the generated wrapper.
 
-Windows 工作排程器安裝使用一般處理程序優先順序（`Priority=4`）。舊的背景優先順序（`7`，省略時排程器也預設使用 `7`）
-可能在 CPU 競爭時延遲健康檢查回應，導致處理程序仍在執行時系統匣顯示 Offline。升級後執行 `ocx service repair`，
-即可遷移該註冊優先順序並重新啟動服務；過程中可能需要核准 UAC 提示。已設為一般或高優先順序時，不會僅因優先順序而重新註冊。
+Run opencodex as a login-managed background service (macOS **launchd**, Linux **systemd user unit**,
+Windows **Task Scheduler**) that auto-starts on login and auto-restarts on crash. Service runs set
+`OCX_SERVICE=1` so a restart does not churn the Codex config.
 
-Windows 包裝程式在每次啟動嘗試前，都會驗證其內建的 Bun runtime 與 CLI 進入點。若一次中斷的套件
-更新移除了其中任一檔案，它會記錄一則 `installation is incomplete` 訊息並停止，而不是每五秒重試
-同一個缺失的執行檔。請重新安裝 opencodex，然後執行 `ocx service repair`，以還原後的套件路徑
-重新整理該工作。
+Windows Task Scheduler installs use normal process priority (`Priority=4`). The older background
+priority (`7`, also the scheduler default when omitted) can delay the proxy's health responses under
+CPU contention, making the tray report Offline even while the process is alive. After upgrading,
+run `ocx service repair` to migrate that registered priority and restart the service. This migration
+may request UAC approval; a priority already set to normal or high does not itself trigger replacement.
 
-在 Linux 上，systemd unit 會呼叫安裝時於 `PATH` 中找到的第一個一般可執行 `ocx` 檔案，而非已安裝套件樹內的 Bun 與 CLI 路徑。**mise**、**asdf** 等版本管理器會安裝到帶版本的目錄，並在升級時刪除舊目錄；其穩定的 shim 讓 unit 持續可解析。沒有 `ocx` 啟動器的原始碼 checkout 保留直接的 Bun + CLI 形式。Bun 啟動前選定的可信 `OPENCODEX_BUN_PATH` 會透過 shim 保留；套件內附的 Bun 路徑會在升級後重新被發現。
+The Windows wrapper supports locale dates containing parentheses, including Korean and Japanese
+date formats. After upgrading, run `ocx service repair` to replace an older generated wrapper
+that exits before launching Bun on those locales.
 
-在 macOS 上，launchd 改為使用安裝或修復時選定的套件內 Bun 與 CLI 路徑。這可防止可變的 PATH shim 在後續重啟時取得服務 API 權杖與已設定的代理環境。升級由版本管理器管理的安裝後，請在重新啟動服務前執行 `ocx service repair` 以更新這些路徑。
+The Windows wrapper verifies its baked Bun runtime and CLI entry before every start attempt. If an
+interrupted package update removed either file, it logs one `installation is incomplete` message and
+stops instead of retrying the same missing executable every five seconds. Reinstall opencodex, then
+run `ocx service repair` to refresh the task with the restored package paths.
 
-在此變更之前安裝的定義仍帶有舊的帶版本路徑，且無法自行遷移——一旦舊執行檔被刪除，就不會有 opencodex 程式碼執行來修復它。升級後請執行一次 `ocx service repair`。之後 Linux 服務啟動會跟隨啟動器；macOS 的 repair 會將新的套件路徑寫入 launchd 定義。外部升級不會取代已在執行的代理：當已安裝的 CLI 比執行中的代理更新時，執行 `ocx service restart` 讓新組建提供服務。在 macOS 上，此情況下 `repair` 並不足夠：定義沒有改變，而不改變任何內容的 repair 不會重新載入任何內容。反之若代理較新，請依 [`ocx status`](#ocx-status---json) 的說明檢查 CLI 安裝與 `PATH`。
+Service definitions omit shell-local version-manager multishell directories from their saved
+`PATH`. This includes the native Windows service installed with `ocx service install --native`;
+run `ocx service repair` to regenerate an older WinSW definition with a durable `PATH`.
 
-| 子指令 | 動作 |
+On Linux, the systemd unit invokes the first regular, executable `ocx` file found on `PATH` at
+install time rather than the Bun and CLI paths inside the installed package tree. Version managers
+such as **mise** and **asdf** install into a versioned directory and delete the old one on upgrade;
+their stable shim keeps the unit resolving. Source checkouts without an `ocx` launcher keep the
+direct Bun + CLI form. A trusted `OPENCODEX_BUN_PATH` selected before Bun starts is preserved
+through the shim; package-local bundled Bun paths are rediscovered after upgrades.
+
+On macOS, launchd instead uses the package-local Bun and CLI paths selected during install or
+repair. This prevents a mutable PATH shim from receiving the service API token and configured proxy
+environment on a later restart. After upgrading a version-manager installation, run
+`ocx service repair` to refresh those paths before restarting the service.
+Launchd restarts the proxy after a crash or failed restart handoff, but leaves it stopped when
+the service deliberately exits cleanly because the desktop app owns the runtime. Run
+`ocx service repair` once to apply this behavior to a service installed by an older version.
+
+Definitions installed before this change still carry the old versioned paths and cannot migrate
+themselves — once the old executable is deleted, no opencodex code runs to fix it. Run
+`ocx service repair` once after upgrading. Linux service starts then follow the launcher; macOS
+repair writes the new package paths into the launchd definition.
+An already-running proxy is not replaced by an external upgrade: when the installed CLI is newer
+than the running proxy, run `ocx service restart` so the new build serves. On macOS, `repair` is not
+enough there: the definition did not change, and a repair that changes nothing reloads nothing.
+If the proxy is newer instead, check the CLI installation and `PATH` as described under
+[`ocx status`](#ocx-status---json).
+
+| Subcommand | Action |
 | --- | --- |
-| 無 | 服務不存在時安裝並啟動；已存在時執行 `repair`。正常的 Windows 工作排程器定義會沿用；過時的定義可能會重新註冊並需要提高權限。 |
-| `install` | 建立並啟動服務。註冊它，在 Windows 上需要提高權限。 |
-| `repair` | 就地重新整理已安裝的服務。在 macOS 上，僅在有變更時才重新載入 launchd，因此正常且未變更的工作會繼續執行，repair 不會造成中斷。在 Linux 和 Windows 上會重啟服務；正常的 Windows 工作排程器定義會沿用，過時的定義可能會重新註冊並需要提高權限。 |
-| `restart` | 執行相同的重新整理，並在所有平台上保證重啟。在 macOS 上，未變更且已載入的工作會就地 kickstart。不是 `repair` 的別名。 |
-| `start` | 啟動已安裝的服務。 |
-| `stop` | 停止服務並還原原生 Codex。 |
-| `status` | 回報服務與代理診斷及日誌路徑。 |
-| `uninstall` | 移除服務並還原原生 Codex。 |
-| `remove` | `uninstall` 的別名。 |
+| none | Install and start when absent; otherwise `repair` the existing service. A healthy Windows scheduler definition is reused; a stale definition may be re-registered and require elevation. |
+| `install` | Create and start the service. Registers it, which on Windows needs elevation. |
+| `repair` | Refresh an installed service in place. On macOS, the manager is reloaded only when something changed, so a healthy, unchanged job keeps running and the repair is not an outage. On Linux and Windows, the service is restarted; a healthy Windows scheduler definition is reused, while a stale definition may be re-registered and require elevation. |
+| `restart` | The same refresh and a guaranteed restart on every platform. On macOS an unchanged, already-loaded job is kickstarted in place. Not an alias of `repair`. |
+| `start` | Start an installed service. |
+| `stop` | Stop the service and restore native Codex. |
+| `status` | Report service and proxy diagnostics plus log paths. |
+| `uninstall` | Remove the service and restore native Codex. |
+| `remove` | Alias of `uninstall`. |
 
-在 Windows 上，bare `ocx service` 只有在 Task Scheduler 和 WinSW 兩者的缺失都得到證實後才會走安裝路徑。如果任一狀態查詢結果不確定，它會拒絕任何註冊並提示執行 `ocx service status`；只有在確認缺失之後才使用明確的 `ocx service install`。
+On Windows, a bare `ocx service` runs the install path only after both Task Scheduler and WinSW are
+proven absent. If either status query is inconclusive, it refuses to register anything and asks you
+to run `ocx service status`; use explicit `ocx service install` only after confirming absence.
+
+### 執行期所有權
+
+The OpenCodex desktop app can take the background proxy over from a CLI installation. When it does,
+it records the handover in the shared service install state, and that record is what makes the
+takeover survive a restart. Your service registration is **kept, never deleted** — the record
+supersedes it rather than replacing it.
+
+A state file with no ownership record means the CLI installation owns the runtime, which is what
+every installation made before this feature is in. Nothing changes for you until an app takes over.
+
+Supervised service children also check the recorded owner before startup and once more while
+holding the startup ownership lease, before choosing a port or publishing a PID. If the desktop
+app claims the runtime during startup, the service child stands down even if the desktop proxy
+has not begun listening yet. An unreadable ownership record has the same stand-down behavior.
+
+Home paths inside a state record are compared with the current home by the physical directory they
+resolve to, not just their spelling. A junction or symlink recorded under an older install still
+names the same home and keeps working after the move; an alias that no longer resolves is only
+treated as a different home when its recorded spelling also differs from the current one, so a
+stale mount still produces the foreign-owner refusal instead of silently claiming the runtime.
+
+While something other than this CLI owns the runtime, the subcommands that would **activate** your
+registration refuse instead:
+
+| Subcommand | Behaviour under a foreign owner |
+| --- | --- |
+| `repair`, `restart` | Refuse before changing anything. The registration is not re-enabled, rewritten or restarted. |
+| `start` | Refuses for the same reason, so an automatic tray start cannot put a second proxy beside the app's. |
+| `stop`, `uninstall` | Unchanged. They deactivate, so they are never gated. |
+| `install` | Takes the runtime back. It clears the ownership record after the registration succeeds, and reports whose it was. |
+
+`ocx update` behaves the same way: it neither stops the running proxy nor refreshes the service
+while the app owns the runtime, because the running server is the app's own bundled binary and the
+refresh would re-enable the launcher the takeover superseded. The app updates its own runtime.
+
+The refusal names the owning installation and the consent generation, for example:
+
+```text
+Background service repair stopped: the desktop app owns the runtime (install <id>, consent generation 2).
+The service registration was left exactly as it is — not re-enabled, not rewritten and not restarted.
+Quit the desktop app and run 'ocx service install' to hand the runtime back to this CLI.
+```
+
+A record that cannot be read or does not parse produces the same refusal with a different first
+line, because an unreadable claim is not the same as no claim — treating it as "nobody owns this"
+is how a permissions error would silently reactivate your service.
+
+**Recovery in every case is `ocx service install`.** It is deliberately the one verb that is never
+gated, so removing the app without handing the runtime back, or a corrupted state file, still leaves
+you a way to take the service back:
+
+```bash
+ocx service install
+```
 
 ```bash
 ocx service
@@ -333,13 +517,15 @@ ocx service status
 ocx service uninstall
 ```
 
-`install`、`start` 與 `repair` 會確認代理實際在已安裝服務內建的連接埠上回應，之後才回報成功——在三種平台上皆如此。它們等待最多 20 秒，然後印出伺服連接埠：
+`install`, `start`, and `repair` confirm that a proxy actually answers on the port
+baked into the installed service before reporting success — on all three platforms.
+They wait up to 20 seconds and then print the serving port:
 
 ```
 ✅ opencodex service installed and serving on port 10100.
 ```
 
-若沒有回應，它們會發出警告並**以非零離開**：
+If nothing answers, they warn and **exit non-zero**:
 
 ```
 ⚠️  Service installed, but no proxy answered on port 10100 within 20s.
@@ -348,10 +534,11 @@ ocx service uninstall
    Meanwhile: ocx start   (serves in the foreground)
 ```
 
-在這裡以非零離開，代表**已註冊但未在服務**——不是*未安裝*。服務管理器接受了這項工作；但它背後
-的 proxy 從未綁定該連接埠。請閱讀訊息中指名的日誌，並在此期間用 `ocx start` 以前景方式服務。
+A non-zero exit here means *registered but not serving* — not *not installed*. The
+service manager accepted the job; the proxy behind it never bound the port. Read the
+log named in the message, and use `ocx start` to serve in the foreground meanwhile.
 
-`ocx service status` 回報同樣的三種狀態，而不是原始的管理器輸出：
+`ocx service status` reports the same three states rather than raw manager output:
 
 ```
 ✅ installed and loaded (launchd; logs: …)
@@ -368,73 +555,77 @@ ocx service uninstall
    Meanwhile: ocx start           (serves in the foreground)
 ```
 
-它不再印出原始的 `launchctl list` / `systemctl status` 那一行——不管工作是正在服務、沒有綁定
-任何東西，還是在執行舊的定義，那一行回報的內容都一樣。`Diagnostics:` 那一行仍會帶有日誌路徑，
-以及任何過時內建路徑的偵測結果。
+It no longer prints the raw `launchctl list` / `systemctl status` line, which
+reported a registered job identically whether it was serving, bound to nothing, or
+running a previous definition. The `Diagnostics:` line still carries the log path and
+any stale-baked-path finding.
 
-在 Windows 上，排程器後端保留了自己更豐富的狀態輸出，它原本就會把 Task Scheduler 註冊與 proxy
-可達性分開回報。
+On Windows the scheduler backend keeps its own richer status output, which already
+reported Task Scheduler registration separately from proxy reachability.
 
-在 macOS 上，這也涵蓋了一種較隱晦的失敗：`launchctl load` 會在退出碼為 0 的同時於 stderr 回報
-失敗，所以一次沒有真正生效的載入，過去會讓 launchd 繼續執行服務定義的**舊版本**，而指令卻印出
-了核取記號。`install` 現在會在這種情況下明確失敗，並指名可以清除該過時工作的 `launchctl bootout`
-指令。
+### Service logs
 
-在 Windows 上，`ocx service status` 將 Task Scheduler 註冊與身分驗證過的 OpenCodex 代理可達性分開回報。它不印出本地化的 `schtasks` 表格，使摘要在各 Windows code page 中保持可讀。
+The managed proxy writes stdout and stderr to `~/.opencodex/service.log`
+(or `$OPENCODEX_HOME/service.log` with a custom home). When `OCX_SERVICE` is set,
+`ocx start` prefixes every console log line, including multiline diagnostics,
+with a UTC ISO-8601 timestamp such as `2026-10-14T03:04:05.678Z`.
+Foreground output and other CLI commands keep their existing format.
 
-在 Windows 上，建立 Task Scheduler 項目需要提高權限。可識別的本地化存取拒絕文字保持既有的指引路徑。若該文字不可讀，後備方案需要擁有的指令形式 `/create /tn opencodex-proxy /xml <non-empty-path> /f`、狀態 1，以及確認的非提高 token；儀表板的 Startup Safety 動作隨後可自動請求 UAC。若該後備無法判斷 token 狀態，則保留原始排程器錯誤。外部工作與操作永不發出自動提高標記。請核准儀表板 UAC 提示，或在提高的 PowerShell 視窗中重新執行 `ocx service install`。
+The service checks the log size at startup and once per minute. Above 20 MiB it
+copies the newest 20 MiB into `service.log.1`, moves the previous archive to
+`service.log.2`, and truncates the active file in place so the service manager's
+open append handles remain usable. The active file can exceed the threshold
+between checks; each archive is limited to 20 MiB. Rotation failures do not stop
+the service. Copy-truncate can lose lines written during the copy, and an archive
+may begin partway through a line. Existing Windows wrapper messages keep their
+wrapper format.
 
-對於已確認 OpenCodex 排程器工作不存在的全新安裝，UAC 核准現在會在安裝程式停止任何既有 proxy
-之前發生。它專屬的註冊 XML 會暫存在 OpenCodex 設定根目錄之外、經過 ACL 強化的私有目錄中，且
-該工作會先註冊而不執行。只有在註冊成功之後，OpenCodex 才會移除那份 XML、為一個真正全新的設定
-根目錄要求擁有權中繼資料、停止舊的 listener、移除並在有限範圍內重新驗證任何原生 WinSW 註冊、
-發布服務資產，並啟動排程工作。因此，取消或拒絕 UAC，或未能安全地宣告一個新的根目錄，都會讓
-現有的 proxy 與其 Codex 路由維持原狀。既有或衝突的排程器註冊會持續 fail closed，而不會被當成
-不安全的盡力回滾而刪除。
+On macOS this also covers a subtler failure: `launchctl load` reports failure on
+stderr while exiting 0, so a load that did not take used to leave launchd running a
+**previous** version of the service definition while the command printed a checkmark.
+`install` now fails loudly in that case and names the `launchctl bootout` command that
+clears the stale job.
 
-### 執行期所有權
+On Windows, `ocx service status` reports Task Scheduler registration separately from
+identity-verified OpenCodex proxy reachability. It does not print the localized `schtasks` table,
+so the summary remains readable across Windows code pages. Transactional-backup recovery
+logs a fixed success message rather than the backup directory name; backup names containing
+shell metacharacters do not become commands in that log message.
 
-OpenCodex 桌面應用程式可以從 CLI 安裝手中接管背景 proxy。接管發生時，它會把交接紀錄寫進共用的
-服務安裝狀態，正是這筆紀錄讓接管在重啟後仍然有效。你的服務註冊**會被保留，永不刪除**——這筆
-紀錄只是取代它的作用，而不是把它換掉。
+On Windows, creating the Task Scheduler entry requires elevation. Recognized localized
+access-denied text keeps the existing guidance path. If that text is unreadable, the fallback
+requires the owned command shape `/create /tn opencodex-proxy /xml <non-empty-path> /f`, status 1,
+and a confirmed non-elevated token; the dashboard's Startup Safety action can then request UAC
+automatically. If that fallback cannot determine the token state, it retains the original scheduler
+error. Foreign tasks and operations can never emit the automatic-elevation marker. Approve the
+dashboard UAC prompt or rerun `ocx service install` in an elevated PowerShell window.
 
-沒有所有權紀錄的狀態檔代表 CLI 安裝擁有這個執行期，這也是本功能推出之前所有安裝的狀態。在應用
-程式接管之前，對你來說一切不變。
+For a fresh install where the OpenCodex scheduler task is confirmed absent, UAC approval now
+happens before the installer stops any existing proxy. Its unique registration XML is staged in
+an ACL-hardened private directory outside the OpenCodex config root, and the task is registered
+without being run. Only after
+registration succeeds does OpenCodex remove that XML, require ownership metadata for a genuinely
+new config root, stop the old listener, remove and boundedly re-verify any native WinSW
+registration, publish the service assets, and start the scheduled task. Cancelling or denying UAC,
+or failing to claim a new root safely, therefore leaves the working proxy and its Codex routing in
+place. Existing or conflicting scheduler registrations continue to fail closed rather than being
+deleted as an unsafe best-effort rollback.
 
-當執行期由其他東西擁有時，會**啟用**你的註冊的子指令改為拒絕：
+If startup reports `another process owns the runtime mutation lease` or `ocx service status` shows
+`Runtime mutation lease busy`, the lease is blocking startup or service changes even if the
+proxy is not running. The message includes the lock path, recorded PID, current liveness,
+executable name when available, and lease age. The process identity is unverified: the PID
+may have been reused, so liveness and executable name describe whichever process occupies
+that PID now. Wait for the operation to finish and retry; do not delete the lock or stop a
+process based only on this PID. A later mutation attempt can reclaim a stale lease once its
+age exceeds 30 seconds and the recorded PID is no longer alive; status only inspects it.
 
-| 子指令 | 在外部擁有者下的行為 |
-| --- | --- |
-| `repair`、`restart` | 在改動任何東西之前先拒絕。註冊不會被重新啟用、重寫或重啟。 |
-| `start` | 基於相同理由拒絕，因此自動的 tray 啟動不會在應用程式的 proxy 旁再啟動第二個。 |
-| `stop`、`uninstall` | 不變。它們是停用動作，因此永不受此門檻限制。 |
-| `install` | 把執行期收回。註冊成功後會清除所有權紀錄，並回報原本的擁有者是誰。 |
-
-`ocx update` 的行為相同：當應用程式擁有執行期時，它既不會停止正在執行的 proxy，也不會重新整理
-服務，因為執行中的伺服器是應用程式自己內建的執行檔，重新整理反而會重新啟用被接管取代的啟動器。
-應用程式會更新自己的執行期。
-
-拒絕訊息會指名擁有者的安裝與同意世代，例如：
-
-```text
-Background service repair stopped: the desktop app owns the runtime (install <id>, consent generation 2).
-The service registration was left exactly as it is — not re-enabled, not rewritten and not restarted.
-Quit the desktop app and run 'ocx service install' to hand the runtime back to this CLI.
-```
-
-無法讀取或無法解析的紀錄，會產生內容相同、但第一行不同的拒絕訊息，因為無法讀取的宣告不等於
-沒有宣告——把它當成「沒有人擁有」，正是權限錯誤悄悄重新啟用你服務的方式。
-
-**任何情況下的復原方式都是 `ocx service install`。** 它刻意成為唯一永不受此門檻限制的動作，
-因此即使移除應用程式卻沒有把執行期交還，或狀態檔已損毀，你仍有辦法把服務收回：
-
-```bash
-ocx service install
-```
+On Windows, this shared Node/Bun diagnostic does not launch an executable to look up the
+image name; the recorded PID, liveness, lease age and recovery guidance remain available.
 
 ### `ocx codex-shim <install|status|uninstall|remove>`
 
-在 PATH 上以輕量自動啟動腳本包裝基於腳本的 `codex` 啟動器。真實的 `codex.exe` 目標保持不動，以避免破壞精確的可執行檔呼叫。
+在 macOS 與 Linux 上，`ocx codex-shim install` 會在解析後的 OpenCodex 主目錄安裝私有 wrapper `<OPENCODEX_HOME>/bin/codex` 與可由 shell 載入的 `<OPENCODEX_HOME>/codex-shell-env.sh`。原生啟動器保留在 brew、npm 或 fnm 安裝的位置，套件管理器升級及版本回復不需重新包裝。Windows 仍依原方式就地包裝指令碼啟動器，真實的 `codex.exe` 保持不動。若 Windows 安裝只提供 `codex.exe`，請使用 `ocx service install`。
 
 在提交一次安裝或修復之前，OpenCodex 會在略過服務啟動的情況下，用 `--version` 執行已儲存的
 launcher。當該 launcher 把 `codex` 解析回 shim 本身、以非零狀態結束、耗時超過五秒、留下仍在
@@ -455,6 +646,13 @@ Codex 的 launcher 與背景服務可能不會繼承那個環境。這些檢查�
 
 若已完成的外部 Codex 更新覆寫了已安裝的 shim，下一個普通 `ocx` 指令會備份穩定的新啟動器並在分派前還原 shim。零副作用的檢查指令 `ocx system codex-cli-update check` 與保留的 `ocx system codex-cli-update` 命名空間中的無效呼叫都不會執行此修復。仍在變動中的啟動器保持不動並稍後重試。修復失敗會發出警告但不會使請求的指令失敗；手動後備：`ocx codex-shim install`。將 `codexShimAutoRestore` 設為 `false`，或設定 `OPENCODEX_CODEX_SHIM_AUTO_RESTORE=0` 以進行行程層級的退出。
 
+完成 brew/fnm 等 PATH 設定後，執行安裝時顯示的啟用指令。預設主目錄對應：
+```sh
+. "$HOME/.opencodex/codex-shell-env.sh"
+```
+自訂主目錄請使用顯示的含引號路徑。重複載入會移除私有 bin 的重複項目，並將其放在 PATH 最前面。要在之後的 shell 啟用，請自行把這一行加在啟動檔的 PATH 設定之後；OpenCodex 從不編輯 shell 啟動檔，安裝指令也無法變更父 shell 的 PATH。只要 wrapper 可以執行，即使目前 shell 尚未啟用，安裝仍算成功；遭拒或無法執行則失敗。`ocx status`、`ocx codex-shim status`、`ocx doctor` 與 `ocx connect` 會將未被 PATH 選取的 wrapper 回報為 **not active**，並提供啟用指令。connect 警告不會改變結束狀態。別名、函式、桌面或服務的啟動環境需要另外設定。
+舊的 Unix 就地 shim 只會透過明確執行 `ocx codex-shim install` 移轉。移轉會還原記錄的原生啟動器，但不覆寫已存在的較新啟動器，之後才安裝私有 wrapper。若還原後私有安裝失敗，原生啟動器會維持已還原狀態，操作可以重試。記錄的啟動器遺失或無法執行時，請透過套件管理器修復；OpenCodex 不會猜測其他安裝位置，也不會重新包裝套件管理器路徑。
+
 那次還原需要 OpenCodex 存放在 shim 旁邊的原始 launcher。像 mise、asdf、volta 這類版本管理工具，
 會在升級時重寫整個安裝目錄樹，這會同時摧毀 shim*與*那份備份，於是就沒有東西可以拿來還原了。
 **版本管理工具的安裝目錄樹不是受支援的 shim 目標。** OpenCodex 會回報這個狀況並停止，而不是
@@ -468,9 +666,9 @@ Codex 的 launcher 與背景服務可能不會繼承那個環境。這些檢查�
 | 子指令 | 動作 |
 | --- | --- |
 | `install` | 安裝 shim（若過時則修復）。 |
-| `uninstall` | 移除 shim 並還原原始 Codex 二進位檔。 |
+| `uninstall` | 移除 Unix 私有檔案，保留原生 Codex；Windows 上還原原始啟動器。 |
 | `remove` | `uninstall` 的別名。 |
-| `status` | 回報 shim 狀態（已安裝、過時或缺失）。 |
+| `status` | 回報 shim 狀態及私有 wrapper 是否在 PATH 中啟用。 |
 
 ```bash
 ocx codex-shim install
@@ -485,6 +683,7 @@ Codex 及其子行程仍可繼承該 token。
 更新 OpenCodex 後，請用 `ocx codex-shim uninstall` 接著 `ocx codex-shim install`，重新建立
 既有的 Windows shim，以取得這個行為。一般的更新不會重寫一個健康的 Windows shim。
 :::
+Unix 解除安裝後，請從 shell 啟動檔移除載入行，並重新啟動 shell 或從 PATH 移除私有 bin。只移除屬於 OpenCodex 的 wrapper、shell 環境檔與狀態，套件管理器啟動器保持不動。舊的 Unix 就地 shim 會利用已記錄的還原資訊解除包裝。
 
 :::tip[服務 vs Shim]
 使用 `ocx service` 作為常駐背景代理（推薦）。使用 `ocx codex-shim` 作為輕量、按需啟動而無 daemon——代理僅在 `codex` 啟動時才啟動。
@@ -552,6 +751,58 @@ ocx update --tag preview
 
 當 [Release workflow](https://github.com/lidge-jun/opencodex/actions/workflows/release.yml) 將新版本發布到 npm 時，新版本即可使用。
 
+## Save cleanup thresholds without starting a cleanup
+
+```bash
+ocx storage policy show --json
+ocx storage policy set --archived-bytes-over 1073741824 --reduce-to-bytes 536870912 --json
+ocx storage policy show --json
+```
+
+The setter writes nested `trigger.archivedBytesOver` and one target. Byte values
+are safe nonnegative integers. Alternatively choose `--remove-oldest-percent 10`
+or legacy `--percent 10`; the two percentage flags and reduce-to are mutually
+exclusive. CLI percentages are integers with server-supported range 1–100.
+Omitted `--enabled` leaves the stored value unchanged; explicit values are `true`
+and `false`. Set does not run cleanup, but an already-enabled schedule remains
+in force. Do not add enable or an immediate policy run unless intended.
+
+The new-field receipt is `{ok:true,policy,job:{status}}`, with observed trigger,
+target, mode, schedule and optional last/next-run facts. `job.status` describes an
+existing idle/running state, not a cleanup started by this command. Read back on
+an unknown outcome rather than replaying the write.
+
+## Forced link revoke and remote recovery
+
+Only when skipping remote cleanup is explicitly intended, use the actual selected
+link ID (`lnk_0123456789abcdef` below is fictional):
+
+```bash
+ocx link revoke --link-id lnk_0123456789abcdef --force --yes --json
+```
+
+`--force` requires `--yes`; `--yes` alone is invalid. Ordinary revoke is unchanged.
+A forced success returns `{linkId,remoteCleanup:"skipped",recovery}`. Idempotent
+link-not-found instead reports `remoteCleanup:"unverified"`. Both can exit 0;
+these facts derive from CLI intent, not a server cleanup report. Neither means
+remote disconnect was attempted or confirmed. Follow the recovery instruction,
+`ocx disconnect` on the remote client, when that action is authorized.
+
+## Observe Remote Workspace from the Hub
+
+```bash
+ocx remote-workspace hub status --json
+ocx remote-workspace hub runtimes --json
+ocx remote-workspace hub sessions --json
+```
+
+These fixed management reads are separate from executor-local
+`ocx remote-workspace status`. Runtime availability is a keyed object; an available
+Hub with no devices/sessions is empty success. Disabled Hub observation can arrive
+as HTTP 200 with `available:false` yet exits 1; it is not empty success. Inner
+HTTP 409 exits 5. Reads never enroll devices, create sessions or submit prompts.
+See [Hub observation and recovery](/zh-tw/guides/remote-workspace/#inspect-the-hub-without-starting-a-session).
+
 ## Remote Hub 用戶端生命週期
 
 使用 `ocx connect <url> --pairing-code-stdin`、`ocx connect status`、`ocx sync` 與 `ocx connect rotate --pairing-code-stdin`。初次目錄下載會在五秒內沒有收到任何位元組時失敗，但進行中的傳輸可以執行更久；使用 `--catalog-timeout <seconds>`（1–120）可覆寫這個不活動時間窗。`ocx disconnect` 可離線還原本機狀態，但不會撤銷 hub 金鑰。仍連線時，`ocx connect revoke --admin-token-stdin` 會撤銷已保存的 `apiKeyId`；中斷後請使用 hub 的 **Integrations → API Keys**。秘密值只能透過 stdin 傳遞，不能放入 argv。
@@ -559,3 +810,19 @@ ocx update --tag preview
 ## Setup 連接埠驗證
 
 `ocx init` 接受 1–65535 的 TCP 連接埠，且必須是十進位整數。按 Enter 使用 10100。像 `0`、`10100oops` 或 `1.5` 這類無效輸入絕不會被悄悄取代或截斷；setup 會回報並再次詢問連接埠。
+
+## Login registration diagnostics
+
+On Linux, `ocx service install` checks `loginctl show-user <current-user> -p Linger` before printing boot advice. Enabled linger is reported as already enabled. Disabled linger gets the `loginctl enable-linger $USER` hint; missing or unreadable diagnostics state the uncertainty and do not fail installation.
+
+On macOS, `ocx service status` distinguishes a loaded Desktop login item from a valid enabled registration awaiting the next login. `ocx status` credits the latter in restart safety when the same Desktop app currently supervises the proxy. An incorrect plist label or command, a disabled entry, an unverified load probe, or changed process identity still cannot earn protection.
+
+## Custom Codex provider consent
+
+`ocx codex-provider status` lists the provider IDs approved for the selected Codex home.
+`ocx codex-provider allow <id>` asks before allowing URL-only management on start/sync;
+`--yes` is explicit noninteractive consent for that named provider.
+`ocx codex-provider revoke <id>` restores an unchanged managed URL and revokes permission.
+These commands are local and do not require a running proxy. See
+[custom provider routing](/zh-tw/guides/codex-integration/#opt-in-a-custom-provider-to-managed-local-routing)
+for eligibility, restore behavior and transport preservation.

@@ -1,5 +1,7 @@
 import type { Server } from "bun";
 import type { OcxConfig } from "../../types";
+import { getConfigDir } from "../../config/paths";
+import { discardPickerCaKey } from "../../claude/intercept/picker-ca";
 import type { PickerRouteInput } from "../../claude/intercept/picker-models";
 import { observeClaudeDesktopMode, type ClaudeDesktopModeObservation } from "../../claude/desktop-first-party";
 import { firstPartyDesired, type ClaudeFirstPartyDesired } from "../../claude/first-party-settings";
@@ -39,10 +41,11 @@ export function buildInterceptDesiredClients(config: OcxConfig, observed: Claude
  * imports keep the catalog and discovery off the synchronous startup path.
  */
 export async function loadPickerRoutesFromCatalog(): Promise<PickerRouteInput> {
-  const [{ loadConfig }, { fetchAllModels }, catalog] = await Promise.all([
+  const [{ loadConfig }, { fetchAllModels }, catalog, { resolveAutoContext }] = await Promise.all([
     import("../../config"),
     import("../management-api"),
     import("../../codex/catalog"),
+    import("../../claude/context-windows"),
   ]);
   const config = loadConfig();
   const models = await fetchAllModels(config);
@@ -52,6 +55,7 @@ export async function loadPickerRoutesFromCatalog(): Promise<PickerRouteInput> {
       .map(model => ({ provider: model.provider, id: model.id, contextWindow: model.contextWindow })),
     ...(config.claudeCode?.desktopProfile ? { profile: config.claudeCode.desktopProfile } : {}),
     nativeContextCap: catalog.nativeContextLimits(config),
+    auto: resolveAutoContext(config.claudeCode),
   };
 }
 
@@ -79,6 +83,8 @@ export function createClaudeInterceptLifecycle<T>(): ClaudeInterceptLifecycle<T>
     if (!options) return Promise.resolve(outcome = { ok: false, reason: "failed" });
     const opts = options;
     const run = async (): Promise<ClaudeInterceptOutcome> => {
+      // Legacy key cleanup is independent of listener eligibility, including on-demand retries.
+      try { discardPickerCaKey(opts.configDir ?? getConfigDir()); } catch { /* best-effort; retried on the next attempt */ }
       if (opts.config.runtimeRole === "client") return { ok: false, reason: "client_role" };
       if (!claudeInterceptEnabled(opts.config)) return { ok: false, reason: "disabled" };
       if (opts.requestedPort === 0 && typeof opts.config.claudeCode?.intercept?.port !== "number")

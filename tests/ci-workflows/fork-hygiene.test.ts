@@ -20,10 +20,12 @@ const FORK_OWNED_WORKFLOWS = new Set([
   "fork-maintenance.yml",
   "upstream-check.yml",
   "codeql.yml",
+  "fork-release-windows.yml",
 ]);
 const KEEP_RUNNING_UPSTREAM_WORKFLOWS = new Set([
   "ci.yml",
   "react-doctor.yml",
+  "catalog-async-contracts.yml",
   "issue-quality-tests.yml",
 ]);
 

@@ -1,3 +1,4 @@
+import { codexAccountUsesCreditsAfterLimit } from "./account-credit-use";
 /**
  * Quota-aware subagent model fallback (issue #374).
  *
@@ -233,7 +234,7 @@ export function isNativeModelQuotaExhausted(
   // Subagent fallback reads the same score, so a stale terminal reading would push
   // subagents off a native model whose window has already reset. Thread the caller's clock
   // rather than letting the scorer read wall time - the two would silently diverge.
-  const usage = computeCodexUsageScore(quota, getPoolAccountPlan(config, resolvedAccountId), now);
+  const usage = computeCodexUsageScore(quota, getPoolAccountPlan(config, resolvedAccountId), now, codexAccountUsesCreditsAfterLimit(config, resolvedAccountId));
   if (usage >= CODEX_UNKNOWN_USAGE_SCORE) return false;
   return usage >= quotaThreshold(config, resolvedAccountId);
 }
@@ -590,7 +591,7 @@ export function maybePrimeSubagentQuota(
       if (subagentQuotaPrimeForTests) {
         await subagentQuotaPrimeForTests(config, "subagent-spawn");
       } else {
-        const { primeCodexPoolQuotas } = await import("./auth-api");
+        const { primeCodexPoolQuotas } = await import("./auth-api/pool-mode-gate");
         await primeCodexPoolQuotas(config, "subagent-spawn");
       }
       quotaPrimedAt.set("global", Date.now());

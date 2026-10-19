@@ -1,4 +1,6 @@
+import { approvedCodexProviders } from "./provider-routing";
 import { currentExternalCodexModelProvider, injectCodexConfig } from "./inject";
+import { FOREIGN_CODEX_HOME_OWNER_MESSAGE, UNKNOWN_CODEX_HOME_OWNER_MESSAGE, unbackedRoutedRemovalMessage } from "./catalog/routed-removal";
 import { printProjectCodexConfigWarnings, groupProjectCodexConfigWarningsByPath, type ProjectCodexConfigWarning } from "./project-config-warnings";
 import { refreshCodexModelCatalog } from "./refresh";
 import { applyProxyEnv, loadConfig } from "../config";
@@ -32,11 +34,13 @@ export interface CodexSyncResult {
   catalogPath: string | null;
   catalogExists: boolean;
   catalogWritten: boolean;
+  /** Committed configuration-byte change, never inferred from a successful no-op. */
+  configChanged?: boolean;
   cacheSynced: boolean;
   /**
    * Whether the catalog owner committed a validated catalog or refused the
-   * refresh. Only a `catalog-only` result carries it; `ok` already answers the
-   * question for callers that do not care which half refused.
+   * refresh. Available on applied and catalog-only results; `ok` on applied
+   * describes config injection, so callers must also inspect catalog evidence.
    */
   refreshOutcome?: "committed" | "refused";
   message: string;
@@ -187,7 +191,7 @@ export async function syncModelsToCodex(
     };
   }
 
-  if (externalProvider) {
+  if (externalProvider && !approvedCodexProviders().includes(externalProvider)) {
     if (catalogEvenWhenNotInjected) {
       // External providers own config.toml, and the injector removes the OpenCodex
       // journal for external providers (inject.ts). This explicit catalog-only sync
@@ -213,6 +217,7 @@ export async function syncModelsToCodex(
     return {
       status: "applied",
       ok: result.success,
+      ...(result.success && result.configChanged === true ? { configChanged: true } : {}),
       added: 0,
       catalogPath: null,
       catalogExists: false,
@@ -262,17 +267,27 @@ export async function syncModelsToCodex(
   let cacheSynced = false;
   let warning: string | undefined;
   let comboOmissions: ComboCatalogOmission[] = [];
+  let refreshOutcome: "committed" | "refused" | undefined;
 
   try {
     const cat = await deps.refreshCodexModelCatalog(config);
     added = cat.added;
+    refreshOutcome = cat.refreshOutcome;
     catalogExists = cat.catalogExists;
     catalogWritten = cat.catalogWritten;
     cacheSynced = cat.cacheSynced;
     catalogPathForInjection = cat.catalogExists ? cat.path : null;
     catalogPath = catalogPathForInjection;
     comboOmissions = cat.comboOmissions ?? [];
-    if (cat.added > 0) {
+    if (cat.skippedReason === "unbacked_routed_removal" || cat.skippedReason === "foreign_owner" || cat.skippedReason === "owner_unknown") {
+      // The catalog on disk is kept as it was; say so, or a native-only refresh refused for safety
+      // reads exactly like a successful sync (#6529).
+      warning = cat.skippedReason === "foreign_owner"
+        ? FOREIGN_CODEX_HOME_OWNER_MESSAGE
+        : cat.skippedReason === "owner_unknown" ? UNKNOWN_CODEX_HOME_OWNER_MESSAGE
+        : unbackedRoutedRemovalMessage(cat.protectedRoutedNamespaces ?? 1);
+      log?.error(`[opencodex] ${warning}`);
+    } else if (cat.added > 0) {
       log?.log(`   + ${cat.added} models appended to Codex catalog (${cat.path})`);
     } else if (!cat.catalogExists) {
       warning = "catalog sync skipped: no Codex catalog source found; keeping Codex's native catalog.";
@@ -321,7 +336,9 @@ export async function syncModelsToCodex(
   return {
     status: "applied",
     ok: result.success,
+    ...(result.success && result.configChanged === true ? { configChanged: true } : {}),
     added,
+    ...(refreshOutcome ? { refreshOutcome } : {}),
     catalogPath,
     catalogExists,
     catalogWritten,
@@ -370,7 +387,15 @@ async function refreshCatalogForSync(
     cacheSynced = cat.cacheSynced;
     catalogPath = cat.catalogExists ? cat.path : null;
     comboOmissions = cat.comboOmissions ?? [];
-    if (cat.added > 0) {
+    if (cat.skippedReason === "unbacked_routed_removal" || cat.skippedReason === "foreign_owner" || cat.skippedReason === "owner_unknown") {
+      // The catalog on disk is kept as it was; say so, or a native-only refresh refused for safety
+      // reads exactly like a successful sync (#6529).
+      warning = cat.skippedReason === "foreign_owner"
+        ? FOREIGN_CODEX_HOME_OWNER_MESSAGE
+        : cat.skippedReason === "owner_unknown" ? UNKNOWN_CODEX_HOME_OWNER_MESSAGE
+        : unbackedRoutedRemovalMessage(cat.protectedRoutedNamespaces ?? 1);
+      log?.error(`[opencodex] ${warning}`);
+    } else if (cat.added > 0) {
       log?.log(`   + ${cat.added} models appended to Codex catalog (${cat.path})`);
     } else if (!cat.catalogExists) {
       warning = "catalog sync skipped: no Codex catalog source found; keeping Codex's native catalog.";

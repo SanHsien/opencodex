@@ -27,6 +27,8 @@ RPC v1 peers fail closed and must upgrade together rather than fall back to imme
 
 `src/remote-control/workspace-runtime.ts` is the lazy composition owner for Hub services. Codex, Claude and Pi adapters keep model processes on the Hub and expose selected remote tools. Their source configuration is not evidence of live CLI confinement. `src/cli/remote-workspace.ts` contains registered executor pair/agent/status handling; the machine-readable entries live in `src/cli/capabilities.ts`.
 
+The explicit hub status/runtimes/sessions branch selects `src/cli/remote-workspace-hub.ts` before executor storage. It performs fixed management reads and projects public devices/root labels, named runtime availability and session events; it exposes no pairing or session mutation. The outer management dispatcher returns available:false with HTTP200 when activation is off; CLI reports that observation with exit1 and fixed recovery guidance, distinct from an available Hub with empty lists. Client-role refusal, transport errors and malformed observations remain nonzero.
+
 The optional terminal prototype in `src/remote-control/host.ts` invokes only a caller-supplied factory after authenticated traffic. `src/remote-control/relay.ts` routes opaque prototype envelopes after caller authorization. Neither is a production terminal service.
 
 Regression coverage lives in `tests/clients/remote-workspace-session-binding.test.ts`, `tests/clients/remote-workspace-secret-store.test.ts` and the adjacent protocol, agent-wire, device, hub, sessions and command-runner tests. Real CLI and native confinement tests require their explicit environments; generic suite success does not certify those paths. Windows command support remains unavailable pending a verified lifecycle owner.
@@ -36,6 +38,23 @@ Regression coverage lives in `tests/clients/remote-workspace-session-binding.tes
 The listener retains an awaited shutdown callback only after optional activation. It refuses initialization once stop begins, starts listener admission closure and workspace cleanup concurrently, and awaits session shutdown before closing Hub connections in a finally path. Listener drain completes after these owned sockets close; cleanup failures still propagate. `src/server/ws-bridge.ts` carries structural receive/open/close callbacks without importing concrete workspace services.
 
 `gui/src/pages/RemoteWorkspace.tsx` defaults to read-only access, displays actual effective capabilities, and keeps Stop available while a prompt is pending. Error retries preserve draft text. The UI explains explicit Hub opt-in in each locale; no historical screenshot is evidence of the current surface.
+
+The session console supports a session sidebar and up to four independent conversation panes in
+both dashboard hosts. Dragging a session to an edge splits or moves its pane; accessible split
+buttons and keyboard-resizable separators offer the same layout controls. Closing a pane only
+changes the view. Drafts, prompt admission, local response cursors and Stop state are keyed by
+session so an in-flight request never disables an unrelated conversation. This is a dashboard
+feature; neither the upstream Codex terminal UI nor the official desktop renderer is modified.
+
+`gui/src/components/remote-workspace/RemoteWorkspaceChats.tsx` owns the session rail, panes and
+resize/drop controls; `split-layout.ts` validates and transforms the persisted layout tree.
+`use-session-actions.ts` isolates drafts, concurrent prompt requests and Stop races by session,
+while `types.ts` shares the dashboard contracts with the page. Only layout identifiers, axes
+and ratios are stored locally; draft text and session output remain in memory. Separators support
+axis-specific arrow keys and Home/End bounds. At viewport widths up to 760px, panes stack
+without separators or horizontal scrolling while the saved desktop split tree remains intact.
+A track that holds a nested split reserves that subtree's minimum width (`minLayoutWidth`), so
+side-by-side splits never scroll inside a pane column; an oversized tree scrolls the pane surface once.
 
 Hub runtime admission counts pending create/resume starts as well as live handles against global and per-device limits; every outcome releases its reservation. Stop and shutdown reclaim late resumed handles before clearing ownership. Coordinator result size limits normalize both response text and success, so bridge and MCP callers receive consistent errors.
 

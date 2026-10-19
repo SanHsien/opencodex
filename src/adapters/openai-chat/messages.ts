@@ -7,6 +7,7 @@ import { EMPTY_TOOL_OUTPUT_ANNOTATION, isWhitespaceOnlyTextPartArray } from "../
 import { identifyRoutedModel } from "../identity";
 import { buildNonOpenAIToolCatalogNudgeForTools, shouldInjectNonOpenAIToolCatalogNudge } from "../tool-catalog-nudge";
 import { peekReasoningForCall } from "../../responses/reasoning-replay-cache";
+import { chatReasoningReplayPolicy } from "./reasoning-replay";
 import type { ClaudeThinkingProjection } from "../../lib/claude-request-projection";
 import { inlineDocumentDataUrl } from "../../responses/inline-document";
 import type { OcxAssistantMessage, OcxContentPart, OcxParsedRequest, OcxProviderConfig, OcxTextContent, OcxThinkingContent, OcxToolCall } from "../../types";
@@ -75,7 +76,7 @@ export function openAIChatSerializesThinking(
   modelId: string,
 ): ClaudeThinkingProjection {
   return {
-    text: modelInList(provider.preserveReasoningContentModels, modelId),
+    text: chatReasoningReplayPolicy(provider, modelId).preserve,
     // The wire has no `signature` field — base64 replay tokens are Anthropic-wire-only.
     signature: false,
     // A `redacted_thinking` block is opaque provider data with no Chat representation: the
@@ -142,9 +143,12 @@ export function messagesToChatFormat(parsed: OcxParsedRequest, provider: OcxProv
   };
 
   const nativeOpenAI = isNativeOpenAIChatTarget(provider);
-  // Qwen3.8-27B's pinned chat template rejects non-leading system and every developer role;
-  // a later user is rendered in place. Keep this exception specific to that template family.
-  const qwen38LeadingSystemTemplate = !nativeOpenAI && /^(?:Qwen\/)?(?:Qwen3\.8-27B|qwen3-8-27b(?:-(?:fp8|lora))?)$/i.test(parsed.modelId);
+  // Leading-system chat templates reject non-leading system and every developer role while a
+  // later user renders in place: Qwen3.8-27B, Flash-Next, and the OrcaSAQ-2-Cyber-27B GGUF family.
+  // Gateways serve them under namespaced ids (LiteLLM's openai/Qwen3.8-27B, #6674), so any
+  // number of leading path segments is accepted; the final segment names the checkpoint.
+  // Orca's GGUF marker must precede any colon quant tag; other Orca variants are unchanged.
+  const leadingSystemTemplate = !nativeOpenAI && /^(?:[^/]+\/)*(?:flash-next|Qwen3\.8-Flash-Next|Qwen3\.8-27B|qwen3-8-27b(?:-(?:fp8|lora))?|OrcaSAQ-2-Cyber-27B(?=[^:/\s]*GGUF)[^:/\s]*(?::[\w-]+)?)$/i.test(parsed.modelId);
   // Which role a developer message carries, and why the unrecorded state folds, is stated once
   // in ./developer-role.ts and read from there by the native passthrough as well. Either way the
   // message keeps the slot it arrived in — only the role changes, never the position.
@@ -194,7 +198,7 @@ export function messagesToChatFormat(parsed: OcxParsedRequest, provider: OcxProv
           // message instead is rejected by some upstreams. Native OpenAI keeps its existing
           // empty-developer wire, which is a separate question from placement.
           if (!nativeOpenAI && text.length === 0) break;
-          chatMsg = { role: qwen38LeadingSystemTemplate ? "user" : developerWireRole, content: text };
+          chatMsg = { role: leadingSystemTemplate ? "user" : developerWireRole, content: text };
         } else if (typeof msg.content === "string") {
           chatMsg = { role: "user", content: msg.content };
         } else if (!hasStructured) {
@@ -264,7 +268,7 @@ export function messagesToChatFormat(parsed: OcxParsedRequest, provider: OcxProv
           // recorded under every call id — join unique texts only.
           if (cached.length > 0) {
             reasoningContent = [...new Set(cached)].join("\n");
-          } else if (modelInList(provider.requiresReasoningPlaceholderModels ?? provider.preserveReasoningContentModels, parsed.modelId)) {
+          } else if (chatReasoningReplayPolicy(provider, parsed.modelId).placeholder) {
             // Fallback (extends #950 and #1193; fixes #5421): the replay cache is
             // bounded (64 entries / 256 KiB / 1 h TTL) and always misses on
             // long sessions, and some thinking/tool rounds carry no recorded
@@ -289,7 +293,11 @@ export function messagesToChatFormat(parsed: OcxParsedRequest, provider: OcxProv
           }
         }
         const hasReplayedReasoning = chatMsg.reasoning_content !== undefined || chatMsg.reasoning_details !== undefined;
-        if (chatMsg.content === undefined && toolCalls.length === 0 && !hasReplayedReasoning) break;
+        // A turn with no answer text, tools or reasoning carries nothing. Between a call and its
+        // result it would also split the pair, so drop it there; a standalone empty answer keeps
+        // its slot so templates that require strict user/assistant alternation still accept it.
+        const carriesNothing = !chatMsg.content && toolCalls.length === 0 && !hasReplayedReasoning;
+        if (carriesNothing && (chatMsg.content === undefined || pendingToolCalls.length > 0)) break;
         flushPendingToolCalls();
         const wireToolCalls = toolCalls.map(tc => {
           let id = tc.id;
@@ -347,7 +355,7 @@ export function messagesToChatFormat(parsed: OcxParsedRequest, provider: OcxProv
           const orphanReasoning =
             cachedReasoning
             || (wireSerializesThinking
-              && modelInList(provider.requiresReasoningPlaceholderModels ?? provider.preserveReasoningContentModels, parsed.modelId)
+              && chatReasoningReplayPolicy(provider, parsed.modelId).placeholder
               ? " "
               : undefined);
           const orphanReasoningFields: Record<string, unknown> = !orphanReasoning

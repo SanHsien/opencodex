@@ -72,6 +72,17 @@ describe("legacy Codex config keys", () => {
     expect(formatLegacyCodexConfigKeyDiagnosticsForDoctor(result).at(0)).toContain("  --");
   });
 
+  test("reports too_large, not not_a_file, when the config exceeds the 1 MiB read limit", () => {
+    writeConfig(`# ${"x".repeat(1024 * 1024)}
+model = "gpt-5.3"
+`);
+    const result = collectLegacyCodexConfigKeyDiagnostics({ codexConfigPath: configPath });
+    expect(result.status).toBe("unavailable");
+    if (result.status !== "unavailable") return;
+    expect(result.reason).toBe("too_large");
+    expect(formatLegacyCodexConfigKeyDiagnosticsForDoctor(result).at(0)).toContain("(too_large)");
+  });
+
   test("a table header with a trailing comment does not leak fields into root", () => {
     writeConfig('[model_messages] # message templates\npersistent_instructions = "x"');
     const result = collectLegacyCodexConfigKeyDiagnostics({ codexConfigPath: configPath });

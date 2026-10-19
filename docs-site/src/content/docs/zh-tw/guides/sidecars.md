@@ -143,6 +143,10 @@ combo 才會宣告支援圖像輸入；如此 Codex 應用程式等用戶端會�
   寬鬆處理。
 - 描述任務以有限並行度執行（同時最多 3 張，保留輸入順序）。傳給描述模型的使用者上下文上限為
   800 個字元，每則注入的描述上限為 2,000 個字元。請求不會傳送 ChatGPT 後端會拒絕的
+
+若沒有可用 plan，原始圖像會被移除，不會繼續轉送給純文字後端。當 `visionSidecar.enabled: false` 時，
+模型目錄不會為純文字模型新增由 sidecar 提供的圖像輸入，包括自訂項目與 combo 成員。原生圖像支援及明確設定的圖像模態會保留。
+省略 `enabled` 時，仍會宣告 sidecar 提供的圖像輸入；目錄中顯示這項能力不代表已確認 sidecar 的憑證或處理容量可用。
   `max_output_tokens`。
 - 圖像 URL 會在轉發前驗證：data URL 必須是 `png` / `jpeg` / `jpg` / `webp` / `gif`，base64
   資料限制在約 20 MB。只接受 `data:` 與 `https:` scheme；遠端 `https` 圖像由 OpenAI 後端取得，
@@ -196,6 +200,8 @@ combo 才會宣告支援圖像輸入；如此 Codex 應用程式等用戶端會�
 
 `PUT /api/sidecar-settings` 接受相同欄位。部分更新會保留未提交的鍵。`timeoutMs` 使用執行時
 整數邊界（1–2147483647 毫秒）。
+
+透過 `PUT /api/sidecar-settings` 變更 Vision 開關的實際生效狀態後，儲存完成便會重新整理受管理的目錄與快取；`catalogRefreshPending=true` 表示重新整理未完成，並非用戶端的確認回覆。
 
 Web 搜尋 sidecar 卡片採用相同的控制項形態：模型選擇器的第一列是 **關閉 (Off)**。關閉會停止
 OpenCodex 對 `web_search` 的攔截，同時 Codex 整合會把 `web_search = "disabled"`

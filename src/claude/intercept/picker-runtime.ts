@@ -7,18 +7,21 @@
  * `intercept`. Everything else, and claude.ai whenever any condition fails, is a blind tunnel.
  *
  * The decision is cached by `refresh()` and only read by `selectTunnel`, so a CONNECT never
- * waits on the keychain or the catalog. Arming needs all of: macOS, the persisted resolved mode is
+ * waits on the OS trust store or the catalog. Arming needs all of: a supported platform, the persisted resolved mode is
  * first-party (observation-aware, so a pre-field first-party install counts), Desktop intent on,
  * `claudeCode.intercept.picker !== false`, the disarm latch clear, the picker listener up and the
- * current picker CA trusted in the login keychain. `disarm()` stops terminating immediately and
+ * current picker CA trusted in the OS root store. `disarm()` stops terminating immediately and
  * latches; only the picker controller's owner-only `rearm()` clears the latch.
  */
 import { join } from "node:path";
 import type { OcxConfig } from "../../types";
 import type { ClaudeDesktopMode } from "../desktop-first-party";
+import { supportsDesktopPicker } from "../desktop-picker-platform";
 import type { TunnelDecision } from "./connect-proxy";
 import type { PemKeyPair } from "./local-ca";
 import { PICKER_HOST, ensurePickerCa, issuePickerLeaf, pickerCaFingerprints, pickerLeafCertPath, pickerStateDir, type PickerCa } from "./picker-ca";
+import { preparePersistentPickerAuthority } from "./picker-ca-startup";
+import type { PickerCaStore } from "./picker-ca-store";
 import { startPickerListener, type PickerListenerHandle } from "./picker-listener";
 import { createPickerModelSnapshot, type PickerModelSnapshot, type PickerRouteInput } from "./picker-models";
 import { inspectPickerTrust, type PickerTrustState, type SecurityRunner } from "./picker-trust";
@@ -81,6 +84,8 @@ export interface CreatePickerRuntimeOptions {
   isBusy?: () => boolean;
   configDir: string;
   loadRoutes: () => Promise<PickerRouteInput>;
+  /** Production opt-in; pure/direct runtime callers remain ephemeral. */
+  persistentAuthority?: { store?: PickerCaStore };
   security?: SecurityRunner;
   platform?: NodeJS.Platform;
   now?: () => number;
@@ -104,7 +109,7 @@ export function pickerDesired(
   mode: ClaudeDesktopMode,
   platform: NodeJS.Platform = process.platform,
 ): boolean {
-  return platform === "darwin"
+  return supportsDesktopPicker(platform)
     && config.clientIntegrations?.["claude-desktop"] !== false
     && mode === "first-party"
     && config.claudeCode?.intercept?.picker !== false;
@@ -161,9 +166,11 @@ export function createPickerRuntime(options: CreatePickerRuntimeOptions): Picker
     if (pending) void pending.then(handle => handle.close()).catch(() => {});
   }
 
-  function ensureMaterial(): { ca: PickerCa; leaf: PemKeyPair; sha1: string } {
+  async function ensureMaterial(): Promise<{ ca: PickerCa; leaf: PemKeyPair; sha1: string }> {
     if (!ca || !leaf || !caSha1) {
-      ca = ensurePickerCa(options.configDir);
+      ca = options.persistentAuthority
+        ? await preparePersistentPickerAuthority({ configDir: options.configDir, store: options.persistentAuthority.store, security: options.security, platform })
+        : ensurePickerCa(options.configDir);
       leaf = issuePickerLeaf(ca, options.configDir);
       caSha1 = pickerCaFingerprints(ca.certPem).sha1;
     }
@@ -176,7 +183,7 @@ export function createPickerRuntime(options: CreatePickerRuntimeOptions): Picker
   }
 
   async function inspectTrust(force: boolean): Promise<PickerTrustState> {
-    const { sha1 } = ensureMaterial();
+    const { sha1 } = await ensureMaterial();
     if (!force && trustFor === sha1 && now() - trustCheckedAt < trustTtlMs) return trust;
     trust = await inspectPickerTrust(pickerLeafCertPath(options.configDir), sha1, options.security, platform);
     trustFor = sha1;
@@ -186,7 +193,8 @@ export function createPickerRuntime(options: CreatePickerRuntimeOptions): Picker
 
   /** CA, leaf, snapshot and listener. Resolves false when a disarm overtook it. */
   async function startPieces(gen: number): Promise<boolean> {
-    const material = ensureMaterial();
+    const material = await ensureMaterial();
+    if (gen !== generation || latched || stopped) return false;
     ensureSnapshot().refreshIfStale(PICKER_MODELS_MAX_AGE_MS);
     if (!listenerPromise) {
       const current = startListener({
@@ -218,7 +226,7 @@ export function createPickerRuntime(options: CreatePickerRuntimeOptions): Picker
       desired = pickerDesired(fresh, mode, platform);
       if (!desired || latched) {
         armed = false;
-        reason = platform !== "darwin" ? "unsupported_platform" : latched ? "disarmed" : "not_desired";
+        reason = !supportsDesktopPicker(platform) ? "unsupported_platform" : latched ? "disarmed" : "not_desired";
         closeListener();
         return;
       }
@@ -266,6 +274,9 @@ export function createPickerRuntime(options: CreatePickerRuntimeOptions): Picker
       });
     },
     async refreshTrust() {
+      // A dormant production picker has no authority to inspect. Status/off must not initialize
+      // credentials; an already initialized issuer still gets authoritative OS trust inspection.
+      if (options.persistentAuthority && ca === null) return trust;
       return inspectTrust(true);
     },
     async refresh() {
@@ -302,7 +313,7 @@ export function createPickerRuntime(options: CreatePickerRuntimeOptions): Picker
       const current = snapshot?.current() ?? null;
       return {
         desired,
-        supported: platform === "darwin",
+        supported: supportsDesktopPicker(platform),
         trust,
         listenerReady: listener !== null,
         effective: armed && listener !== null && !latched && !stopped,

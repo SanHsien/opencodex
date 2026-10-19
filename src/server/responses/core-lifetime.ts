@@ -1,4 +1,7 @@
 import type { TranslatorBudget } from "../../lib/translator-budget";
+import { carryResponseToolOwnership } from "./response-tool-ownership";
+import { finalizeTranslatorBudgetResponse } from "../../lib/translator-budget";
+import { isNonReplayableResponse, markResponseNonReplayable } from "../../lib/upstream-retry";
 import {
   isNativePassthroughSseResponse,
   markNativePassthroughSseResponse,
@@ -37,42 +40,8 @@ export const UPSTREAM_JSON_BODY_READ_OPTIONS = {
 
 
 
-export function finalizeOwnedTranslatorBudget(response: Response, budget: TranslatorBudget): Response {
-  if (!response.body) {
-    budget.dispose();
-    return response;
-  }
-  const reader = response.body.getReader();
-  let finalized = false;
-  const finalize = () => {
-    if (finalized) return;
-    finalized = true;
-    budget.dispose();
-  };
-  const body = new ReadableStream<Uint8Array>({
-    async pull(controller) {
-      try {
-        const result = await reader.read();
-        if (result.done) {
-          finalize();
-          controller.close();
-        } else {
-          controller.enqueue(result.value);
-        }
-      } catch (error) {
-        finalize();
-        controller.error(error);
-      }
-    },
-    async cancel(reason) {
-      try { await reader.cancel(reason); } finally { finalize(); }
-    },
-  });
-  const finalizedResponse = new Response(body, {
-    status: response.status,
-    statusText: response.statusText,
-    headers: response.headers,
-  });
+export function finalizeOwnedTranslatorBudget(response: Response, budget: TranslatorBudget, signal?: AbortSignal): Response {
+  const finalizedResponse = finalizeTranslatorBudgetResponse(response, budget, signal);
   if (isNativePassthroughSseResponse(response)) {
     markNativePassthroughSseResponse(finalizedResponse);
   }
@@ -80,11 +49,13 @@ export function finalizeOwnedTranslatorBudget(response: Response, budget: Transl
     markEagerRelaySseResponse(finalizedResponse);
   }
   if (isPreinspectedJsonResponse(response)) markPreinspectedJsonResponse(finalizedResponse);
-  return finalizedResponse;
+  if (isNonReplayableResponse(response)) markResponseNonReplayable(finalizedResponse);
+  if (runTurnAdapterSseResponses.has(response)) runTurnAdapterSseResponses.add(finalizedResponse);
+  return carryResponseToolOwnership(response, finalizedResponse);
 }
 
 /** Release a serving-account slot when the client body ends, errors or is cancelled. */
-export function finalizeAccountLease(response: Response, release: () => void): Response {
+export function finalizeAccountLease(response: Response, release: () => void, onCancel?: () => void): Response {
   if (!response.body) { release(); return response; }
   const reader = response.body.getReader();
   let done = false;
@@ -97,13 +68,15 @@ export function finalizeAccountLease(response: Response, release: () => void): R
         else controller.enqueue(next.value);
       } catch (error) { finish(); controller.error(error); }
     },
-    async cancel(reason) { try { await reader.cancel(reason); } finally { finish(); } },
+    async cancel(reason) { onCancel?.(); try { await reader.cancel(reason); } finally { finish(); } },
   });
   const wrapped = new Response(body, { status: response.status, statusText: response.statusText, headers: response.headers });
+  if (isNonReplayableResponse(response)) markResponseNonReplayable(wrapped);
   if (isNativePassthroughSseResponse(response)) markNativePassthroughSseResponse(wrapped);
   if (isEagerRelaySseResponse(response)) markEagerRelaySseResponse(wrapped);
   if (isPreinspectedJsonResponse(response)) markPreinspectedJsonResponse(wrapped);
-  return wrapped;
+  if (runTurnAdapterSseResponses.has(response)) runTurnAdapterSseResponses.add(wrapped);
+  return carryResponseToolOwnership(response, wrapped);
 }
 
 

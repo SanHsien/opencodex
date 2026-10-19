@@ -6,6 +6,7 @@ import { join } from "node:path";
 import {
   CodexAccountCooldownError,
   CodexMainAccountHardLockError,
+  CodexMainAccountCreditsOffError,
   cooldownErrorMessage,
   cooldownErrorResponse,
   headersForCodexAuthContext,
@@ -32,7 +33,11 @@ import {
   resetMainAccountExternalUsageForTests,
 } from "../../src/codex/main-account-external-usage";
 import { clearCodexUpstreamHealth, clearThreadAccountMap, getCodexUpstreamHealth, getCodexQuotaHealthSnapshot, recordCodexUpstreamOutcome } from "../../src/codex/routing";
-import { listOpenAiForwardSidecarCandidates, resolveFirstUsableOpenAiSidecar } from "../../src/providers/openai-sidecar";
+import {
+  listOpenAiForwardSidecarCandidates,
+  resolveCallerOwnedOpenAiSidecar,
+  resolveFirstUsableOpenAiSidecar,
+} from "../../src/providers/openai-sidecar";
 import { mapCodexAuthContextErrorToResponse } from "../../src/server/responses/codex-auth-error";
 import { handleResponses } from "../../src/server/responses/core";
 import { handleResponsesCompact } from "../../src/server/responses/compact";
@@ -104,6 +109,7 @@ function forbidPhysicalReads(): void {
   spyOn(mainAccount, "getMainAccountToken").mockImplementation(forbidden);
   spyOn(mainAccount, "getValidMainAccountToken").mockImplementation(forbidden);
   spyOn(mainAccount, "isMainAccountCredentialUsable").mockImplementation(forbidden);
+  spyOn(mainAccount, "getMainAccountCredentialStatus").mockImplementation(forbidden);
 }
 
 function addAlternative(cfg: OcxConfig): void {
@@ -411,6 +417,30 @@ describe("main quota policy at native admission", () => {
     expect(headersForCodexAuthContext(new Headers(), context, cfg).get("authorization")).toBe(`Bearer ${bearer()}`);
   });
 
+  test("use-remaining admits selected main at 95 and still blocks materialization at 100", async () => {
+    const cfg = accountZeroConfig();
+    cfg.codexUseRemainingQuotaAccountIds = [MAIN];
+    quota(95);
+    const context = await resolveCodexAuthContext(new Headers(), cfg, "pool", { accountId: MAIN });
+    expect(context.kind).toBe("main-pool");
+    expect(headersForCodexAuthContext(new Headers(), context, cfg).get("authorization")).toBe(`Bearer ${bearer()}`);
+    quota(100);
+    expect(() => headersForCodexAuthContext(new Headers(), context, cfg)).toThrow(CodexMainAccountHardLockError);
+    cfg.codexMainAccountHardLock = false;
+    expect(() => headersForCodexAuthContext(new Headers(), context, cfg)).toThrow(CodexMainAccountCreditsOffError);
+    expect(cfg.creditCodexAccountIds).toBeUndefined();
+  });
+
+  test("use-remaining admits caller-owned Direct main until preference is revoked", async () => {
+    const cfg = accountZeroConfig();
+    cfg.codexUseRemainingQuotaAccountIds = [MAIN];
+    observeMainQuotaCredential(bearer(), accountId); quota(95);
+    forbidPhysicalReads();
+    await expect(resolveCodexAuthContext(caller(), cfg, "direct")).resolves.toMatchObject({ kind: "main" });
+    cfg.codexUseRemainingQuotaAccountIds = [];
+    await expect(resolveCodexAuthContext(caller(), cfg, "direct")).rejects.toBeInstanceOf(CodexMainAccountHardLockError);
+  });
+
   test("short-only 99 blocks exact main and main-only Pool without probe or reauth", async () => {
     quota(99);
     const cfg = config();
@@ -577,6 +607,18 @@ describe("main quota policy at native admission", () => {
     forbidPhysicalReads();
     await expect(resolveFirstUsableOpenAiSidecar(listOpenAiForwardSidecarCandidates(cfg), caller(), cfg))
       .rejects.toBeInstanceOf(CodexMainAccountHardLockError);
+  });
+
+  test("a caller-owned voice join uses the same matched-main policy and never detours to Pool", () => {
+    // An existingCall join forwards the caller's own credential even in Pool mode. When that
+    // caller is the hard-locked main, the refusal must surface rather than a Pool account.
+    const cfg = config();
+    addAlternative(cfg);
+    observeMainQuotaCredential(bearer(), accountId);
+    quota(99);
+    forbidPhysicalReads();
+    expect(() => resolveCallerOwnedOpenAiSidecar(listOpenAiForwardSidecarCandidates(cfg), caller(), cfg))
+      .toThrow(CodexMainAccountHardLockError);
   });
 
   test("Responses applies matched-main policy only to the selected Codex-forward transport", async () => {

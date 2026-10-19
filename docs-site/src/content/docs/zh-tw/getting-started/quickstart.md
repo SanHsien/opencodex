@@ -18,7 +18,7 @@ ocx init
 
 `ocx init` 會引導你完成:
 
-1. **選擇 provider** —— 從內建 registry 的 102 個預設中選擇一個，或選擇 `custom` 手動輸入
+1. **選擇 provider** —— 從內建 registry 的 105 個預設中選擇一個，或選擇 `custom` 手動輸入
    base URL 和 adapter。
 2. **API key** —— 貼上一個 key,或引用一個環境變數,例如 `${ANTHROPIC_API_KEY}`。
 3. **預設模型** —— 對於 API key、本機和 custom provider，可接受預設值或輸入模型 id。
@@ -135,6 +135,18 @@ ocx stop          # 停止代理並恢復原生 Codex
 ocx restore       # 不停止代理，僅恢復原生 Codex（別名：ocx eject）
 ocx restore back  # 讓 Codex 再次使用仍在執行的代理
 ```
+
+## Startup ownership could not be verified
+
+If startup reports `Shared-client owner could not be verified` and `refusing startup`,
+OpenCodex could not safely decide whether another proxy owns the shared client settings.
+It stops before publishing a new runtime or changing those settings. Retry startup after
+local connectivity recovers; an installed background service retries through its service manager.
+A timeout does not permanently turn the new process into a secondary instance.
+
+IPv6 does not need to be enabled on loopback. Startup checks whether each loopback
+address can be bound locally and skips an unavailable family. Timeouts on an available
+family still stop startup until ownership can be verified.
 
 ## 下一步
 

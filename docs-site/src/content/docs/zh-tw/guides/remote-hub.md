@@ -49,7 +49,7 @@ ocx connect rotate --admin-token-stdin
 
 輪替期間，舊金鑰與新金鑰會在同一個 `apiKeyId` 底下同時有效，最長十分鐘。用戶端會把舊金鑰備份為 `service-api-token.prev`，以原子方式安裝並探測新金鑰，然後才提交。若提交回應不確定，請帶著暫時性授權重跑輪替指令；復原程序會在提交或還原之前同時探測兩個檔案。當復原程序回報兩個候選都被拒絕時，絕對不要刪除其中任何一個檔案。
 
-`ocx disconnect` 是本機動作，在 hub 離線時仍可執行。它會還原本機用戶端狀態，但不會撤銷 hub 上的金鑰。中斷連線後，請到 hub 的 **Integrations → API Keys** 撤銷該金鑰。`ocx connect revoke --admin-token-stdin` 只有在仍然連線時可用，並使用已持久化的 `apiKeyId`，不接受手動指定 id。瀏覽器工作階段的登出／逾期，與資料金鑰的輪替、撤銷、中斷連線是分開的。
+`ocx disconnect` 是本機動作，在 hub 離線時仍可執行。它會還原本機用戶端狀態，但不會撤銷 hub 上的金鑰。中斷連線後，請到 hub 的 **連線 → API 金鑰** 撤銷該金鑰。`ocx connect revoke --admin-token-stdin` 只有在仍然連線時可用，並使用已持久化的 `apiKeyId`，不接受手動指定 id。瀏覽器工作階段的登出／逾期，與資料金鑰的輪替、撤銷、中斷連線是分開的。
 
 ### 已連線的用戶端會顯示什麼
 
@@ -440,7 +440,7 @@ ocx service repair
 - **明文 HTTP 被拒絕：** 透過非迴路 HTTP 配對會被直接拒絕，而且沒有任何旗標可以豁免。請把管理 origin 放到 HTTPS 後面，或改用迴路配對。admin token 絕不會經由 HTTP 傳送。
 - **`/v1/catalog` 回 `403 origin_rejected` 而 `/readyz` 回 `200`：** 資料監聽器被繫結在迴路位址上，卻放在 TLS 前端後面。見「為資料監聽器提供 TLS」。
 - **遠端工作階段已結束：** 請重新登入或重新配對。登出與逾期只會使瀏覽器工作階段失效，不影響用戶端資料金鑰。
-- **中斷連線後仍有待撤銷的項目：** 請使用 hub 儀表板的 **Integrations → API Keys** 頁面。那是中斷連線後唯一的撤銷路徑。
+- **中斷連線後仍有待撤銷的項目：** 請使用 hub 儀表板的 **連線 → API 金鑰** 頁面。那是中斷連線後唯一的撤銷路徑。
 
 ### 從已連線的用戶端查看用量
 
@@ -457,3 +457,15 @@ ocx service repair
 瀏覽器驗證還在等待期間，儀表板不會建議重新啟動一個健康的已連線用戶端。完成配對會立即刷新儀表板資料，包括先前快取的驗證失敗。工作階段逾期會回到配對流程；權限遭拒則保有自己的存取設定指引。其他刷新失敗可能會顯示最後收到的資料，並附上過期資料提示與重試動作。
 
 若輔助監聽器無法繫結，啟動時會指名 `unauthenticatedLoopbackListener` 或 `hub.managementIngress` 以及實際位址。請修正該監聽器或釋出其位址；只改公開 proxy 連接埠並不能修復固定的輔助連接埠。手動編輯而格式錯誤的監聽器區塊會發出警告並維持停用，同時保留不相關的設定。
+
+## Return a hub to standalone
+
+Run `ocx hub disable [--json]` on the hub to remove `hub`, `unauthenticatedLoopbackListener`, `runtimeRole` and `hostname` together in one validated write. Provider settings, the port and saved API keys are retained. A client or standalone configuration is refused without changes.
+
+Keys do not carry a verified enrollment origin and names are editable. To revoke client keys, first inspect IDs with `ocx access key list --json`, then explicitly select each ID:
+
+```sh
+ocx hub disable --revoke-clients --client-key <client-key-id> --json
+```
+
+Repeat `--client-key` for several clients. With saved keys present, `--revoke-clients` without selected IDs refuses before changing settings. Unknown IDs also refuse. Only selected keys and their pending rotations are removed; output contains safe metadata rather than secrets. The command prints the restart step for the detected supervisor; it does not restart the proxy. Review `tailscale serve status` and other external frontends for mappings to old hub ports. Persisted settings and revocation apply to the running proxy after restart; Remote Link records and tunnels remain unchanged.

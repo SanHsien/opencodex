@@ -4,8 +4,6 @@ import { join } from "node:path";
 import { getCodexHome } from "./paths";
 import { readBoundedCodexConfig } from "./inject/bounded-config-reader";
 
-/** config.toml is a hand-edited settings file; this bound only stops an unbounded read. */
-
 export const CONTEXT_BACKEND_PREFIX = "/backend-api/codex";
 
 /** The single definition of the opt-in, shared by injection and the runtime gate. */

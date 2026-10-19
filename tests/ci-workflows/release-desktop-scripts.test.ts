@@ -410,7 +410,8 @@ describe("local bundle builds", () => {
     expect(runBuildLocal(deps)).toBe(0);
     expect(JSON.parse(calls[0]![calls[0]!.indexOf("--config") + 1]!).bundle.macOS).toBeUndefined();
     const config = JSON.parse(readFileSync(repoPath("desktop/src-tauri/tauri.conf.json"), "utf8"));
-    expect(config.bundle.createUpdaterArtifacts).toBe(true);
+    // Fork: updater artifacts are off in the committed config (no upstream updater key or endpoint).
+    expect(config.bundle.createUpdaterArtifacts).toBe(false);
     expect(config.bundle.macOS.signingIdentity).toBeUndefined();
     const entitlements = readFileSync(repoPath("desktop/src-tauri", config.bundle.macOS.entitlements), "utf8");
     expect([...entitlements.matchAll(/<key>([^<]+)<\/key>/g)].map(match => match[1]))

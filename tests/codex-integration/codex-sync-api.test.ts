@@ -124,6 +124,20 @@ describe("GUI/CLI Codex sync backend", () => {
     serviceManagerPreloadPath = undefined;
     if (existsSync(TEST_DIR)) removeTreeWithRetry(TEST_DIR);
   });
+  test.each([true, false])("forwards only a committed configuration change: %s", async changed => {
+    const result = await syncModelsToCodex(12345, config, null, {
+      admitCodexWrite: admittedSync,
+      refreshCodexModelCatalog: async () => ({ added: 0, path: "/tmp/fixture-catalog.json", catalogExists: false,
+        catalogWritten: false, cacheSynced: false, comboOmissions: [] }),
+      injectCodexConfig: async () => ({ success: true, configChanged: changed, message: "fixture" }),
+      currentExternalCodexModelProvider: () => null,
+      collectCodexHomeDiagnostic: () => homeDiagnostic(),
+    });
+    expect(result.ok).toBe(true);
+    expect(result.configChanged === true).toBe(changed);
+    expect(result.catalogWritten).toBe(false);
+    expect(result.cacheSynced).toBe(false);
+  });
   test("returns the structured sync result used by POST /api/sync", async () => {
     let injectedPort = 0;
     let injectedCatalogPath: string | null | undefined;
@@ -163,6 +177,36 @@ describe("GUI/CLI Codex sync backend", () => {
     });
     expect(logs).toContain("   Target Codex home: C:\\Users\\[USER]\\.codex");
     expect(errors).toEqual([]);
+  });
+
+  test("a catalog refresh refused for an unbacked routed removal reports it instead of reading as success (#6529)", async () => {
+    const logs: string[] = [];
+    const errors: string[] = [];
+    const result = await syncModelsToCodex(12345, config, { log: line => logs.push(String(line)), error: line => errors.push(String(line)) }, {
+      admitCodexWrite: admittedSync,
+      refreshCodexModelCatalog: async () => ({
+        added: 0,
+        path: "/tmp/opencodex-catalog.json",
+        catalogExists: true,
+        catalogWritten: false,
+        cacheSynced: false,
+        comboOmissions: [],
+        refreshOutcome: "refused" as const,
+        skippedReason: "unbacked_routed_removal" as const,
+        protectedRoutedNamespaces: 2,
+      }),
+      injectCodexConfig: async () => ({ success: true, message: "injected" }),
+      currentExternalCodexModelProvider: () => null,
+      collectCodexHomeDiagnostic: () => homeDiagnostic(),
+    });
+
+    expect(result.status).toBe("applied");
+    expect(result.catalogWritten).toBe(false);
+    expect(result.warning).toContain("Codex catalog left unchanged");
+    expect(result.warning).toContain("2 provider namespaces");
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toStartWith("[opencodex] Codex catalog left unchanged");
+    expect(logs.join("\n")).not.toContain("models appended");
   });
 
   test("a service-home refusal leaves one path-free log line and writes nothing (#5782)", async () => {

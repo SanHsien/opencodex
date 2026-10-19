@@ -27,8 +27,10 @@ import {
   positiveIntegerRecordConfigError,
   providerBaseUrlConfigError,
   providerHeadersConfigError,
+  providerForwardClientHeadersConfigError,
   reasoningSummaryDeliveryRecordConfigError,
   upstreamHttpVersionConfigError,
+  credentialPinnedProviderConfigError,
 } from "../config/provider-validation";
 import { providerDestinationConfigError } from "../lib/destination-policy";
 import { providerEgressConfigError } from "../lib/provider-egress";
@@ -37,6 +39,7 @@ import { redactSecretString } from "../lib/redact";
 import { DECLARABLE_HOSTED_TOOL_TYPES } from "../responses/hosted-tool-policy";
 import { effectiveGoogleMode, getProviderRegistryEntry, providerCodexAccountMode, providerMatchesRegistryTransport, registryEntryForProviderDestination } from "../providers/registry";
 import { providerConfigSeed } from "../providers/derive";
+import { anthropicOAuthInstanceConfigError } from "../config/schema/anthropic-account-pool";
 import type { OcxConfig, OcxProviderConfig } from "../types";
 import { openRouterRoutingConfigError } from "../providers/openrouter-routing";
 import { modelAutoCompactTokenLimitsConfigError } from "../providers/auto-compact-budget";
@@ -45,6 +48,18 @@ import { googleVertexLocationConfigError } from "../providers/google-vertex-loca
 import { xaiResponsesOptInState } from "../providers/xai-responses-opt-in";
 
 let _corsOrigin = "http://localhost:10100";
+// Listener identity is process-local. Never infer this trust from forwarded headers: the
+// request handler marks a Request only after resolving the actual Bun Server instance.
+const trustedHubManagementRequests = new WeakSet<Request>();
+
+export function markTrustedHubManagementRequest(req: Request): void {
+  trustedHubManagementRequests.add(req);
+}
+
+export function inheritTrustedHubManagementRequest(source: Request, target: Request): void {
+  if (trustedHubManagementRequests.has(source)) trustedHubManagementRequests.add(target);
+}
+
 export function setCorsOrigin(port: number): void { _corsOrigin = `http://localhost:${port}`; }
 /** The proxy's own listening port. No admission check uses it: both loopback predicates key on hostname alone. */
 export function configuredPort(): string {
@@ -138,6 +153,24 @@ export function managementRequestOrigin(req: Request, config: OcxConfig): string
       const protocol = new URL(req.url).protocol;
       if (protocol !== "http:" && protocol !== "https:") return null;
       return new URL(`${protocol}//${host}`).origin;
+    } catch {
+      return null;
+    }
+  }
+  if (trustedHubManagementRequests.has(req)) {
+    if (config.runtimeRole !== "hub") return null;
+    const canonical = canonicalHubManagementOrigin(config.hub?.managementPublicOrigin);
+    if (!canonical) return null;
+    try {
+      // The dedicated listener may receive HTTP from a local TLS terminator, so its URL
+      // scheme is not authoritative. Host must still name exactly the configured public
+      // authority; forwarded host/proto headers are deliberately ignored.
+      const requestAuthority = new URL(`https://${host}`);
+      if (requestAuthority.username || requestAuthority.password || requestAuthority.pathname !== "/"
+        || requestAuthority.search || requestAuthority.hash || requestAuthority.host !== new URL(canonical).host) {
+        return null;
+      }
+      return canonical;
     } catch {
       return null;
     }
@@ -433,6 +466,18 @@ export function resolveDataPlaneAdmissionSecret(
     }
   }
   return null;
+}
+
+function canonicalHubManagementOrigin(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  try {
+    const parsed = new URL(value);
+    if (parsed.protocol !== "https:" || parsed.username || parsed.password || parsed.pathname !== "/"
+      || parsed.search || parsed.hash) return null;
+    return parsed.origin;
+  } catch {
+    return null;
+  }
 }
 
 /** The principal an authenticated admission belongs to, or undefined for loopback. */
@@ -740,6 +785,8 @@ export function providerManagementConfigError(
     delete canonicalCandidate.pinnedReasoningEffort;
     delete canonicalCandidate.modelPinnedReasoningEfforts;
     delete canonicalCandidate.responsesSnapshotRepair;
+    // Explicit history-loss opt-in changes request content, never auth or transport identity.
+    delete canonicalCandidate.projectResponsesLiteHostedSearchHistory;
     // modelCosts is a user-owned display overlay, not part of the canonical
     // forward seed; it is validated separately below (providerModelCostsConfigError).
     delete canonicalCandidate.modelCosts;
@@ -765,6 +812,9 @@ export function providerManagementConfigError(
     // validation and then rejected by the seed comparison, so canonical OpenAI could never
     // set OR clear it — the value was admitted and then refused in the same request.
     delete canonicalCandidate.annotateEmptyToolOutputs;
+    // forwardClientHeaders is an editor-managed request-metadata overlay. It is validated
+    // separately below and must not make an otherwise canonical OpenAI provider fail the seed check.
+    delete canonicalCandidate.forwardClientHeaders;
     // Canonical ChatGPT keeps WebSocket as the default, but an operator may
     // select the existing HTTP/SSE path without changing its auth or endpoint.
     if (raw.upstreamWebsocket !== undefined) {
@@ -781,6 +831,8 @@ export function providerManagementConfigError(
     return `provider ${name} must not include codexAccountMode`;
   }
   const typed = provider as unknown as OcxProviderConfig;
+  const markerError = anthropicOAuthInstanceConfigError({ providers: { [name]: provider } });
+  if (markerError) return markerError;
   // Every write path (POST, PUT, reload, both PATCH passes) funnels through here, so a PATCH
   // that changes authMode/baseUrl/adapter under a retained tlsProfile is refused before it
   // persists a row the config schema would later reject as document-fatal.
@@ -800,6 +852,8 @@ export function providerManagementConfigError(
   }
   const headersError = providerHeadersConfigError(typed.headers);
   if (headersError) return `provider ${name} ${headersError}`;
+  const forwardClientHeadersError = providerForwardClientHeadersConfigError(raw.forwardClientHeaders);
+  if (forwardClientHeadersError) return `provider ${name} ${forwardClientHeadersError}`;
   const retryOn429Error = retryOn429PolicyConfigError(raw.retryOn429);
   if (retryOn429Error) {
     // The provider name is caller-controlled and can be token-shaped; redact and JSON-escape
@@ -861,6 +915,8 @@ export function providerManagementConfigError(
   if (reasoningSummaryDeliveryError) return `provider ${name} ${reasoningSummaryDeliveryError}`;
   const modelAdaptersError = modelAdapterRecordConfigError(raw.modelAdapters, "modelAdapters", name, typed);
   if (modelAdaptersError) return `provider ${name} ${modelAdaptersError}`;
+  const credentialPinError = credentialPinnedProviderConfigError(name, typed);
+  if (credentialPinError) return `provider ${name} ${credentialPinError}`;
   const preferHostedToolsError = modelPreferHostedToolsConfigError(
     raw.modelPreferHostedTools,
     "modelPreferHostedTools",
@@ -868,12 +924,17 @@ export function providerManagementConfigError(
     typed,
   );
   if (preferHostedToolsError) return `provider ${name} ${preferHostedToolsError}`;
+  if (raw.projectResponsesLiteHostedSearchHistory !== undefined && typeof raw.projectResponsesLiteHostedSearchHistory !== "boolean") {
+    return `provider ${name} projectResponsesLiteHostedSearchHistory must be a boolean`;
+  }
   if (raw.responsesSnapshotRepair !== undefined && typeof raw.responsesSnapshotRepair !== "boolean") {
     return `provider ${name} responsesSnapshotRepair must be a boolean`;
   }
   if (raw.xaiResponsesXSearch !== undefined && typeof raw.xaiResponsesXSearch !== "boolean") {
     return `provider ${name} xaiResponsesXSearch must be a boolean`;
   }
+  const minMaxOutputError = positiveIntegerConfigError(raw.minMaxOutputTokens, "minMaxOutputTokens");
+  if (minMaxOutputError) return `provider ${name} ${minMaxOutputError}`;
   const defaultMaxOutputError = positiveIntegerConfigError(raw.defaultMaxOutputTokens, "defaultMaxOutputTokens");
   if (defaultMaxOutputError) return `provider ${name} ${defaultMaxOutputError}`;
   const maxOutputError = positiveIntegerRecordConfigError(raw.modelMaxOutputTokens, "modelMaxOutputTokens");
@@ -998,9 +1059,14 @@ const PROVIDER_CONFIG_FIELD_POLICY = {
   supportsServiceTier: "editor",
   modelSupportsServiceTier: "editor",
   preserveResponsesReasoningContent: "editor",
+  preserveResponsesInputItemIds: "editor",
+  preserveResponsesMessageMetadata: "editor",
+  projectResponsesLiteHostedSearchHistory: "editor",
   dropResponsesReasoningItems: "editor",
   modelReasoningEffortsAuthoritative: "editor",
   decodesNativeCompactionBlobs: "editor",
+  supportsNativeCompactionTrigger: "editor",
+  supportsNativeCompactEndpoint: "editor",
   allowEncryptedV2AgentTasks: "editor",
   allowPrivateNetwork: "editor",
   // A proxy URL routinely embeds `user:password@`, so it never reaches the dashboard DTO and
@@ -1032,6 +1098,7 @@ const PROVIDER_CONFIG_FIELD_POLICY = {
   newModelPolicy: "editor",
   modelPreset: "editor",
   contextWindow: "editor",
+  inferContextWindow: "editor",
   modelContextWindows: "editor",
   modelContextTiers: "editor",
   modelInputModalities: "editor",
@@ -1039,15 +1106,19 @@ const PROVIDER_CONFIG_FIELD_POLICY = {
   modelMaxInputTokens: "runtime",
   modelAutoCompactTokenLimits: "editor",
   defaultMaxOutputTokens: "editor",
+  minMaxOutputTokens: "editor",
   modelMaxOutputTokens: "editor",
   modelCosts: "editor",
   headers: "redacted",
+  forwardClientHeaders: "editor",
   openRouterRouting: "editor",
   modelOpenRouterRouting: "editor",
   vercelGatewayRouting: "editor",
   modelVercelGatewayRouting: "editor",
   authMode: "editor",
   oauthAccountFailover: "editor",
+  anthropicAccountPool: "editor",
+  anthropicOAuthInstance: "editor",
   keyOptional: "editor",
   freeTier: "editor",
   note: "editor",

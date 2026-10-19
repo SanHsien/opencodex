@@ -1,4 +1,7 @@
 /** `ocx account` — list and switch provider credentials (issue #180). */
+import { apiKeyQuotaText } from "./account-key-quota";
+import { redactSecretArgs } from "./secret-args";
+import { emptyAccountNextAction, recoveryAccountLabel } from "./account-next-actions";
 import { loadConfig } from "../config";
 import { explainCodexUseOutcome, reportCodexAccountTargetError, resolveCodexUseTarget } from "./account-target";
 import { providerCodexAccountMode } from "../providers/registry";
@@ -18,7 +21,7 @@ import {
   cmdRoutes,
   cmdStrategy,
 } from "./account-extended";
-import { apiError, apiJson, classifyAccount, fetchRows, proxyUnreachable, resolveBaseUrl, type AccountDeps, type AccountRow, type AccountType, type ApiResult }
+import { accountClassificationConfig, apiError, apiJson, classifyAccount, fetchRows, proxyUnreachable, resolveBaseUrl, type AccountDeps, type AccountRow, type AccountType, type ApiResult }
   from "./account-api";
 
 export { classifyAccount } from "./account-api";
@@ -49,21 +52,27 @@ const ACCOUNT_USAGE = `Usage:
   ocx account clear <provider> [--json]
   ocx account refresh <provider> [--json]
   ocx account auto-switch <provider> <on|off|status|threshold <0-100>> [--json]
-  ocx account auto-switch anthropic <on|off|status|inherit|threshold <0-100>> --account <id> [--json]
+  ocx account auto-switch <anthropic|anthropic2> <on|off|status|inherit|threshold <0-100>> --account <id> [--json]
   ocx account alias <provider> <account-or-key-id|alias> <display-name|-> [--json]
+  ocx account preserve-signed-in openai [on|off|status] [--apply-to-bound] [--json]
   ocx account priority <provider> <account-id|alias|main> [<-100..100|first|earlier|normal|later|last|reset>] [--json]
   ocx account pause <provider> <account-id|alias|main> [--json]
   ocx account resume <provider> <account-id|alias|main> [--json]
   ocx account pause-exhausted <provider> [--json]
   ocx account strategy <provider> [<quota|round-robin|fill-first|least-loaded|reset-first>] [--json]
   ocx account sticky <provider> [<1-100>] [--json]
-  ocx account routes anthropic [--file <json-file>|--clear] [--json]
+  ocx account routes <anthropic|anthropic2> [--file <json-file>|--clear] [--json]
   ocx account remove <provider> <account-or-key-id|alias|main> --yes [--json]
   ocx account clear-cooldown <provider> <account-id|alias|main> [--json]
   ocx account add-key <provider> [--label <label>] [--json]
   ocx account import <provider> --format <format> (--file <path>|--stdin) [--json]
   ocx account import-orca --source <orca-data-directory> --registry <orca-data.json> [--apply] [--json]
-  ocx account login <provider> [--id <account-id>] [--reauth] [--code -] [--no-wait] [--json]
+  ocx account login <provider> [--id <account-id>] [--reauth] [--open-browser on|off] [--add-account on|off] [--code -] [--no-wait] [--json]
+  ocx account pool <provider> [--enabled on|off] [--threshold N] [--strategy NAME] [--sticky N] [--quota-window W] [--json]
+  ocx account credits openai <ID on|off|--all on|off> [--json]
+  ocx account use-remaining openai <ID|main> <on|off|status> [--json]
+  ocx account quota-activation openai ID --window fiveHour|weekly <on|off> [--json]
+  ocx account anthropic-reset-grants [ID] [--provider anthropic|anthropic2] [--json]
   ocx account code <provider> [--flow <flow-id>] [--json]   (reads the code from stdin)
   ocx account cancel <provider> [--flow <flow-id>] [--json] (--flow required for codex)
   ocx account reset-credits <account-id|main> [--consume --yes] [--json]
@@ -87,10 +96,12 @@ function consumeFlag(args: string[], flag: string): boolean {
 /** Returns an error message for leftover args, or null when clean. */
 function leftoverArgsError(args: string[]): string | null {
   if (args.length === 0) return null;
-  const unknown = args.filter(a => a.startsWith("-"));
+  const shown = redactSecretArgs(args);
+  // Flags plus redaction markers only: a stray positional may be a credential operand.
+  const unknown = shown.filter(a => a.startsWith("-") || a === "<redacted>");
   return unknown.length > 0
     ? `Unknown flag(s): ${unknown.join(", ")}`
-    : `Unexpected argument(s): ${args.join(", ")}`;
+    : `Unexpected argument(s): ${shown.join(", ")}`;
 }
 
 function candidateNames(config: OcxConfig): string {
@@ -110,11 +121,15 @@ function statusText(row: AccountRow): string {
   // held out -- so printing only one of the two would hide exactly the confusing case (#2703).
   if (row.paused) parts.push("paused");
   if (row.active) parts.push(row.type === "codex" ? "selected" : "active");
-  if (row.needsReauth && !(row.provider === "kiro" && row.skipReason === "needs_reauth")) parts.push("needs-reauth");
+  if (row.needsReauth && !(row.provider === "kiro" && row.skipReason === "needs_reauth")) {
+    parts.push(row.needsReauthReason === "verify_account" ? "needs-reauth(verify)" : "needs-reauth");
+  }
   // A paused Kiro row already says "paused"; repeating it as a skip reason adds nothing.
   if (row.provider === "kiro" && row.autoSelectable === false && !(row.paused && row.skipReason === "paused"))
     parts.push(row.skipReason ? `not-auto-selected(${row.skipReason})` : "not-auto-selected");
   if (row.validationPending) parts.push("validation-pending");
+  if (row.health && row.health !== "Healthy" && !row.needsReauth && !row.validationPending) parts.push(row.health.toLowerCase());
+  if (row.creditsAfterLimit === true) parts.push("paid-credits: on");
   if (row.selectionExcludedReason === "plan_excluded") {
     parts.push(`not-auto-selected(plan=${row.selectionExcludedPlan ?? row.plan ?? "unknown"})`);
   }
@@ -132,6 +147,7 @@ function priorityText(row: AccountRow): string {
  * decides on before a long session. The full breakdown stays in `--json`.
  */
 function quotaText(row: AccountRow): string {
+  if (row.type === "api-key") return apiKeyQuotaText(row);
   if (row.quotaUnavailable) return row.quotaFailure ? `unavailable (${row.quotaFailure})` : "unavailable";
   const quota = row.quota;
   if (!quota) return "-";
@@ -165,7 +181,8 @@ export function formatAccountTable(rows: AccountRow[], withQuota = false): strin
   });
   const widths = header.map((h, i) => Math.max(h.length, ...data.map(d => d[i]!.length)));
   const line = (cols: string[]) => cols.map((c, i) => c.padEnd(widths[i]!)).join("  ").trimEnd();
-  return [line(header), ...data.map(line)].join("\n");
+  const actions = rows.flatMap(row => row.healthAction ? [`${row.provider} ${recoveryAccountLabel(row.id, displayId(row.id))}: ${row.health?.toLowerCase() ?? "needs attention"}. Next: ${row.healthAction}`] : []);
+  return [line(header), ...data.map(line), ...actions].join("\n");
 }
 
 async function cmdList(rest: string[], deps: AccountDeps): Promise<number> {
@@ -175,14 +192,21 @@ async function cmdList(rest: string[], deps: AccountDeps): Promise<number> {
   // stays a cheap local read (#2566). --refresh bypasses the server-side TTL.
   const wantsQuota = consumeFlag(rest, "--quota");
   const refreshQuota = consumeFlag(rest, "--refresh");
-  const name = rest.shift();
+  // An option-shaped token is never the provider: leave it for the leftover check so a
+  // credential option keeps its operand redacted.
+  const name = rest[0]?.startsWith("-") ? undefined : rest.shift();
   const leftover = leftoverArgsError(rest);
   if (leftover) {
     console.error(leftover);
     console.error(ACCOUNT_USAGE);
     return 1;
   }
-  const config = deps.loadConfigImpl?.() ?? loadConfig();
+  const classification = await accountClassificationConfig(deps, deps.loadConfigImpl?.() ?? loadConfig());
+  if ("error" in classification) {
+    console.error(`Error: ${classification.error}`);
+    return 1;
+  }
+  const config = classification.config;
   const baseUrl = await resolveBaseUrl(deps);
   if (!baseUrl) return proxyUnreachable();
 
@@ -235,7 +259,7 @@ async function cmdList(rest: string[], deps: AccountDeps): Promise<number> {
       return apiError(r.errorJson, `failed to list ${t.name}`, r.status);
     }
     if (r.rows.length === 0) {
-      if (showAll) notes.push(`${t.name}: no stored accounts or keys`);
+      if (showAll || name) notes.push(`${t.name}: no stored accounts or keys`, emptyAccountNextAction(t.name, t.type));
       continue;
     }
     rows.push(...r.rows);
@@ -250,6 +274,7 @@ async function cmdList(rest: string[], deps: AccountDeps): Promise<number> {
     }
   }
 
+  if (rows.length === 0 && !name) notes.push("No stored accounts or keys.", emptyAccountNextAction());
   if (wantsJson) {
     console.log(JSON.stringify({ accounts: rows, notes }, null, 2));
     return 0;
@@ -262,14 +287,21 @@ async function cmdList(rest: string[], deps: AccountDeps): Promise<number> {
 
 async function cmdCurrent(rest: string[], deps: AccountDeps): Promise<number> {
   const wantsJson = consumeFlag(rest, "--json");
-  const name = rest.shift();
+  // An option-shaped token is never the provider: leave it for the leftover check so a
+  // credential option keeps its operand redacted.
+  const name = rest[0]?.startsWith("-") ? undefined : rest.shift();
   const leftover = leftoverArgsError(rest);
   if (!name || leftover) {
     if (leftover) console.error(leftover);
     console.error(ACCOUNT_USAGE);
     return 1;
   }
-  const config = deps.loadConfigImpl?.() ?? loadConfig();
+  const classification = await accountClassificationConfig(deps, deps.loadConfigImpl?.() ?? loadConfig());
+  if ("error" in classification) {
+    console.error(`Error: ${classification.error}`);
+    return 1;
+  }
+  const config = classification.config;
   const c = classifyAccount(config, name);
   if ("error" in c) {
     console.error(`Error: ${c.error}. Known candidates: ${candidateNames(config)}`);
@@ -312,7 +344,20 @@ async function cmdUse(rest: string[], deps: AccountDeps): Promise<number> {
     console.error(ACCOUNT_USAGE);
     return 1;
   }
-  const config = deps.loadConfigImpl?.() ?? loadConfig();
+  // #6957: an account change on a link Child is refused before any Home read.
+  if (!deps.baseUrl) {
+    const refusal = (await import("./link-child")).linkChildProviderChangeRefusal("ocx account use");
+    if (refusal) {
+      console.error(`Error: ${refusal}`);
+      return 1;
+    }
+  }
+  const classification = await accountClassificationConfig(deps, deps.loadConfigImpl?.() ?? loadConfig());
+  if ("error" in classification) {
+    console.error(`Error: ${classification.error}`);
+    return 1;
+  }
+  const config = classification.config;
   const c = classifyAccount(config, name);
   if ("error" in c) {
     console.error(`Error: ${c.error}. Known candidates: ${candidateNames(config)}`);
@@ -363,14 +408,29 @@ async function cmdUse(rest: string[], deps: AccountDeps): Promise<number> {
  * named `auto` cannot shadow the verb that returns the pool to automatic selection. */
 async function cmdClear(rest: string[], deps: AccountDeps): Promise<number> {
   const wantsJson = consumeFlag(rest, "--json");
-  const name = rest.shift();
+  // An option-shaped token is never the provider: leave it for the leftover check so a
+  // credential option keeps its operand redacted.
+  const name = rest[0]?.startsWith("-") ? undefined : rest.shift();
   const leftover = leftoverArgsError(rest);
   if (!name || leftover) {
     if (leftover) console.error(leftover);
     console.error(ACCOUNT_USAGE);
     return 1;
   }
-  const config = deps.loadConfigImpl?.() ?? loadConfig();
+  // #6957: an account change on a link Child is refused before any Home read.
+  if (!deps.baseUrl) {
+    const refusal = (await import("./link-child")).linkChildProviderChangeRefusal("ocx account clear");
+    if (refusal) {
+      console.error(`Error: ${refusal}`);
+      return 1;
+    }
+  }
+  const classification = await accountClassificationConfig(deps, deps.loadConfigImpl?.() ?? loadConfig());
+  if ("error" in classification) {
+    console.error(`Error: ${classification.error}`);
+    return 1;
+  }
+  const config = classification.config;
   const c = classifyAccount(config, name);
   if ("error" in c) {
     console.error(`Error: ${c.error}. Known candidates: ${candidateNames(config)}`);
@@ -401,6 +461,12 @@ async function cmdClear(rest: string[], deps: AccountDeps): Promise<number> {
 export async function cmdAccount(args: string[], deps: AccountDeps = {}): Promise<number> {
   const [sub, ...rest] = args;
   try {
+    if (["pool", "credits", "quota-activation", "anthropic-reset-grants", "use-remaining"].includes(sub ?? "")
+      || (sub === "auto-switch" && rest[0]?.trim().toLowerCase() === "openai"
+        && rest.some(arg => arg === "--account" || arg.startsWith("--account=")))) {
+      const { handleAccountPolicyCommand } = await import("./account-policy");
+      return handleAccountPolicyCommand(sub as "pool" | "auto-switch" | "credits" | "quota-activation" | "anthropic-reset-grants" | "use-remaining", rest, deps);
+    }
     if (sub === "list") return await cmdList(rest, deps);
     if (sub === "history") {
       const { cmdAccountHistory } = await import("./account-history");
@@ -412,6 +478,10 @@ export async function cmdAccount(args: string[], deps: AccountDeps = {}): Promis
     if (sub === "refresh") return await cmdRefresh(rest, deps);
     if (sub === "auto-switch") return await cmdAutoSwitch(rest, deps);
     if (sub === "alias" || sub === "rename") return await cmdAlias(rest, deps);
+    if (sub === "preserve-signed-in") {
+      const { cmdPreserveSignedIn } = await import("./account-preservation");
+      return cmdPreserveSignedIn(rest, deps);
+    }
     if (sub === "priority") return await cmdPriority(rest, deps);
     // #2702: the server routes existed and only the CLI caller was missing, so these were
     // dashboard-only capabilities.

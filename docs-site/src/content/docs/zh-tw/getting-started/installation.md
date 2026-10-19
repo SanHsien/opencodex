@@ -7,6 +7,12 @@ description: 安裝 opencodex(ocx)代理及其前置條件,並驗證它能夠執
 小型本機 HTTP 伺服器。模型請求會發往路由所選的 provider；當已路由模型需要時，可選的
 vision 和網路搜尋 sidecar 也可以使用你的 ChatGPT 登入憑證。
 
+## Desktop terminal command
+
+A stable OpenCodex Desktop install configures `ocx` for new terminals when the app starts. Open a new terminal and run `ocx status` or `ocx doctor` to inspect the first executable on PATH. On macOS and Linux deb installs, a managed block at the end of zsh, bash and fish startup files puts `~/.opencodex-desktop/bin` first on PATH and uses the Desktop-owned shim. Windows puts the bundled `ocx.exe` install directory first in the user `Path`. Existing terminals, aliases, shell caches and later PATH changes can still select another command; a conflicting Windows system PATH entry can also win. Use the app’s Terminal command settings to repair, disable or remove this configuration. AppImage is excluded.
+
+On macOS and Linux, a current npm/pnpm package launcher that still runs delegates eligible commands to the Desktop CLI when its record is enabled and passes ownership, permission and file-safety checks. Windows has no package-launcher handoff: new terminals select the Desktop `ocx.exe` through user `Path` order. A `record-unsafe` error means the record or its directory failed a safety check. Open OpenCodex Desktop to repair the terminal command, or use `OCX_NO_DESKTOP_HANDOFF=1` for a package invocation on macOS/Linux. Package update/removal and internal inspection keep their existing path. `OCX_NO_DESKTOP_HANDOFF=1` suppresses that package handoff for one invocation; it does not change a direct Desktop shim or PATH configuration.
+
 ## 前置條件
 
 | 要求 | 原因 |

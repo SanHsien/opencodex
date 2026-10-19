@@ -1,25 +1,41 @@
-import { bridgeToResponsesSSE } from "../../bridge";
+import { bridgeToResponsesSSE, formatErrorResponse } from "../../bridge";
+import { OLLAMA_LATE_ATTRIBUTION_LIMIT_MESSAGE } from "../../adapters/ollama-native";
 import type { TranslatorBudget } from "../../lib/translator-budget";
 import type { AdapterEvent } from "../../types";
+
+/**
+ * The Ollama late-attribution refusal as a client response: the existing translator-budget
+ * wire shape (413 request_too_large) with only the proxy-owned constant as its message.
+ * It is deliberately not a context overflow: compacting on the same route cannot shrink it.
+ */
+export function lateAttributionLimitResponse(): Response {
+  return formatErrorResponse(413, "request_too_large", OLLAMA_LATE_ATTRIBUTION_LIMIT_MESSAGE, {
+    code: "translation_buffer_limit",
+  });
+}
 
 export const PROVIDER_INPUT_TOO_LARGE_MESSAGE =
   "The provider rejected this turn because its input exceeds the provider size or context limit. Reduce the current input or compact the conversation before retrying.";
 
-/** Preserve non-streaming HTTP failure semantics without exposing an upstream body. */
-export function jsonContextOverflowResponse(): Response {
+/**
+ * Preserve non-streaming HTTP failure semantics without exposing an upstream body. `message` is
+ * replaced only for the proxy's own wording, never with upstream text: when every combo target
+ * was refused by local input admission, no provider saw the turn and saying one did is false.
+ */
+export function jsonContextOverflowResponse(message = PROVIDER_INPUT_TOO_LARGE_MESSAGE): Response {
   return Response.json({
     error: {
-      message: PROVIDER_INPUT_TOO_LARGE_MESSAGE,
+      message,
       type: "invalid_request_error",
       code: "context_length_exceeded",
     },
   }, { status: 413, headers: { "Cache-Control": "no-store" } });
 }
 
-async function* contextOverflowEvents(): AsyncGenerator<AdapterEvent> {
+async function* contextOverflowEvents(message: string): AsyncGenerator<AdapterEvent> {
   yield {
     type: "error",
-    message: PROVIDER_INPUT_TOO_LARGE_MESSAGE,
+    message,
     status: 413,
     errorType: "invalid_request_error",
     code: "context_length_exceeded",
@@ -39,9 +55,10 @@ async function* contextOverflowEvents(): AsyncGenerator<AdapterEvent> {
 export function streamingContextOverflowResponse(
   modelId: string,
   translatorBudget: TranslatorBudget,
+  message = PROVIDER_INPUT_TOO_LARGE_MESSAGE,
 ): Response {
   return new Response(bridgeToResponsesSSE(
-    contextOverflowEvents(),
+    contextOverflowEvents(message),
     modelId,
     undefined,
     undefined,

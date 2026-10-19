@@ -127,8 +127,42 @@ shim、WebSocket 回退與恢復機制請見 [Codex 整合](/zh-tw/guides/codex-
 
 ## 為什麼路由模型會顯示
 
-Codex 模型選擇器要求條目符合 Codex 目錄結構。opencodex 會克隆一個原生 Codex 模型模板，然後
-替換路由模型的身份資訊：
+When the Codex app exhausts its native five-hour quota it can switch to a reserve
+fallback model and grey out the other rows in its picker. Reported in
+[#2813](https://github.com/lidge-jun/opencodex/issues/2813), that gating also hides routed
+opencodex rows, even though those use unrelated provider credentials and consume none of the
+ChatGPT quota.
+
+This gate is applied by the client before a request reaches the proxy, so opencodex cannot lift
+it. Routed rows are written with `visibility: "list"`, catalog filtering consults only
+`disabledModels` and each provider's `selectedModels`, and no quota value takes part in routed
+visibility.
+
+Selecting a routed model explicitly does not go through the picker. Set the model in
+`config.toml`:
+
+```toml
+model = "anthropic/claude-sonnet-5"
+```
+
+or send it directly:
+
+```bash
+ocx access test anthropic/claude-sonnet-5 --protocol responses
+```
+
+Both paths route correctly **once the request reaches the proxy** — that part is covered by
+tests. The Codex desktop app, however, does not send the configured model while reserve mode is
+active: it decides reserve from its own `wham/usage` poll (`luna_reserve` upsell plus an allowed
+`gpt-reserve` additional limit) and forces the model setting to `gpt-reserve` before the request
+leaves, so the `config.toml` route is overridden in the app. Use `ocx access test`, Claude Code
+through the proxy (`ocx claude`), or any direct `/v1` client until the window resets. See
+[Routed models during Codex reserve mode](/zh-tw/guides/codex-integration/#codex-保留模式下的路由模型).
+
+## 目前穩定模型涵蓋範圍
+
+Codex's model picker expects Codex-shaped catalog entries. opencodex builds routed entries by cloning
+a native Codex model template, then replacing the routed model identity:
 
 ```text
 slug = "anthropic/claude-sonnet-..."
@@ -136,28 +170,9 @@ display_name = "anthropic/claude-sonnet-..."
 visibility = "list"
 ```
 
-克隆後的條目會保留 reasoning 級別、shell 型別、API 支援標誌和 base instructions 等嚴格解析器
-所需欄位。隨後，opencodex 會移除該路由無法兌現的原生專屬能力，例如 OpenAI service-tier 後設資料。
-
-## 目前穩定模型涵蓋範圍
-
-原生回退列表包含 `gpt-5.5` 以及 GPT-5.6 Sol/Terra/Luna。對於 GPT-5.5 系列，opencodex 會
-保留已安裝 Codex 目錄中資訊更完整的即時條目，僅在條目缺失時才合成。內建的上游快照只用於
-GPT-5.6，以便提供每個模型真實的身份和後設資料，而不是套用舊模板近似生成。
-
-| 路由 | 選擇器 id 與目錄後設資料 |
-| --- | --- |
-| Codex 登入（停用帳號限定列） | 裸原生 id，例如 `gpt-5.6-sol`、`gpt-5.6-terra`、`gpt-5.6-luna`；透過 `codexAccountMode` 選擇 Pool 或 Direct。GPT-5.6 列使用 922,000 token 的目錄視窗。 |
-| Codex 登入（啟用帳號限定列且有合格選擇器） | 每個合格選擇器與受支援的原生模型各有一列 `<selector>/<native-openai-model>`；每列只使用其對應帳號，且裸原生列會從選擇器中隱藏。原生後設資料與 context 視窗保持不變。 |
-| OpenAI（API key） | 恰好八個帶名稱空間的列：`gpt-5.5`、`gpt-5.6`、Sol/Terra/Luna 與三個 `*-pro` 虛擬 id（全部八個都是 1,050,000 context；922,000 max input） |
-| OpenRouter | `openrouter/openai/gpt-5.6-sol`、`openrouter/openai/gpt-5.6-terra`、`openrouter/openai/gpt-5.6-luna`（922,000） |
-| Cursor | 靜態回退目錄包含 `cursor/gpt-5.6-sol`、`cursor/gpt-5.6-terra`、`cursor/gpt-5.6-luna`（1,000,000），以及 Grok 4.5/4.6/4.7 的一般與 Fast 項目（500,000）。4.6 和 4.7 還提供 `xhigh`；帳號的即時發現結果決定最終顯示哪些模型。 |
-| xAI | 以即時發現結果為準。回退目錄包含 `xai/grok-4.6` 與 `xai/grok-4.7`，預設模型仍為 `xai/grok-4.5`；三者的 context window 均為 500,000。Grok 4.6 與 4.7 提供 `low` / `medium` / `high` / `xhigh`（上游預設值為 `high`），Grok 4.5 最高為 `high`。 |
-
-固定的 GPT-5.6 條目會保留精確的上游 reasoning 階梯。Sol 和 Terra 從 `low` 到 `ultra`，Luna
-最高到 `max`。Sol 預設使用 `low`，Terra 和 Luna 預設使用 `medium`。`ultra` 是用戶端側的
-“最大 reasoning + 主動委派”選項，到達後端時會轉換為 `max`。模型出現在選擇器中只表示目錄已經
-準備好；關聯的帳號或 API key 仍需具備該模型的實際權限。
+The clone keeps strict-parser fields such as reasoning levels, shell type, API support flags, and
+base instructions. opencodex then removes native-only capabilities that the route cannot honor,
+including OpenAI service-tier metadata.
 
 ## 原生與路由模型開關
 
@@ -196,7 +211,29 @@ Sol、Terra 和 Luna 都有真實的 `max` 檔位。
 
 ## Fast tier 規則
 
-Codex 在設定檔中這樣儲存 fast 模式：
+Reasoning-tier visibility is independent of the v1/base/v2 surface mode. Generated reasoning-capable
+entries advertise `max` so direct sub-agent effort overrides validate; current generated routed
+entries and older native GPT entries also advertise `ultra`. Exact upstream GPT-5.6 ladders are
+preserved, so Luna has `max` but no `ultra`.
+
+On the wire, routed adapters map or clamp unsupported tiers. For older native models whose real
+ladder stops at `xhigh`, `nativeEffortClamp` maps a direct `max` or an `ultra` selection to `xhigh`
+(for example, GPT-5.5). Sol, Terra, and Luna have a real `max` rung.
+
+Catalog advertisement of the two top tiers is unconditional: `ocx sync` no longer removes `max` or
+`ultra` when the installed Codex binary is too old to offer them — Codex versions without those
+rungs are out of support, and hiding them from current clients costs more than it buys. Other
+rungs are still intersected with the observed runtime ladder, and a clamp diagnostic recorded by a
+previous binary stops applying once the binary at that path reports a different version (the
+in-place upgrade case), so `ocx status` and `ocx doctor` stop warning about a clamp the upgraded
+runtime no longer needs.
+Catalog visibility is not entitlement: advertising `max`/`ultra` does not guarantee the upstream
+account or provider accepts the tier, and for older native models whose real ladder stops at
+`xhigh` the wire clamp above still maps the selection down at request time.
+
+## 子代理選擇
+
+Codex stores fast mode as:
 
 ```toml
 service_tier = "fast"
@@ -205,23 +242,64 @@ service_tier = "fast"
 fast_mode = true
 ```
 
-模型目錄和執行環境請求使用的 tier id 則是 `priority`。opencodex 會保留這一差異。原生 OpenAI
-透傳模型繼續支援 fast；路由 provider 則依能力閘控 —— 只有當 provider 宣告
-`supportsServiceTier: false` 時才會移除 `service_tier`（registry 將正規 OpenAI 歸類為 `true`，
-DeepSeek 與 Volcengine Ark 歸類為 `false`），而未分類的自訂 gateway 會原封不動保留呼叫端提供
-的值，絕不注入。無法兌現的地方絕不會宣傳 fast 選項；自訂 gateway 也可以明確以 `true` 選擇加入。
+But the model catalog and runtime request tier id use `priority`. opencodex preserves that split.
+Native OpenAI passthrough models keep fast support; routed providers are capability-gated —
+`service_tier` is stripped only when the provider declares `supportsServiceTier: false` (the registry
+classifies canonical OpenAI as `true`, DeepSeek and Volcengine Ark as `false`), while unclassified
+custom gateways keep caller-supplied values untouched and never get an injection. A custom gateway
+can opt in globally with `supportsServiceTier: true`, or narrowly with
+`modelSupportsServiceTier: { "verified-model": true }`; an exact `false` narrows a provider
+default of `true`, while provider-level `false` remains fail-closed. The same final adapter/model
+decision controls both catalog metadata and runtime injection, so the fast option is never
+advertised where it cannot be honored. An `openai-chat` destination can authorize every otherwise
+eligible model with `chatServiceTier: true`, or authorize only exact models with
+`modelSupportsServiceTier`; Responses routes do not need that extra Chat wire authorization.
 
-## 子代理選擇
+### Selecting Ultra Fast in Codex Desktop
 
-Codex 會按 `priority` 升序排列選擇器中可見的目錄條目，並將前五個顯示為 `spawn_agent` 模型
-override。儀表板的 Subagents 頁面可以選擇並儲存最多五個裸原生 id 或路由的 `provider/model`
-id。手動設定的 `subagentModels` 也接受帳號限定的 `<selector>/<native-openai-model>` id，但
-儀表板不提供這些精確 id；儲存頁面時會把列表替換為儀表板可見的選擇。opencodex 會按所選順序
-賦予較低的目錄 priority；啟用帳號限定選擇器列時，裸原生選擇會展開為選擇器限定群組。其他模型
-仍可透過精確 id 直接呼叫。
+For a provider that supports `service_tier: "ultrafast"`, declare that wire mapping once.
+opencodex then publishes **Ultra Fast** in the routed model's native Codex speed menu;
+there is no need to edit `opencodex-catalog.json` after every sync.
+For example, merge these fields into an API provider configured for GPT-6.1 Sol:
 
-置頂模型列表與 Dashboard 的 **Sub-agent delegation** 選擇相互獨立。它只控制 Codex 優先提供
-哪些 override；本身不會選定模型或觸發委派。
+```json
+{
+  "models": ["gpt-6.1-sol"],
+  "modelSupportsServiceTier": { "gpt-6.1-sol": true },
+  "fastWire": {
+    "kind": "service-tier",
+    "canonicalToWire": { "priority": "priority", "ultrafast": "ultrafast" },
+    "foreignCallerTiers": "verbatim"
+  }
+}
+```
+
+The mapping applies to every Fast-eligible model on that provider. Use a separate provider
+entry if only some of its models support Ultra Fast. Keep opencodex's Fast mode on **Auto**
+(omit `fastMode`) so the app's speed selection reaches the provider; forced Fast sends
+`priority`, and forced Default drops the tier. Refresh the model catalog, restart Codex
+Desktop if it still has the old list, select the routed model, then choose **Ultra Fast**
+in its speed menu. Standard remains the default.
+
+Only an eligible `service-tier` wire with an explicit `ultrafast → ultrafast` mapping adds
+this choice to routed rows; ordinary Fast support or a GPT-like name is insufficient.
+That routed mapping does not apply to native/account rows or combo aliases. Removing the
+mapping or disabling that model's service-tier support removes the generated routed choice
+from both the catalog and cache on the next successful sync.
+The active declaration also controls the Ultra Fast choice when Codex loads its model list over HTTP.
+
+For routed rows, `ultraFastTier` retains independently supplied Ultra Fast tiers from the
+same exact persisted row; generated routed tiers are not treated as operator-supplied.
+For bare native `gpt-6-astra` / `gpt-6.1-sol` rows and their trusted account-bound clones,
+enabling `ultraFastTier` also generates a missing Ultrafast choice without changing the
+native default tier. Disabling it withdraws only native tier metadata tracked as generated;
+independently supplied or edited native tier descriptors are preserved.
+
+[OpenAI's API guide](https://developers.openai.com/api/docs/guides/ultrafast-mode) documents
+Ultrafast for GPT-6 Astra and GPT-6.1 Sol. API access and
+[Codex plan/workspace access](https://learn.chatgpt.com/docs/agent-configuration/speed)
+are separate. A menu choice does not grant provider access or guarantee measured speed;
+Ultra Fast increases usage/cost, and Codex's own feature requirements still apply.
 
 ## Desktop remote 伺服器
 
@@ -240,30 +318,13 @@ allowlist 上的項目。opencodex 無法介入該清單；上游錯誤追蹤於
 ## 重新整理模型狀態
 ## 原生配額回退限制
 
-Codex 應用程式用完原生的五小時配額後，可能切換到預備回退模型，並把選擇器裡其他列變灰。如 [#2813](https://github.com/lidge-jun/opencodex/issues/2813) 所報告，這個限制同樣會隱藏 opencodex 路由的列，而那些列使用的是無關的供應商憑證，不消耗任何 ChatGPT 配額。
-
-這個限制由用戶端在請求抵達代理之前施加，因此 opencodex 無法解除。路由列寫入時帶 `visibility: "list"`，目錄過濾只讀取 `disabledModels` 與各供應商的 `selectedModels`，任何配額值都不參與路由列的可見性。
-
-明確選擇路由模型不會經過選擇器。在 `config.toml` 中設定模型：
-
-```toml
-model = "anthropic/claude-sonnet-5"
-```
-
-或直接送出：
-
-```bash
-ocx access test anthropic/claude-sonnet-5 --protocol responses
-```
-
-**請求抵達代理之後**，兩條路徑都能正確路由，這點有測試覆蓋。但預備模式生效時，Codex 桌面應用程式不會送出已設定的模型：它依自己的 `wham/usage` 輪詢（`luna_reserve` 升級提示加上仍被允許的 `gpt-reserve` 附加限額）判定預備狀態，並在請求送出前把模型設定強制改為 `gpt-reserve`，所以 `config.toml` 這條路會在應用程式內被覆寫。在視窗重設之前，請使用 `ocx access test`、經代理的 Claude Code（`ocx claude`）或任何直連 `/v1` 的用戶端。參見[Codex 預備模式下的路由模型](/zh-tw/guides/codex-integration/#codex-保留模式下的路由模型)。
-
-
-如果選擇器仍顯示舊條目，請重新整理目錄並重新開啟目標 Codex 介面：
+If the picker still shows stale entries, refresh the catalog and restart the target Codex surface:
 
 ```bash
 ocx sync
 ```
 
-當目錄的可見性、priority 或後設資料發生變化時，opencodex 會用一個刻意標記為過期的快取 wrapper
-重寫 `models_cache.json`，使 Codex 下次重新整理模型時讀取新目錄。
+opencodex rewrites `models_cache.json` with a deliberately stale cache wrapper whenever catalog
+visibility, priority, or metadata changes, so the next Codex model refresh reads the new catalog.
+
+After a catalog or model-cache write, OpenCodex invalidates its cached app-server observation so the next request checks process freshness again. A configuration sync also invalidates the observation when catalog contents are unchanged. This refresh does not restart Codex processes.

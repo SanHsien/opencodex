@@ -41,6 +41,10 @@ function carriesTranslatableWords(value: string): boolean {
 // gap. Anything *not* on this list that ships an English-identical value is treated as a stale
 // placeholder and fails the build.
 const ZH_TW_KEEP_ENGLISH: ReadonlySet<string> = new Set([
+  // The Codex sidebar row is the product name, kept in every locale like Claude.
+  "nav.codexSet",
+  // The primary Anthropic pool is labelled by the vendor name alone, kept in every locale.
+  "sidecar.poolA",
   // A bare em dash: the "no Reasoning control" marker is a symbol, not copy.
   "integrations.cursor.noControl",
   // API protocol/endpoint names
@@ -78,8 +82,6 @@ const ZH_TW_KEEP_ENGLISH: ReadonlySet<string> = new Set([
   "claude.pageTitle",
   // A literal Claude Desktop picker model id used as the input placeholder, not prose.
   "claudeDesktop.firstParty.bindings.pickerPlaceholder",
-  "claude.tabCode",
-  "claude.tabDesktop",
   // Claude Desktop model-family labels (proper nouns)
   "claudeDesktop.effort.supported",
   "claudeDesktop.family.fable",
@@ -143,6 +145,7 @@ const ZH_TW_KEEP_ENGLISH: ReadonlySet<string> = new Set([
   "integrations.tab.grok",
   "integrations.tab.opencode",
   "integrations.tab.pi",
+  "integrations.tab.gentleShell", // Product name, retained in the original spelling.
   "integrations.tab.omp",
   "integrations.tab.hermes",
   "integrations.tab.openclaw",
@@ -169,6 +172,12 @@ const ZH_TW_KEEP_ENGLISH: ReadonlySet<string> = new Set([
   "integrations.tab.kilo",
   "api.clientConfig.clientKilo",
   "api.clientConfig.clientDroid",
+  // Qoder is a product name, identical in every locale.
+  "integrations.tab.qoder",
+  "api.clientConfig.clientQoder",
+  // Command Code is a product name, identical in every locale.
+  "integrations.tab.commandcode",
+  "api.clientConfig.clientCommandCode",
   "integrations.codex.title",
   // Provider proper nouns kept in English
   "provider.name.commandCodeAuth",
@@ -207,6 +216,8 @@ const ZH_TW_KEEP_ENGLISH: ReadonlySet<string> = new Set([
   // untranslated `~$`); the templates are pure placeholders on purpose.
   "logs.cost.approximate",
   "logs.cost.lowerBound",
+  // A token count ("200k") reads the same in every locale; the 1M choice carries the translated "default".
+  "claude.contextAccounting200k",
 ]);
 
 test("zh-TW ships no untranslated English placeholders beyond the intentional allowlist", async () => {
@@ -285,12 +296,12 @@ const DSH_VISIBLE_COPY: Record<(typeof LOCALE_CODES)[number], readonly [string, 
   en: [
     "DeepSeek Harness (DSH)",
     "DSH",
-    "OpenCodex manages only llm-pi-ai.providers.opencodex in $DSH_HOME/settings.yaml. DSH hot reloads this provider; your default model and deepseek-official stay unchanged. Currently loopback-only; no real credential is written.",
+    "OpenCodex manages only the opencodex provider of the llm-pi-ai row in $DSH_HOME/profiles/desktop/cordis.patch.yml, the Desktop profile DSH 0.1.7+ reads ($DSH_HOME/settings.yaml until that profile exists). DSH hot reloads this provider; your default model and deepseek-official stay unchanged. Currently loopback-only; no real credential is written.",
   ],
   "zh-TW": [
     "DeepSeek Harness (DSH)",
     "DSH",
-    "OpenCodex 只管理 $DSH_HOME/settings.yaml 中的 llm-pi-ai.providers.opencodex。DSH 會熱重載該 provider；你的預設模型與 deepseek-official 維持不變。目前僅支援 loopback，且不會寫入真實憑證。",
+    "OpenCodex 只管理 $DSH_HOME/profiles/desktop/cordis.patch.yml（DSH 0.1.7 起讀取的 Desktop profile；該 profile 不存在時為 $DSH_HOME/settings.yaml）中 llm-pi-ai 這一列的 opencodex provider。DSH 會熱重載該 provider；你的預設模型與 deepseek-official 維持不變。目前僅支援 loopback，且不會寫入真實憑證。",
   ],
 };
 

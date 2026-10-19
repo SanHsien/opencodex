@@ -46,6 +46,10 @@ opencodex 把持久化設定存放在 `$OPENCODEX_HOME/config.json`，通常是
 
 別名比對不分大小寫。模型別名可寫成 `or/opus`，或在全域唯一時寫成裸 `opus`；有歧義的裸別名會回報其限定候選項。Codex 模型選擇器會顯示限定別名，同時保留原本的 `provider/model` 路由 id。某個 provider 的 `defaultAliases` 值會覆寫 `defaultModelAliases`。當同一個 provider 中有多個模型符合同一個模式時，內建別名會被跳過。
 
+### Native reasoning retention
+
+Native reasoning ciphertext retention on model and account changes has two opt-in settings, both off by default. Configure them on the dashboard overview or see [Native reasoning retention](/zh-tw/reference/configuration/server/#native-reasoning-retention) for the exact scope and experimental account behavior.
+
 ### Cursor effort 列
 
 `cursorEffortRows` 是選用的布林值，預設為 `false`。啟用後，原始的 OpenAI 風格 `/v1/models` 清單會為 Cursor Private Inference 在其已安裝的 effort 表中找不到對應的、支援 reasoning 的模型加上 `<base-id>--<effort>` 選擇器。選擇一個產生出來的列，會路由到基礎模型並套用該列的 effort；Cursor 已經認得的模型不會產生變體。這個旗標會保留一個結尾的 `--<declared-effort>` 後綴供產生的選擇器使用，除非完整的值本身已經是已知的設定模型 id。此設定變更後，Cursor 可能需要重新整理模型清單或重新啟動。

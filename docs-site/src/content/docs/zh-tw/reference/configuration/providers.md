@@ -5,6 +5,37 @@ description: 供應商項目、認證、端點、模型目錄、配額、context
 
 供應商告訴 opencodex 模型在哪裡、它使用哪種 wire adapter，以及請求如何被認證。
 
+## 自訂供應商的上下文視窗
+
+When a custom provider omits a model's context window, OpenCodex can infer it from the bundled
+model metadata. This is off by default: set `inferContextWindow: true` on the provider to turn it
+on. Without it, a model with no window uses the enabled Context cap as its window, then the 128k
+compatibility fallback. With it, the order is: discovered/configured limits (the smaller wins),
+Azure metadata, model-ID metadata, enabled Context cap as the window, then 128k. An enabled
+Context cap still limits the result. Built-in providers keep their existing behavior and ignore the flag.
+
+`GET /api/providers` includes `inferContextWindow` only when configured, preserving both `true` and
+`false`. To change it, `PATCH /api/providers?name=<provider>` accepts `true`, `false`, or `null` to
+clear the setting and restore the default-off behavior; other types return `400`. Omitting it keeps
+the current setting. A same-name `POST /api/providers` also keeps an omitted setting, including
+`false` and any change committed while the save was validating. A submitted boolean wins, including
+`false`, even if the stored value is `true`.
+
+```json
+{ "providers": { "my-relay": { "adapter": "anthropic", "baseUrl": "https://relay.example/v1", "inferContextWindow": true } } }
+```
+
+Original-vendor API tables take precedence over aggregator tables. Exact IDs are preferred;
+case and dot/hyphen variants are accepted only when unambiguous. Unknown IDs, floating `~` aliases
+and conflicting matches are not guessed. OpenAI API windows do not describe Codex subscription
+limits. An inferred window affects Codex's compaction budget and other connected clients' catalogs,
+including Claude long-context selection, but is recorded separately from asserted routing capacity.
+
+A matching model ID does **not** verify your relay's actual capacity. If it serves less than the
+vendor window, set `modelContextWindows` or the provider's **Context cap** before using long sessions.
+OpenCodex does not enable a cap automatically or probe the model. Successful smaller requests do not
+prove the full inferred window works. Existing configured windows remain in control.
+
 ## 首次註冊時的模型選擇
 
 新的非 OAuth 連線會先等待可靠的模型清單，再公開模型。如果該清單中相異的 Models 分頁列至少有 20 個，所有模型開關初始為 OFF，但供應商本身保持 ACTIVE。OAuth 與 ChatGPT 登入的連線則依有效的認證模式保留各自的預設值。
@@ -58,6 +89,10 @@ URL，也不代表不同 adapter 之間的配額消耗不同。既有的 BigMode
 | `upstreamHostCircuitThreshold?` | `number` | `0` | 針對原生 OpenAI forward Responses 與 compact 傳送上已證實的連線建立前 DNS/TCP 失敗，選用的斷路器閾值。`0` 停用；`1`–`20` 表示在該數量的終端邏輯請求後，開啟 30 秒的供應商來源冷卻。開啟期間，請求會在帳號選擇或上游傳送之前就收到帶 `Retry-After` 的 `503`；冷卻結束後，會放行一個半開請求。逾時與任何 HTTP 回應都不計入，任何 HTTP 回應都會關閉斷路器。只適用於沒有釘選帳號的 Codex Pool 路由；對 `codexAccountMode: "direct"` 與帳號限定選擇器無效。 |
 | `maxUpstreamBodyBytes?` | `number` | `0` | 選用的上限（位元組），套用於序列化後的原生 Responses **passthrough** 請求主體。`0` 或省略即停用——不會為任何目的地推斷限制。設定後，超過上限的已建構主體會在傳送前於本機被拒絕：串流回合會收到終端的 `response.failed` / `context_length_exceeded`，讓客戶端改為壓縮而非重送；非串流回合則收到 `413`，其中指出大小、內嵌 `input_image` 項目的數量，以及大約代表多少 MB 的影像資料。此檢查會在每個建構與重建點執行，包括 OAuth 重新整理後的重播與替代帳號重試。轉譯後的 adapter 路徑不在涵蓋範圍內。這裡刻意沒有預設值：唯一有實測上限的是 WebSocket 傳輸，而它對超大回合本來就會退回 HTTP，所以預設值會拒絕目前能成功的請求。當你的閘道有已知的請求大小限制，而你寧可看到可處理的本機錯誤而非不透明的上游失敗時，才設定它。 |
 | `maxInboundBodyBytes?` | `number` | `0` | 選用的上限（位元組），套用於解壓縮後的**進站**資料平面請求主體——是上面 `maxUpstreamBodyBytes` 的鏡像。`0` 或省略維持內建的 256 MiB 預設值。當大 context session 已經無法壓縮時，請調高它：Codex 會把整段歷史重播給壓縮模型，因此在 922k token 選擇加入視窗上，壓縮請求本身就是超過上限的那一個，讓 session 卡在唯一能讓它縮小的操作上。範圍限制在 1 MiB–512 MiB。這個上限沒有商量餘地：讀取器會將主體具現化好幾次（線上位元組、解碼後位元組、解碼後字串，以及解析出的物件圖），所以尖峰記憶體是被允許大小的倍數，不設上限就是一個記憶體耗盡的槓桿。適用於 `/v1/responses`、`/v1/responses/compact`、`/v1/chat/completions` 與 `/v1/messages`。監聽器的接受大小在代理繫結時就固定，所以變更要重新啟動才會生效。超過限制的主體會在本機以 HTTP 413 拒絕，並附上 `code: "inbound_body_too_large"`，這與供應商大小拒絕產生的 `context_length_exceeded` 413 刻意不同。 |
+
+| `codexFailureWindow?` | `boolean` | `true` | 60 秒滑動失敗率，與連續計數併用。至少 20 次且失敗率 ≥25% 時帳號降級，只讓新執行緒避開；比率 ≤10% 並持續 30 秒後恢復。`false` 只使用連續計數。 |
+| `codexPinnedTransientPolicy?` | `"hold" \| "detour-new-threads"` | `"hold"` | 手動釘選帳號降級時，`hold` 繼續使用並記錄警告；`detour-new-threads` 只把新執行緒放到其他帳號。不會改派進行中的請求。 |
+| `codexWsReuseAcrossTurns?` | `boolean` | `false` | 選用：同一帳號與執行緒的 Codex WebSocket 跨回合重用。開啟後忙碌 socket 最多等待 750ms，模型或層級變更時最多保留 2 個 socket。 |
 | `modelCacheTtlMs?` | `number` | `300000` | Per-供應商 `/models` 快取的新鮮度視窗。 |
 | `cacheRetention?` | `"none" \| "short" \| "long"` | `"short"` | Anthropic prompt-cache 政策：停用、5 分鐘臨時或 1 小時延長。 |
 | `tokenGuardian?` | `OcxTokenGuardianConfig` | off | 可選的主動 OAuth refresh 與 Codex 帳號暖機政策。 |
@@ -142,89 +177,133 @@ Codex-login 供應商上列出的每個裸 `gpt-*` id（此處為 **GPT-6-Nova**
 
 ## 供應商項目（`OcxProviderConfig`）
 
-| 欄位 | 型別 | 意義 |
+| Field | Type | Meaning |
 | --- | --- | --- |
-| `adapter` | `string` | `openai-chat`、`openai-responses`、`anthropic`、`google`、`kiro`、`cursor`、`ollama-native`、`azure-openai`（或別名 `azure`）、`codebuddy`、`qoder` 之一。 |
-| `baseUrl` | `string` | 上游 API base URL。多數內建固定端點忽略不符；碰撞安全的金鑰預設保留較舊的同名自訂目的地。 |
-| `requestPacing?` | `{ enabled, requestsPerMinute?, minIntervalMs?, maxConcurrentRequests?, models? }` | 選用的用戶端出站請求啟動節流，與上游用量、計費及限流指標彼此獨立。`maxConcurrentRequests` 是限制進行中請求數的正整數，供應商或模型規則都可單獨設定此項。供應商限制適用於所有模型，`models` 依上游模型精確 ID 比對，並可增加延遲或收緊並發限制。排隊等待不計入回應標頭逾時。涵蓋 HTTP 及明確的適配器 `fetchResponse`/`runTurn` 呼叫。設定並行上限時，標準 Responses WebSocket 請求改用 HTTP/SSE，以便在回應本文完成、出錯或取消時釋放並行名額。 對包含 Cursor 的 `runTurn` 適配器，並行上限計算進行中的回合數，而非實體傳送數：同一回合內的 RunSSE 與 BidiAppend 可重疊，其他回合仍須等待。後續傳送仍遵守啟動間隔。 |
-| `upstreamHttpVersion?` | `"auto" \| "http1.1" \| "h1" \| "http2" \| "h2"` | 為此供應商的上游請求釘選使用的 HTTP 版本。預設為 `auto`，交由 Bun 協商。明確釘選需要 HTTPS 目標，且在無法遵守時會在本機失敗。當某供應商的 HTTP/2 SSE 串流卡住而不送出事件時，請設為 `http1.1`——徵狀是一個長時間執行的串流請求什麼都不產生，最終逾時。對 Cursor 而言，`http1.1`／`h1` 會為推論選用它的 `RunSSE` + `BidiAppend` 相容傳輸，同時也會釘選即時模型探索。管理用的 `POST`／`PATCH` 接受 `null` 以清回 `auto`。 |
-| `responsesPath?` | `string` | Key-auth `openai-responses` 請求的相對資源路徑。必須以 `/` 開頭且不含 scheme、query 或 fragment。 |
-| `chatCompletionsPath?` | `string` | `openai-chat` 請求的相對資源路徑，為 `responsesPath` 的對應項，適用相同的路徑規則。當同一上游以不同前綴提供 Chat Completions 與 Responses 時需要此設定：按模型的 wire override 只更換適配器而不改動 `baseUrl`，否則已啟用的 Chat 請求會送往 Responses base。隨附範例為 Z.AI。 |
-| `upstreamWebsocket?` | `boolean` | 為 `openai-responses` 請求選用上游 Responses WebSocket 傳輸（預設 `false`）。僅對第一方 `https://api.openai.com/v1` 上游生效；自訂供應商端點一律使用有界 HTTP/SSE，因為 Bun 無法在配置完整訊息之前對傳入 WebSocket 訊息套用大小限制。對於規範 ChatGPT `openai` 供應商，省略此欄位會在符合條件的回合使用上游 WebSocket，`false` 會以 HTTP/SSE 傳送串流回合，`true` 會被拒絕；設為 `false` 時，原生回合中操控與注入無法使用。此欄位獨立於用戶端 `websockets` 設定，且不會變更端點或認證資料。一般 HTTP 仍使用 SSE；非 Responses 路徑與 `openai-chat` 請求仍使用 HTTP。 |
-| `disabled?` | `boolean` | 將供應商保留在磁碟上但排除於路由與模型／目錄清單。 |
-| `apiKey?` | `string` | API 金鑰、`${ENV_VAR}` / `$ENV_VAR` 參考，或由 `ocx provider keychain <name> store` 寫入的 `keychain:<provider>` 參考。參考值在請求時解析。見「在 OS 金鑰圈中儲存金鑰」一節。 |
-| `apiKeyTransport?` | `"x-api-key" \| "bearer"` | Anthropic 金鑰標頭風格。預設為原生 `x-api-key`；僅對 key-auth `anthropic` 供應商有效。 |
-| `apiKeyPool?` | `ApiKeyPoolEntry[]` | 多金鑰池。`apiKey` 反映現用項目；每個項目有 `id`、`key`、可選 `label` 與可選數值 `addedAt`。 |
-| `apiKeyPoolStrategy?` | `"round-robin" \| "fill-first" \| "quota"` | 當現用金鑰已在冷卻時，在第一次嘗試**之前**如何選擇一個可用金鑰。省略時輪替維持只在事後反應：池只會在收到 429 或 401 之後才移動，不會提前移動。`round-robin` 取池中下一個金鑰，`fill-first` 保留第一個合格金鑰，`quota` 偏好剩餘餘裕最多的金鑰，並在供應商的個別金鑰配額未知時退回 `fill-first` 順序。健康的現用金鑰絕不會被覆寫，所以手動選擇的金鑰維持不變。 |
-| `defaultModel?` | `string` | 在未指定明確模型時選擇此供應商所使用的模型。 |
-| `models?` | `string[]` | 初始／後備模型清單。`liveModels: false` 時，非空的 `models` 清單後面接著 `retainModels`；空的或省略的 `models` 清單，改為先播種 `defaultModel`（若有設定），再接 `retainModels`，並以首次出現的順序移除重複 id。 |
-| `liveModels?` | `boolean` | 在啟動／同步時擷取即時目錄（預設 `true`）。自訂供應商使用 `${baseUrl}/models`；內建可能使用 registry URL 並過濾。 |
-| `selectedModels?` | `string[]` | 探索後的目錄允許清單。非空時僅暴露那些 id；空或省略時暴露所有探索的模型。 |
-| `retainModels?` | `string[]` | 即使即時探索遺漏，仍保留在目錄中的 id。它們不需要重複列在 `models` 裡。空或省略維持現有行為。 |
-| `modelDisplayNames?` | `Record<string, string>` | 僅用於顯示的持久標籤，以此供應商精確的上游模型 id 為 key。標籤會勝過供應商目錄的中繼資料，在探索重新整理與供應商編輯後仍會存活，且絕不會改變認證、adapter 行為、路由、計費、上游請求建構、路由過的 `provider/model` 選擇器，或上游 wire 模型。key 精確且區分大小寫。未知的模型 id 會被保留，讓暫時消失的模型回來時仍能拿到它的標籤。這個 map 最多接受 2,000 個項目，與探索上限一致。 |
-| `contextWindow?` | `number` | 當上游中繼資料缺席時的供應商範圍 context 後備；否則是一個仍保留較小即時中繼資料的上限。Models 儀表板會把它與 `providerContextCaps` 分開顯示。 |
-| `modelContextWindows?` | `Record<string, number>` | Per-model context 後備／上限。這些會覆寫 `contextWindow`：未知的視窗使用設定值，而較小的即時中繼資料仍具權威性。 |
-| `modelInputModalities?` | `Record<string, string[]>` | Per-model 輸入提示，如 `["text"]` 或 `["text", "image"]`。 |
-| `modelMaxInputTokens?` | `Record<string, number>` | 用於目錄自動壓縮提示的正數 per-model max input 限制。 |
-| `modelAutoCompactTokenLimits?` | `Record<string, number>` | Per-model 正安全整數型 soft 自動壓縮預算。此值只能降低「context 或 max input 的 90%」這個有效上限；沒有已知的權威 context window 時不會輸出。對 canonical `openai` 而言，key 必須是受支援的精確 native model ID，且不得含 provider 或 account-selector 前綴。Provider PATCH 會合併項目；將單一 key 設為 `null` 會刪除該 key，將整個欄位設為 `null` 會清空 map。這些 `null` tombstone 僅供 PATCH 使用。 |
-| `defaultMaxOutputTokens?` | `number` | 當客戶端省略 `max_output_tokens` 時的供應商範圍 `openai-chat` 後備。 |
-| `modelMaxOutputTokens?` | `Record<string, number>` | 正數 per-model `openai-chat` 後援預算；精確／模式比對勝過供應商預設。 |
-| `modelCosts?` | `Record<string, Cost4>` | Per-model 顯示價格（每百萬 token 的美元），以該供應商精確的上游模型 id 為 key——不是供應商識別碼或路由過的 `provider/model` 標籤，例如 `{ "deepseek-v4-flash": { "input": 0.14, "output": 0.28, "cacheRead": 0.0028, "cacheWrite": 0 } }`。任何模型 id 都是合法的 key——自訂供應商可以透過 `openai-chat` adapter 指向任何 OpenAI 相容端點，本機或內部供應商 id 即使不在內建目錄中也能運作。使用者設定的價格會在 Logs 的 `~$` 與 Usage 估算中勝過內建目錄；歷史項目會依目前的覆寫重新計價，所以編輯一個價格可能會改變過去的總計。後備順序為使用者 `modelCosts` → 精確的官方修正 → jawcode 目錄 → 預期價格覆寫 → model 層級的供應商後備，明確設定全零的使用者項目代表一個已知為零的估算值；刪除該模型項目可恢復自動定價。全零的目錄中繼資料仍會繼續往下退。每個費率必須是介於 0 到 1,000,000（每百萬 token 美元）之間的非負有限數；超出範圍的列會被管理邊界拒絕，並在載入時被捨棄。僅用於顯示時的估算：覆寫絕不會影響路由、帳號選擇、配額或計費。 |
-| `headers?` | `Record<string, string>` | 額外上游標頭。Authorization、cookie、API-key 標頭、內嵌換行與無效名稱被拒絕。 |
-| `openRouterRouting?` | `OpenRouterProviderRouting` | 預設 OpenRouter `order`、`only` 與 `allowFallbacks` 偏好；僅對規範 OpenRouter 搭配 `openai-chat` 有效。 |
-| `modelOpenRouterRouting?` | `Record<string, OpenRouterProviderRouting>` | 取代供應商範圍 OpenRouter 偏好的精確 model-id 覆寫。 |
-| `vercelGatewayRouting?` | `VercelGatewayRouting` | 預設 Vercel AI Gateway `order`、`only` 與 `sort`（`"cost"` \| `"ttft"` \| `"tps"`）偏好；僅對規範 Vercel AI Gateway 搭配 `openai-chat` 有效。 |
-| `modelVercelGatewayRouting?` | `Record<string, VercelGatewayRouting>` | 取代供應商範圍 Vercel AI Gateway 偏好的精確 model-id 覆寫。 |
-| `authMode?` | `"key" \| "forward" \| "oauth" \| "local"` | 認證模式（預設 `key`）。OAuth／訂閱憑證儲存在 `config.json` 之外；`local` 僅限其 registry 項目允許的供應商。 |
-| `codexAccountMode?` | `"pool" \| "direct"` | 僅規範 `openai`；預設為池。Direct 繞過池狀態。 |
-| `refreshPolicy?` | `"proactive" \| "lazy-only" \| "disabled"` | 覆寫此 OAuth 供應商的 Token Guardian 政策。 |
-| `reasoningEfforts?` | `string[]` | 供應商範圍的 Codex reasoning 標籤，用於廣告與發送。對 `google` adapter 的供應商而言，設定的階梯還會宣告 `thinkingLevel` 能力：direct 與 Vertex 的非影像請求會把選定的 effort 以 `generationConfig.thinkingConfig.thinkingLevel` 送出，Cloud Code Assist 則使用它專屬的封套路徑。 |
-| `modelReasoningEfforts?` | `Record<string, string[]>` | Per-model 標籤。空清單會隱藏 effort 控制。與 `reasoningEfforts` 相同，每個設定的 `google` adapter 階梯都會宣告 `thinkingLevel` 能力；direct 與 Vertex 的非影像請求使用扁平的 Gemini 路徑，Cloud Code Assist 則在它的請求封套下送出。 |
-| `modelSupportsReasoningSummaries?` | `Record<string, boolean>` | 將模型設為 `false` 以停止廣告摘要並剝離 summary-delivery 欄位。 |
-| `modelReasoningSummaryDelivery?` | `Record<string, "sequential" \| "sequential_cutoff" \| "concurrent" \| "concurrent_cutoff">` | Per-model Responses delivery 列舉；重寫既有的 delivery 欄位。 |
-| `modelAdapters?` | `Record<string, string>` | 混合 wire 閘道的 Per-model `openai-chat` 或 `openai-responses` wire 覆寫。明確項目勝過 registry 預設；DeepSeek 的預設可為 `deepseek-v4-flash` 選擇原生 Responses。單一 wire 上游 pin 與規範 ChatGPT forward 拒絕覆寫。 |
-| xAI Responses 選用（儀表板） | 開關 | 僅用於 `xai`，以原子方式設定或清除 `grok-4.5` 與 `grok-4.6` 的 `modelAdapters` 項目。若只有一個項目，會顯示混合狀態，直到下次開關寫入統一兩者。其他覆寫與層級行為不變。 Grok 4.7 在 OAuth 上透過登錄檔 wire 預設使用 Responses，也可透過明確的 `modelAdapters["grok-4.7"] = "openai-chat"` 項目切換至 Chat。 |
-| `annotateEmptyToolOutputs?` | `boolean` | 在工具結果送達模型前，將已存在但為空的結果替換成簡短標記，使空白結果不會被解讀為遺漏的結果。適用於空白字串及僅含文字部分的陣列；影像、檔案及加密部分絕不會被更動。DeepSeek 透過內建登錄檔預設為 `true`，其他情況則不設定。設為 `false` 可讓供應商停用此功能；後續編輯即使省略此欄位，也會保留明確設定的 `false`。`PATCH /api/providers?name=<provider>` 接受 `true`、`false` 或 `null`；`null` 會清除覆寫並恢復使用登錄檔的預設行為。 |
-| `xaiResponsesXSearch?` | `boolean` | 預設停用。在 xAI Responses 目的地上，僅當即時 `web_search` 工具通過最終請求正規化後仍保留時，才附加由供應商託管的 `x_search` 宣告。既有宣告不會重複，呼叫端的 `tool_choice`／`allowed_tools` 選擇器絕不會擴大，且此設定與網頁搜尋輔助服務的 `search.xSearch` 選項分開。 |
-| `modelPreferHostedTools?` | `Record<string,string[]>` | 針對保留一個託管工具命名空間的非 forward Responses 閘道，精確模型的選擇加入。目前只接受 `["image_generation"]`；相符的模型必須使用 `openai-responses` wire 並支援那個託管工具。它會移除衝突的客戶端 `image_gen` 宣告，並重寫它們的選擇器以保留呼叫端的工具選擇。對於 OpenAI API 的虛擬 `-pro` 模型，會先比對選定的公開 ID，再以解析後的基礎 wire-model ID 作為後備。`modelAdapters` 會先解析公開 ID，再解析基礎 ID；第二次解析決定最終的 wire。其他模型保留一般的別名行為。 |
-| `annotateEmptyToolOutputs?` | `boolean` | 在工具結果送達模型前，將已存在但為空的結果替換成簡短標記，使空白結果不會被解讀為遺漏的結果。適用於空白字串及僅含文字部分的陣列；影像、檔案及加密部分絕不會被更動。DeepSeek 透過內建登錄檔預設為 `true`，其他情況則不設定。設為 `false` 可讓供應商停用此功能；後續編輯即使省略此欄位，也會保留明確設定的 `false`。`PATCH /api/providers?name=<provider>` 接受 `true`、`false` 或 `null`；`null` 會清除覆寫並恢復使用登錄檔的預設行為。 |
-| `reasoningEffortMap?` | `Record<string, string>` | 供應商範圍的 reasoning 標籤 wire 別名。把標籤對應到 `"__omit__"` 可以在上游請求中完全省略推理欄位：OpenAI 相容 wire 上是 `reasoning_effort`，在 Ollama 原生 adapter 上則是 Ollama 原生的 `think` 欄位（#2356）。 |
-| `modelReasoningEffortMap?` | `Record<string, Record<string, string>>` | Per-model 的 reasoning 標籤 wire 別名。把標籤對應到 `"__omit__"` 可以在上游請求中完全省略推理欄位。 |
-| `reasoningWireFormat?` | `"gateway-object"` | 針對接受 `reasoning: { enabled, effort }` 而非 `reasoning_effort` 的 OpenAI 相容閘道。ClinePass 預設會自動設定這個值。 |
-| `noReasoningModels?` | `string[]` | 拒絕 reasoning/thinking 參數的模型。 |
-| `noTemperatureModels?` | `string[]` | 拒絕呼叫者指定 `temperature` 的模型。 |
-| `noTopPModels?` | `string[]` | 拒絕呼叫者指定 `top_p` 的模型。 |
-| `noStopModels?` | `string[]` | 拒絕呼叫者指定 `stop` 的模型。`openai-chat` 轉接器、Chat 直通與 Responses 直通會為這些模型省略該欄位。內建 `xai` 預設在此列出 xAI 文件說明會拒絕該參數的推理模型(`grok-4.7`, `grok-4.6`, `grok-4.5`, `grok-4.3`, `grok-4.20-multi-agent-0309`, `grok-4.20-0309-reasoning`, `grok-build-0.1`)；`grok-4.20-0309-non-reasoning`, `grok-composer-2.5-fast` 保留呼叫者的 `stop`。 |
-| `noPenaltyModels?` | `string[]` | 拒絕 presence/frequency penalty 的模型。 內建 `xai` 預設在此列出 xAI 文件說明會拒絕這些參數的推理模型(`grok-4.7`, `grok-4.6`, `grok-4.5`, `grok-4.3`, `grok-4.20-multi-agent-0309`, `grok-4.20-0309-reasoning`, `grok-build-0.1`)；非推理模型保留呼叫者的 penalty。 |
-| `noStructuredOutputModels?` | `string[]` | 其 `openai-chat` 端點拒絕 `response_format` 的精確模型 ID。僅精確符合的請求模型會省略該欄位；structured-output 轉譯對其他每個 `openai-chat` 模型保持啟用。 |
-| `noJsonSchemaModels?` | `string[]` | 其 `openai-chat` 端點拒絕 `json_schema` 形式但仍接受 `json_object` 的精確模型 ID。這類請求會降級為 `json_object` 而非被丟棄，因此要求 JSON 的呼叫端仍會拿到 JSON。同一模型同時列在兩份清單時，以 `noStructuredOutputModels` 為準。`opencode go`、`opencode zen`、`opencode free` 預設已為其 DeepSeek 路由內建。 |
-| `foldDeveloperRoleToSystem?` | `boolean` | 記錄某個 `openai-chat` 目的地是否接受 `developer` 角色。`foldDeveloperRoleToSystem` 未設定時以 `system` 傳送，`true` 時以 `system` 傳送，`false` 時以 `developer` 傳送。未設定表示尚未記錄該目的地的情況；`true` 記錄上游拒絕該角色；`false` 記錄其接受該角色。無論何者，訊息都保留在對話中的原有位置，只有角色改變。拒絕該角色的目的地會回應 `400 role 'developer' is not allowed`，該回合根本無法開始，這就是未記錄狀態預設摺疊的原因。 |
-| `parallelToolCalls?` | `boolean` | 切換平行工具呼叫。OpenAI Chat 預設開啟；非 chat adapter 僅在明確 `true` 時廣告。 |
-| `responsesItemIdRepair?` | `{ message?: string[]; reasoning?: string[]; repairMissingTerminalIds?: boolean }` | 預設停用的下游 SSE 修復，用於精確佔位 id 與缺失的終端 id。Function-call id 永不被重寫。 |
-| `transientRetryOn5xx?` | `{ enabled?: boolean; attempts?: number }` | 僅限使用金鑰認證的 `openai-chat` 與 `openai-responses` 供應商。`authMode: "forward"` 的供應商（ChatGPT 帳號池）從不讀取此選項，維持預設重試次數。選擇性重試串流開始前的暫時性上游狀態（500、502、503、504、520、521、522）：未設定時停用；只要有此物件即啟用，除非 `enabled: false`。涵蓋初始 `Responses` 請求、終止防護續接、原生 `/v1/chat/completions`，以及 429／帳號復原的重新擷取。`attempts` 是單一請求允許傳送至上游的總次數，包含第一次（1..10，預設 3）；這是與連線重設復原共用的單一請求範圍預算，因此 `3` 表示最多只有三個實際請求會送達供應商。等待採固定 400 毫秒、上限 5 秒的指數退避，並遵循 `Retry-After`。此機制獨立於處理速率限制的 `retryOn429`；串流中的失敗絕不重播。 |
-| `retryOnReset?` | `{ enabled?: boolean; replacements?: number }` | 僅限原生 `openai-responses` 供應商，包含 `authMode: "forward"`。可選擇性地替換一次在呼叫端尚未觀察到任何內容時就失敗的傳送：未設定時停用；只要有此物件即啟用，除非 `enabled: false`。涵蓋兩個不確定階段——回應標頭抵達前連線中斷，以及標頭之後 SSE 內文只載有控制事件時中斷。canonical ChatGPT upstream WebSocket 在 create 訊框送出之後、任何 Responses 事件抵達之前關閉或出錯時，也以相同方式處理，其替換傳送改走 HTTP。只有自我完備的請求才會被替換：`store: false`、完整的 `input`、沒有 `previous_response_id`／`conversation`／`stream_id`，且僅使用由用戶端執行的工具。`replacements` 是單一邏輯請求在所有環節與所有組合子請求中可進行的替換傳送次數（1..2，預設 1）；它既不是各環節的重試次數，也不是傳送預算，因此替換傳送仍必須落在該環節既有的傳送額度之內。已經產生輸出或工具呼叫的請求，無論此值為何都不會被替換。若上游已經開始第一次推論，被替換的推論仍可能計費，因此此選項預設停用。 |
-| `autoToolChoiceOnlyModels?` | `string[]` | 其 `tool_choice` 僅接受 `auto` 或 `none` 的模型；強制選擇被降級。 |
-| `preserveReasoningContentModels?` | `string[]` | 需要在 chat 歷史中保留先前 assistant `reasoning_content` 的模型。從儀表板儲存時會保留已儲存的清單（包括 `[]`）。`PATCH /api/providers?name=<provider>` 接受陣列，或傳入 `null` 清除該欄位。將供應商改到其他轉接器、base URL 或驗證模式的儲存不會保留該清單（見下文）。 |
-| `reasoningDetailsModels?` | `string[]` | 以結構化 `reasoning_details` 陣列回傳思考內容的模型（啟用 `reasoning_split` 的 MiniMax M 系列）；串流增量為累積快照，以前綴差分處理，保留的推理以 `reasoning_details` 陣列而非 `reasoning_content` 字串重播。 |
-| `requiresReasoningPlaceholderModels?` | `string[]` | 上游會拒絕缺少 `reasoning_content` 的 tool_call 續接訊息的模型（DeepSeek thinking 模式）；重播快取未命中時會注入最小的佔位內容。預設沿用 `preserveReasoningContentModels`；設為 `[]` 可明確關閉。從儀表板儲存時會保留已儲存的清單（包括 `[]`）。`PATCH /api/providers?name=<provider>` 接受陣列，或傳入 `null` 清除該欄位。將供應商改到其他轉接器、base URL 或驗證模式的儲存不會保留該清單（見下文）。 |
-| `thinkingToggleModels?` | `string[]` | 使用 `thinking.enabled` 而非 effort 階梯的 chat 模型。 |
-| `thinkingBudgetModels?` | `string[]` | 使用整數 `thinking_budget` 的 chat 模型；effort 映射為預算比例。 |
-| `noVisionModels?` | `string[]` | 透過視覺 sidecar 發送的純文字模型；比對容忍 Ollama `:size` 標籤。 |
-| `escapeBuiltinToolNames?` | `boolean` | 為 Anthropic 相容閘道轉義內建工具名稱，並在回傳的呼叫中還原它們。 |
-| `anthropicEofTolerance?` | `boolean` | 讓 Anthropic 相容閘道在 `message_stop` 之前結束的串流也能完成，但僅限於已收到可見文字或一個完整 JSON 物件工具輸入的情況。預設關閉。 |
-| `googleMode?` | `"ai-studio" \| "vertex" \| "cloud-code-assist"` | Google 傳輸／認證模式。預設 `ai-studio`。 |
-| `googleToolSchemaPolicy?` | `"compatible" \| "reject-lossy"` | 僅限 Google。省略或設為 `compatible` 時保留相容結構描述與既有的非直接 400 修復。`reject-lossy` 會在傳送前拒絕初始損失或結果不確定的有界比較，並阻止會放寬限制的 Vertex 或 Cloud Code Assist 修復。直接 AI Studio 不會執行該修復。 |
-| `project?` | `string` | Vertex 或 Antigravity Cloud Code Assist 專案 id。 |
-| — | — | Antigravity 帳號配額探測（`retrieveUserQuota` 與 `retrieveUserQuotaSummary`）一律透過釘選的出站傳輸，前往 Google 自己的 Cloud Code 主機，無論設定的 `baseUrl` 為何；帳號 bearer 絕不會送到維運方設定的端點，重新導向會中止探測。只有模型清單後備仍會遵循 `baseUrl`。 |
-| `location?` | `string` | Vertex 位置；環境後備為 `GOOGLE_CLOUD_LOCATION`。 |
-| `mcpServers?` | `Record<string, CursorMcpServerConfig>` | 僅 Cursor：stdio 或 Streamable HTTP MCP 伺服器。 |
-| `desktopExecutor?` | `DesktopExecutorConfig` | 僅 Cursor：外部 computer-use 與 record-screen 指令。 |
-| `unsafeAllowNativeLocalExec?` | `boolean` | Cursor 舊版布林值，僅在較新欄位未設定時等同於 `nativeLocalExec: "on"`。 |
-| `nativeLocalExec?` | `"off" \| "codex-sandbox" \| "on"` | Cursor 本機執行政策。`off` 為預設；`codex-sandbox` 目前像 `off` 般 fail closed。 |
+| `adapter` | `string` | One of `openai-chat`, `openai-responses`, `anthropic`, `claude-cli`, `google`, `kiro`, `cursor`, `ollama-native`, `azure-openai` (or alias `azure`), `codebuddy`, `qoder`. |
+| `baseUrl` | `string` | Upstream API base URL. Most built-in fixed endpoints ignore a mismatch; collision-safe key presets preserve an older same-named custom destination. |
+| `proxy?` | `string \| null` | Per-provider egress route. Omit it to inherit the global proxy decision; use `"direct"` or `null` to force direct egress; or provide an absolute `http://`, `https://`, `socks5://`, or `socks5h://` proxy URL. An empty string is rejected. |
+| `noProxy?` | `string \| string[]` | Destinations this provider reaches directly, using `NO_PROXY` host-pattern syntax. A match bypasses both this provider's own proxy and an inherited global proxy. |
+| `requestPacing?` | `{ enabled, requestsPerMinute?, minIntervalMs?, maxConcurrentRequests?, models?, keySelection?, keys? }` | Optional client-side outbound request-start pacing, separate from upstream usage, billing, and rate-limit indicators. RPM is converted to an even interval; `minIntervalMs` may impose a longer interval. `maxConcurrentRequests` is a positive integer cap on in-flight requests. A provider or model rule may use the concurrency cap alone; provider limits apply across all models, while `models` entries use exact upstream model IDs (for example `nvidia/llama-3.1-nemotron-ultra-253b-v1`) and can only add delay or narrow concurrency. Queue waits do not consume the upstream response-header timeout. HTTP and explicit adapter `fetchResponse`/`runTurn` dispatches are covered. A concurrency-capped canonical Responses WebSocket turn uses HTTP/SSE so its lease can be released when the response body completes, errors, or is cancelled. For `runTurn` adapters, including Cursor, the cap counts active turns rather than physical sends: RunSSE and BidiAppend may overlap within one turn, while another turn waits. Follow-up sends still obey start intervals. |
+| `requestPacing.keySelection?` | `"active"`, `"round-robin"` | Normal-request key selection. Default `active` preserves the saved key and existing failure rotation; `round-robin` distributes request-local selections across eligible API-key pool references without changing the saved active key. It balances allocations, not tokens or cost. |
+| `requestPacing.keys?` | `{ requestsPerMinute?, minIntervalMs?, maxConcurrentRequests? }` | Uniform per-key-reference RPM, minimum start interval and concurrency limits, shared across models. These compose with provider and exact-model upper bounds. Duplicate references share a bucket; separate references in one upstream project do not imply independent quota. TPM and daily quotas are not enforced. |
+| `upstreamHttpVersion?` | `"auto" \| "http1.1" \| "h1" \| "http2" \| "h2"` | Pin the HTTP version used for upstream requests to this provider. Defaults to `auto`, which lets Bun negotiate. An explicit pin requires an HTTPS target and fails locally when it cannot be honored. Set `http1.1` when a provider's HTTP/2 SSE stream stalls instead of delivering events — the symptom is a long-running streaming request that produces nothing and eventually times out. For Cursor, `http1.1`/`h1` selects its `RunSSE` + `BidiAppend` compatibility transport for inference and also pins live model discovery. Management `POST`/`PATCH` accept `null` to clear it back to `auto`. |
+| `tlsProfile?` | `"antigravity-browser"` | **Use at your own risk.** Opt-in browser-like TLS handshake (through the optional `wreq-js` dependency) for the canonical `google-antigravity` OAuth provider. It changes only how the connection looks on the wire; it is not an official Google client, and it does not change what Google's terms allow. Google can still detect, rate-limit, suspend, or ban the account you signed in with, and you alone carry that risk. It is off by default and accepted only with the Google adapter, Cloud Code Assist mode, and Google's canonical HTTPS Antigravity hosts. Redirects stay manual. The provider's own `proxy`/`noProxy` route is carried by the TLS transport; a route it cannot keep fails the request instead of leaving by another path, which includes any direct route while `HTTP_PROXY`, `HTTPS_PROXY`, or `ALL_PROXY` is set. `GET /api/providers` reports the profile state as `pending`, `active`, or `failed`. Omitting the field keeps the normal Bun transport and never loads the dependency. |
+| `responsesPath?` | `string` | Relative resource path for key-auth `openai-responses` requests. It must start with `/` and contain no scheme, query, or fragment. |
+| `chatCompletionsPath?` | `string` | Relative resource path for `openai-chat` requests, the mirror of `responsesPath` and subject to the same shape rules. Needed when one upstream serves Chat Completions and Responses under different prefixes: a per-model wire override changes the adapter and leaves `baseUrl` alone, so without this an opted-in Chat request would be sent to the Responses base. Z.AI is the shipped example. |
+| `allowEncryptedV2AgentTasks?` | `boolean` | Disabled by default. Trust a direct key-auth `openai-responses` provider to consume or relay opaque encrypted V2 sub-agent tasks unchanged. Eligible routes skip `agentTaskRecovery`; all other routes keep the existing recovery or fail-closed behavior. OpenCodex does not decrypt, translate, or recover tasks sent through this opt-in. |
+| `projectResponsesLiteHostedSearchHistory?` | `boolean` | Default off. Set the actual boolean `true` to opt this provider into lossy projection of unreferenced hosted-search history for ordinary requests to exact canonical ChatGPT Codex `/responses` with explicit Responses Lite intent. Omission or `false` retains structural history; strings and numbers are invalid. It does not enable Lite, change transport, or affect native compact, public OpenAI API/other destinations, or existing portable/routed compaction projection. See [Lite hosted-search history](/zh-tw/reference/proxy-formats/#codex-native-ordinary-lite-hosted-search-history). |
+| `upstreamWebsocket?` | `boolean` | Opt-in upstream Responses WebSocket transport for `openai-responses` requests (default false). Honored only for the first-party `https://api.openai.com/v1` upstream; custom-provider endpoints always use bounded HTTP/SSE because Bun cannot enforce an inbound WebSocket message limit before allocating the complete message. For the canonical ChatGPT `openai` provider, omitting it keeps the upstream WebSocket on eligible turns, an explicit `false` sends streaming turns over HTTP/SSE, and provider management rejects `true`; with `false`, native mid-turn steering and injection are unavailable. The field is independent of the client-facing `websockets` setting and changes neither the endpoint nor the credential. Plain HTTP remains on SSE; non-Responses paths and `openai-chat` requests stay on HTTP. |
+| `supportsServiceTier?` | `boolean` | Tri-state canonical Fast capability fallback. `true` publishes Fast in the catalog, satisfies service-tier routing requirements, contributes a supported fingerprint, and lets fast mode inject the provider's canonical wire value on a compatible final adapter. `false` strips the field and never injects, and exact model declarations cannot reopen it. Absent leaves the provider unclassified: fast mode does not inject or normalize a canonical caller value, and caller values obey the final wire's forwarding permission (`chatServiceTier` on Chat; passthrough on Responses). The registry classifies canonical OpenAI (`true`), DeepSeek, and Volcengine Ark (`false`); set it explicitly only for custom gateways that genuinely support tiers. |
+| `responseTierAuthoritative?` | `boolean` | Whether the response tier can confirm or deny Fast. Set `false` explicitly for routes with non-authoritative response metadata; omission preserves existing behavior. This does not enable Fast or change outbound parameters. See [Response service-tier authority](#codex-帳號池). |
+| `fastEnabled?` | `boolean` | Operator switch for the provider's Fast lane. `false` turns Fast off (no Fast toggle, no `--fast` row, no fast wire field) and overrides `supportsServiceTier`. `true` enables a lane the registry marks opt-in. Absent keeps the registry default: off for `anthropic` and `anthropic-apikey`, whose fast mode spends usage credits at 2x price, and unchanged for every other provider. The dashboard Models page shows an Off/On row for opt-in providers. |
+| `modelSupportsServiceTier?` | `Record<string, boolean>` | Exact upstream model capability overrides. Exact `true` enables canonical Fast for that model; exact `false` narrows provider defaults. An explicit provider-level `supportsServiceTier: false` remains fail-closed and cannot be reopened. Exact `true` does not authorize foreign caller-tier forwarding on Chat. Undeclared models fall back to provider-wide behavior. Management `PATCH /api/providers` merges entries and accepts `null` to clear one. |
+| `chatServiceTier?` | `boolean` | Provider-wide Chat-wire opt-in for forwarding caller `service_tier` values. On a classified route it governs foreign values such as `flex`, not proxy-owned canonical Fast after capability validation; on an unclassified route it governs every caller value because no Fast capability has been validated. Exact model capability does not authorize foreign forwarding. Responses routes retain their capability-based caller forwarding behavior. |
+| `promptCacheKey?` | `boolean` | Provider-wide `openai-chat` opt-in for forwarding a `prompt_cache_key`. The adapter forwards the key it is given and never invents one, but the key is not always the caller's: Claude Messages translation derives one from `metadata.user_id`, or from a model/system/tools cohort when no metadata is sent. Default off. Enable only when the upstream documents support, because strict gateways may reject the unknown field with HTTP 400. |
+| `preserveResponsesReasoningContent?` | `boolean` | Default off for custom providers. In **Providers → Settings**, enable **Replay plaintext reasoning** for a custom Responses endpoint only if it accepts this history. This sends prior plaintext reasoning to that endpoint and may increase token use. Keep plaintext reasoning content on replayed Responses reasoning items instead of blanking it, including custom native v1 compact input (blanking is the ChatGPT backend's rule). Enable for upstreams whose contract accepts reasoning replay, such as DeepSeek or a self-hosted Kimi on vLLM. Proxy-minted `ocxr1` envelopes are always stripped. A hand-configured `openai-responses` provider without it logs one warning per host the first time plaintext reasoning is dropped. `preserveReasoningContentModels` does not affect this wire. |
+| `preserveResponsesInputItemIds?` | `boolean` | Default off. Preserve valid `input[].id` when `store: false` for explicitly trusted launcher relays that require turn identity. Ordinary Responses providers keep stripping IDs; xAI custom-call ID repair remains active. |
+| `preserveResponsesMessageMetadata?` | `boolean` | Default off. Preserve private `internal_chat_message_metadata_passthrough` on input items for explicitly trusted launcher relays, including custom native v1 compact requests. This forwards private turn/session metadata to that destination; do not enable for ordinary gateways. |
+| `dropResponsesReasoningItems?` | `boolean` | Remove replayed Responses `reasoning` items from continuation input entirely, including custom native v1 compact requests, instead of forwarding them with blanked content. This is lossy: summaries, item ids, and `encrypted_content` go with them, so no reasoning item from the previous turn remains in the forwarded input. It does not remove `previous_response_id`, so an upstream holding its own turn state may still reach it. Enable only for an upstream that rejects reasoning replay outright — the built-in Volcengine Ark Coding Plan preset sets it because validated tool continuations answered `400 InvalidParameter` otherwise. Set it to `false` on that provider to forward reasoning items again. |
+| `disabled?` | `boolean` | Keep the provider on disk but exclude it from routing and model/catalog listings. |
+| `apiKey?` | `string` | API key, an `${ENV_VAR}` / `$ENV_VAR` reference, or a `keychain:<provider>` reference written by `ocx provider keychain <name> store`. References resolve at request time. See [Storing keys in the OS keychain](#在-os-金鑰圈中儲存金鑰). |
+| `apiKeyTransport?` | `"x-api-key" \| "bearer"` | Anthropic key header style. Defaults to native `x-api-key`; valid only for key-auth `anthropic` providers. |
+| `apiKeyPool?` | `ApiKeyPoolEntry[]` | Multi-key pool. `apiKey` mirrors the active entry; each item has `id`, `key`, optional `label`, and optional numeric `addedAt`. |
+| `apiKeyPoolStrategy?` | `"round-robin" \| "fill-first" \| "quota"` | How a warm key is chosen **before** the first attempt when the committed key is already cooling. Omitted keeps rotation reactive-only: the pool moves after a 429 or 401 and not before. `round-robin` takes the next key in the pool, `fill-first` keeps the first eligible one, and `quota` prefers the key with the most remaining headroom, falling back to `fill-first` order for a provider whose per-key quota is unknown. A healthy committed key is never overridden, so a manual key selection stands. |
+| `defaultModel?` | `string` | Model used when this provider is selected without an explicit model. |
+| `models?` | `string[]` | Seed/fallback model list. With `liveModels: false`, a nonempty `models` list is followed by `retainModels`; an empty or omitted `models` list instead seeds `defaultModel` (if configured), then `retainModels`, removing duplicate ids in first-seen order. |
+| `liveModels?` | `boolean` | Fetch the live catalog on start/sync (default `true`). Custom providers use `${baseUrl}/models`; built-ins may use a registry URL and filter. |
+| `selectedModels?` | `string[]` | Catalog allowlist after discovery. Non-empty exposes only those ids; empty or omitted exposes all discovered models. |
+| `retainModels?` | `string[]` | Ids kept in the catalog even when live discovery omits them. They need not be repeated in `models`. Empty or omitted keeps today's behavior. |
+| `modelDisplayNames?` | `Record<string, string>` | Durable labels used only for display, keyed by this provider's exact upstream model id. Labels win over provider catalog metadata, survive discovery refreshes and provider edits, and never change authentication, adapter behavior, routing, billing, upstream request construction, the routed `provider/model` selector, or the upstream wire model. Keys are exact and case sensitive. Unknown model ids are kept so a temporarily missing model receives its label when it returns. The map accepts at most 2,000 entries, matching the discovery limit. |
+| `contextWindow?` | `number` | Provider-wide context fallback when upstream metadata is absent; otherwise a cap that retains smaller live metadata. The Models dashboard exposes this separately from `providerContextCaps`. |
+| `modelContextWindows?` | `Record<string, number>` | Per-model context fallbacks/caps. These override `contextWindow`: an unknown window uses the configured value, while smaller live metadata remains authoritative. |
+| `inferContextWindow?` | `boolean` | Custom providers only, default off. `true` fills a missing window from bundled model-ID metadata ([details](#自訂供應商的上下文視窗)); the value is an estimate, not verified relay capacity. |
+| `modelContextTiers?` | `Record<string, "default" \| "long_context">` | Per-model upstream tier for `github-copilot`. `long_context` sends `contextTier: "long_context"`. Catalog metadata grows only with an exact per-model `modelContextWindows` value that documents the supported window; that value wins before the provider cap. An unknown model keeps its observed window. Unconfigured passthrough requests retain a caller-supplied `contextTier` field on any provider. |
+| `modelInputModalities?` | `Record<string, string[]>` | Per-model input hints such as `["text"]` or `["text", "image"]`. |
+| `modelMaxInputTokens?` | `Record<string, number>` | Positive per-model max input limits used for catalog auto-compaction hints. |
+| `modelAutoCompactTokenLimits?` | `Record<string, number>` | Positive safe-integer per-model soft auto-compaction budgets. Values can only lower the effective 90%-of-context/max-input envelope and are omitted when no context window is resolved. For canonical `openai`, keys must be exact supported native model IDs without provider or account-selector prefixes. Provider PATCH merges entries; set a key to `null` to delete it or the whole field to `null` to clear the map. These `null` tombstones are PATCH-only. |
+| `minMaxOutputTokens?` | `number` | Optional positive integer floor for explicit positive `max_output_tokens` budgets on `azure-openai`/`azure` Responses routes. Unset preserves the caller's cap. Setting it authorizes raising a smaller cap, which can increase output usage. Omitted or invalid request budgets are unchanged. |
+| `defaultMaxOutputTokens?` | `number` | Provider-wide `openai-chat` fallback when the client omits `max_output_tokens`. |
+| `modelMaxOutputTokens?` | `Record<string, number>` | Positive per-model `openai-chat` fallback budgets; exact/pattern matches beat the provider default. |
+| `modelCosts?` | `Record<string, ProviderCostOverlay>` | Per-model display prices (USD per 1M tokens), keyed by that provider's exact upstream model id — not a provider identifier or a routed `provider/model` label, e.g. `{ "deepseek-v4-flash": { "input": 0.14, "output": 0.28, "cacheRead": 0.0028, "cacheWrite": 0 } }`. Any model id is a valid key — custom providers may target any OpenAI-compatible endpoint through the `openai-chat` adapter, and local or internal provider ids work even when they are absent from the built-in catalogs. User-configured prices win over the built-in catalogs in the Logs `~$` and Usage estimates; historical entries are repriced from the current overlay, so editing a price can move past totals. The fallback order is user `modelCosts` → exact official correction → jawcode catalog → expected-price overlay → model-level vendor fallback, and an explicit all-zero user entry means a known-zero estimate; delete that model entry to restore automatic pricing. All-zero catalog metadata still falls through. Each rate must be a non-negative finite number at most 1,000,000 (USD per 1M tokens); out-of-range rows are rejected by the management boundary and dropped on load. Display-time estimation only: overlays never affect routing, account selection, quotas, or billing. |
+| `headers?` | `Record<string, string>` | Extra upstream headers. Authorization, cookies, API-key headers, embedded newlines, and invalid names are rejected. Requests that ride the provider outbound wrapper — model discovery, connection tests, and other proxy-originated diagnostics such as the Ollama show probe — send `User-Agent: opencodex` unless a User-Agent is set here or by the provider preset. |
+| `forwardClientHeaders?` | `string[]` | `openai-responses` only: opt in to copying named inbound client metadata headers onto inference requests when the provider has not already set that header. Credential and transport-owned names such as `Authorization`, cookies, API-key headers, `Content-Type`, `Content-Length`, `Host`, and `x-oai-attestation` are rejected and also filtered at runtime. Header names are case-insensitive and may not repeat. `headers` remains authoritative; the existing caller `User-Agent` fallback still applies when neither surface sets one.  Supported names: `originator`, `x-client-request-id`, `x-codex-app-version`, `user-agent`; all other names are refused. |
+| `supportsNativeCompactionTrigger?` | `boolean` | `openai-responses` only: declare support for native v2 `compaction_trigger` input items. Defaults off for noncanonical gateways; preserves native compaction rather than requesting a portable text summary. Independent of the v1 endpoint and blob replay capabilities. |
+| `supportsNativeCompactEndpoint?` | `boolean` | `openai-responses` only: declare support for native v1 `POST /responses/compact`. Defaults off for custom gateways. Key/local/forward routes use the provider's Responses URL plus `/compact` and its normal transport authentication; OAuth keeps routed compaction and its existing credential lifecycle. Does not enable v2 triggers or grant official OpenAI identity. |
+| `decodesNativeCompactionBlobs?` | `boolean` | Declare that this destination can replay native, non-`ocx1:` compaction blobs. Independent of either generation capability; a known serving-provider mismatch still degrades foreign ciphertext. Enable only after testing compact and a subsequent turn on the same backend. |
+| `openRouterRouting?` | `OpenRouterProviderRouting` | Default OpenRouter `order`, `only`, and `allowFallbacks` preferences; valid only for canonical OpenRouter with `openai-chat`. |
+| `modelOpenRouterRouting?` | `Record<string, OpenRouterProviderRouting>` | Exact model-id overrides that replace the provider-wide OpenRouter preference. |
+| `vercelGatewayRouting?` | `VercelGatewayRouting` | Default Vercel AI Gateway `order`, `only`, and `sort` (`"cost"` \| `"ttft"` \| `"tps"`) preferences; valid only for canonical Vercel AI Gateway with `openai-chat`. |
+| `modelVercelGatewayRouting?` | `Record<string, VercelGatewayRouting>` | Exact model-id overrides that replace the provider-wide Vercel AI Gateway preference. |
+| `authMode?` | `"key" \| "forward" \| "oauth" \| "local"` | Authentication mode (default `key`). OAuth/subscription credentials are stored outside `config.json`; `local` is limited to providers whose registry entry permits it. |
+| `codexAccountMode?` | `"pool" \| "direct"` | Canonical `openai` only; defaults to Pool. Direct bypasses pool state. |
+| `refreshPolicy?` | `"proactive" \| "lazy-only" \| "disabled"` | Override this OAuth provider's Token Guardian policy. |
+| `reasoningEfforts?` | `string[]` | Provider-wide Codex reasoning labels to advertise and send. For `google`-adapter providers, a configured ladder also asserts `thinkingLevel` capability: direct and Vertex non-image requests send the selected effort as `generationConfig.thinkingConfig.thinkingLevel`, while Cloud Code Assist uses its envelope-specific path. |
+| `modelReasoningEfforts?` | `Record<string, string[]>` | Per-model labels. An empty list hides effort control. As with `reasoningEfforts`, each configured `google`-adapter ladder asserts `thinkingLevel` capability; direct and Vertex non-image requests use the flat Gemini path, while Cloud Code Assist sends it under its request envelope. An adapter that ships its own per-model table (currently `command-code`) lets that table win at the wire for models it knows, so set `modelReasoningEffortsAuthoritative` as well to widen such a row. |
+| `modelReasoningEffortsAuthoritative?` | `boolean` | Treat this provider's `modelReasoningEfforts` as authoritative at the wire, not only in the catalog. Without it, an adapter that ships its own per-model effort table (currently `command-code`) advertises your widened ladder in the picker and then strips the extra rung on the way out. It is opt-in because presets are seeded with the shipped table, so a stored row alone cannot prove you wrote it rather than an older release. With it set, a rung the upstream refuses is returned as that error instead of being silently retried without the effort — you asked for it, so you see the answer. |
+| `modelSuppressSyntheticMax?` | `Record<string, boolean>` | Catalog-only per-model switch. `true` prevents OpenCodex from adding a missing synthetic `max` rung while retaining a provider-declared `max` and continuing to add `ultra` to reasoning-capable ladders. A preserved row that already contains `max` keeps it until healthy discovery rebuilds that row, because the catalog does not persist whether an older `max` was synthetic. If a configured default names a suppressed missing `max`, the catalog falls back to the highest real rung below it. Codex uses the same ladder membership for the picker and explicit `spawn_agent` effort validation, so an explicit `max` spawn can fail client-side before proxy clamping; `ultra` remains the supported harness path. |
+| `modelSupportsReasoningSummaries?` | `Record<string, boolean>` | Set a model to `false` to stop advertising summaries and strip summary-delivery fields. |
+| `modelReasoningSummaryDelivery?` | `Record<string, "sequential" \| "sequential_cutoff" \| "concurrent" \| "concurrent_cutoff">` | Per-model Responses delivery enum; rewrites an existing delivery field. |
+| `modelAdapters?` | `Record<string, string>` | Per-model `openai-chat` or `openai-responses` wire override for mixed-wire gateways. Explicit entries beat registry defaults. The OpenCode Go preset selects Responses for `gpt-5.6-luna` while leaving sibling models on their documented wires; DeepSeek can select native Responses for `deepseek-v4-flash`; Alibaba Token Plan (Beijing) pins `qwen3.8-flash`, `qwen3.7-plus`, and `glm-5.3` to its native Responses API for Responses inbound only (live-verified on that gateway, including plaintext reasoning replay; Chat and Anthropic inbound stay on Chat, and the rest of the family can be opted in here); and GitHub Copilot declares Responses-only defaults for the following models (`gpt-5.3-codex`, `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.5`, `gpt-5.6-luna`, `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-6-astra`, `grok-4.5`, `grok-4.6`, `mai-code-1.1-flash`, `mai-code-1-flash-picker`) because those models reject `/chat/completions` for agent traffic. Models without a built-in default (for example `gpt-5.4-nano`) can be opted in here. Single-wire upstream pins and canonical ChatGPT forward reject overrides. |
+| xAI Chat Completions (dashboard / CLI) | switch | Grok 4.5/4.6 OAuth Responses requests default to Responses. Existing Chat overrides are migrated once on upgrade; later Chat choices are preserved. Turn on to select Chat for both models, off to select Responses. CLI: `ocx provider edit xai --xai-chat on` or `--xai-chat off` (running proxy required). Mixed means only one model currently uses Chat. Other overrides and tier policy stay unchanged. API-key and translated Chat/Anthropic defaults are unchanged. Grok 4.7 defaults to Responses on OAuth through its registry wire default and can use Chat through an explicit `modelAdapters["grok-4.7"] = "openai-chat"` override. |
+| `xaiResponsesXSearch?` | `boolean` | Disabled by default. On an xAI Responses destination, append the provider-hosted `x_search` declaration only when a live `web_search` tool survives final request normalization. Existing declarations are not duplicated, caller `tool_choice`/`allowed_tools` selectors are never widened, and this is separate from the web-search sidecar's `search.xSearch` options. |
+| `modelPreferHostedTools?` | `Record<string,string[]>` | Exact-model opt-in for non-forward Responses gateways that reserve a hosted-tool namespace. Currently accepts only `["image_generation"]`; a matching model must use the `openai-responses` wire and support that hosted tool. It removes colliding client `image_gen` declarations and rewrites their selectors to preserve caller tool choice. For OpenAI API virtual `-pro` models, the selected public ID is matched first and the resolved base wire-model ID is a fallback. `modelAdapters` resolves the public ID first, then the base ID; the second resolution determines the final wire. Other models retain normal alias behavior. |
+| `annotateEmptyToolOutputs?` | `boolean` | Replace a present-but-empty tool result with a short marker before it reaches the model, so a blank result is not read as a missing one. Applies to blank strings and text-only part arrays; image, file, and encrypted parts are never touched. Defaults to `true` for DeepSeek from the built-in registry and is otherwise unset. Set `false` to opt a provider out — an explicit `false` is preserved across later edits that omit the field. `PATCH /api/providers?name=<provider>` accepts `true`, `false`, or `null` to clear the override and return to registry-default behavior. |
+| `unsupportedHostedTools?` | `string[]` | Hosted tool declarations this Responses destination rejects, so they are stripped from `tools`, from client-loaded `additional_tools`, and from `tool_choice` instead of being forwarded and rejected upstream. Use it for an OpenAI-compatible gateway with a narrower capability set — one that accepts plain Responses requests and `function` tools but returns HTTP 400 for hosted `web_search` — so a text-only prompt is not failed by a capability it never needed. Accepts only hosted tool type names (`web_search`, `web_search_preview`, `file_search`, `computer_use_preview`, `computer_use`, `code_interpreter`, `image_generation`, `image_gen`, `mcp`, `tool_search`, `local_shell`, `x_search`); an unrecognized name is rejected rather than silently ignored. Spelling variants of one capability are aliased, so `["web_search"]` also denies `web_search_preview`. A provider cannot both deny a hosted tool here and prefer it in `modelPreferHostedTools`. Xiaomi MiMo Responses destinations (`xiaomimimo.com` and its subdomains, including `api.xiaomimimo.com` and `token-plan-cn.xiaomimimo.com`) automatically strip `web_search` and `web_search_preview` while preserving function tools; no declaration is needed for these hosts. This is independent of `supportsResponsesCustomTools`; set both for a gateway that also rejects native custom tools. `PATCH /api/providers?name=<provider>` accepts an array or `null` to clear it. |
+| `reasoningEffortMap?` | `Record<string, string>` | Provider-wide wire aliases for reasoning labels. Map a label to `"__omit__"` to drop the reasoning field from the upstream request entirely: `reasoning_effort` on an OpenAI-compatible wire, and Ollama's native `think` field on the Ollama native adapter (#2356). |
+| `modelReasoningEffortMap?` | `Record<string, Record<string, string>>` | Per-model wire aliases for reasoning labels. Map a label to `"__omit__"` to drop the reasoning field from the upstream request entirely. |
+| `reasoningWireFormat?` | `"gateway-object"` | For OpenAI-compatible gateways that accept `reasoning: { enabled, effort }` instead of `reasoning_effort`. The ClinePass preset sets this automatically. A provider save that keeps the destination keeps it; see [What a provider save keeps](#儲存供應商時會保留什麼). `PATCH` accepts `"gateway-object"` or `null` to clear it. |
+| `noReasoningModels?` | `string[]` | Models that reject reasoning/thinking parameters. |
+| `noTemperatureModels?` | `string[]` | Models that reject caller-specified `temperature`. |
+| `noTopPModels?` | `string[]` | Models that reject caller-specified `top_p`. |
+| `noStopModels?` | `string[]` | Models that reject caller-specified `stop`. The `openai-chat` adapter, the Chat passthrough and the Responses passthrough omit the field for those ids. The built-in `xai` preset lists its reasoning models (`grok-4.7`, `grok-4.6`, `grok-4.5`, `grok-4.3`, `grok-4.20-multi-agent-0309`, `grok-4.20-0309-reasoning`, `grok-build-0.1`), which xAI documents as rejecting it; `grok-4.20-0309-non-reasoning`, `grok-composer-2.5-fast` keep caller `stop`. |
+| `noPenaltyModels?` | `string[]` | Models that reject presence/frequency penalties. The built-in `xai` preset lists its reasoning models (`grok-4.7`, `grok-4.6`, `grok-4.5`, `grok-4.3`, `grok-4.20-multi-agent-0309`, `grok-4.20-0309-reasoning`, `grok-build-0.1`), which xAI documents as rejecting them; non-reasoning ids keep caller penalties. |
+| `noStructuredOutputModels?` | `string[]` | Exact model IDs whose `openai-chat` endpoint rejects `response_format`. Only an exact requested-model match omits the field; structured-output translation stays enabled for every other `openai-chat` model. |
+| `noJsonSchemaModels?` | `string[]` | Exact model IDs whose `openai-chat` endpoint rejects a `json_schema` `response_format` but still accepts `json_object`. Such a request is downgraded to `json_object` instead of being dropped, so a caller asking for JSON still gets JSON. `noStructuredOutputModels` wins when a model is on both lists. The `opencode go`, `opencode zen`, and `opencode free` presets ship this for their DeepSeek routes. |
+| `foldDeveloperRoleToSystem?` | `boolean` | Whether an `openai-chat` destination accepts the `developer` role. `foldDeveloperRoleToSystem` unset sends `system`, `true` sends `system`, and `false` sends `developer`. Unset means nothing has been recorded about this destination; `true` records an upstream that rejects the role; `false` records one that accepts it. The message keeps its position in the conversation in every case — only the role changes. A destination that rejects the role answers `400 role 'developer' is not allowed` and the turn never starts, which is why the unrecorded state is the folded one. A provider save that keeps the destination keeps it; see [What a provider save keeps](#儲存供應商時會保留什麼). `PATCH` accepts a boolean or `null` to clear it. |
+| `omitReasoningEffortWithToolsModels?` | `string[]` | Exact `openai-chat` model IDs that accept a reasoning-effort field on an ordinary turn but reject it once function tools are present. The model keeps its advertised effort ladder; OpenCodex omits the wire field for tool-bearing requests only and the upstream default applies. Narrower than `noReasoningModels`, which strips reasoning from every request and costs the model its picker entirely. A provider save that keeps the destination keeps it; see [What a provider save keeps](#儲存供應商時會保留什麼). |
+| `parallelToolCalls?` | `boolean` | Toggle parallel tool calls. OpenAI Chat defaults on; non-chat adapters advertise only on explicit `true`. |
+| `terminalContinuationGuard?` | `boolean` | Opt in an `openai-chat` provider to one bounded internal re-ask when an actionable turn announces work, then cleanly stops without a tool call. Defaults to `false`; explicit `false` behaves like omission. Combo attempts and routed compaction turns are excluded, and non-`openai-chat` adapters ignore this option. |
+| `responsesItemIdRepair?` | `{ message?: string[]; reasoning?: string[]; repairMissingTerminalIds?: boolean; repairInvalidIds?: boolean }` | Disabled-by-default downstream SSE repair for exact placeholder ids, missing terminal ids, and (with `repairInvalidIds`) message/reasoning ids missing the canonical `msg_`/`rs_` prefix. Function-call ids are never rewritten. Built-in DeepSeek enables the last two by default. |
+| `responsesSnapshotRepair?` | `boolean` | Disabled-by-default client-facing repair for sparse Responses lifecycle snapshots in SSE and JSON. Fills missing canonical status, output, and tool metadata while raw inspection and persistence remain unchanged. |
+| `webSearchBridge?` | `{ enabled?: boolean; backend?: "ollama" \| "openai" \| "anthropic" \| "xai" \| "gemini" \| "exa"; maxSearches?: number; timeoutMs?: number; endpoint?: string }` | Key-auth `openai-responses` passthrough providers only. Off by default. Codex always declares the hosted `web_search` tool, and the passthrough relays it on the assumption the destination executes it. A gateway that does not run hosted search answers with a `function_call` named `web_search` that nothing runs, and the undeclared-tool guard ends the turn. With `enabled: true` and an explicit `backend` OpenCodex intercepts that call, runs the search itself, feeds the result back to the same upstream, and shows Codex a hosted `web_search_call` cell. Never armed for `authMode: "forward"` (ChatGPT already searches) or for a provider that executes hosted search upstream. `backend` is required; there is no implicit default and a missing credential for the named backend leaves the bridge disarmed rather than falling through to another paid search. `ollama` reuses this provider's own API key on `POST <origin>/api/web_search`, so the origin must be `https://ollama.com` unless the operator names `endpoint` explicitly. `openai` / `anthropic` / `xai` / `gemini` / `exa` reuse the matching sidecar executor and that executor's own credential (`webSearchSidecar.exaApiKey` for Exa). The search model comes from `webSearchSidecar.model` only when `webSearchSidecar.backend` resolves to the same backend this bridge names; otherwise the bridge runs that backend's own default, because a model chosen for one vendor is rejected by another. An unset `webSearchSidecar.backend` resolves to `openai`, so an unset-backend model reaches an `openai` bridge and no other. There is no per-provider bridge model override. Streaming turns only. A turn that mixes `web_search` with another client tool call still fails closed rather than dropping the client's call. Assistant text such as XML-like `<web_search>` prose is not executed. Defaults: `maxSearches: 3` (1..10), `timeoutMs: 60000` (1000..600000). |
+| `retryOn429?` | `{ enabled?: boolean; attempts?: number; intervalMs?: number; maxIntervalMs?: number; respectRetryAfter?: boolean }` | API-key providers only (`authMode: "key"`). Opt-in same-target 429 retry: when `retryOn429` is absent the feature is off, except that key-auth OpenCode Go and Command Code (canonical endpoints) fall back to a patient policy (6 replays, 10 s interval, 60 s cap); object presence enables it unless `enabled: false`, which also turns that fallback off. On 429 the proxy waits (upstream `Retry-After` or the fixed interval) and replays the identical request on the same key before any key failover — across the main text-turn recovery loop, the Responses passthrough wire, the image/video bridge, the web-search sidecar, and terminal continuations. Only pre-stream HTTP 429 responses are eligible for replay; custom `runTurn` transports are outside the HTTP retry loop. `attempts` counts same-key replays after the first 429 (total sends = `attempts` + 1) and is one request-wide budget shared by the main recovery loop, the terminal-guard continuation, and bridge retries. Exhausting `attempts` only stops further same-key replays: normal key failover or final-error handling then applies per the available targets — on the key-auth passthrough wire there is no failover, so the exhausted 429 surfaces as-is. Codex itself never retries 429, so this is the only defense for single-key providers. Defaults: `enabled: true`, `attempts: 3`, `intervalMs: 5000`, `maxIntervalMs: 60000` (any single wait is capped at `maxIntervalMs`, itself capped at 600000), `respectRetryAfter: true`. |
+| `transientRetryOn5xx?` | `{ enabled?: boolean; attempts?: number }` | Key-auth `openai-chat` and `openai-responses` providers only. `authMode: "forward"` providers (the ChatGPT account pool) never read this option and keep the default ladder. Opt-in retry for pre-stream transient upstream statuses (500, 502, 503, 504, 520, 521, 522): absent means off, object presence enables it unless `enabled: false`. Covers the initial Responses request, the Responses passthrough lane and each of its recovery legs (OAuth-401 replay, same-target 429 replay, validated rebuild), the terminal-guard continuation, and native `/v1/chat/completions`. `attempts` is the TOTAL number of upstream sends allowed for one request including the first (1..10, default 3) — it is one budget shared with connection-reset recovery, so `3` means at most three real requests reach the provider. On the Responses passthrough lane the configured value is additionally intersected with the request-wide send allowance, so a value below that allowance narrows the ladder exactly while a value above it does not raise the bound. Each Combo target includes its prepaid first send in that target's configured total; `attempts: 1` sends once, without refunding the reservation or widening the shared Combo ceiling. A local refusal or cancellation before dispatch releases an unsent booking. Waits use a fixed 400 ms exponential backoff capped at 5 s and honor `Retry-After`. Separate from `retryOn429`, which handles rate limiting; mid-stream failures are never replayed. |
+| `retryOnReset?` | `{ enabled?: boolean; replacements?: number }` | Native `openai-responses` providers, including `authMode: "forward"`, plus generic translated Responses dispatch before upstream headers. Opt-in replacement of a send that failed while the caller had observed nothing: absent means off, object presence enables it unless `enabled: false`. Covers both ambiguous stages — a connection that died before any response header, and an SSE body that died after the header while carrying only control events. A canonical ChatGPT upstream WebSocket that closed or errored after its create frame left, before any Responses event, is covered the same way, and its replacement is sent over HTTP. Only a self-contained request is ever replaced: `store: false`, complete `input`, no `previous_response_id`, `conversation` or `stream_id`, and only client-executed tools. `replacements` is the number of replacement sends ONE logical request may make across every leg and every combo child (1..2, default 1) — not a per-leg retry count and not a send budget, so a replacement still has to fit inside the send allowance the leg already had. A request that already emitted output or a tool call is never replaced, whatever this is set to. The replacement inference may still be billed if the origin had already started the first one, which is why this is off by default. Generic translated dispatch supports pre-header reset replacement for initial and rebuilt sends under the same grant and send budget. Adapter-owned transports and translated stream failures after upstream headers are excluded. |
+| `autoToolChoiceOnlyModels?` | `string[]` | Models whose `tool_choice` accepts only `auto` or `none`; forced choices are downgraded. |
+| `preserveReasoningContentModels?` | `string[]` | Models requiring prior assistant `reasoning_content` in chat history. A provider save that keeps the destination keeps the stored list, including `[]`; see [What a provider save keeps](#儲存供應商時會保留什麼). `PATCH /api/providers?name=<provider>` accepts an array or `null` to clear it. |
+| `inlineThinkTagModels?` | `string[]` | Opt-in recovery for `openai-chat` gateways without a server-side reasoning parser. A leading `<think>` / `<thinking>` / `<reasoning>` block (optionally after whitespace) activates splitting in streamed and buffered replies. All answer whitespace is preserved. Subsequent tags are delimiters anywhere, including same-line interleaving and code fences; this mode does not interpret Markdown. Ordinary text or a code fence before the first tag keeps the whole reply untouched. Off by default; prefer structured upstream reasoning or `reasoningSplitModels` where supported. |
+| `reasoningDetailsModels?` | `string[]` | Models whose endpoint returns thinking as a structured `reasoning_details` array (MiniMax M-series with `reasoning_split`); stream deltas are cumulative snapshots that are prefix-diffed, and preserved reasoning replays as a `reasoning_details` array instead of a `reasoning_content` string. |
+| `requiresReasoningPlaceholderModels?` | `string[]` | Models whose upstream rejects a tool_call continuation missing `reasoning_content` (DeepSeek thinking mode); a minimal placeholder is injected when the replay cache misses. Defaults to `preserveReasoningContentModels`; set `[]` to opt out. A provider save that keeps the destination keeps the stored list, including `[]`; see [What a provider save keeps](#儲存供應商時會保留什麼). `PATCH /api/providers?name=<provider>` accepts an array or `null` to clear it. |
+| `showThinkingSummary?` | `boolean` | Display provider-authored summaries when a Responses client omits `reasoning.summary`. Explicit wire `"none"` wins; a client that serializes its preference as omission cannot be distinguished. Raw reasoning remains content and is never relabeled as a summary. The `google-antigravity` preset defaults to `true`; explicit `false` disables that default. CCA Gemini requests also opt into `generationConfig.thinkingConfig.includeThoughts` when display is enabled; image, Claude and gpt-oss requests do not. This does not change client configuration or global catalog summary defaults. |
+| `hideRawReasoning?` | `boolean` | Keep a routed provider's raw chain of thought off the client-facing content channel (openai-chat `reasoning_content`, kiro tags, `response.reasoning_text.*`) while provider-authored summaries still stream on the summary channel. Explicit wire `reasoning.summary: "none"` keeps hiding both. This controls what a client displays; it does not keep the text from the client. A Responses bridge route still sends it inside the `ocxr1` replay envelope in the reasoning item's `encrypted_content`, which is base64 JSON rather than encryption, so the client can echo it back on the next turn. The direct Chat and Messages encoders have no envelope on their wire, so those clients receive no copy and replay comes from the server-side reasoning replay cache. `preserveReasoningContentModels` replay and DeepSeek-style continuations are unaffected either way. Off by default; a native passthrough route relays the upstream's own frames and ignores this option. A save of the same provider name keeps an omitted value even after a destination move; `PATCH` accepts a boolean or `null` to clear it. |
+| `thinkingToggleModels?` | `string[]` | Chat models using `thinking.enabled` rather than an effort ladder. |
+| `thinkingBudgetModels?` | `string[]` | Chat models using integer `thinking_budget`; effort maps to a budget fraction. |
+| `noVisionModels?` | `string[]` | Text-only models sent through the vision sidecar; matching tolerates an Ollama `:size` tag. |
+| `escapeBuiltinToolNames?` | `boolean` | Escape built-in tool names for Anthropic-compatible gateways and restore them in returned calls. |
+| `anthropicEofTolerance?` | `boolean` | Let an Anthropic-compatible gateway complete a stream that ends before `message_stop`, only when visible text or a complete JSON-object tool input was received. Off by default. |
+| `googleMode?` | `"ai-studio" \| "vertex" \| "cloud-code-assist"` | Google transport/auth mode. Default `ai-studio`. |
+| `googleToolSchemaPolicy?` | `"compatible" \| "reject-lossy"` | Google only. Omitted/`compatible` preserves the compatible tool schema and existing non-direct 400 repair. `reject-lossy` rejects initial schema loss or an indeterminate bounded comparison before dispatch and withholds a Vertex or Cloud Code Assist repair that would open constraints. Direct AI Studio never performs that repair. |
+| `directGeminiWireRenames?` | `boolean` | Google only. Applies in AI Studio mode, including custom Google-compatible URLs. Omitted or `true` keeps the `-tiered` wire rename for Gemini Flash ids (`gemini-3.7-flash` -> `gemini-3.7-flash-tiered`); `false` sends the requested bare ids to the wire unchanged. Vertex and canonical keyed OpenCode Zen routes preserve the requested model ID regardless of this setting; Cloud Code Assist routing is unchanged. Set `false` when the configured upstream still serves the bare ids. |
+| `project?` | `string` | Vertex or Antigravity Cloud Code Assist project id. |
+| — | — | Antigravity account quota probes (`retrieveUserQuota` and `retrieveUserQuotaSummary`) always go to Google's own Cloud Code host through the pinned outbound transport, regardless of a configured `baseUrl`; the account bearer is never sent to an operator-configured endpoint and a redirect aborts the probe. Only the model-list fallback still honors `baseUrl`. |
+| — | — | If Antigravity quota summary returns 403 for a valid OAuth account, OpenCodex retries that endpoint once with the legacy `antigravity/1.0` User-Agent and the same token and project. A 401 is not retried. Inference and model discovery retain the IDE User-Agent. |
+| `location?` | `string` | Vertex location; environment fallback is `GOOGLE_CLOUD_LOCATION`. |
+| `mcpServers?` | `Record<string, CursorMcpServerConfig>` | Cursor only: stdio or Streamable HTTP MCP servers. |
+| `desktopExecutor?` | `DesktopExecutorConfig` | Cursor only: external computer-use and record-screen commands. |
+| `unsafeAllowNativeLocalExec?` | `boolean` | Cursor legacy boolean, equivalent to `nativeLocalExec: "on"` only when the newer field is unset. |
+| `nativeLocalExec?` | `"off" \| "codex-sandbox" \| "on"` | Cursor local-exec policy. `off` is default; `codex-sandbox` currently fails closed like `off`. |
 
-註冊或替換供應商（`POST /api/providers`）時，會先驗證 `responsesPath` 和 `chatCompletionsPath`，再修改記憶體或磁碟中的設定。`PATCH /api/providers?name=<provider>` 會將請求內容與已儲存的供應商合併；除僅更新 `requestPacing` 的請求外，凡是修改 `disabled` 以外欄位的更新，都會在儲存前以同樣方式驗證合併後供應商的路徑，若保留的既有路徑無效則回傳 `400`，且不變更設定。載入設定檔時也適用相同的路徑規則。
+Command Code's shipped per-model effort defaults include live API measurements. DeepSeek
+v4/v4.1 Flash (including v4 Flash Vision), GLM-5.3 and GLM-5.3-Flash, Qwen3.8-Flash,
+and Gemini-3.7-Flash support `low`, `medium`, `high`, `xhigh`, and `max`. Ladders remain
+model-specific: `poolside/laguna-s-2.1-free` offers only `medium`, while Gemini-3.8-Flash
+and MiMo-v2.5-Pro offer `low`, `medium`, and `high`. To override a pinned Command Code
+row, set `modelReasoningEffortsAuthoritative: true` together with that model's
+`modelReasoningEfforts` list.
 
-例如，下面套用供應商層級的並行上限，以及對單一精確模型更嚴格的上限，而不設定間隔：
+Provider registration and replacement (`POST /api/providers`) validate `responsesPath` and `chatCompletionsPath` before changing live configuration or disk state. `PATCH /api/providers?name=<provider>` merges the request body with the stored provider; updates touching fields beyond `disabled` — except `requestPacing`-only updates — validate the merged provider's paths the same way before saving, and an invalid retained path returns `400` with the configuration unchanged. The same path rules apply when loading a configuration file.
+
+For example, this applies a provider-wide concurrency cap and a stricter cap to one exact model, without configuring an interval:
 
 ```json
 {
@@ -240,9 +319,46 @@ Codex-login 供應商上列出的每個裸 `gpt-*` id（此處為 **GPT-6-Nova**
 }
 ```
 
-並行名額會一直被佔用，直到上游請求結束，包括最後串流回應的位元組。超過適用的供應商與模型限制的請求會在節流佇列中等待；名額被釋放時，下一個符合資格的請求會被放行。佇列等待不會消耗上游回應標頭的逾時。
+The concurrency slot stays occupied until the upstream request finishes, including the final streamed response bytes. Requests above the applicable provider and model limits wait in the pacing queue; when a slot is released, the next eligible request is admitted. Queue waiting does not consume the upstream response-header timeout.
 
-API-key 供應商可持有字面值金鑰或環境參考。OAuth 供應商使用由 `ocx login` 填入的憑證存放；訂閱支援的 Claude Code 啟動行為在 [`claudeCode.authMode`](/zh-tw/reference/configuration/server/#claude-codeclaudecode) 下設定。
+For multiple API-key pool entries, opt into normal-request distribution separately from the existing failure-selection `apiKeyPoolStrategy`:
+
+```json
+{
+  "requestPacing": {
+    "enabled": true,
+    "keySelection": "round-robin",
+    "maxConcurrentRequests": 10,
+    "keys": { "requestsPerMinute": 15, "maxConcurrentRequests": 1 }
+  }
+}
+```
+
+This admits at most ten active requests across the provider and one per credential reference, with starts on each reference at least four seconds apart. These are local upper bounds, not a promise of upstream capacity. A provider-wide RPM setting, when present, remains an aggregate limit and does not multiply with key count. Key limits span models; model rules remain additional restrictions. Projects sharing quota need an appropriate aggregate limit; TPM and daily quotas are not tracked here.
+
+Round-robin selects keys per request without saving a new active key. Known 401/429 cooldowns are skipped; when none remains eligible, new requests receive a retryable 429 instead of repeatedly sending. Already queued work normally retains its selected key and may wait behind that key even when another is idle. If that selection becomes cooled or invalid, the request selects an eligible key again and reacquires pacing admission for it; the bounded queue expires rather than waiting forever. Selection and diagnostics are process-local, reset on restart, and do not equal balanced token usage or billing. Starts count pacing admissions, including work cancelled before dispatch. OAuth and forwarded credentials keep their existing selection. The dashboard shows key handles, starts, in-flight work, queued work and known cooldowns, never secret key values. These limits cover the inference pacing executor, not the standalone Images relay's direct fetch.
+
+### Azure OpenAI model metadata discovery
+
+For a base URL whose hostname ends in `.openai.azure.com`, discovery fills missing image/text
+input support and context/output limits even when the provider has a custom name. Azure
+`/models` inference and chat flags alone do not describe image support or token limits.
+opencodex supplements them with the public [models.dev catalog](https://models.dev), using its
+Azure rows before bundled Azure metadata and other vendor bundles. Model-id lookup is exact
+or case-insensitive; a newly published model does not require a new opencodex release.
+
+The public metadata snapshot refreshes during discovery at most once per 24 hours, with a
+two-second deadline and a 16 MiB body limit. It is stored in `azure-model-metadata-cache.json`
+under the opencodex config directory. No Azure credentials are sent to the public catalog.
+Offline discovery keeps stale cached metadata or falls back to bundled hints; generation
+requests do not fetch this snapshot.
+
+Explicit input declarations and reported modalities retain precedence, including reported
+`vision: false`. Existing vision sidecar coverage still applies. Reported/configured limits
+remain authoritative and provider caps still clamp them. Metadata describes model support,
+not a particular deployment capacity. Arbitrary deployment aliases such as
+`my-production-model` cannot be mapped from Azure inference flags; set `modelInputModalities`
+and `modelContextWindows` for that exact id when needed. Unknown ids are not guessed.
 
 ### 儲存供應商時會保留什麼
 
@@ -429,20 +545,41 @@ Codex 會從目前回合模型的目錄列讀取 `auto_review_model_override`，
 
 ## Codex 帳號池
 
-在儀表板中使用 **Codex Auth** 新增池帳號並重新整理配額。`config.json` 儲存非秘密中繼資料；access 與 refresh token 使用強化的憑證存放。池路由將新／未綁定指派、基於用量的主動切換與失敗復原分開。綁定任務通常保留親和性。預設（`pool.cacheAffinity`）下，該重新綁定會等到綁定帳號耗盡或無法繼續服務，並且只改綁到確有額度餘裕且用量嚴格更低的帳號；所有帳號都高於閾值時，綁定任務留在原帳號。關閉該設定後，`quota` 可在超過用量閾值後的下一個請求時重新綁定它，但仍只改綁到確有額度餘裕且用量嚴格更低的帳號。暫停、冷卻、重新認證與失敗處理可獨立清除或移動路由。未綁定請求沒有即時帳號綁定；這可包含代理重啟或親和性重置後的既有可見任務。Pre-stream 的 429 或 402 在同一個請求中於一個合格的備用帳號上重試一次，即使基於用量的主動切換關閉。帳號變更保留並重播對話 context，但跨帳號的供應商端 prompt-cache 重用不保證，cache 可能需要重新暖機。
+Set `providers.<name>.responseTierAuthoritative` to `false` in `config.json` when that
+provider's response `service_tier` cannot establish whether Fast was granted. This is an
+operator declaration about the entire provider route, independent of `supportsServiceTier` and
+`fastWire`. It neither enables Fast nor changes the outgoing `service_tier`.
 
-在 **401/403** 時，App 登入清除該帳號的行程本地親和性並要求重新認證。
-在 **429** 時，opencodex 遵循 `Retry-After`、啟動帳號冷卻、清除親和性，並可能將請求輪換到另一個合格的池帳號。這些失敗轉換在 `autoSwitchThreshold: 0` 時仍然活躍；該設定僅停用基於用量的主動切換。
+For example, add this field to an existing gateway provider whose Codex backend has
+non-authoritative response metadata:
 
-暫停帳號保留其配額中繼資料，但將其排除於切換、容錯移轉、復原探測與手動啟用。它也清除該帳號的執行緒親和性。進行中的請求保留擷取的憑證；後續回合被重新路由。若每個帳號都被暫停，池路由會失敗而非靜默選擇一個。**Pause exhausted** 會用可用憑證重新整理合格帳號，並僅暫停新確認為 100% 的帳號；未知或失敗的重新整理保持不變。
+```json
+{ "responseTierAuthoritative": false }
+```
 
-| 策略 | 行為 |
-| --- | --- |
-| `quota`（預設） | 若無現用帳號，跨 5 小時、週與 30 天視窗選擇最低用量的合格帳號。否則將合格現用帳號保持在 `autoSwitchThreshold` 以下；在超過閾值後，未綁定請求可移至較低用量的合格帳號。預設下 cache affinity 優先於配額餘裕，綁定任務會保留到帳號耗盡（已知用量 100%）或無法繼續服務，改綁時只前往確有額度餘裕且用量嚴格更低的帳號。關閉該設定後，也可在閾值將綁定任務的下一個請求改綁到確有額度餘裕且用量嚴格更低的帳號。`0` 停用此用量驅動的重新評估，而非失敗復原。 |
-| `round-robin` | 在合格帳號間均勻指派未綁定請求。輪替本身以計數器為基礎，不使用用量閾值，但共用的優先順序層級篩選仍依各帳號自身的有效閾值（帳號覆寫值，未設定則使用全域值）檢查餘裕。`accountPoolStickyLimit`（1–100）計數一次選擇上的指派，而非成功的上游回應。 |
-| `fill-first` | 將未綁定請求指派到現用帳號直到冷卻、重新認證或該帳號的有效排空閾值（帳號覆寫值，未設定則使用全域值）；未知用量不強制切換。健康的綁定任務保留親和性。 |
+**Gateway support is opt-in.** Updating OpenCodex alone does not add this declaration to
+existing providers. Without it, an eligible priority request followed by `service_tier: "default"`
+retains the legacy `response-declined` interpretation. Configure `false` only when the
+route's response metadata is known to be non-authoritative.
 
-輪換不保護免於供應商強制執行；多帳號使用可能違反供應商條款。
+For an eligible request serialized as `priority`, both a `default` and a `priority` echo remain
+observations. Logs preserve `responseServiceTier` and record
+`tierOutcome.responseTierAuthoritative: false`, `fastOutcome: "applied"`, and
+`confirmation: "assumed"`, without `response-declined`. Here **applied means the request parameter
+was sent**, and **assumed means the actual Fast effect is unconfirmed**. The model tooltip shows
+the request and raw response separately with that confirmation. Neither this setting nor these
+records prove an acceleration or a billed tier.
+
+Cost estimates use the existing requested-tier fallback instead of treating the raw echo as a
+confirmed price tier; pricing rules requiring response confirmation cannot use that echo. Historical records
+without an authority flag retain their previous interpretation.
+
+The field accepts only booleans. Omission and explicit `true` retain response-based confirmation
+for other destinations, including the official API and undeclared gateways. Canonical
+`https://chatgpt.com/backend-api/codex` with `authMode: "forward"` remains automatically
+non-authoritative, even if `true` is configured. Gateway names and URLs are never inferred.
+If one gateway mixes response contracts, use separate provider entries for those routes and
+apply the declaration only to the relevant entry.
 
 ### `anthropicAccountPool`（實驗性）
 
@@ -464,6 +601,9 @@ Anthropic 的回應也會回報服務端帳號的 5 小時與每週使用率，�
 
 `anthropicAccountPool.routes` 將模型綁定至已儲存的 Anthropic OAuth 帳戶 ID。啟用帳戶池後，區分大小寫的 `match` 萬用模式依順序採用第一個符合的規則，限制首次選擇與 429 重試。僅當該規則沒有可用帳戶時，`fallback: true` 才會回退到一般帳戶池。
 
+當請求可用的每個帳號都因配額耗盡而被保留（共用 5 小時或每週視窗，或所請求模型家族的每週視窗）時，這個 429 是用量上限而非速率限制：Responses 本文的 `error.type` 與 `error.code` 為 `usage_limit_reached`；若每個被保留帳號的上游重設時間都已知，還會附上 `resets_at`（最早重設的 epoch 秒）。Codex 會停止並顯示何時可再試，而不是一路重試到 "exceeded retry limit"。最後一個帳號因配額耗盡被拒且沒有可替換帳號時，也會得到相同回應。只要有一個被保留帳號只是暫時限速、正在重新驗證模型家族或因權限被拒，回應就維持可重試的 `rate_limit_exceeded`。Combo 目標維持速率限制形式，讓 combo 能轉到下一個目標。原生 `/v1/messages` 維持 Anthropic 的 `rate_limit_error` 類型，訊息中會說明用量上限。
+
+只要一次新的用量讀取（儀表板的提供者頁面，或 `ocx account list anthropic --quota --refresh`）顯示每個被拒絕的視窗都低於 100%，配額冷卻就會提前解除，不論它來自 `Retry-After` 或視窗重設。這適用於升級方案或視窗提早重新開放的情況。在拒絕之前開始的讀取永遠不會解除它，權限類 403 冷卻會等到其截止時間。
 
 :::caution[實驗性]
 除非你了解 Anthropic 帳號政策風險，否則保持停用。不確定時偏好手動 `ocx account use anthropic <id>` 切換。
@@ -471,49 +611,35 @@ Anthropic 的回應也會回報服務端帳號的 5 小時與每週使用率，�
 
 ### `oauthAccountFailover`
 
-當某個沒有自己帳號池的 OAuth 供應商——xAI、Cursor、Kimi、GitHub Copilot、Google Antigravity 與 Nous——其中一個帳號被限流時，輪替到同一供應商的另一個已登入帳號。
+The built-in `anthropic` (stored Claude OAuth) and `anthropic-apikey` entries advertise Fast only
+for `claude-opus-5-5`, `claude-opus-5`, and `claude-opus-4-8`. Other Claude models are unclassified;
+the entries have no provider-wide Fast default.
 
-**登入第二個帳號就是啟用這個功能的開關，而且沒有任何東西能關掉它。** 只要這些供應商中任何一個儲存了 2 個以上、未被標記需要重新認證的帳號，輪換就會啟動——與 `apiKeyPool` 已經套用在 2 個以上金鑰池上的規則相同。只有一個已儲存帳號的供應商行為與先前完全相同。
+Anthropic Fast is **off by default** because it spends usage credits (subscription) or fast-mode
+access (API) at 2x price. Turn it on per provider with the Off/On row on the dashboard Models page,
+or set `providers.anthropic.fastEnabled: true` (or the same field on `anthropic-apikey`). While it is
+off, those models publish no Fast toggle or `--fast` row and the proxy never sends `speed`, even with
+a global `fastMode: true`. Claude Code native passthrough still forwards a `speed` field the caller
+sends itself (for example Claude Code `/fast`), because that request never reaches the proxy's Fast
+policy. Cursor Fast and other providers are unaffected.
 
-這裡的輪換只會在上游**已經拒絕**該請求之後才執行，所以一個停用開關能提供的唯一選擇，是在「重試你刻意登入的第二個帳號」與「讓那個帳號閒置、回傳 429」之間二選一。拒絕輪換的表達方式就是不儲存第二個帳號。
+When enabled, an eligible `--fast` or Fast selector sends
+`speed: "fast"` and adds `fast-mode-2026-02-01` to the existing `anthropic-beta` header. The proxy
+preserves OAuth beta values and sends one deduplicated header. `fastMode: false` disables this
+injection.
 
-| Key | 型別 | 預設值 | 說明 |
-| --- | --- | --- | --- |
-| `oauthAccountFailover.enabled?` | `boolean` | 依存在與否決定 | 僅針對**派送前的帳號偏好**的全域覆寫。`false` 會停止把健康的請求導向已知餘裕較多的帳號。它**不會**停用 429 輪換。 |
-| `providers.<name>.oauthAccountFailover.enabled?` | `boolean` | 繼承 | 針對同一個偏好的個別供應商覆寫；無論方向都會勝過全域設定。即使全域設定為 `true`，`false` 也會讓這個供應商拒絕這個偏好；即使全域設定為 `false`，`true` 也會讓這個供應商選擇加入。無論哪種情況，反應式 429 輪換都不受影響。 |
-| `providers.<name>.oauthAccountFailover.strategy?` | `"quota" \| "round-robin" \| "fill-first"` | — | 通用 OAuth 供應商的池策略（#695）。透過 `ocx account strategy <provider> <name>` 或 `PUT /api/oauth/accounts/pool` 持久化。只有在 `pool.kernel` 開啟時，選擇器才會依它運作；旗標關閉時，省略與設定行為相同。`quota` 無論哪種情況都是 kernel 之前的行為。 |
-| `providers.<name>.oauthAccountFailover.autoSwitchThreshold?` | `number` | `80` | `fill-first` 離開現用帳號時所用的用量百分比（0–100）（#695）。用 `ocx account auto-switch <provider> threshold <n>` 設定。只有在 `pool.kernel` 開啟且 `strategy: "fill-first"` 時才會被讀取；沒有量測用量的帳號視為低於閾值。 |
-| `providers.<name>.oauthAccountFailover.stickyLimit?` | `number` | `1` | 在一次 `round-robin` 選擇上保留的成功派送次數，1–100（#695）。只有在 `pool.kernel` 開啟且 `strategy: "round-robin"` 時才會被讀取。 |
+Anthropic's `usage.speed` echo determines the outcome: `fast` confirms Fast, `standard` records a
+downgrade, and a missing echo is unconfirmed. Only confirmed Fast usage receives the 2x list-price
+estimate (Opus 5.5 $8 input / $40 output; Opus 5 and 4.8 $10 input / $50 output per million tokens).
+If the first fast send is rejected because usage credits are required, an organization disabled Fast,
+the model rejects `speed`, or the fast pool is empty, the main adapter dispatch can make one budgeted
+standard-speed resend. Generic rate limits and capacity errors keep their usual handling. Subsequent
+builds of that request stay at standard speed; a new turn may encounter the refusal again.
 
-若要為某個你不想測試其條款的供應商拒絕主動帳號導向，同時仍要從限流中復原：
-
-```json
-{
-  "providers": {
-    "cursor": {
-      "oauthAccountFailover": { "enabled": false }
-    }
-  }
-}
-```
-
-這個設定在登入、新增帳號與重新認證之後仍會存活。
-
-通用 OAuth 供應商（Google Antigravity、xAI、Cursor、Kimi、GitHub Copilot、Nous，以及任何在 Codex 與 Anthropic 池之外的 OAuth 供應商）在同一個 key 下也接受 `strategy` 與 `autoSwitchThreshold`，透過 `GET`／`PUT /api/oauth/accounts/pool?provider=<name>`，以及 `ocx account strategy` / `ocx account auto-switch` / `ocx account sticky` 這些動詞。回應只對這三個欄位帶上 `"inert"`——它們被儲存但未被消費時為 `true`，一旦 `pool.kernel` 開啟且它們真的在選擇帳號時為 `false`——`enabled` 是即時生效的，管理派送前的偏好。`quotaWindow` 不屬於這個通用契約。Codex（`/api/codex-auth`）與 Anthropic（`anthropicAccountPool`）維持各自不變的契約。
-
-刻意比 `anthropicAccountPool` 更窄：沒有 session 親和性、沒有依配額排序的選擇、沒有探測租約。它只回答一個問題——剛剛回傳 429 的那個帳號正在冷卻，還有沒有另一個可用的。
-
-Codex 池與 Anthropic 池被排除在外，維持各自的輪換；啟用這個功能對它們沒有任何改變。只有一個已儲存帳號的供應商是徹底的 no-op，也不會為它記錄任何冷卻。
-
-在 429 時，失敗的帳號會用 `Retry-After`（若存在，上限 15 分鐘）或一個預設 backoff 來冷卻，請求會在下一個合格帳號上重播，每個請求最多輪換三次。被標記需要重新認證的帳號絕不會被選中。冷卻是行程本地的，所以重新啟動會遺忘它們。
-
-輪換會攜帶替代帳號的**完整**憑證快照，而不只是它的 bearer，所以一個把路由中繼資料與 token 配對的供應商——例如 Antigravity 的 Cloud Code Assist 專案 id——不會發生用一個帳號的 token 配上另一個帳號中繼資料的情況。
-
-目前的範圍是一般的 Responses 請求路徑。Cursor 以 adapter 事件而非 HTTP 狀態回報速率限制，獨立的 Antigravity 影像端點有自己的請求路徑；兩者目前都還不會輪換。
-
-:::caution[實驗性]
-跨訂閱帳號輪換會消耗第二個帳號的配額，可能違反部分供應商的條款。若這不是你想要的取捨，請全域或針對特定供應商設定 `enabled: false`。
-:::
+Subscription Fast on Pro/Max needs usage credits; Team/Enterprise organizations also need admin
+enablement. First-party API Fast is a research preview that requires access. See
+[Anthropic Fast mode](https://platform.claude.com/docs/en/build-with-claude/fast-mode) and
+[Claude Code Fast mode](https://code.claude.com/docs/en/fast-mode) for access and billing terms.
 
 ### 受管記錄結構
 
@@ -538,39 +664,49 @@ Codex 池與 Anthropic 池被排除在外，維持各自的輪換；啟用這個
 
 ## 固定供應商端點
 
-路由在 adapter 之前解析供應商端點。對於多數內建，registry 端點勝過設定的 `baseUrl`。四種項目類型保留設定的 URL：
+The canonical `https://openrouter.ai/api/v1` preset advertises Fast only for these exact
+OpenAI-backed model slugs:
 
-- 啟用覆寫的供應商：`ollama`、`vllm`、`lm-studio`、`litellm`、`qwen-cloud` 與
-  `alibaba-token-plan-intl`；
-- 由使用者填入的 registry 模板，如 `azure-openai` 與 `cloudflare-ai-gateway`；
-- 提升的固定 API-key 預設，保留較舊的同名自訂目的地；以及
-- 不在 registry 中的供應商。
+- `openai/gpt-5.6-sol`
+- `openai/gpt-5.6-terra`
+- `openai/gpt-5.6-luna`
 
-Adapter 可在之後調整解析的 URL。例如 Kiro 遵循匯入憑證的 API 區域，用於規範 `runtime.{region}.kiro.dev`。請見 [Adapters](/zh-tw/reference/adapters/)。
+`anthropic/claude-sonnet-5` and undeclared OpenRouter models remain unclassified. A provider-level
+`supportsServiceTier` default is intentionally absent, and a user-set `supportsServiceTier: false`
+still disables the exact-model declarations. The registry declarations apply only while the
+provider still targets the canonical OpenRouter base URL; a same-named custom destination is not
+assumed to share OpenRouter's contract.
 
-當路由丟棄 `baseUrl` 時，opencodex 記錄 registry 端點與僅設定的來源；設定的路徑本身可能包含憑證。移除未使用的 URL 或選擇符合預期區域的供應商項目。`alibaba-token-plan` 被 pin 到北京，而
-`alibaba-token-plan-intl` 涵蓋國際端點。
+Fast sends `service_tier: "priority"`. It does not add or rewrite `provider.only`,
+`provider.order`, or `provider.allow_fallbacks`. OpenRouter documents priority endpoints as the
+first routing choice, followed by graceful fallback to other endpoints when priority capacity is
+unavailable. Billing follows the endpoint actually used, and the response reports the actual
+top-level `service_tier`. Pinning tier endpoints and disabling fallback would therefore reduce
+availability without improving billing safety.
 
-對於故障的 `openai-responses` 閘道，修復屬於供應商物件：
+Request logs use that response echo as the authority. `priority` confirms Fast as applied;
+`default` records a downgrade and uses the standard-price estimate; a missing field leaves the
+attempt assumed rather than guessing a downgrade. OpenRouter's priority multiplier varies by
+upstream and is not bundled here. When priority is confirmed but no exact priority price is known,
+the dashboard keeps the standard-price estimate as a documented lower bound and prefixes it with
+`≥`; downgraded attempts have no lower-bound marker.
 
-```json
-{
-  "providers": {
-    "custom-gateway": {
-      "adapter": "openai-responses",
-      "baseUrl": "https://gateway.example/v1",
-      "apiKey": "${GATEWAY_KEY}",
-      "responsesItemIdRepair": {
-        "reasoning": ["rs_0"],
-        "message": ["msg_0"],
-        "repairMissingTerminalIds": true
-      }
-    }
-  }
-}
-```
+API-key providers may hold a literal key or an environment reference. OAuth providers use the
+credential store populated by `ocx login`; subscription-backed Claude Code launch behavior is
+configured under [`claudeCode.authMode`](/zh-tw/reference/configuration/server/#claude-codeclaudecode).
 
-佔位清單為精確比對。對於正常／有狀態的 Responses 供應商，將欄位保持未設定，使 passthrough 保持逐位元組相同。
+OrcaRouter exposes both forms explicitly: `orcarouter` is the manual API-key provider and
+`orcarouter-oauth` runs browser consent with S256 PKCE, then stores the returned durable API key as
+an account credential. The public defaults intentionally split authentication
+(`https://www.orcarouter.ai`) from inference (`https://api.orcarouter.ai/v1`). Set
+`ORCAROUTER_BASE_URL` before the first account login for a one-origin self-hosted deployment, or use
+`ORCAROUTER_AUTH_BASE_URL` and `ORCAROUTER_API_BASE_URL` for separate origins.
+For a loopback/private self-hosted endpoint, **before the first login**, create or update
+`providers["orcarouter-oauth"]` with `adapter: "openai-chat"`, the intended `baseUrl`,
+`authMode: "oauth"`, and an explicit `allowPrivateNetwork: true`. Login preserves that operator
+setting and never grants it from a URL override. Without it, destination validation rejects the
+local endpoint for inference and model discovery. The OAuth browser callback listener itself
+does not require this provider opt-in. See the [OrcaRouter setup example](/zh-tw/guides/providers/).
 
 ## Cursor 供應商（`adapter: "cursor"`）
 
@@ -594,40 +730,42 @@ Cursor Router 的最佳化階梯以獨立的 Codex id 暴露，因為 picker 無
 
 ### 視覺
 
-原生 Cursor vision 對能夠原生看到影像的模型——包括 Claude、Gemini、GPT、Kimi 與 Grok——使用
-`SelectedImage`（JPEG 軟上限 + `blobIdWithData`），且只使用現用回合的 `data:` 影像。更早回合的
-影像會以 `[image attached]` 文字標記重播；遠端或無法解碼的影像會變成省略標記。Auto、Composer
-家族與 GLM（`glm-5.2`、`glm-5.3`）留在精選的 `noVisionModels` 清單上，改用視覺描述 sidecar。
+Use **Codex Auth** in the dashboard to add pool accounts and refresh quotas. `config.json` stores
+non-secret metadata; access and refresh tokens use the hardened credential store. Pool routing
+separates new/unbound assignment, usage-based proactive switching, and failure recovery. A bound task
+normally keeps affinity. By default (`pool.cacheAffinity`) `quota` does not rebind it merely because
+the usage threshold is crossed; that rebind waits until the bound account is exhausted or otherwise
+cannot serve, and then only onto an account with genuine quota headroom and strictly lower usage.
+Set `pool.cacheAffinity: false` to restore threshold rebinding of bound tasks, still only onto such
+a destination. Pause, cooldown, reauthentication, and quota refusals still release a live binding
+immediately. A transient-failure streak serves the request from another account while keeping the
+binding, and the task returns once that account serves again; after 10 minutes the binding is
+released normally. An unbound request has no live account binding; this can include an existing visible
+task after proxy restart or affinity reset. A pre-stream 429 or 402, or a 5xx response whose bounded
+body explicitly reports quota exhaustion, retries once on an eligible alternate account in the same
+request, even when usage-based proactive switching is off. The ordinary transient-5xx policy runs
+first, so a wrapped quota response may make up to three sends on the exhausted account before pool
+rotation. Account changes preserve and replay the conversation context, but provider-side
+prompt-cache reuse across accounts is not guaranteed and the cache may need to warm again.
 
-Cursor 伺服器驅動的本機工具預設停用。Codex 繼續使用其自身工具如 `apply_patch` 與 `exec_command` 及其自身的核准與沙箱政策：
+On a **401/403**, App login clears that account's process-local affinity and requires reauthentication.
+On a **429**, opencodex honors `Retry-After`, starts the account cooldown, clears affinity, and may
+rotate the request to another eligible Pool account. These failure transitions remain active with
+`autoSwitchThreshold: 0`; that setting disables only usage-based proactive switching.
 
-- `"off"`（預設）拒絕 Cursor 原生的 `read`、`write`、`delete`、`ls`、`grep`、`shell` 與
-  `fetch` 執行。
-- `"on"` 選擇加入受信任的本機執行並繞過 Codex 核准／沙箱語意。
-- `"codex-sandbox"` 為相容性而保留，但像 `"off"` 般 fail closed；請求文字不是可信的沙箱證明。
+Pausing an account preserves its quota metadata but excludes it from switching, failover, recovery
+probes, and manual activation. It also clears that account's thread affinities. In-flight requests keep
+captured credentials; later turns are rerouted. If every account is paused, Pool routing fails rather
+than silently choosing one. **Pause exhausted** refreshes eligible accounts with available credentials
+and pauses only accounts freshly confirmed at 100%; unknown or failed refreshes remain unchanged.
 
-```json
-{
-  "providers": {
-    "cursor": {
-      "adapter": "cursor",
-      "baseUrl": "https://api2.cursor.sh",
-      "authMode": "oauth",
-      "defaultModel": "auto",
-      "nativeLocalExec": "off"
-    }
-  }
-}
-```
+| Strategy | Behaviour |
+| --- | --- |
+| `quota` (default) | If no active account exists, choose the lowest-usage eligible account across 5-hour, weekly, and 30-day windows. Otherwise retain an eligible active account below `autoSwitchThreshold`; after it crosses the threshold, an unbound request can move to a lower-usage eligible account. Bound tasks keep cache affinity by default and stay until the account is exhausted (known usage at 100%) or cannot serve (paused, unusable); a move then requires genuine quota headroom and strictly lower usage on the destination, so the task stays put when every account is over the threshold or the only cooler account has unknown usage. Set `pool.cacheAffinity: false` to let a bound task's next request move at the threshold, still only onto such a destination. `0` disables this usage-driven re-evaluation, not failure recovery. |
+| `round-robin` | Evenly assign unbound requests across eligible accounts. Rotation is counter-based and ignores usage thresholds, but the shared priority-tier filter still evaluates each account's headroom using its effective threshold (account override or global default). `accountPoolStickyLimit` (1–100) counts assignments on one pick, not successful upstream responses. |
+| `fill-first` | Assign unbound requests to the active account until cooldown, reauthentication, or that account's effective drain threshold (account override or global default); unknown usage does not force a switch. Healthy bound tasks keep affinity. |
 
-在 `providers.cursor` 上設定該欄位，而非頂層。在儀表板中使用 **Providers → Cursor
-→ Edit JSON**，儲存後重啟。舊版 `unsafeAllowNativeLocalExec: true` 僅在 `nativeLocalExec` 未設定時等同於 `nativeLocalExec: "on"`。MCP、螢幕錄製與 computer use 分別由 `mcpServers` 與 `desktopExecutor` 控制。
-
-每個 `mcpServers.<name>` 接受 `command`（stdio）或 `url`（Streamable HTTP）。Stdio 亦接受 `args`、`env` 與 `cwd`；HTTP 接受 `headers`。兩者皆支援 `enabled`（預設 true）與 `toolPrefix`。`desktopExecutor` 接受 `computerUseCommand`、`recordScreenCommand`、`cwd`、`env` 與 `timeoutMs`（預設 `30000`）。指令透過 `sh -c` 執行，從 stdin 讀取一個 JSON 請求，且必須向 stdout 寫入一個 JSON 結果。
-
-:::caution[安全]
-預設的回送綁定允許任何本機行程在無認證下存取，包含多使用者主機上的其他使用者。除非每個 data-plane 呼叫者都受信任且你刻意接受繞過 Codex 核可與沙箱語意，否則保持本機執行關閉。
-:::
+Rotation does not protect against provider enforcement; multi-account use may violate provider terms.
 
 ## Codex 目錄與根層級 `config.toml` 設定
 
@@ -642,6 +780,104 @@ Cursor 伺服器驅動的本機工具預設停用。Codex 繼續使用其自身�
 那次同步產生的目錄中的選擇器，才能成為覆寫。設定被清除或無法解析時，會保留原生上游值。
 Codex 為目前回合的模型讀取的是持久化的目錄欄位，這就是為什麼一個有效的設定選擇器會被複製
 到每個合格的項目上。供應商範圍的選擇器（見上方）優先於這個根層級後備，並在路由列上優先生效。
+
+### Anthropic · Pool 2 (`anthropic2`)
+
+`anthropic2` ("Anthropic · Pool 2") is a second builtin Anthropic OAuth provider with its own
+account pool. It runs the same Anthropic implementation as `anthropic`: the same login flow, wire
+format, native Messages and Responses bridge, and model metadata. Only the accounts and the pool
+around them are separate. Choose a pool with the model prefix: `anthropic/claude-sonnet-5` uses the
+primary pool and `anthropic2/claude-sonnet-5` uses Pool 2.
+
+Pool 2 stays dormant until you add it. Log in with `ocx login anthropic2` or add **Anthropic · Pool 2**
+on the dashboard Providers page. A successful first login creates `providers.anthropic2` with the
+marker `"anthropicOAuthInstance": "anthropic2"`. Pool 2 never becomes the default provider: bare
+`claude-*` model names, the default model, and Claude Code caller forwarding keep resolving to
+`anthropic`. An unmarked `anthropic2` entry you created yourself earlier keeps its custom meaning;
+login refuses the name collision and rewrites neither the entry nor your credentials.
+
+Pool 2 reads its pool settings from its own provider entry. The keys, defaults and behavior match
+the top-level [`anthropicAccountPool`](#codex-目錄與根層級-configtoml-設定), and nothing is inherited
+from the primary pool. `providers.anthropic.anthropicAccountPool`, or the field on any other provider,
+is rejected.
+
+```json
+{
+  "anthropicAccountPool": { "enabled": true, "strategy": "quota" },
+  "providers": {
+    "anthropic2": {
+      "adapter": "anthropic",
+      "authMode": "oauth",
+      "baseUrl": "https://api.anthropic.com",
+      "anthropicOAuthInstance": "anthropic2",
+      "anthropicAccountPool": { "enabled": true, "strategy": "round-robin" }
+    }
+  }
+}
+```
+
+The two pools are isolated inside opencodex:
+
+- **Credentials:** Pool 2 accounts are stored under their own `anthropic2` key in the protected
+  credential store. A login whose token or verified Anthropic account is already stored in the other
+  pool is rejected.
+- **Pool settings and runtime state:** selection, session affinity, cooldowns, pauses, model routes
+  and per-account thresholds belong to one pool. Route `fallback: true` widens only within the same
+  pool.
+- **Quota and usage:** usage probes, quota caches and usage attribution are recorded per pool, so an
+  account ID that exists in both pools still has two separate records.
+- **Reset grants:** Pool 2 keeps its own journal (`anthropic2-reset-grant-ledger.json`) next to the
+  primary pool's unchanged journal.
+- **Recovery:** a direct `anthropic2/<model>` request never falls back to the primary pool, and a
+  Pool 2 rate limit or refusal never cools a primary-pool account. An explicit combo that names both
+  pools keeps the targets you declared.
+
+This separation is a routing boundary inside opencodex. It does not change how Anthropic treats your
+accounts or the [account policy risk](#codex-目錄與根層級-configtoml-設定) described above.
+
+Pool 2 accounts are added only through browser OAuth. Unlike `anthropic`, Pool 2 never imports,
+adopts or writes back a Claude Code CLI token; this difference is intentional. Pool 2 starts empty,
+and a Pool 2 request with no usable Pool 2 account fails with an authentication error instead of
+borrowing a primary-pool or Claude Code credential.
+
+Account commands and management APIs take the pool by name: `ocx account pool anthropic2 …`,
+`ocx account auto-switch anthropic2 …`, `ocx account routes anthropic2 …`, and
+`ocx account anthropic-reset-grants --provider anthropic2`. The pool settings and reset-grant
+endpoints accept `provider: "anthropic2"`; omitting it keeps the primary pool.
+
+#### Helper pool selection (`anthropicInstance`)
+
+The web-search and vision helpers accept an optional `anthropicInstance`, in the global
+`webSearchSidecar` and `visionSidecar` settings and in the Claude Code overrides
+`claudeCode.webSearchSidecar` and `claudeCode.visionSidecar`. The dashboard shows it as a **Pool**
+select when the helper backend is Anthropic.
+
+| Value | Behavior |
+| --- | --- |
+| unset (default) | Follow the pool of the current request: an `anthropic2/<model>` request uses Pool 2 and an `anthropic/<model>` request uses the primary pool. A request from another provider keeps the existing helper discovery, which never selects Pool 2. |
+| `"anthropic"` | Always use the primary pool. |
+| `"anthropic2"` | Always use Pool 2. |
+
+The field only applies when the helper's backend resolves to Anthropic. Setting it with another
+backend is a validation error; because web search defaults to OpenAI, set
+`"backend": "anthropic"` as well. A helper model qualified with the other pool, such as
+`anthropic/claude-sonnet-5` with `"anthropicInstance": "anthropic2"`, is also rejected. If the chosen
+pool has no usable account, the helper fails before sending anything; it does not switch to the other
+pool. The main request then continues without that helper. An unset choice is saved as absent, never
+as `"anthropic"`.
+
+```json
+{
+  "webSearchSidecar": { "backend": "anthropic", "anthropicInstance": "anthropic2" }
+}
+```
+
+:::caution[Downgrading]
+Versions without Pool 2 do not understand the `anthropic2` entry. Before installing an older
+version, stop the proxy, back up `config.json` and `auth.json`, and remove
+`providers.anthropic2` from `config.json`. Primary-pool credentials are never moved or rewritten by
+Pool 2. An in-place downgrade with an active Pool 2 is not supported.
+:::
 
 ### 回應 service tier 權威性
 
@@ -709,31 +945,44 @@ Fast 是需要存取權的研究預覽。存取與計費條款請見
 
 ### Cursor Fast（`cursor-variant`）
 
-Cursor 沒有 `service_tier` 欄位。它的 fast 產品是不同的**模型變體**——
-`claude-opus-5-thinking-high-fast`、Grok 4.5/4.6 的 `{id:"fast",value:"true"}` 請求參數，
-或 Grok 4.7 的扁平化 `grok-4.7-{effort}-fast` 線路 id——因此 Cursor 項目宣告
-`fastWire.kind: "cursor-variant"`，由請求建構器解析該變體，而不是設定請求欄位。
+Routing resolves a provider endpoint before the adapter. For most built-ins, the registry endpoint
+wins over configured `baseUrl`. Four entry types keep the configured URL:
 
-只有確實宣告 fast 變體的基礎模型才會宣告 Fast：`claude-opus-4-7`、`claude-opus-4-8`、
-`claude-opus-5`、`claude-opus-5-5`、`grok-4.5`、`grok-4.6`、`grok-4.7`。其他每個 Cursor
-列都發布 `supportsServiceTier: false`，因此 Codex 不會顯示一個失效的開關，而是完全不顯示。
+- override-enabled providers: `ollama`, `vllm`, `lm-studio`, `litellm`, `qwen-cloud`, and
+  `alibaba-token-plan-intl`;
+- registry templates filled by the user, such as `azure-openai` and `cloudflare-ai-gateway`;
+- promoted fixed API-key presets preserving an older same-named custom destination; and
+- providers absent from the registry.
 
-某個基礎模型的總覽列，會把 thinking 升級路由到它的**thinking-fast** 變體，而不是一般的
-fast 同輩——那個同輩是不同的產品，effort 階梯較短，而且對 `claude-opus-5` 而言，它的一般
-系列已在上游被隔離。
+Adapters can adjust the resolved URL afterward. Kiro, for example, follows the imported credential's
+API region for canonical `runtime.{region}.kiro.dev`. See [Adapters](/zh-tw/reference/adapters/).
 
-`fastMode` 在每個介面上的行為不同，因為只有 Codex 有自己的 Fast 開關：
+When routing discards `baseUrl`, opencodex logs the registry endpoint and only the configured origin;
+a configured path may itself contain a credential. Remove the unused URL or choose the provider entry
+matching the intended region. `alibaba-token-plan` is pinned to Beijing, while
+`alibaba-token-plan-intl` covers international endpoints.
 
-| 介面 | `fastMode: true` |
-|---|---|
-| Codex | 列維持總覽列；應用程式的 Fast 開關選擇該變體 |
-| Claude Code（`?ids=cli`） | 列出 fast 身分，例如 `ocx-claude-cursor--claude-opus-5-thinking-fast` |
-| OpenAI `/v1/models` | 列出 `cursor/claude-opus-5-thinking-fast` |
-| Claude Desktop（3P） | 不變——其別名是從模型名稱雜湊而來 |
-| 儀表板 `/api/models` | 列 id 不變；它們就是啟用／停用的鍵 |
+For a broken `openai-responses` gateway, repair belongs on the provider object:
 
-無論如何請求都會被升等：設定 `fastMode: true` 時，選擇總覽 id 仍會解析到 fast 變體，因此
-儲存設定早於這次切換的客戶端不需要重新探索。每個舊版變體 id 都維持既有路由不變。
+```json
+{
+  "providers": {
+    "custom-gateway": {
+      "adapter": "openai-responses",
+      "baseUrl": "https://gateway.example/v1",
+      "apiKey": "${GATEWAY_KEY}",
+      "responsesItemIdRepair": {
+        "reasoning": ["rs_0"],
+        "message": ["msg_0"],
+        "repairMissingTerminalIds": true
+      }
+    }
+  }
+}
+```
+
+Placeholder lists are exact matches. Leave the field unset for normal/stateful Responses providers
+so passthrough stays byte-for-byte identical.
 
 ### xAI Priority Processing
 
@@ -763,43 +1012,59 @@ $6.00。至少 200,000 token 的 prompt 會讓整個請求改用 $4.00 / $1.00 /
 
 ### OpenRouter Fast
 
-規範的 `https://openrouter.ai/api/v1` 預設只為以下確切的 OpenAI 後端模型 slug 宣告 Fast：
+Native Cursor vision uses `SelectedImage` (JPEG soft-cap + `blobIdWithData`) for models that can
+see images natively — Claude, Gemini, GPT, Kimi, and Grok among them — using active-turn `data:`
+images only. Earlier-turn images replay as `[image attached]` text markers; remote or undecodable
+images become omission markers. Auto, the Composer family, and GLM (`glm-5.2`, `glm-5.3`) stay on
+the curated `noVisionModels` list and use the vision describe sidecar instead.
 
-- `openai/gpt-5.6-sol`
-- `openai/gpt-5.6-terra`
-- `openai/gpt-5.6-luna`
+Cursor server-driven local tools are disabled by default. Codex continues using its own tools such as
+`apply_patch` and `exec_command` with its own approval and sandbox policy:
 
-`anthropic/claude-sonnet-5` 與未宣告的 OpenRouter 模型維持未分類。刻意不設定供應商層級的
-`supportsServiceTier` 預設值，且使用者設定的 `supportsServiceTier: false` 仍會停用逐模型
-宣告。這些登記值只在該供應商仍指向規範 OpenRouter base URL 時才適用；同名的自訂目的地不會
-被假定共用 OpenRouter 的合約。
+- `"off"` (default) rejects Cursor-native `read`, `write`, `delete`, `ls`, `grep`, `shell`, and
+  `fetch` execution.
+- `"on"` opts into trusted-local execution and bypasses Codex approval/sandbox semantics,
+  except foreground native shell execution, which remains unavailable.
+- `"codex-sandbox"` is retained for compatibility but fails closed like `"off"`; request prose is
+  not trustworthy sandbox attestation.
 
-Fast 會送出 `service_tier: "priority"`。它不會新增或改寫 `provider.only`、`provider.order`
-或 `provider.allow_fallbacks`。OpenRouter 文件說明 priority 端點是第一路由選擇，priority
-容量不足時會優雅回退到其他端點。計費依實際使用的端點計算，回應會回報實際的頂層
-`service_tier`。因此 pin 住層級端點並停用回退，只會降低可用性，而不會提升計費安全性。
+```json
+{
+  "providers": {
+    "cursor": {
+      "adapter": "cursor",
+      "baseUrl": "https://api2.cursor.sh",
+      "authMode": "oauth",
+      "defaultModel": "auto",
+      "nativeLocalExec": "off"
+    }
+  }
+}
+```
 
-請求日誌以該回應回顯為權威來源。`priority` 確認 Fast 已套用；`default` 記錄為降級並使用
-標準價格估算；缺失的欄位會讓該次嘗試維持假定狀態，而不是猜測為降級。OpenRouter 的
-priority 乘數依上游而異，此處不內建。當 priority 已確認但沒有已知的確切 priority 價格時，
-儀表板會保留標準價格估算作為已記載的下界，並加上 `≥` 前綴；降級的嘗試沒有下界標記。
+Set `nativeLocalExec` on `providers.cursor`, not at the top level. In the dashboard use **Providers
+→ Cursor → Edit JSON**, save, then restart. Legacy `unsafeAllowNativeLocalExec: true` equals
+`nativeLocalExec: "on"` only when `nativeLocalExec` is unset. MCP, screen recording, and computer use
+are controlled separately by `mcpServers` and `desktopExecutor`.
 
-API-key 供應商可以持有字面金鑰或環境變數參照。OAuth 供應商使用 `ocx login` 填入的憑證
-儲存區；訂閱後盾的 Claude Code 啟動行為設定在
-[`claudeCode.authMode`](/zh-tw/reference/configuration/server/#claude-codeclaudecode)。
+Foreground `shellArgs` and `shellStreamArgs` requests are rejected before process creation on
+Windows, macOS, and Linux, including with `nativeLocalExec: "on"`. They require a kernel-backed
+descendant owner that this implementation does not provide; use the client's shell tool instead.
+The streaming form still returns start, aborted exit, a typed failure, and stream close so the
+Cursor turn can finish. It collects no stdout/stderr and has no active output-byte allowance.
+This restriction does not change background shell execution or the other explicit executor opt-ins.
 
-OrcaRouter 明確暴露兩種形式：`orcarouter` 是手動的 API-key 供應商，`orcarouter-oauth` 執行
-帶 S256 PKCE 的瀏覽器同意流程，然後把回傳的持久 API 金鑰儲存為帳號憑證。公開預設值刻意把
-認證（`https://www.orcarouter.ai`）與推論（`https://api.orcarouter.ai/v1`）分開。若要用
-單一 origin 的自架部署，請在第一次帳號登入前設定 `ORCAROUTER_BASE_URL`；若要用分開的
-origin，請用 `ORCAROUTER_AUTH_BASE_URL` 與 `ORCAROUTER_API_BASE_URL`。對於 loopback／私有
-的自架端點，**在第一次登入之前**，請先建立或更新 `providers["orcarouter-oauth"]`，設定
-`adapter: "openai-chat"`、預期的 `baseUrl`、`authMode: "oauth"`，並明確設定
-`allowPrivateNetwork: true`。登入會保留這個操作者設定，絕不會從 URL 覆寫中授予它。若未設定，
-目的地驗證會拒絕該本機端點用於推論與模型探索。OAuth 瀏覽器 callback 監聽器本身不需要這個
-供應商選用設定。請見[OrcaRouter 設定範例](/zh-tw/guides/providers/)。
+Each `mcpServers.<name>` accepts either `command` (stdio) or `url` (Streamable HTTP). Stdio also
+accepts `args`, `env`, and `cwd`; HTTP accepts `headers`. Both support `enabled` (default true) and
+`toolPrefix`. `desktopExecutor` accepts `computerUseCommand`, `recordScreenCommand`, `cwd`, `env`,
+and `timeoutMs` (default `30000`). Commands run through `sh -c`, read one JSON request from stdin,
+and must write one JSON result to stdout.
 
-未明確設定供應商的 `fastWire` 時，透過 `allowedModels` 限制的 opencodex API 金鑰必須允許 `xai/grok-4.7-build-fast`（或不含供應商前綴的模型 ID），才能傳送 OAuth Fast 請求。僅允許 `xai/grok-4.7` 不會授予此 Fast 模型的權限。僅允許 Fast 模型的金鑰可以使用該模型；一般請求或關閉 Fast 時仍需允許 `xai/grok-4.7`。明確設定 `fastWire` 時，應允許實際傳送的模型。例如，`service-tier` 方式保留 `xai/grok-4.7`，因此需要該模型的權限。供應商限制仍然有效。
+:::caution[Security]
+The default loopback bind admits any local process without auth, including other users on a
+multi-user host. Leave local exec off unless every data-plane caller is trusted and you deliberately
+accept bypassing Codex approval and sandbox semantics.
+:::
 
 ## Zed 供應商（`adapter: "zed"`）
 
@@ -1010,6 +1275,102 @@ Go 目錄列會精確保留它們設定的 reasoning effort，包括在目錄同
 
 明確的 `modelCapabilities.<id>.inputModalities` 現在對該精確路由模型而言，會優先於舊版的模態提示。純文字宣告會使用既有的視覺 sidecar，把影像換成描述；若沒有可用的 sidecar，請求會在派送前收到一個明確的省略標記。原生 Chat 影像請求會透過這條路徑分流。目錄仍可以廣告影像附件支援，因為代理提供了這個描述步驟。Context-tier 與 video processing 宣告在其傳輸支援到位之前，仍維持不生效。
 
+### Prompt-length pricing
+
+In **Models → Price**, keep four base rates and choose a prompt-length mode:
+
+- **Automatic** keeps the catalog context rules. It is also the behavior of existing four-rate overrides without a policy.
+- **Flat rate** uses the base rates at every prompt length, disabling catalog context adjustments.
+- **Custom threshold** selects four absolute alternative rates using `>` or `≥` and one token threshold. The custom policy replaces the catalog context rule on both sides of the threshold.
+
+All prompt tokens count, including cache reads and writes, before billable-input subtraction.
+Output does not count toward the threshold. Once crossed, the alternative rates apply to the
+entire request, including output, not only the excess tokens. Custom rates are standard-speed
+rates: an applicable Fast/Priority premium applies once after the rates are selected and follows
+the catalog's relation between Priority and long-context pricing for that model. A confirmed
+Priority request shows the custom estimate as a lower bound only when the catalog declares that
+relation as `lower-bound`, as for xAI Grok, which publishes no combined rate. A model with no
+catalog context rule applies any Priority multiplier once. These settings control estimates; they
+do not change provider billing.
+**Reset to automatic** deletes the entire override and restores catalog prices and rules. Saving or
+editing the config updates live estimates and historical totals.
+
+For example, a Haiku 5.5 override with alternative rates strictly above 100,000 prompt tokens:
+
+```json
+{
+  "modelCosts": {
+    "claude-haiku-5-5": {
+      "input": 0.10,
+      "output": 0.50,
+      "cacheRead": 0.01,
+      "cacheWrite": 0.125,
+      "promptLengthPricing": {
+        "mode": "custom",
+        "thresholdTokens": 100000,
+        "comparison": "gt",
+        "rates": { "input": 0.50, "output": 2.50, "cacheRead": 0.05, "cacheWrite": 0.625 }
+      }
+    }
+  }
+}
+```
+
+This is an example of user-defined prices, not an official Haiku price list.
+Any positive safe-integer threshold, including `272000`, is supported; use `"gte"` for inclusive
+comparison. All four alternative rates are required and follow the base-rate limits, including zero.
+The other policy is `{ "mode": "flat" }`. Omit `promptLengthPricing` to retain automatic context
+rules with your base prices; an explicit `{ "mode": "automatic" }` is accepted and means the same,
+and saves from the dashboard or API store it as an absent field.
+
+Legacy `openai-multi` model price overrides retain valid prompt-length policies when startup
+migrates them to `openai`, including overrides keyed by `openai-multi/<model>`.
+
 ### 重新命名的 API-key 預設
 
 當一個以其他名稱儲存的供應商（例如 `CommandCode`）的 adapter 與固定 API-key 端點，與某個登錄檔預設相符時，它會繼承缺失的 reasoning-effort 中繼資料。你明確設定的 per-model 清單（包括 `[]`）仍具權威性。省略的供應商範圍清單會繼承預設值；明確設定的清單維持不變。這不適用於 OAuth、不相關的端點，或模板化／自訂端點預設。
+
+### Azure model-validation output budgets
+
+Some Azure Responses deployments reject Claude Code's tiny model-switch validation budget.
+If your deployment reports that `max_output_tokens` is below its minimum, configure
+`minMaxOutputTokens` on that Azure provider to the minimum your endpoint requires (for
+example, `16` for an endpoint that reports that minimum). This is opt-in: it raises every
+smaller positive integer budget on that provider, not just validation requests. Larger
+budgets are preserved, and other adapters do not apply this setting in this change.
+Spend admission reserves the effective output budget before dispatch, including each Combo
+target's prepaid send. A configured spend ceiling can therefore reject a request whose
+raised output allowance would exceed that ceiling.
+
+```json
+{
+  "providers": {
+    "azure": {
+      "adapter": "azure-openai",
+      "baseUrl": "https://YOUR_RESOURCE.openai.azure.com/openai/v1",
+      "apiKey": "${AZURE_OPENAI_API_KEY}",
+      "minMaxOutputTokens": 16
+    }
+  }
+}
+```
+
+### Native Chat thinking replay
+
+These Chat reasoning lists also apply to native `/v1/chat/completions` tool-call continuation.
+The proxy preserves supplied `reasoning_content` and restores omitted reasoning from upstream
+JSON or SSE responses using tool-call ids. Original reasoning replay requires a stable
+`thread-id`, `session_id`, or `session-id` header on each request and the same provider, endpoint,
+model and credential. The cache is process-local and bounded; a restart, expiry, eviction, or
+missing conversation header uses the configured minimal placeholder instead. A placeholder
+cannot reconstruct lost reasoning. Clients should retain upstream `reasoning_content` in their
+assistant history for reliable resumed conversations.
+
+When `preserveReasoningContentModels` is unset, DeepSeek Flash/Pro model names are recognized
+across versions, including `deepseek-v4.1-flash`, namespaced ids and gateway suffixes. Explicit
+lists remain authoritative: `preserveReasoningContentModels: []` disables automatic repair,
+while `requiresReasoningPlaceholderModels: []` disables placeholders and still allows cached
+original reasoning. Other model families require the preserve declaration.
+Tool-enabled DeepSeek requests also require reasoning on earlier assistant answers without tool
+calls. The configured placeholder fills these omissions; no original reasoning can be recovered
+from the tool-call cache for those turns. Preserve their supplied reasoning for full fidelity.

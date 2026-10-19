@@ -7,6 +7,42 @@ opencodex 在 `/v1/responses` 之外還提供 `POST /v1/messages`（以及 `coun
 Code 可以使用每一個已路由的供應商——包括 OAuth 登入、帳號池、金鑰故障轉移和 sidecar——
 而無需進行任何額外的身分驗證設定。
 
+## Tier defaults for CLI and external launchers
+
+In the Claude Code tab, select an Opus, Sonnet, Haiku or Fable default and **Save**.
+These `claudeCode.tierModels` defaults are passed to new `ocx claude` launches. They do not
+change the currently selected main model, reasoning effort or Desktop family assignments.
+
+Applications that launch `claude` directly do not receive the `ocx` launcher's environment.
+After saving, choose **Preview Claude settings**, review the `ANTHROPIC_DEFAULT_*_MODEL`
+changes, then **Apply to Claude settings**. This changes the OpenCodex host's Claude user
+settings, not a remote browser's computer. Start a new Claude process to use the new values;
+the operation does not stop or restart existing sessions. It does not configure routing or
+authentication, so the direct caller must already be connected to OpenCodex.
+
+Selected routing aliases are paired with `ANTHROPIC_DEFAULT_*_MODEL_NAME` labels, using the
+same readable names as the model picker. Preview includes both IDs and label changes; the
+alias remains the submitted model ID. An existing label is managed only if it exactly matches
+the generated name for its current alias. Other labels, including empty values, are preserved.
+A manually entered label identical to that generated name is indistinguishable from a managed label.
+
+Only explicitly selected tier IDs are applied. An unset tier leaves its existing model ID
+and its display label untouched. Replacing an alias with a first-party
+ID or another non-alias also removes its matching generated label. Preview shows label removal
+as an empty replacement; custom labels and unrelated settings remain intact.
+Missing files are supported, but existing empty or corrupt files are
+refused. Changes since preview require a new preview. Apply briefly moves the current
+document into a private `model-default-backups/apply-*/settings.json` directory under the
+Claude config directory, validates the captured document, then publishes exclusively.
+It never replaces a concurrent writer's new file, including during rollback. Avoid editing
+or launching Claude while applying: another reader can see the brief missing-file interval.
+The filesystem must support same-volume moves and hard links; unsupported operations fail
+without an overwrite fallback. After an interrupted apply or a failed automatic restore,
+inspect this backup location and reconcile newer edits before restoring. Windows/Linux
+filesystem behavior must be verified separately; a local test is not cross-platform proof.
+Verify the resolved provider/model in request logs: selecting a tier is not proof of the
+actual model served. This is especially useful for external classifiers requesting Sonnet.
+
 ## Claude OAuth 帳號池（實驗性）
 
 你可以透過 Providers 儀表板登入多個 Claude 帳號（`ocx login anthropic` / add-account）。預設
@@ -41,6 +77,35 @@ Anthropic 未認可自動帳號池；同一組織的帳號可能共用配額（�
 
 請見 [Configuration](/zh-tw/reference/configuration/providers/#anthropicaccountpool實驗性)。
 
+### Native Messages with account pooling
+
+Managed native Messages show validated caller effort in Logs and `usage.jsonl`, including each
+attempt: an explicit effort such as `xhigh` or `low`, `none` for disabled thinking, or
+`budget:<tokens>` for an enabled thinking budget. An explicit effort takes precedence over the
+thinking fallback. Adaptive thinking without an explicit effort stays blank. These labels describe
+request controls; they do not confirm what effort the upstream applied or change the wire body.
+
+An enabled Anthropic account pool prefers native Messages for eligible direct Anthropic routes
+when neither native rollout flag explicitly disables that path. In Providers → Anthropic →
+Account pooling → **How account selection works**, **Preserve native Claude requests** stores
+`anthropicAccountPool.nativeMessages` (default true). Turning it off selects the legacy bridge
+for pooled requests. With pooling off, the explicit native rollout settings keep their behavior.
+
+Explicit `protocols.rollout.managedMessagesNative: false` disables both native paths;
+`managedMessagesNativeOAuth: false` disables native OAuth. Invalid present settings fail closed.
+The checkbox shows the saved preference, so an enabled checkbox does not override these flags
+or a route that requires proxy translation. Native requests retain history/cache breakpoints,
+session affinity, model routes, pause/cooldown exclusions and bounded pre-output recovery.
+
+Recognized native CLI and Desktop Code requests retain their billing/identity preamble and
+supported feature beta headers. Generated requests keep the SDK identity shape. Declared custom
+tools use consistent names across deferred references and inline additions/removals, while
+arguments, schemas and cache markers remain unchanged. Ambiguous declarations are rejected.
+An account switch may start a cold cache; this does not transfer caches or guarantee cache hits.
+For inline tool changes in system messages, send the required `inline-tools-2026-09-15` beta;
+the first-party native builder preserves it with typed blocks independently of client recognition.
+See [Claude’s inline tool contract](https://platform.claude.com/docs/en/build-with-claude/mid-conversation-system-messages).
+
 ## 快速入門
 
 ```bash
@@ -57,7 +122,8 @@ ocx claude
 | `CLAUDE_CODE_AUTO_COMPACT_WINDOW` | 自動上下文壓縮閾值（預設 `829800`）；僅在啟用自動上下文時注入 |
 | `ANTHROPIC_MODEL` | `claudeCode.model`（可選） |
 | `ANTHROPIC_DEFAULT_HAIKU_MODEL` | `claudeCode.tierModels.haiku ?? claudeCode.smallFastModel`（可選，也包括舊版 `ANTHROPIC_SMALL_FAST_MODEL`） |
-| `ANTHROPIC_DEFAULT_{OPUS,SONNET,FABLE}_MODEL` | `claudeCode.tierModels.*`（以訂閱方式啟動且未設定時為原生 `claude-opus-5-5[1m]` / `claude-sonnet-5[1m]` / `claude-fable-5-1[1m]`） |
+| `ANTHROPIC_DEFAULT_{OPUS,SONNET,FABLE}_MODEL` | `claudeCode.tierModels.*`（以訂閱方式啟動且未設定時為原生 `claude-opus-5-5[1m]` / `claude-sonnet-5-5[1m]` / `claude-fable-5-1[1m]`） |
+| `ANTHROPIC_DEFAULT_{OPUS,SONNET,FABLE,HAIKU}_MODEL_NAME` | OpenCodex 將層級槽位設為路由別名時對應的 `/model` 標籤（例如 `ocx-claude-native--gpt-6.1-sol` → `gpt-6.1-sol (native)`）。launchd 系統環境與 shell 掛鉤中也成對寫入。模型 ID 仍為別名。您自行設定的槽位或標籤不會被修改 |
 | `CLAUDE_CODE_ALWAYS_ENABLE_EFFORT` | 啟用 `alwaysEnableEffort` 時設為 `1`（條件注入） |
 | `ENABLE_TOOL_SEARCH` | 設定 `claudeCode.toolSearch` 時注入（條件注入，預設關閉） |
 | `CLAUDE_CODE_MAX_CONTEXT_TOKENS` | 設定 `maxContextTokens` 時使用的舊版上下文覆蓋項（條件注入） |
@@ -98,7 +164,7 @@ claude.ai 訂閱改用 API 計費。`ocx claude` 現在會忽略只由專案 dot
 Claude Code 需要在 `ANTHROPIC_AUTH_TOKEN` 中有 token 才能與閘道器通訊，但設定該變數也會停用
 你的 claude.ai 登入及其聯結器。你要哪一種，取決於 opencodex 可以查到的狀態，因此預設會自動判斷。
 
-在 **Claude → Claude Code** 中把 **認證模式** 保持為 **自動**（預設值），opencodex 會在每次
+在 **連線 → Claude** 中把 **認證模式** 保持為 **自動**（預設值），opencodex 會在每次
 啟動時決定：
 
 | 偵測結果 | 行為 |
@@ -120,7 +186,7 @@ Claude Code 需要在 `ANTHROPIC_AUTH_TOKEN` 中有 token 才能與閘道器通�
 
 ## Claude Desktop 模式：閘道（預設）與第一方
 
-在儀表板的 **Claude → Desktop → 連線模式**，或透過
+在儀表板的 **連線 → Claude Desktop → 連線模式**，或透過
 `ocx claude desktop apply --first-party|--gateway` 選擇互斥的模式。
 
 ### 閘道（預設）
@@ -163,19 +229,28 @@ Desktop 第一方模式透過 OpenCodex 處理 Code 分頁及其子代理。獨�
 會以 `intercept_disabled` 拒絕，新安裝則套用閘道。不會覆寫其他代理的設定。
 切換模式後請完全結束並重新開啟 Desktop。
 
+
+在 連線 → Claude 開啟 CLI 開關，或執行 `ocx claude config set --first-party on`；關閉時使用 `off`。若本機代理無法使用、CA 無法準備、設定無法讀取，或代理鍵由其他程式擁有，開啟要求會被拒絕。關閉仍可儲存。只有 Desktop 第一方模式開啟時，若要讓終端機完全原生直連，請在 shell 設定 `NO_PROXY='*'`。上述帳號風險也適用於 CLI。 第一方模式開啟期間，OpenCodex 也會在 `~/.claude/settings.json` 的 `NO_PROXY` 加入 `127.0.0.1`、`localhost`、`::1` 和 `0.0.0.0`，讓本機 MCP 伺服器（包括 `*.localhost` 名稱）略過代理；其他 `127.x` 位址請自行加入。既有的 `NO_PROXY` 只會補上缺少的項目，關閉後，若 OpenCodex 已成功記錄原本的值且你之後未修改，就會還原原本的值；否則保留目前的值（包括新增的項目）。
 ### Picker 模式：在第一方 Code 分頁顯示 opencodex 模型
 
-Picker 模式是第一方模式的一部分。在 macOS 上選擇第一方時預設開啟；設定
+Picker 模式是第一方模式的一部分。在 macOS 和 Windows 上選擇第一方時預設開啟；設定
 `claudeCode.intercept.picker: false` 後會保持關閉。它會修改第一方 Desktop 的 Code 分頁模型選擇器，
-依名稱列出可用的 opencodex 模型。首次開啟時，macOS 可能會要求你在登入鑰匙圈中信任本機憑證授權單位。
-該授權單位限制為 `claude.ai` 及其子網域。其簽章金鑰只存在於執行中的 OpenCodex 處理程序內，因此每次重新啟動
-OpenCodex 都會發佈新的授權單位，macOS 也會再次請求信任——請在每次重新啟動後核准該提示，或稍後執行
-`ocx claude desktop picker trust`。
+依名稱列出可用的 opencodex 模型。首次開啟時，macOS 可能會要求你在登入鑰匙圈中、Windows 可能會要求你在目前使用者根存放區中信任本機憑證授權單位。
+該授權單位限制為 `claude.ai` 及其子網域。可匯出的簽章身分由 OS 認證資料儲存區保護，一般重新啟動會重用相同的憑證與金鑰。
+OpenCodex 設定目錄不會儲存明文 Picker 簽章金鑰。受限 CA 的完整驗證與 OS 信任檢查仍然適用(Windows 按精確指紋與已驗證葉片驗證)。
+已核准的身分不變且認證資料儲存區可用時，重新啟動不會新增或移除 macOS 憑證信任設定。啟動復原與狀態檢查絕不會安裝信任：
+若信任缺失、遭撤銷或無法確認，Picker 會維持待處理狀態。請明確執行 `ocx claude desktop picker on`
+或 `ocx claude desktop picker trust` 來授予信任(Windows 需要時含確認)。
+
+從舊身分進行一次性移轉時，清除原有信任可能需要同意。清理未完成時，Picker 無法使用，已套用的設定檔
+會使用不解密的中繼。macOS 也可能另外要求解鎖鑰匙圈或核准應用程式存取憑證，重新啟動或升級時也可能出現這些提示。Windows 上明確執行 `on` 或 `trust` 可能顯示新增根的確認。
+Linux 仍不支援 Picker，不會啟動 Picker CA、認證資料儲存區或代理作業。主要 Claude 攔截功能仍可用，
+其本機 CA 檔案受到擁有者、符號連結、檔案權限及 Windows ACL 檢查保護。
 
 Picker 模式開啟期間，Claude Desktop 會透過 OpenCodex 存取網路。如果 OpenCodex 停止，Desktop 會離線，
 直到你完全重新啟動 Desktop 或關閉 Picker 模式。使用 `ocx claude desktop picker status` 查看狀態，
 使用 `ocx claude desktop picker trust` 重複信任步驟，或使用 `ocx claude desktop picker off` 關閉。
-儀表板的 **Claude → Desktop** 也有相同的切換開關。選取 Picker 設定檔後，請完全結束並重新開啟 Claude Desktop。
+儀表板的 **連線 → Claude Desktop** 也有相同的切換開關。選取 Picker 設定檔後，請完全結束並重新開啟 Claude Desktop。
 
 Picker 模式屬於第一方模式，因此[第一方帳號風險](#第一方自行選擇)同樣適用。
 
@@ -239,7 +314,7 @@ unknown 表示 opencodex 無法確定設定是否仍指向自己的代理。外�
 
 只有閘道模式會將以下設定檔寫入 Desktop。
 
-Claude Desktop 使用與 Claude Code 分開的設定檔。在儀表板開啟 **Claude → Desktop**，可把每條
+Claude Desktop 使用與 Claude Code 分開的設定檔。在儀表板開啟 **連線 → Claude Desktop**，可把每條
 可用路由放到四個系列之一：Opus、Fable、Sonnet 或 Haiku。新設定檔中所有路由一開始都在 Opus。
 第一個 Opus 路由會成為整體初始預設，且每個非空系列都一定會有一個系列預設。
 
@@ -267,7 +342,7 @@ ocx claude desktop import <path> [--apply]
 檔案，因此無效檔案不會改動目前設定檔。加上 `--apply` 可在匯入有效設定檔後立即寫入 Desktop。
 `none` 僅適用於空系列；每個非空系列都必須保留一個預設。
 
-非 Anthropic 路由會得到穩定別名，例如 `claude-opus-4-8-p01q`，其後綴是以 `p` 開頭的四字元代碼。OpenCodex 仍會在內部保留合成日期槽位，
+非 Anthropic 路由會得到穩定別名，例如 `claude-fable-5-p01q`，其後綴是以 `p` 開頭的四字元代碼。OpenCodex 仍會在內部保留合成日期槽位，
 以維持既有設定檔配置的穩定性，但不會把日期當成 Desktop 模型 ID；目前的 Desktop 版本在比較作用中工作階段的模型時會移除尾端日期，
 因而可能抑制模型切換。
 真正的 Anthropic Claude 路由保留真實 id。新路由預設落在 Opus
@@ -332,6 +407,8 @@ Desktop 設定檔、模型家族分組及預設值由 hub 管理。在 hub 上�
 只有代理存取憑證不會啟用原生 Anthropic 透傳，但經過轉換的 Anthropic 路由仍可使用提示快取。
 重播保真與快取命中率比較仍是獨立工作。
 
+
+也可以在儀表板中透過 **連線 → Claude Desktop → Code 分頁模型綁定** 完成同樣操作。綁定之後，在
 ### 金鑰輪換、復原與中斷連線
 
 金鑰輪換和復原會同步更新本機連線憑證與該連線管理的 Desktop 設定中的金鑰，無須為了移轉
@@ -369,7 +446,7 @@ Claude Code 2.1.278 接受包含 `claude` 或 `anthropic` 的 ID。以 `claude-`
 | 介面 | 格式 | 示例 |
 | --- | --- | --- |
 | Claude Code CLI | `ocx-claude-<provider>--<model>`（plain）或 `ocx-claude2-…`（escaped） | `ocx-claude-native--gpt-5.6-sol` |
-| Claude Desktop 3P | `claude-opus-4-8-p<code>`（3 字元 base36 設定檔槽位） | `claude-opus-4-8-p01q` |
+| Claude Desktop 3P | `claude-fable-5-p<code>`（3 字元 base36 設定檔槽位） | `claude-fable-5-p01q` |
 
 代理會按請求選擇別名族：`?ids=cli` 或 `?ids=desktop` 優先；否則，`claude-code/*`
 user-agent 會獲得易讀的 CLI 形式，其他用戶端會獲得 Desktop 代碼形式。兩種別名族都會永久
@@ -381,7 +458,7 @@ user-agent 會獲得易讀的 CLI 形式，其他用戶端會獲得 Desktop 代�
 也同樣可解析。已儲存的舊 id 仍會路由，但 Claude Code 對它仍按 200k 計算。把已儲存的 `claude-ocx-`
 重新選一次對應的 `ocx-claude-`，跳脫的 `claude-ocx2-` 重新選一次 `ocx-claude2-`，即可同時用上真實上下文
 視窗與 compact。
-擁有權威 1M 上下文視窗的模型會多出一個 `…[1m]` 選擇器列：選中後 Claude Code 會按完整 1M 上下文
+目錄中的有效上下文視窗為 1M 或不低於預設壓縮閾值（829,800）的模型會多出一個 `…[1m]` 選擇器列：選中後 Claude Code 會按完整 1M 上下文
 計算該模型（自動壓縮仍開啟）——代理在路由前會去掉該標記。
 選中後會儲存到 Claude Code 的 `settings.json` `model` 欄位；入站請求會將別名解析回路由
 模型。在較舊的 Claude Code 版本中，選擇器保持原生——可透過 `ANTHROPIC_MODEL` 設定槽位，或在
@@ -411,8 +488,11 @@ v1 別名按字面解碼（歷史上 model ID 中包含的兩字元序列 `~s` /
 
 ### 上下文變體 `[1m]` 標記
 
-權威上下文視窗為 1M 的模型（或者啟用自動上下文時，視窗大於 200k 且至少達到壓縮閾值的模型）
-會多出一個帶 `…[1m]` 的選擇器條目。選擇它後，Claude Code 會按完整的 1M 上下文計算。
+這些判斷使用目錄中的有效視窗，其中可能包含[自訂供應商的推斷值](/zh-tw/reference/configuration/providers/#自訂供應商的上下文視窗)。推斷值並不證明中轉的實際容量。
+
+目錄中的有效上下文視窗為 1M 或不低於預設壓縮閾值（829,800）的模型會多出一個帶 `…[1m]` 的選擇器條目。
+該下限是固定的，修改壓縮值不會降低它；Anthropic 路由上的 Claude 模型必須真正達到 1M；關閉自動上下文後只對 1M 模型生效。
+超出真實視窗時會回傳 `prompt is too long` 錯誤，Claude Code 會自動壓縮。選擇它後，Claude Code 會按完整的 1M 上下文計算。
 代理會在進行別名解析和路由之前移除不區分大小寫的 `[1m]` 字尾。
 
 ## 自動上下文（突破 200k 上限的大上下文模型）
@@ -420,8 +500,8 @@ v1 別名按字面解碼（歷史上 model ID 中包含的兩字元序列 `~s` /
 對於任何無法識別的模型，Claude Code 都會按 200k token 計算。預設開啟的**自動上下文**可解決
 這一問題：
 
-1. 實際視窗大於 200k **且**至少達到自動壓縮閾值的模型，其選擇器條目和環境變數槽位會帶有
-   `[1m]` 標記。
+1. 啟動環境槽位會在目錄中的有效視窗大於 200k **且**至少達到所設定的自動壓縮閾值時帶上
+   `[1m]` 標記。探索列表和 Desktop 選擇器條目不跟隨該閾值：它們使用固定的 829,800 token 下限（Anthropic 路由上的 Claude 模型必須真正達到 1M）。
 2. 系統會注入 `CLAUDE_CODE_AUTO_COMPACT_WINDOW`（預設 `829800`，範圍 `100000`–`1000000`），
    使對話在該位置自動進行摘要。
 
@@ -434,8 +514,28 @@ v1 別名按字面解碼（歷史上 model ID 中包含的兩字元序列 `~s` /
 可以在 Claude 頁面調整壓縮值。**警告：**如果將其提高到超過模型的實際視窗，該模型將無法正常
 工作——聊天會在觸發摘要之前報錯。
 
-低於 1M 的原生 Anthropic 模型絕不會被自動標記。你自行匯出的值始終優先（代理會使用**你的**
-值來判斷哪些模型可以安全標記）。手動編輯設定時填入的無效值會回退到 829,800。
+正規化上下文超限錯誤時，只使用提供方錯誤訊息的前 65,536 個 UTF-16 程式碼單元。
+後面的診斷資訊或 token 數可能被捨棄，且不會新增截斷標記。
+詳細限制和 token 數處理條件請參閱[英文指南](/zh-tw/guides/claude-code/#自動上下文突破-200k-上限的大上下文模型)。
+
+低於 1M 的原生 Anthropic 模型絕不會被自動標記。你自行匯出的壓縮值在啟動槽位標記上始終優先（代理會使用**你的**
+值來判斷哪些模型可以安全標記）。探索列表忽略該匯出值並保持固定下限。手動編輯設定時填入的無效值會回退到 829,800。
+
+### Context accounting (1M by default, 200k opt-in)
+
+`claudeCode.contextAccounting` decides what opencodex picks by default. Absent (`1m`, the
+default), long-window models are offered at 1M in the launch env slots, the Desktop pickers,
+Desktop 3P (`prefer1m`) and generated subagents. Set `200k` to opt out: nothing is marked `[1m]`
+automatically, `CLAUDE_CODE_AUTO_COMPACT_WINDOW` is not injected, and Desktop 3P drops `prefer1m`
+while keeping `supports1m`. A selector you mark `[1m]` yourself stays available (generated and
+forced subagents still drop a marker the model's window cannot carry), and discovery still lists
+the `· 1M` rows of models with catalog windows of at least 1M. `200k` wins over auto-context: a
+compact window you export no longer turns automatic marking on, though opencodex leaves your own
+export in place.
+
+```bash
+ocx claude config set --context-accounting 200k
+```
 
 ### 有效模型環境變數
 
@@ -551,9 +651,22 @@ Search 和圖像描述沿用儲存庫已有的 Claude Code OAuth fingerprint 先
 
 <!-- TODO(WP5 GUI): GUI 控制元件完成後補充 sidecar 設定頁面操作說明。 -->
 
+## Client tools on Cursor routes
+
+When Claude Code uses a Cursor-backed model, OpenCodex preserves recognized client tool names
+such as `Bash`, `Read`, `Write`, `Edit`, `Grep`, `Glob`, and `Task` in the Cursor catalog, tool
+guidance, and replayed calls. This keeps the names consistent with Claude Code's instructions.
+Denied Cursor-native execution frames direct the model to the client tools available that turn.
+
+A mixed catalog containing a bare Codex `exec_command` or `shell_command` bridge uses wire
+aliases such as `ocx_client_Read` to avoid Cursor tool collisions; calls returned to Claude Code
+still use its original tool names. Namespaced MCP tools keep their namespaced identities.
+OpenCodex includes these aliases in Cursor's transport byte budget, so a tool whose definition
+would exceed the limit is omitted for that turn.
+
 ## 推理強度
 
-Claude Code 的 `/effort` 設定會完整保留並傳遞給適配器：
+對於從 Messages 轉換為 Responses 的請求，Claude Code 的 `/effort` 設定依下表對映：
 
 | 傳輸格式 | 對映 |
 | --- | --- |
@@ -561,7 +674,9 @@ Claude Code 的 `/effort` 設定會完整保留並傳遞給適配器：
 | `thinking.type: "enabled"` + `budget_tokens` | ≤4096→`low`，≤16384→`medium`，更高→`high` |
 | `thinking.type: "disabled"` | `reasoning: { effort: "none" }`；省略摘要 |
 
-解析後的值會顯示在請求日誌的 **Reasoning effort** 列中。
+對於轉換後的請求，對映得到的等級會顯示在請求日誌的 **Reasoning effort** 欄中。
+受管理的原生 Messages 請求在沒有可識別的 `output_config.effort` 時，將啟用的 thinking 預算記錄為
+`budget:<tokens>`；此日誌記錄不會變更傳輸的請求本文。
 
 ## 入站轉換（Messages → Responses）
 
@@ -670,16 +785,18 @@ HMAC 等值標籤。**不會儲存提示文字、原始物件或跨執行穩定�
 
 ## GUI（Claude 頁面）
 
-儀表板側邊欄有一個專用的 **Claude** 頁面（位於 API 下方）和 **Claude ON** 開關
-（標籤特意在所有語言中保持一致）。該頁面顯示：
+儀表板的 **連線 → Claude** 在同一頁面顯示 Claude Code 設定。**Claude Desktop** 是 **連線** 下的另一個分頁。連線概覽中的 Claude 卡片也提供同一個連線開關。
+頁面由上到下依序顯示：
 
-- 入站總開關（啟用開關）
-- 快速入門（`ocx claude`）和手動環境變數塊
-- Fast Mode 選擇器（Auto / ON / OFF）
-- 自動上下文開關和壓縮閾值下拉選單
-- 子代理自動註冊開關
-- 模型攔截（modelMap）編輯器
-- 選擇器別名即時預覽
+- **Claude Code CLI 第一方** 開關。
+- **開始使用**：`ocx claude` 和手動環境變數區塊。
+- **一般**：Fast Mode、自動上下文、壓縮閾值和子代理自動註冊設定。
+- **背景輔助模型**：選擇用於聊天摘要、主題識別等背景工作的模型。
+- **模型攔截**：將特定模型請求重新導向其他模型的 `modelMap` 編輯器。
+- **可用模型**：`/model` 選單中模型別名的即時預覽。
+- **Claude 連線** 開關。
+
+頁面底部的儲存列在捲動時保持可見，顯示 **沒有變更** 或 **有未儲存的變更**。**還原** 撤銷未儲存的設定變更；**儲存** 儲存編輯後的設定。**Claude 連線** 和 **Claude Code CLI 第一方** 開關立即生效；**儲存** 永遠不會改變這兩個開關的狀態。
 
 `GET /api/claude-code` 回傳有效預設值、設定、上下文視窗登錄表、有效環境變數、可用路由 ID、
 別名和埠。`PUT /api/claude-code` 接受部分更新並保留省略的欄位；`null` 會重置
@@ -709,7 +826,7 @@ OAuth 活動帳號未標記 `needsReauth`。顯式選擇 Anthropic 卻沒有可�
 `ANTHROPIC_BASE_URL` 可能已經過時。請開啟一個新終端，或重新執行 `ocx claude`。
 
 **大模型仍受 200k 上下文上限限制**——在選擇器中選擇 `[1m]` 變體，或啟用自動上下文
-（預設開啟）。如果選擇器中沒有 `[1m]` 條目，該模型的權威上下文視窗可能低於自動壓縮閾值。
+（預設開啟）。如果選擇器中沒有 `[1m]` 條目，該模型在目錄中的有效上下文視窗可能低於固定的 829,800 token 下限。
 
 **技能載入導致 token 數量過高**——內建的 `claude-api` 技能（約 136k token）會在提及
 Claude 模型時自動載入。對於原生透傳，這是正常現象；對於已路由模型，opencodex 預設會將其
@@ -739,7 +856,7 @@ host，Claude Code 就會關閉 MCP 工具延遲載入。這項檢查依據的�
 **子代理派發到錯誤模型**——名冊代理（`ocx-*`）使用 `<!-- ocx-route: ... -->` 指令，
 而不是 Agent 工具的 `model` 引數。請確保指令與預期路由一致。請省略 `model` 參數，不要傳入佔位值。
 
-在 `config.json` 中設定 `claudeCode.stabilizePromptCache: true`，可在轉換路由上將系統指令末尾支援的 Claude 提示移到最後一則使用者訊息。預設值為 `false`。僅在用戶端允許這種角色變更時啟用。程式碼圍欄中的範例和不符合的文字會保留，Anthropic 原生轉送不變。沒有中繼資料時，快取鍵依穩定後的指令計算。此選項不會產生對話識別碼，也不保證上游快取命中。
+在 `config.json` 中設定 `claudeCode.stabilizePromptCache: true`，可在轉換路由上移除系統指令末尾支援的 Claude 提示。辨識出的 `<total_tokens>N tokens left</total_tokens>` 格式的 token 頁尾會被刪除，包括重複出現的頁尾。TaskCreate 提醒仍依原有方式移到末尾的使用者訊息；如果移除的只有 token 頁尾，就不會新增輸入訊息。預設值為 `false`。僅在用戶端允許這種角色變更時啟用。程式碼圍欄中的範例和不符合的文字會保留，Anthropic 原生轉送不變。沒有中繼資料時，快取鍵依穩定後的指令計算。此選項不會產生對話識別碼，也不保證上游快取命中。
 
 在所有轉換後的 Chat 路由上，時間線提醒都會保留在對話中的原有位置（排在尚待傳回的工具結果之後）。因此，新增提醒不會重寫開頭的系統提示，對話中途的指令也不會被移到它原本應跟隨的輪次之前。該位置攜帶哪個角色是另外決定的：除非提供者記錄了 `foldDeveloperRoleToSystem: false`，否則提醒以 `system` 傳送；該記錄表示上游接受 `developer` 角色，此時提醒在相同位置照原樣轉送。不接受該角色的上游會回應 `400 role 'developer' is not allowed`，該回合根本無法開始，所以未記錄的目的地採用摺疊。無論 `stabilizePromptCache` 是否啟用，此行為都會生效；Anthropic 原生轉送維持不變。快取重用仍需要穩定的工作階段識別碼和可用的上游快取。修改較早的指令或工具、壓縮對話也可能影響快取命中；僅保留提醒順序並不保證快取重用。
 
@@ -753,3 +870,17 @@ host，Claude Code 就會關閉 MCP 工具延遲載入。這項檢查依據的�
 ### 第一方 picker 的上下文標記
 
 Desktop Code 分頁的 picker 會對權威上下文視窗至少一百萬 token 的路由模型加上 `[1m]`，讓 Claude 使用它的 1M 計算方式，而不是較小的自訂模型後備值。標籤、設定檔順序與供應商路由維持不變。未知與不到百萬的視窗維持不加標記，包括原生的長視窗選擇加入：picker 無法保證 Desktop 或遠端 runner 會收到相符的壓縮環境。`ocx claude` 搭配的自動上下文設定不變。既有的對話會保留它已儲存的選擇器，直到你從重新整理後的 picker 再次選擇該模型。
+
+### Forced Claude Code subagent model
+
+The Subagents page offers **Force all subagents onto one model**, off by default. Select an exposed roster-style id, such as `combo/tev-auto`, then enable the switch. The roster is offered first; unavailable saved roster entries cannot be force targets.
+
+`ocx agent subagents force combo/tev-auto` sets `claudeCode.subagentModelForce`; `ocx agent subagents force -` clears it. `ocx agent status` reports the setting. `GET /api/subagent-models` returns `force`, `forceAvailable`, and `forceStatus`; `PUT` accepts `{ "force": "combo/tev-auto" }` or `{ "force": null }` without changing the roster. Omitting `force` leaves it unchanged. Invalid or unexposed targets are rejected on write; stale targets are reported and skipped at launch.
+
+This takes effect on the **next routed `ocx claude` launch**, injecting `CLAUDE_CODE_SUBAGENT_MODEL` as an explicit proxy alias (with `[1m]` when the effective catalog window reaches the fixed 829,800-token floor, and only for a genuine 1M window on Anthropic Claude models and bare `claude-*` selectors; native Claude targets use a reversible native alias) and `CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1`. Each nonempty shell-exported variable independently wins. Native launches inject neither variable; plain `claude` is not affected. No plugin files or `settings.json` are modified by this setting.
+
+Claude Code **2.1.257 or newer** is required for FORCE. Plugin and built-in agents (including Explore/Plan) and per-call model arguments are overridden. Forks and subagent skills with `model: inherit` keep the main conversation model. The main loop and Haiku/small-fast sidecars are unaffected. Existing roster files remain available.
+
+The dashboard warns about old or unknown CLI versions, unavailable targets, and either variable already present in `settings.json` → `env` (which overrides launch env). Detection is read-only and server-local: it cannot inspect another launch shell, another machine, or project-local settings. An unknown result is not proof of force support.
+
+Explicit gateway selectors on a generated agent request take precedence over its legacy `ocx-route` fallback, even if the saved force setting changes after launch. For shell or settings overrides of generated roster agents, use an explicit gateway alias; bare Claude ids retain the older-client fallback behavior. Native aliases restore their bare model before the existing credential and model-map checks. Connected launches validate force targets against a fresh authenticated gateway catalog; failed discovery skips automatic force injection, and cached context windows alone never prove availability.

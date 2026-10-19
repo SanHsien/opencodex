@@ -95,3 +95,13 @@ OpenAI 的 bare `gpt-*` 使用單一 `openai` provider。`codexAccountMode` 在 
 - **字首模式只是一種便利**，而非保證：只有當確實設定了同名（例如 `anthropic`、`openai`、`groq`）的供應商時，它們才會解析成功。
 
 這些規則讀取的供應商欄位請參見 [設定](/zh-tw/reference/configuration/)。
+
+## Structured output on Cursor routes
+
+Cursor routes translate Responses `text.format` (`json_object` or `json_schema`) into explicit
+final-answer instructions in the system context and active request, including tool-result
+continuations. This is a prompt fallback: Cursor does not provide native constrained JSON decoding
+on this transport, and models can still return an invalid answer. The adapter does not turn prose
+into an approval decision. Auto-review callers should validate the returned JSON and use a
+structured-output-capable route when strict enforcement is required. Ordinary text requests and
+intermediate tool calls keep their existing behavior.

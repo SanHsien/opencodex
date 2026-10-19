@@ -13,6 +13,16 @@ Routing turns the model id sent by a client into one concrete provider and upstr
 | `combos?` | `Record<string, OcxComboConfig>` | `{}` | Virtual `combo/<id>` models built from ordered provider/model targets. |
 | `routingProfiles?` | `Record<string, OcxRoutingProfileConfig>` | `{}` | Virtual `policy/<id>` models that select among an explicit candidate allowlist using hard capability requirements and deterministic scoring. |
 
+### Model alias discovery
+
+Set `preferModelAliasIds: true` to publish configured or enabled built-in model aliases
+as the `id` in `GET /v1/models`. The default is `false`. Promoted rows retain their
+previous qualified ID in `native_id` and keep `alias_of`; both IDs remain routable.
+Models without aliases keep their existing IDs. If a short alias is ambiguous across
+providers or is shadowed by another route, the row keeps its qualified ID so selecting
+it still reaches the intended model. The qualified ID also stays when a built-in short
+alias would produce an unparseable synthetic Fast selector. Codex's own model catalog is unchanged.
+
 ### Codex Pool low-quota protection
 
 `codexPool.lowQuotaProtection` applies only to stored Codex Pool accounts. The Desktop/main
@@ -138,7 +148,8 @@ namespace, and cannot use reserved bare native families such as `gpt-*`, `o1-*`,
 
 | Key | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `targets` | `{ provider: string; model: string; weight?: number; lastResort?: boolean }[]` | required | Ordered concrete routes. `weight` is 1–10000 and defaults to `1`. `lastResort` marks an emergency-only target; see `cooldownWaitPolicy`. |
+| `targets` | `{ provider: string; model: string; weight?: number; lastResort?: boolean; metered?: boolean }[]` | required | Ordered concrete routes. `weight` is 1–10000 and defaults to `1`. `lastResort` marks an emergency-only target; see `cooldownWaitPolicy`. `metered: true` requires key consent or loopback-only combo consent; see [consent](/guides/combos/#metered-fallback-consent). |
+| `allowMeteredTargets?` | `boolean` | `false` | Operator consent for local callers on a loopback-only proxy. A non-loopback listener disables this flag; configured-key and linked callers still need key consent. |
 | `strategy?` | `"failover" \| "round-robin" \| "random" \| "least-used" \| "reset-window" \| "jev"` | `"failover"` | Selection strategy. Target order is failover priority; weights shape round-robin and random draws; least-used follows recorded successes; reset-window follows the soonest quota reset; JEV makes one bounded decision for the initial eligible target and effort, then uses ordinary ordered fallback. |
 | `stickyLimit?` | `number` | `1` | Successful requests retained in one round-robin batch. Range 1–100. Applies only to round-robin. |
 | `cooldownMs?` | `number` | unset → upstream fallback (5 s for request-rate 429 codes `1302`/`1305`, otherwise 60 s) | Range 1–600000. When set, applies whenever no usable upstream `Retry-After` or Codex reset signal exists, including request-rate 429s; when unset, uses the upstream fallback. Upstream signals take precedence. An explicit upstream `Retry-After` is capped at 24 hours; reset-derived, configured, and fallback cooldowns are capped at 10 minutes. |
@@ -151,7 +162,7 @@ namespace, and cannot use reserved bare native families such as `gpt-*`, `o1-*`,
 | `alias?` | `string` | — | Optional public model id in place of the canonical picker slug. |
 | `nativeAlias?` | `boolean` | `false` | Let a currently supported bare native id take precedence only for that unqualified id. Bare `gpt-5.6-*` ids use Codex Pool/Direct credentials. Account-qualified routes remain distinct. Provider-qualified routes such as `openai-apikey/gpt-5.6-*` use their configured API-key route and never fall through to the native alias. |
 | `displayName?` | `string` | — | Display-only catalog label, required and non-empty for a native alias. |
-| `decisionProvider?` | `string` | `"jev"` | `strategy: "jev"` only. `"jev"` (the same as omitting it, and stored as omission) is the TypeSafe decision service, valid without a provider row; any other value must name a configured provider with `adapter: "jev-decision"` whose `baseUrl` ends in `/systemone`. |
+| `decisionProvider?` | `string` | `"jev"` | `strategy: "jev"` only. `"jev"` (the same as omitting it, and stored as omission) is the TypeSafe decision service, valid without a provider row; any other value must name a configured provider with `adapter: "jev-decision"` and a full HTTPS decision `baseUrl` (any path) or a local HTTP `/systemone` endpoint. Userinfo, query strings, and fragments are refused. |
 | `decisionModel?` | `string` | unset | `strategy: "jev"` only, mutually exclusive with `decisionProvider`. An ordinary opencodex route (for example `ollama/qwen3:4b`) asked to pick one offered option as JSON. It runs with the selected provider's stored credentials, never the caller's, and cannot resolve to this combo, any JEV combo, or a `jev-decision` row. |
 | `decisionTimeoutMs?` | `number` | `4000` | `strategy: "jev"` only. Decision deadline before failing open, 1000–120000 ms. |
 
@@ -182,7 +193,10 @@ only currently eligible members of `targets`; missing, failed, or invalid decisi
 eligible member, while caller cancellation remains terminal. Adding the provider or Combo never
 changes `defaultProvider` or hides direct model rows. See
 [Decision method](/guides/combos/#decision-method) for the three methods, setup, privacy bounds, and
-the one-decision-per-call contract.
+the one-decision-per-call contract. API-key provider/model scopes also apply to TypeSafe and
+self-hosted decision destinations, before their credentials or request state are read. If the key
+denies the optional decision destination, no decision request is sent; the ordinary eligible
+inference fallback still has to satisfy that key's scope.
 
 ### Self-hosted decision model (e.g. Ollama tev1)
 
@@ -364,7 +378,8 @@ Returned history and route-decision payloads expose only masked request metadata
 (for example opaque `apiKeyId` labels). They do not include credentials, raw
 prompt bodies, or provider secrets.
 
-CLI: `ocx logs explain <request-id>`, `ocx logs rebuild-index`,
+CLI: `ocx logs history`, `ocx logs get <request-id>`,
+`ocx logs explain <request-id>`, `ocx logs rebuild-index`,
 `ocx logs index-status`, `ocx route policy list | show | dry-run | evaluate`.
 
 ## Migration
@@ -373,5 +388,9 @@ CLI: `ocx logs explain <request-id>`, `ocx logs rebuild-index`,
 unchanged. Old `usage.jsonl` rows without `routeDecision` parse unchanged.
 The history index is disposable - deleting `routing-history.sqlite` triggers
 an automatic rebuild from `usage.jsonl` on the next query; `ocx logs
-rebuild-index` forces one. Nothing in this system auto-tunes weights,
-budgets, or candidate sets.
+rebuild-index` forces one. Once `usage.jsonl` reaches 1 MiB, a rebuild runs on
+a worker thread, so the proxy keeps serving requests while it runs. Until it
+finishes, history queries wait for it and routing profiles treat historical
+health as unknown evidence (the profile's `unknownEvidence.health` policy
+applies). Nothing in this system auto-tunes weights, budgets, or candidate
+sets.

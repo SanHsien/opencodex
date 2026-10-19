@@ -149,6 +149,7 @@ export default defineConfig({
                 { label: "Providers", translations: { "zh-TW": "供應商" }, slug: "reference/configuration/providers" },
                 { label: "Routing", translations: { "zh-TW": "路由" }, slug: "reference/configuration/routing" },
                 { label: "Agents", translations: { "zh-TW": "代理" }, slug: "reference/configuration/agents" },
+                { label: "Advisor", translations: { "zh-TW": "顧問" }, slug: "reference/configuration/advisor" },
                 { label: "Server & Runtime", translations: { "zh-TW": "伺服器與執行階段" }, slug: "reference/configuration/server" },
               ],
             },

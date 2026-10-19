@@ -102,10 +102,15 @@ export function readBoundedRegularFile(path: string, maxBytes: number): BoundedF
     } catch {
       return { kind: "refused", reason: "changed-while-reading" };
     }
+    // Mode and owner are compared too (v2.88 hardening of the shim state reader): a chmod/chown
+    // between the lexical stat, the open and the last byte is not a trustworthy read.
     if (before.dev !== after.dev || before.ino !== after.ino || before.size !== after.size
       || before.mtimeMs !== after.mtimeMs || before.ctimeMs !== after.ctimeMs
+      || before.mode !== after.mode || before.uid !== after.uid
+      || lexicalBefore.mode !== before.mode || lexicalBefore.uid !== before.uid
       || lexicalAfter.isSymbolicLink() || !lexicalAfter.isFile()
-      || lexicalAfter.dev !== after.dev || lexicalAfter.ino !== after.ino) {
+      || lexicalAfter.dev !== after.dev || lexicalAfter.ino !== after.ino
+      || lexicalAfter.mode !== after.mode || lexicalAfter.uid !== after.uid) {
       return { kind: "refused", reason: lexicalAfter.isSymbolicLink() || !lexicalAfter.isFile() ? "not-a-regular-file" : "changed-while-reading" };
     }
     return { kind: "present", bytes: buffer, content: buffer.toString("utf8"), stat: after };
@@ -123,4 +128,62 @@ export function readBoundedRegularFile(path: string, maxBytes: number): BoundedF
 export function readBoundedRegularFileText(path: string, maxBytes: number): string | null {
   const result = readBoundedRegularFile(path, maxBytes);
   return result.kind === "present" ? result.content : null;
+}
+
+// Upstream (v2.88) synchronous Buffer reader used by gentle-shell-path and integrations/config-io.
+const MAX_BOUNDED_READ_BYTES = 64 * 1024 * 1024;
+const READ_CHUNK_BYTES = 64 * 1024;
+
+function sameIdentity(
+  left: { dev: bigint; ino: bigint },
+  right: { dev: bigint; ino: bigint },
+): boolean {
+  return left.dev === right.dev && left.ino === right.ino;
+}
+
+export function readBoundedRegularFileSync(path: string, limit: number): Buffer {
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > MAX_BOUNDED_READ_BYTES) {
+    throw new RangeError("invalid bounded file read limit");
+  }
+
+  const windows = process.platform === "win32";
+  const flags = constants.O_RDONLY | (windows ? 0 : constants.O_NONBLOCK | constants.O_NOFOLLOW);
+  const entryBefore = windows ? lstatSync(path, { bigint: true }) : undefined;
+  if (entryBefore && (entryBefore.isSymbolicLink() || !entryBefore.isFile())) {
+    throw new Error("not a regular file");
+  }
+  const fd = openSync(path, flags);
+  try {
+    const opened = fstatSync(fd, { bigint: true });
+    if (!opened.isFile() || opened.size > BigInt(limit)) throw new Error("file is not bounded regular data");
+    if (entryBefore && (!sameIdentity(entryBefore, opened) || opened.ino === 0n)) {
+      throw new Error("file entry changed while opening");
+    }
+
+    // Start near the observed size, but keep probing up to limit + 1 if the file grows.
+    let bytes = Buffer.alloc(Number(opened.size) + 1);
+    let length = 0;
+    while (length < limit + 1) {
+      if (length === bytes.length) {
+        const capacity = Math.min(limit + 1, Math.max(bytes.length * 2, bytes.length + READ_CHUNK_BYTES));
+        const next = Buffer.alloc(capacity);
+        bytes.copy(next, 0, 0, length);
+        bytes = next;
+      }
+      const count = readSync(fd, bytes, length, Math.min(READ_CHUNK_BYTES, bytes.length - length), null);
+      if (count === 0) break;
+      length += count;
+    }
+    if (length > limit) throw new Error("file exceeds byte limit");
+
+    if (entryBefore) {
+      const entryAfter = lstatSync(path, { bigint: true });
+      if (entryAfter.isSymbolicLink() || !entryAfter.isFile() || !sameIdentity(opened, entryAfter)) {
+        throw new Error("file entry changed while reading");
+      }
+    }
+    return bytes.subarray(0, length);
+  } finally {
+    closeSync(fd);
+  }
 }

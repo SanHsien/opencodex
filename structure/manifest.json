@@ -44,6 +44,13 @@
   ],
   "docs": [
     {
+      "path": "providers/generic-account-pool.md",
+      "tier": 4,
+      "title": "Generic OAuth Account Pool",
+      "scope": "Opt-in conversation ownership, request-local selection receipts and bounded release for generic OAuth pools.",
+      "documents": ["src/oauth/", "src/server/", "src/types/"]
+    },
+    {
       "path": "overview.md",
       "tier": 1,
       "title": "Overview",
@@ -116,12 +123,49 @@
       ]
     },
     {
+      "path": "codex-provider-routing.md",
+      "tier": 2,
+      "title": "Custom Codex Provider Routing",
+      "scope": "Explicit provider-ID routing consent, URL-only publication and recovery.",
+      "documents": ["src/codex/provider-routing.ts", "src/cli/codex-provider.ts"]
+    },
+    {
       "path": "codex-home.md",
       "tier": 2,
       "title": "Codex Home",
       "scope": "CODEX_HOME resolution, the files opencodex manages there, and Codex-home diagnostics.",
       "documents": [
         "src/codex/"
+      ]
+    },
+    {
+      "path": "codex-prompts.md",
+      "tier": 2,
+      "title": "Codex Prompts",
+      "scope": "Prompt-layer repair, base import previews and bounded text-probe sources.",
+      "documents": [
+        "src/codex/",
+        "src/server/"
+      ]
+    },
+    {
+      "path": "local-messaging.md",
+      "tier": 3,
+      "title": "Local Codex Messaging",
+      "scope": "Command-local metadata discovery, Unix RPC queued submission, peer envelopes, receipts and owned lifecycle bounds.",
+      "documents": [
+        "src/messaging/",
+        "src/cli/"
+      ]
+    },
+    {
+      "path": "codex-cli-update.md",
+      "tier": 2,
+      "title": "Codex CLI Update Plan",
+      "scope": "Read-only update planning, isolated npm environment, and complete process observation.",
+      "documents": [
+        "src/codex/cli-update-plan.ts",
+        "src/codex/app-server-processes.ts"
       ]
     },
     {
@@ -136,6 +180,26 @@
       ]
     },
     {
+      "path": "catalog-vendor-context.md",
+      "tier": 2,
+      "title": "Custom-provider context estimates",
+      "scope": "Bundled model-ID window fallback, ambiguity handling, and inferred-capacity provenance.",
+      "documents": [
+        "src/codex/catalog/vendor-context.ts",
+        "src/codex/catalog/model-hints.ts",
+        "src/codex/catalog/parsing.ts",
+        "src/codex/catalog/routed-gather.ts",
+        "src/codex/catalog/effort.ts"
+      ]
+    },
+    {
+      "path": "catalog-effort-clamp.md",
+      "tier": 2,
+      "title": "Effort-clamp observations",
+      "scope": "Persisted effort-clamp observation identity and idempotent sync notices.",
+      "documents": ["src/codex/runtime.ts", "src/codex/catalog/effort.ts"]
+    },
+    {
       "path": "subagents.md",
       "tier": 2,
       "title": "Subagents And Multi-Agent Surface",
@@ -147,15 +211,51 @@
       ]
     },
     {
+      "path": "subagent-capacity.md",
+      "tier": 2,
+      "title": "Subagent Surface And Capacity",
+      "scope": "Surface mode, hybrid global flag, concurrent child limits and canonical Codex setting ownership.",
+      "documents": [
+        "src/codex/"
+      ]
+    },
+    {
+      "path": "advisor.md",
+      "tier": 2,
+      "title": "Advisor Sidecar",
+      "scope": "The optional expert consultation sidecar: manual/preflight/adaptive policies, evidence, durable task allowance, metadata activity, and loopback routing.",
+      "documents": [
+        "src/advisor/",
+        "src/server/responses/advisor-slot.ts",
+        "src/server/responses/advisor-plan-slot.ts",
+        "src/server/inference/advisor-diagnostics.ts",
+        "src/lib/advisor-activation.ts"
+      ]
+    },
+    {
       "path": "transports/byte-accounting.md",
       "tier": 3,
       "title": "Byte Accounting",
-      "scope": "Request-copy and stream-buffer byte accounting shared by parsing, SSE rewriting, the adapters, and the translator budget.",
+      "scope": "Request-copy and stream-buffer byte accounting shared by parsing, SSE rewriting, the adapters, and the translator budget, plus durable spill admission.",
       "documents": [
         "src/adapters/",
         "src/chat/",
         "src/lib/",
-        "src/server/"
+        "src/server/",
+        "src/responses/"
+      ]
+    },
+    {
+      "path": "transports/anthropic-thinking-recovery.md",
+      "tier": 3,
+      "title": "Anthropic Thinking-Signature Recovery",
+      "scope": "One-shot exact signature-binding recovery before output, and successful-retry memo boundaries.",
+      "documents": [
+        "src/server/responses/anthropic-thinking-recovery.ts",
+        "src/adapters/anthropic-rejection-memo.ts",
+        "src/adapters/anthropic-replay.ts",
+        "src/adapters/anthropic-tool-catalog.ts",
+        "src/responses/reasoning-replay-cache.ts"
       ]
     },
     {
@@ -168,6 +268,20 @@
         "src/bridge/",
         "src/responses/",
         "src/server/"
+      ]
+    },
+    {
+      "path": "transports/native-reasoning-retention.md",
+      "tier": 3,
+      "title": "Native Reasoning Retention",
+      "scope": "Optional native reasoning ciphertext forwarding on model/account switches, configuration and management controls.",
+      "documents": [
+        "src/config/",
+        "src/types/",
+        "src/responses/",
+        "src/server/",
+        "src/adapters/",
+        "gui/"
       ]
     },
     {
@@ -195,16 +309,16 @@
       ]
     },
     {
-        "path": "transports/policy-fallback.md",
-        "tier": 3,
-        "title": "Policy Candidate Fallback",
-        "scope": "Original policy authorization, concrete candidate retries and physical destination deduplication.",
-        "documents": [
-          "src/server/"
-        ]
-      },
-      {
-        "path": "transports/responses-spend.md",
+      "path": "transports/policy-fallback.md",
+      "tier": 3,
+      "title": "Policy Candidate Fallback",
+      "scope": "Original policy authorization, concrete candidate retries and physical destination deduplication.",
+      "documents": [
+        "src/server/"
+      ]
+    },
+    {
+      "path": "transports/responses-spend.md",
       "tier": 3,
       "title": "Responses Spend Reservations",
       "scope": "Credential-hop and durable spend reservations, and what a spent budget tells the client.",
@@ -273,11 +387,41 @@
       ]
     },
     {
+      "path": "providers/anthropic-progress.md",
+      "tier": 4,
+      "title": "Anthropic progress updates",
+      "scope": "Opus 5.5 progress display, visible commentary, and exact signed-block replay.",
+      "documents": ["src/adapters/", "src/bridge/", "src/responses/", "src/claude/", "src/types/", "src/server/", "src/web-search/", "src/images/"]
+    },
+    {
       "path": "providers/anthropic-account-thresholds.md",
       "tier": 4,
       "title": "Anthropic Account Thresholds",
       "scope": "Account-owned usage thresholds, inheritance, routing boundaries and durable policy changes.",
+      "documents": [
+        "src/oauth/"
+      ]
+    },
+    {
+      "path": "providers/meta-muse.md",
+      "tier": 4,
+      "title": "Meta Muse Login",
+      "scope": "CLI credential import, approval lifecycle, explicit recovery and account-free login diagnostics.",
+      "documents": ["src/oauth/meta-muse.ts", "src/oauth/meta-muse-keychain.ts", "src/oauth/meta-muse-errors.ts", "src/oauth/login-cli.ts"]
+    },
+    {
+      "path": "providers/oauth-reconciliation.md",
+      "tier": 4,
+      "title": "OAuth Preset Reconciliation",
+      "scope": "Operator limits and per-model declarations across startup reconciliation and OAuth upsert.",
       "documents": ["src/oauth/"]
+    },
+    {
+      "path": "providers/claude-cli-replay.md",
+      "tier": 4,
+      "title": "Claude CLI Replay",
+      "scope": "Claude CLI stable replay, canonical tool schemas, capture-only client tool ownership and subscription usage admission.",
+      "documents": ["src/adapters/"]
     },
     {
       "path": "providers-and-adapters.md",
@@ -308,14 +452,48 @@
       ]
     },
     {
+      "path": "providers/anthropic-key-billing.md",
+      "tier": 4,
+      "title": "Anthropic API-key Billing Recovery",
+      "scope": "Exact billing refusal evidence, immutable physical credential ownership, pacing provenance and bounded pre-output key recovery.",
+      "documents": [
+        "src/providers/anthropic-billing-refusal.ts",
+        "src/providers/anthropic-billing-ownership.ts",
+        "src/providers/anthropic-billing-recovery.ts",
+        "src/providers/request-pacing.ts"
+      ]
+    },
+    {
+      "path": "providers/dsh-account.md",
+      "tier": 4,
+      "title": "DeepSeek Harness Account Provider",
+      "scope": "Explicit read-only DSH credential import, verified account identity, disabled refresh, pinned inference and probe destinations, and authoritative-empty quota.",
+      "documents": [
+        "src/oauth/dsh.ts",
+        "src/adapters/dsh-account.ts",
+        "src/providers/dsh-account-destination.ts",
+        "src/providers/quota/dsh-account.ts"
+      ]
+    },
+    {
       "path": "providers/anthropic-account-pool.md",
       "tier": 4,
       "title": "Anthropic Account Pool",
-      "scope": "Anthropic OAuth account pause, model routes, and quota labels.",
+      "scope": "Anthropic OAuth instances (primary and Pool 2), account pause, model routes, quota labels, and pool-bound helpers, quota, reset grants and management surfaces.",
       "documents": [
         "src/oauth/",
-        "src/providers/"
+        "src/providers/",
+        "src/providers/quota/anthropic-account-quota.ts",
+        "src/server/management/anthropic-pool-settings.ts",
+        "src/sidecar/anthropic-binding.ts"
       ]
+    },
+    {
+      "path": "providers/oauth-code-display-login.md",
+      "tier": 4,
+      "title": "OAuth Code-Display Login",
+      "scope": "Headless code-display OAuth login: flow ownership, expiry, unsupported providers, single-operator store.",
+      "documents": ["src/oauth/", "src/server/management/"]
     },
     {
       "path": "providers/openai-tiers.md",
@@ -335,6 +513,13 @@
         "src/codex/",
         "src/config.ts"
       ]
+    },
+    {
+      "path": "providers/openai-signed-in-preservation.md",
+      "tier": 4,
+      "title": "Preserve Signed-In Codex Quota",
+      "scope": "Opt-in effective priority bands that spend other pool accounts before the signed-in identity, its identity observation and management API.",
+      "documents": ["src/codex/account-preservation.ts", "src/codex/signed-in-identity.ts", "src/codex/auth-api/account-preservation.ts", "src/cli/account-preservation.ts"]
     },
     {
       "path": "providers/cursor.md",
@@ -414,6 +599,17 @@
       ]
     },
     {
+      "path": "cli-management.md",
+      "tier": 5,
+      "title": "CLI management and discovery",
+      "scope": "Terminal help and capability metadata, management-client output and the generated operating reference.",
+      "documents": [
+        "src/cli/",
+        "scripts/generate-ocx-skill-surface.ts",
+        "skills/ocx/"
+      ]
+    },
+    {
       "path": "gui-and-management-api.md",
       "tier": 5,
       "title": "GUI And Management API",
@@ -439,8 +635,26 @@
         "src/codex/",
         "src/lib/",
         "src/quota/",
+        "src/routing/history/",
         "src/server/",
         "src/usage/"
+      ]
+    },
+    {
+      "path": "pricing.md",
+      "tier": 5,
+      "title": "Model Price Overrides",
+      "scope": "User price policies, prompt-length rate selection, persistence and estimate cache invalidation.",
+      "documents": [
+        "src/config/live-reconcile.ts",
+        "src/cli/models-runtime.ts",
+        "src/types/provider.ts",
+        "src/config/schema/leaf-validators.ts",
+        "src/server/management/model-routes.ts",
+        "src/usage/cost.ts",
+        "src/usage/user-cost-overlays.ts",
+        "src/usage/user-cost-validation.ts",
+        "gui/src/components/ModelPriceDialog.tsx"
       ]
     },
     {
@@ -454,6 +668,13 @@
         "src/integrations/",
         "src/lib/"
       ]
+    },
+    {
+      "path": "clients/codex-desktop.md",
+      "tier": 5,
+      "title": "Codex Desktop Compatibility",
+      "scope": "Windows package activation, restart context, and protected compatibility authority persistence.",
+      "documents": ["src/codex/", "src/cli/"]
     },
     {
       "path": "clients/chatgpt-desktop.md",
@@ -479,6 +700,25 @@
       ]
     },
     {
+      "path": "clients/claude-desktop-config-reads.md",
+      "tier": 5,
+      "title": "Claude Desktop Configuration Reads",
+      "scope": "Verified regular-file reads of Claude Desktop config-library metadata, profiles and snapshots.",
+      "documents": [
+        "src/claude/"
+      ]
+    },
+    {
+      "path": "clients/qoder.md",
+      "tier": 5,
+      "title": "Qoder Client Integration",
+      "scope": "Qoder settings.json provider and custom-model ownership, export and loopback placeholder rules.",
+      "documents": [
+        "src/clients/",
+        "src/integrations/"
+      ]
+    },
+    {
       "path": "desktop-shell.md",
       "tier": 6,
       "title": "Desktop shell",
@@ -486,6 +726,32 @@
       "documents": [
         "desktop/",
         "src/server/management/companion-routes.ts"
+      ]
+    },
+    {
+      "path": "desktop-terminal-command.md",
+      "tier": 6,
+      "title": "Desktop-owned terminal command",
+      "scope": "Desktop-owned ocx command on PATH: record and journal, POSIX shim and shell blocks, Windows user Path, private-path ACL policy, and the local Terminal command page.",
+      "documents": [
+        "desktop/src-tauri/src/cli_command.rs",
+        "desktop/src-tauri/src/cli_command_record.rs",
+        "desktop/src-tauri/src/cli_command_posix.rs",
+        "desktop/src-tauri/src/cli_command_windows.rs",
+        "desktop/ui/cli.html",
+        "desktop/ui/cli.js"
+      ]
+    },
+    {
+      "path": "desktop-start-at-login.md",
+      "tier": 6,
+      "title": "Desktop Start at Login",
+      "scope": "macOS tray Start at Login judgment shared with Startup safety, its parity fixture, click rules, and the guarded launch-origin migration.",
+      "documents": [
+        "desktop/src-tauri/src/first_run.rs",
+        "desktop/src-tauri/src/login_registration.rs",
+        "desktop/src-tauri/src/tray_login.rs",
+        "src/service/desktop-startup.ts"
       ]
     },
     {
@@ -499,6 +765,38 @@
         "src/service-manager-probe.ts",
         "src/sidecar/",
         "src/update/"
+      ]
+    },
+    {
+      "path": "ops/service-logging.md",
+      "tier": 6,
+      "title": "Managed Service Logging",
+      "scope": "Service-only console timestamps and bounded copy-truncate log retention.",
+      "documents": ["src/service/logging.ts"]
+    },
+    {
+      "path": "ops/service-health-recovery.md",
+      "tier": 6,
+      "title": "Service Health Recovery",
+      "scope": "Opt-in sentinel that turns a hung but listening managed service proxy into an exit its manager restarts.",
+      "documents": [
+        "src/service/health-sentinel-launch.ts",
+        "src/service/health-sentinel-main.ts",
+        "src/service/health-sentinel-linux.ts",
+        "src/service/health-sentinel-policy.ts",
+        "src/service/health-sentinel-probe.ts",
+        "src/service/health-sentinel-windows.ts"
+      ]
+    },
+    {
+      "path": "ops/update-supervised-recovery.md",
+      "tier": 6,
+      "title": "Update Supervised Recovery",
+      "scope": "Manager-first recovery after a failed post-update service refresh, and the non-zero unsupervised fallback.",
+      "documents": [
+        "src/update/supervised-recovery.mjs",
+        "src/update/job-supervised-restart.ts",
+        "src/update/job.ts"
       ]
     },
     {
@@ -549,9 +847,12 @@
       "path": "remote-link.md",
       "tier": 3,
       "title": "Remote Link",
-      "scope": "SSH machine-link building blocks: OpenSSH argument policy, ssh_config candidates, tunnel lifecycle reducer and the private link store.",
+      "scope": "SSH machine-link building blocks: OpenSSH argument policy, ssh_config candidates, tunnel lifecycle reducer, the private link store, and standalone pairing-grant delivery.",
       "documents": [
-        "src/link/"
+        "src/link/",
+        "src/lib/gui-pair-intent.ts",
+        "src/lib/windows-owner-acl.ts",
+        "src/server/gui-pair-delivery.ts"
       ]
     },
     {

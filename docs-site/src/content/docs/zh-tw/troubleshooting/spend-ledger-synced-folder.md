@@ -3,56 +3,69 @@ title: 同步資料夾中的支出帳本被拒絕
 description: 當 opencodex 狀態目錄位於 iCloud Drive 或其他同步資料夾內時，為什麼請求會以「Spend-ledger storage could not be opened safely」失敗，以及如何修正。
 ---
 
-部分 macOS 使用者看到請求間歇性地以 HTTP 502 與下列訊息失敗，而同一個工作階段中的其他請求卻成功：
+Spend-ledger storage refusals return HTTP 503 with error type `server_error` and code
+`spend_ledger_storage_unavailable`. This is a local storage problem; it does not count against
+provider or account health. Request logs attribute it as `local-refusal`. An already streaming response carries the same code in its terminal
+error event. Other requests in the same session may succeed if the file condition is temporary.
 
-```text
-Provider unreachable: Spend-ledger storage could not be opened safely.
-```
-
-目前的版本會指出是哪個檔案、哪項檢查拒絕了它，例如：
+Older builds reported HTTP 502 with a misleading "Provider unreachable" prefix. Current builds
+say which file and which check refused it, for example:
 
 ```text
 Spend-ledger storage could not be opened safely (journal: extra-hard-link).
 ```
 
-## 這項檢查是什麼
+## What the check is
 
-opencodex 在狀態目錄（預設 `~/.opencodex`，或 `OPENCODEX_HOME`）中保存支出帳本：一個日誌檔 `spend-ledger.jsonl`，以及一個
-鹽值檔 `spend-ledger.salt`。每次寫入前，它會檢查每個檔案都是屬於你的一般檔案、不是符號連結，且恰好只有一個目錄項目。
-第二個 hard link 代表磁碟區上其他地方的另一個名稱可以看到或修改同樣的位元組，所以 opencodex 會拒絕，而不是透過它寫入。
-這項檢查刻意保持嚴格。
+opencodex keeps a spend ledger in its state directory (`~/.opencodex` by default, or
+`OPENCODEX_HOME`): a journal file, `spend-ledger.jsonl`, and a salt file, `spend-ledger.salt`.
+Before every write it checks that each file is a regular file owned by you, is not a symbolic
+link, and has exactly one directory entry. A second hard link would mean another name elsewhere
+on the volume can see or change the same bytes, so opencodex refuses instead of writing through
+it. This check stays strict on purpose.
 
-| 訊息中的條件 | 意義 |
+| Condition in the message | Meaning |
 | --- | --- |
-| `extra-hard-link` | 另一個目錄項目指向同一個檔案。 |
-| `symbolic-link` | 帳本檔案是符號連結。 |
-| `not-regular-file` | 帳本路徑上放的不是一般檔案。 |
-| `foreign-owner` | 檔案屬於不同的使用者。 |
-| `invalid-salt` | 鹽值檔存在，但內容不是有效的鹽值。 |
+| `extra-hard-link` | Another directory entry points at the same file. |
+| `symbolic-link` | The ledger file is a symbolic link. |
+| `not-regular-file` | Something other than a regular file sits at the ledger path. |
+| `foreign-owner` | The file belongs to a different user. |
+| `invalid-salt` | The salt file exists but its content is not a valid salt. |
 
-訊息中的角色是 `journal`、`journal-compaction`（壓縮日誌時寫入的暫存檔）或 `salt`。
+The role in the message is `journal`, `journal-compaction` (the temporary file written while
+the journal is compacted) or `salt`.
 
-## 為什麼同步資料夾會觸發它
+## Why a synced folder triggers it
 
-macOS 的同步服務，包括開啟「桌面與文件資料夾」的 iCloud Drive，以及 OneDrive、Dropbox、Google Drive 等 File Provider
-用戶端，在暫存或上傳變更時，可能會短暫地對檔案保留第二個連結。如果狀態目錄位於這類資料夾內，日誌在一次普通寫入之後可能
-有一瞬間有兩個連結。恰好落在那個時刻的請求會被拒絕，下一個請求可能就成功了。同步穩定後檔案又回到一個連結，所以事後檢查
-不會看到任何異常。
+macOS sync services, including iCloud Drive with "Desktop & Documents Folders" turned on and
+File Provider clients such as OneDrive, Dropbox and Google Drive, can briefly keep a second link
+to a file while they stage or upload a change. If the state directory is inside such a folder,
+the journal can have two links for a moment after an ordinary write. A request that lands in
+that moment is refused, and the next one may succeed. Once the sync settles, the file is back to
+one link, so inspecting it afterwards shows nothing wrong.
 
-啟動時，當狀態目錄解析到 iCloud Drive（`~/Library/Mobile Documents`）、File Provider 資料夾（`~/Library/CloudStorage`），
-或在 iCloud 桌面與文件同步看似開啟時解析到桌面或文件資料夾內，opencodex 現在會發出警告。這個警告僅供參考。偵測只讀取
-資料夾配置，兩個方向都可能判斷錯誤。
+At startup opencodex warns when the state directory resolves inside iCloud Drive
+(`~/Library/Mobile Documents`), a File Provider folder (`~/Library/CloudStorage`), Desktop
+or Documents while iCloud Desktop & Documents sync appears to be on, or Desktop or Documents
+while Google Drive for desktop appears to be in use. The Google Drive hint is the presence
+of `~/Library/CloudStorage/GoogleDrive-*` or `~/Library/Application Support/Google/DriveFS`.
+It does not read which folders the app was told to sync, so Drive being installed can warn
+even when Documents is not selected. The warning is advisory. The detection reads the folder
+layout and can be wrong in either direction.
 
-## 修正
+## Fix
 
-請讓狀態目錄保持在同步資料夾之外。預設的 `~/.opencodex` 不會被同步。
+Keep the state directory outside synced folders. The default `~/.opencodex` is not synced.
 
-1. 停止 opencodex。
-2. 把狀態目錄移動或複製到未同步的位置，例如 `~/.opencodex-trial`。
-3. 把 `OPENCODEX_HOME` 設為該位置，或取消設定以使用預設值，然後重新啟動 opencodex。
+1. Stop opencodex.
+2. Move or copy the state directory to an unsynced location, for example `~/.opencodex-trial`.
+3. Set `OPENCODEX_HOME` to that location, or unset it to use the default, and start opencodex
+   again.
 
-不要為了讓錯誤消失而刪除日誌、放寬它的權限，或移除這項檢查。日誌保存著你記錄下來的支出，而這項檢查正是避免它被寫入
-透過意外連結的原因。
+Do not delete the journal, relax its permissions, or remove the check to make the error go away.
+The journal holds your recorded spend, and the check is what keeps it from being written through
+an unexpected link.
 
-如果訊息指出的條件不是 `extra-hard-link`，或狀態目錄不在同步資料夾內，請連同完整的拒絕訊息開一個 issue。訊息中不含路徑、
-帳號或請求內容。
+If the message names a condition other than `extra-hard-link`, or the state directory is not in
+a synced folder, please open an issue with the full refusal message. It contains no path,
+account or request content.

@@ -20,6 +20,8 @@ export const OCX_REASONING_PREFIX = "ocxr1:";
 export interface ReasoningEnvelope {
   /** Anthropic thinking-block signature (signature_delta), if captured. */
   sig?: string;
+  /** ID of the immediately following commentary copy of this signed thinking block. */
+  upd?: string;
   /** Raw redacted_thinking block data payloads, order preserved. */
   red?: string[];
   /**
@@ -36,6 +38,32 @@ export interface ReasoningEnvelope {
    * same way a signature does.
    */
   krc?: string;
+  /**
+   * A Responses provider's own `encrypted_content` for one reasoning item, minted while serving
+   * `model` (the client-facing model the Claude route was asked for). The Claude route has no
+   * other channel to hand a provider its reasoning back: the body is `store: false` and Claude
+   * Code replays only the thinking block. `src/claude/inbound.ts` restores it only for a request
+   * naming the same model, so a model switch cannot carry it to a provider that cannot decrypt it.
+   */
+  nat?: NativeReasoning;
+}
+
+export interface NativeReasoning {
+  /** The provider's opaque `encrypted_content`, verbatim. */
+  enc: string;
+  /** Client-facing model the item was produced for. */
+  model: string;
+  /** Route-bound HMAC for this exact ciphertext. */
+  tag: string;
+  /** The provider's reasoning item id, when it sent one. */
+  id?: string;
+}
+
+function decodeNativeReasoning(value: unknown): NativeReasoning | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const { enc, model, id, tag } = value as { enc?: unknown; model?: unknown; id?: unknown; tag?: unknown };
+  if (typeof enc !== "string" || enc.length === 0 || typeof model !== "string" || model.length === 0 || typeof tag !== "string" || tag.length === 0) return undefined;
+  return typeof id === "string" && id.length > 0 ? { enc, model, tag, id } : { enc, model, tag };
 }
 
 export function encodeReasoningEnvelope(envelope: ReasoningEnvelope, budget?: TranslatorBudget): string {
@@ -107,6 +135,8 @@ export function decodeReasoningEnvelope(encryptedContent: string, budget?: Trans
       const obj = parsed as { sig?: unknown; red?: unknown };
       const envelope: ReasoningEnvelope = {};
       if (typeof obj.sig === "string") envelope.sig = obj.sig;
+      const upd = (parsed as { upd?: unknown }).upd;
+      if (typeof upd === "string" && /^msg_[a-f0-9]{32}$/.test(upd)) envelope.upd = upd;
       if (Array.isArray(obj.red)) {
         const red = obj.red.filter((r): r is string => typeof r === "string");
         if (red.length > 0) envelope.red = red;
@@ -116,7 +146,9 @@ export function decodeReasoningEnvelope(encryptedContent: string, budget?: Trans
       if (hasTxt) envelope.txt = txt;
       const krc = (parsed as { krc?: unknown }).krc;
       if (typeof krc === "string" && krc.length > 0) envelope.krc = krc;
-      return envelope.sig || envelope.red || hasTxt || envelope.krc ? envelope : null;
+      const nat = decodeNativeReasoning((parsed as { nat?: unknown }).nat);
+      if (nat) envelope.nat = nat;
+      return envelope.sig || envelope.red || hasTxt || envelope.krc || envelope.nat ? envelope : null;
     } catch {
       return null;
     } finally {

@@ -16,6 +16,31 @@ Codex 會收到最終的失敗，並自行掌管有界的重試策略。正值�
 不要為了讓等待看得見而加入合成的 reasoning、tool、assistant 或成功項目：這些項目可能污染歷史，或暗示有工作發生過。
 不要縮短供應商的延遲，也不要為了推進用戶端的重試計數器而刻意觸發額外的請求。
 
+## Triage: `exceeded retry limit, last status: 429 Too Many Requests`
+
+The message is the client's retry budget summary, not a diagnosis. One refusal
+that the client does not retransmit can end a turn in the same words as a
+fully exhausted budget, so treat the text as a question. Three cases look
+identical at this layer and are checked differently.
+
+| Check | Distinguishing evidence | If the check is positive |
+| --- | --- | --- |
+| Main-account hard lock (local admission policy) | The dashboard Settings or `GET /api/settings` reports the policy state, such as `mainAccountHardLock.state` being `blocked`, `ready`, or `off`, with `thresholds` and an optional `resetAt`. A non-streaming request may also carry an explicit main-policy body instead of a bare upstream 429. | Refresh usage with `ocx account refresh openai`; fresh usage below every blocking threshold or validated window absence releases the lock. If it remains blocked, wait for fresh lower usage or explicitly turn `codexMainAccountHardLock` off in Settings. Builds before [#6287](https://github.com/lidge-jun/opencodex/pull/6287) could keep an obsolete short-window block across restarts when no fresh observation ever replaced it; the release semantics are described in the [closing note on #6244](https://github.com/lidge-jun/opencodex/issues/6244). |
+| Upstream ChatGPT plan window | The account quota section shows a 5-hour or weekly window at or near its limit while the lock reports `ready` or `off`. | Wait for the window to reset, inspect any reset option ChatGPT offers ([banked reset rules](https://help.openai.com/en/articles/20001498-how-banked-codex-resets-work), [plan windows](https://help.openai.com/en/articles/11369540-using-codex-with-your-chatgpt-plan)), or serve the request on another account with `ocx account use openai <id>`. For explicitly authorized paid-credit use after the limit, see [account credit policy](/zh-tw/reference/cli/providers-accounts/#pool-policy-account-thresholds-and-paid-credit-intent). The credit-balance rediscovery defect in [#6845](https://github.com/lidge-jun/opencodex/issues/6845) was fixed by [#6886](https://github.com/lidge-jun/opencodex/pull/6886). |
+| Provider incident or transport failure | Quota stays low, the lock stays released, and `ocx doctor` reports transport or ChatGPT reachability problems. | Retry after the incident clears or reroute through an existing combo. Changing lock or threshold policy is not a cure for a transport failure. |
+
+A locked main credential closes request admission; it does not reserve the
+account's remaining quota, and a predicted reset never releases the block on
+its own. The thresholds (by default `short` 90, `long` 98) are visible in the
+status payload and configurable through `codexMainAccountHardLockThresholds`.
+
+A hard-lock refusal is reported as `usage_limit_reached`, so Codex ends the turn
+and marks an active Goal as usage-limited instead of waiting for days in a
+retry. The suggested retry time is the main account's reset or, for a request
+that the account pool routed to the main account, the earliest known time another
+pool account recovers, whichever comes first (never sooner than one minute).
+Resume the Goal after that time; routing then picks an account from fresh state.
+
 ## 為什麼第一個重新連線列可能不出現
 
 公開的 Codex `rust-v0.158.0-alpha.2.1` 原始碼，在

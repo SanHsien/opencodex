@@ -381,7 +381,7 @@ describe("sidecar on429 wiring", () => {
 
     // Anthropic's pool is excluded from generic failover, so it needs its own arm here or a 429
     // inside a web-search/image turn is terminal while the same 429 on the main path rotates.
-    const anthropic = body.indexOf("rotateAnthropicAccountOnResponse(");
+    const anthropic = body.indexOf("rotateAnthropicAccountOnResponseForInstance(anthropicInstance,");
     expect(anthropic).toBeGreaterThan(oauth);
 
     // REACHABILITY, not mention. The first draft of this arm sat behind an unconditional early
@@ -426,9 +426,12 @@ describe("sidecar on429 wiring", () => {
     // bearer by hand would reintroduce the mixed-identity bug this helper exists to prevent.
     const snapshotUses = coreSource.match(/failoverAccountSnapshot\(/g) ?? [];
     const helperUses = coreSource.match(/applyFailoverSnapshot\(snapshot(?:, (?:next|retry)Parsed)?\)/g) ?? [];
-    // Eight includes Antigravity auth rotation, Kiro branches and native passthrough.
+    // Ten includes Antigravity auth rotation, Kiro branches, native passthrough, the
+    // Antigravity 403 verify-account arm, which replays through the same snapshot helper
+    // so the rotated bearer keeps its account-matched project, and the web-search sidecar's
+    // structured VALIDATION_REQUIRED rotation (#6710), which uses the same helper.
     // The explicit count keeps a newly added rotation site from skipping identity pairing.
-    expect(snapshotUses.length).toBe(8);
+    expect(snapshotUses.length).toBe(10);
     expect(helperUses.length).toBe(snapshotUses.length);
     // The bearer is written in exactly one place — inside the helper. Any other occurrence is a
     // rotation site that skipped the pairing rules.
@@ -546,7 +549,7 @@ describe("sidecar on429 wiring", () => {
     // identical limit recovers one loop over.
     const rotators = {
       key: /hasKeyPoolFailover\(/g,
-      anthropic: /rotateAnthropicAccountOnResponse\(/g,
+      anthropic: /rotateAnthropicAccountOnResponseForInstance\(anthropicInstance,/g,
       generic: /rotateGenericOAuthAccountOn429\(/g,
     };
     const counts = Object.fromEntries(
@@ -556,21 +559,57 @@ describe("sidecar on429 wiring", () => {
     // The counts differ by rotator because the recovery sites differ, and each number is a
     // statement about which providers can recover where:
     //
-    //   generic  = 5: streaming loop, continuation loop, sidecar hook, runTurn preflight,
-    //                native Responses passthrough. The new default only moves OAuth traffic;
-    //                key-auth defaults and Anthropic's own wire/pool remain unchanged.
-    //   anthropic = 3: the same, MINUS runTurn -- that path is Cursor-only (cursor.ts is the
-    //                  sole adapter implementing runTurn), so Anthropic cannot reach it.
-    //   key       = 3: hasKeyPoolFailover guards the two 429 response loops plus the
-    //                  pre-stream 401 recovery site (a rejected key rotates instead of
-    //                  failing the request); the sidecar reaches the key pool through
+    //   generic  = 6: streaming loop, continuation loop, sidecar hook, runTurn preflight,
+    //                native Responses passthrough, plus the combo failure attribution in
+    //                core-combo.ts, which sends nothing: it records the refused account the
+    //                request budget left uncooled and spares the combo target only when the
+    //                rotator names a sibling. The Antigravity 403 verify-account
+    //                arm deliberately does NOT use this rotator: a verification refusal
+    //                must not record rate-limit cooldown semantics, so it moves via
+    //                rotateAntigravityAccountOnAuthRefusal instead. The new default
+    //                only moves OAuth traffic; key-auth defaults and Anthropic's own
+    //                wire/pool remain unchanged.
+    //   anthropic = 3: its existing HTTP recovery sites; the self-authenticated Claude
+    //                  CLI does not authorize API-key recovery through runTurn.
+    //   key       = 7: hasKeyPoolFailover guards the three existing HTTP sites (two 429
+    //                  response loops and the pre-stream 401 recovery site), the pre-output
+    //                  Anthropic credit-balance loop (#6958), plus runTurn preflight activation,
+    //                  its explicitly permitted API-key recovery arm, and the streaming
+    //                  preflight stall bound. The billing loop needs only the key rotator: an
+    //                  OAuth credit refusal already rotates through the Anthropic account
+    //                  arm, and generic OAuth has no credit-balance contract. Send-accounting
+    //                  eligibility goes through isAnthropicBillingKeyPool, which is not a
+    //                  recovery site. The sidecar reaches the key pool through
     //                  rotateProviderTransportOn429 instead.
     //
-    // Adding a fifth recovery site means deciding, deliberately, which rotators it needs and
+    // Adding a recovery site means deciding, deliberately, which rotators it needs and
     // updating the matching number. That decision is the thing this test exists to force.
-    expect(counts.generic).toBe(5);
+    expect(counts.generic).toBe(6);
     expect(counts.anthropic).toBe(3);
-    expect(counts.key).toBe(3);
+    expect(counts.key).toBe(7);
+  });
+
+  test("the verify-account arm moves via auth-refusal rotation, never rate-limit", () => {
+    // A verification refusal must not record rate-limit cooldown semantics: after
+    // reauthentication the account would otherwise stay excluded until a
+    // Retry-After or derived reset expires. The arm text is the contract.
+    const armStart = coreSource.indexOf("// Antigravity verify-account quarantine");
+    expect(armStart).toBeGreaterThan(-1);
+    const armEnd = coreSource.indexOf("// Unknown provenance", armStart);
+    expect(armEnd).toBeGreaterThan(armStart);
+    const arm = coreSource.slice(armStart, armEnd);
+    expect(arm).toContain("rotateAntigravityAccountOnAuthRefusal(");
+    expect(arm).not.toContain("rotateGenericOAuthAccountOn429(");
+    // Marking stays generation-fenced: no unfenced fallback may re-quarantine a
+    // credential that rotated after the 403 was sent.
+    expect(arm).toContain("markAccountNeedsReauthIfGeneration(");
+    expect(arm).not.toMatch(/await markAccountNeedsReauth\(route\.providerName/);
+    // Cross-account thought signatures are not a source-text claim. The dispatch
+    // test in server-google-antigravity-oauth-401-replay proves account A's
+    // durable signature is absent from the sibling replay.
+    // Recovery accounting stays truthful: this is the verify 403 path, not a rate limit.
+    expect(arm).toContain('rebuildAndRefetch("oauth-account-403"');
+    expect(arm).not.toContain('rebuildAndRefetch("oauth-account-429"');
   });
 
   test("the helper fails closed rather than pairing a new bearer with an old identity", () => {
@@ -975,5 +1014,25 @@ describe("Antigravity authentication refusal selection", () => {
     } as never);
     expect(rotateAntigravityAccountOnAuthRefusal(true, a!, old, null)).toBe(b);
     expect(eligibleFailoverAccounts("google-antigravity")).toContain(a!);
+  });
+
+  test("re-login retires only superseded auth evidence, preserving rate cooldowns", async () => {
+    const [a, b] = await seedProvider("google-antigravity", 2);
+    const cfg = { providers: { "google-antigravity": { authMode: "oauth" } } } as unknown as OcxConfig;
+    // Unrelated rate evidence on A (cla family and family-less default) plus auth
+    // evidence on A (gem family).
+    expect(rotateGenericOAuthAccountOn429(cfg, "google-antigravity", a!, "120", Date.now(), "claude-sonnet-4-6")).toBe(b);
+    expect(rotateGenericOAuthAccountOn429(cfg, "google-antigravity", a!, null, Date.now(), null)).toBe(b);
+    const generation = credentialGeneration(getAccountSet("google-antigravity")!.accounts[0]!.credential);
+    rotateAntigravityAccountOnAuthRefusal(true, a!, generation, "gemini-3.8-flash");
+    expect(eligibleFailoverAccounts("google-antigravity", Date.now(), "gem")).not.toContain(a!);
+    // Explicit re-login with fresh tokens retires the superseded auth entry only.
+    await saveCredential("google-antigravity", {
+      access: "access-new", refresh: "refresh-new", expires: Date.now() + 3_600_000,
+      accountId: "uuid-0",
+    } as never);
+    expect(eligibleFailoverAccounts("google-antigravity", Date.now(), "gem")).toContain(a!);
+    expect(eligibleFailoverAccounts("google-antigravity", Date.now(), "cla")).not.toContain(a!);
+    expect(eligibleFailoverAccounts("google-antigravity")).toEqual([b!]);
   });
 });

@@ -269,9 +269,11 @@ describe("apply", () => {
     };
     expect(doc.providers.opencodex.models["opencode-go/glm-5.3"]!.variants!.map(v => v.id))
       .toEqual(["low", "high", "max"]);
-    // The legacy block stays variant-free, and a model without a ladder gets no key at all.
-    expect(doc.provider.opencodex.models["opencode-go/glm-5.3"]).not.toHaveProperty("variants");
-    expect(doc.providers.opencodex.models["openai/gpt-5.5"]!.variants).toBeUndefined();
+    // The legacy map and native array describe the same choices; unknown ladders cannot synthesize rungs.
+    expect(doc.provider.opencodex.models["opencode-go/glm-5.3"]!.variants).toEqual({
+      low: { reasoningEffort: "low" }, high: { reasoningEffort: "high" }, max: { reasoningEffort: "max" },
+    });
+    expect(doc.providers.opencodex.models["openai/gpt-5.5"]!.variants).toEqual([]);
 
     expect(readIntegrationState(request)).toMatchObject({ state: "current" });
     expect(applyIntegration(request).ok).toBe(true);
@@ -806,7 +808,7 @@ describe("apply", () => {
   });
 
   test("refuses a loopback-only client on a remote bind without denying manual OMP headers", () => {
-    for (const clientId of ["gajae", "omp", "dsh"] as const) {
+    for (const clientId of ["gajae", "omp", "dsh", "commandcode"] as const) {
       const spec = INTEGRATION_CLIENTS[clientId];
       mkdirSync(spec.detectDir(TEST_ENV, home), { recursive: true });
       const result = applyIntegration(input({
@@ -1582,5 +1584,51 @@ describe("integration write ownership guard (#4197)", () => {
       effectiveUid: () => undefined,
       ownerUid: () => 987,
     })).not.toThrow();
+  });
+});
+
+describe("the managed file size bound", () => {
+  test("reports the retained backup if an oversized write cannot clean it up", () => {
+    const configPath = join(home, ".pi", "agent", "models.json");
+    mkdirSync(dirname(configPath), { recursive: true });
+    const seed = `{"pad":"${"x".repeat(4 * 1024 * 1024 - 256)}"}\n`;
+    writeFileSync(configPath, seed);
+    const result = applyIntegration(input({
+      clientId: "pi",
+      store: { ...store, discardUncommittedSnapshot: () => { throw new Error("cleanup denied"); } },
+    }));
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.reason).toBe("write_failed");
+      expect(result.message).toContain("could not remove the unused backup: cleanup denied");
+      expect(readFileSync(result.snapshotPath!, "utf8")).toBe(seed);
+    }
+    expect(readFileSync(configPath, "utf8")).toBe(seed);
+    expect(store.countSnapshots("pi")).toBe(1);
+    expect(store.listOperations("pi")).toEqual([]);
+  });
+
+  test("a serialized write past the read bound refuses and leaves the file alone", () => {
+    const configPath = installPi();
+    /*
+     * Just under the bound, so status and the compare-before-commit recheck
+     * still read it, while the merged document lands past it. The write must
+     * refuse: landing it would leave a config the same seam then refuses to
+     * read, stranding the integration against its own file.
+     */
+    const seed = `{"pad":"${"x".repeat(4 * 1024 * 1024 - 256)}"}\n`;
+    writeFileSync(configPath, seed);
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const result = applyIntegration(input({ clientId: "pi" }));
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.reason).toBe("write_failed");
+        expect(result.snapshotPath).toBeUndefined();
+      }
+      expect(store.countSnapshots("pi")).toBe(0);
+      expect(store.listOperations("pi")).toEqual([]);
+    }
+    expect(readFileSync(configPath, "utf8")).toBe(seed);
+    expect(readIntegrationState(input({ clientId: "pi" })).state).toBe("absent");
   });
 });

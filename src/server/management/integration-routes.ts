@@ -24,7 +24,8 @@ import {
   type IntegrationClientId,
 } from "../../integrations/registry";
 import { detectRaycast, type RaycastInstall } from "../../integrations/raycast-detect";
-import { readIntegrationState } from "../../integrations/state";
+import { readIntegrationState, readOwnedDroidReasoningDefaults } from "../../integrations/state";
+import { droidReasoningModels, validateDroidReasoningDefaults } from "../../clients/config-export";
 import { createIntegrationStateStore, type IntegrationStateStore } from "../../integrations/store";
 import {
   applyIntegrationCoordinated,
@@ -45,7 +46,7 @@ import {
 } from "../../integrations/mutation-flight";
 import { jsonResponse } from "../auth-cors";
 import { readManagementJsonBody, rethrowManagementBodyTooLarge } from "./body";
-import type { ManagementContext } from "./context";
+import { managementInferencePort, type ManagementContext } from "./context";
 import { exportSnapshotIdentity, loadExportModels, previewExportSnapshot } from "./model-rows";
 import {
   previewIntegration,
@@ -74,6 +75,10 @@ export type IntegrationStateEnvelope = {
    * the shared `IntegrationStatus`, which describes the file, not the app.
    */
   raycast?: RaycastInstall;
+  droidReasoning?: {
+    models: Array<{ model: string; label: string; efforts: string[] }>;
+    defaults: Record<string, string>;
+  };
 } & IntegrationStateRecord;
 
 export interface IntegrationStateListEnvelope {
@@ -225,7 +230,7 @@ function asideOptions(ctx: ManagementContext): AsideProfileRouteOptions {
   return {
     input: () => input ??= {
       config: ctx.config,
-      port: Number(ctx.url.port) || ctx.config.port,
+      port: managementInferencePort(ctx),
       models: () => loadExportModels(ctx.config),
       store: integrationStore(),
       ...pathOverrides(),
@@ -241,12 +246,14 @@ async function buildIntegrationWriteInput(
   clientId: IntegrationClientId,
   ctx: ManagementContext,
   store: IntegrationStateStore,
+  droidReasoningDefaults?: Record<string, string>,
 ): Promise<IntegrationWriteInput> {
   return {
     clientId,
     models: await loadExportModels(ctx.config),
     config: ctx.config,
-    port: Number(ctx.url.port) || ctx.config.port,
+    port: managementInferencePort(ctx),
+    ...(droidReasoningDefaults === undefined ? {} : { droidReasoningDefaults: { ...droidReasoningDefaults } }),
     store,
     io: integrationMutationTestHooks?.io,
     ...pathOverrides(),
@@ -265,6 +272,7 @@ async function buildIntegrationPreviewInput(
   clientId: IntegrationClientId,
   ctx: ManagementContext,
   store: IntegrationStateStore,
+  droidReasoningDefaults?: Record<string, string>,
 ): Promise<{ input: IntegrationWriteInput; identity: string } | null> {
   const snapshot = previewExportSnapshot(ctx.config);
   // No cached roster means no honest snapshot to plan against. Gathering one here would make a
@@ -276,7 +284,8 @@ async function buildIntegrationPreviewInput(
       clientId,
       models: snapshot.models,
       config: ctx.config,
-      port: Number(ctx.url.port) || ctx.config.port,
+      port: managementInferencePort(ctx),
+      ...(droidReasoningDefaults === undefined ? {} : { droidReasoningDefaults: { ...droidReasoningDefaults } }),
       store,
       io: integrationMutationTestHooks?.io,
       ...pathOverrides(),
@@ -307,6 +316,50 @@ function invalidClientResponse(ctx: ManagementContext): Response {
     code: "invalid_integration_client",
     validClients: INTEGRATION_CLIENT_IDS,
   }, 400, ctx.req, ctx.config);
+}
+
+/** Bind an explicitly scoped restore before profile delegation or mutation. */
+function restoreClientScopeResponse(ctx: ManagementContext, opId: string, expectedClientId: unknown, pathClientId?: IntegrationClientId): Response | null {
+  if (pathClientId !== undefined) {
+    if (expectedClientId !== undefined && (typeof expectedClientId !== "string" || !isIntegrationClientId(expectedClientId))) return invalidClientResponse(ctx);
+    if (expectedClientId !== undefined && expectedClientId !== pathClientId) return jsonResponse({ error: "restore identity does not match the client path", code: "integration_client_mismatch" }, 409, ctx.req, ctx.config);
+    expectedClientId = pathClientId;
+  }
+  if (expectedClientId === undefined) return null;
+  if (typeof expectedClientId !== "string" || !isIntegrationClientId(expectedClientId)) return invalidClientResponse(ctx);
+  try {
+    const operation = integrationStore().findOperation(opId);
+    if (!operation) return jsonResponse({ error: "integration operation not found", code: "integration_operation_not_found", opId }, 404, ctx.req, ctx.config);
+    if (operation.clientId !== expectedClientId) return jsonResponse({ error: "integration operation belongs to a different client", code: "integration_client_mismatch" }, 409, ctx.req, ctx.config);
+    return null;
+  } catch (error) {
+    return internalErrorResponse(error, ctx);
+  }
+}
+
+function isStringRecord(value: unknown): value is Record<string, string> {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    && Object.values(value).every(item => typeof item === "string");
+}
+
+function invalidDroidDefaultsResponse(ctx: ManagementContext, message: string): Response {
+  return jsonResponse({ error: message, code: "invalid_droid_reasoning_defaults" }, 400, ctx.req, ctx.config);
+}
+
+function readDroidReasoningDefaults(
+  ctx: ManagementContext,
+  body: Record<string, unknown>,
+  clientId: string,
+  operation: IntegrationPlanOperation,
+): Record<string, string> | Response | undefined {
+  if (!Object.hasOwn(body, "droidReasoningDefaults")) return undefined;
+  if (clientId !== "droid" || (operation !== "apply" && operation !== "overwrite")) {
+    return invalidDroidDefaultsResponse(ctx, "droidReasoningDefaults is allowed only for Droid apply or overwrite");
+  }
+  const defaults = body.droidReasoningDefaults;
+  return isStringRecord(defaults)
+    ? defaults
+    : invalidDroidDefaultsResponse(ctx, "droidReasoningDefaults must map model names to effort strings");
 }
 
 /**
@@ -364,6 +417,7 @@ function stalePlanGuard(
   request: PreviewRequest,
   fingerprint: string,
   capturedIdentity: string | null,
+  droidReasoningDefaults?: Record<string, string>,
 ): {
   revalidate: NonNullable<CoordinatedIntegrationOptions["revalidate"]>;
   response: () => Response | null;
@@ -379,7 +433,7 @@ function stalePlanGuard(
        * without ever swapping the roster this mutation is about to use.
        */
       if (exportSnapshotIdentity(ctx.config) !== capturedIdentity) {
-        const refreshed = await buildIntegrationPreviewInput(clientId, ctx, store);
+        const refreshed = await buildIntegrationPreviewInput(clientId, ctx, store, droidReasoningDefaults);
         stale = refreshed === null ? "unavailable" : previewIntegration(refreshed.input, request);
         return { ok: false, reason: "conflict", state: "conflict", clientId, message: "the model roster changed while confirming" };
       }
@@ -584,7 +638,7 @@ export async function handleIntegrationRoutes(ctx: ManagementContext): Promise<R
   if (url.pathname === "/api/client-integrations" && req.method === "GET") {
     try {
       const models = await loadExportModels(ctx.config);
-      const port = Number(url.port) || ctx.config.port;
+      const port = managementInferencePort(ctx);
       // One store for the whole collection read: without it this route retried
       // maintenance and counted snapshots in the default store even when the
       // caller had bound everything else to a temp root (A-gate round 13).
@@ -723,16 +777,24 @@ export async function handleIntegrationRoutes(ctx: ManagementContext): Promise<R
         code: "invalid_preview_operation",
       }, 400, req, ctx.config);
     }
+    const droidDefaults = readDroidReasoningDefaults(ctx, parsed, previewClient, operation);
+    if (droidDefaults instanceof Response) return droidDefaults;
     try {
-      const captured = await buildIntegrationPreviewInput(previewClient as IntegrationClientId, ctx, integrationStore());
+      const captured = await buildIntegrationPreviewInput(
+        previewClient as IntegrationClientId, ctx, integrationStore(), droidDefaults,
+      );
       if (!captured) return previewUnavailableResponse(ctx);
+      if (droidDefaults !== undefined) {
+        const invalid = validateDroidReasoningDefaults(captured.input.models, droidDefaults);
+        if (invalid) return invalidDroidDefaultsResponse(ctx, invalid);
+      }
       return jsonResponse(previewIntegration(captured.input, { operation }), 200, req, ctx.config);
     } catch (error) {
       return internalErrorResponse(error, ctx);
     }
   }
 
-  if (url.pathname === "/api/client-integrations/restore/preview") {
+  if (url.pathname === "/api/client-integrations/restore/preview" || url.pathname === "/api/client-integrations/commandcode/restore/preview") {
     if (req.method !== "POST") return null;
     const parsed = await readJsonBody(ctx);
     if (parsed instanceof Response) return parsed;
@@ -743,6 +805,8 @@ export async function handleIntegrationRoutes(ctx: ManagementContext): Promise<R
       return jsonResponse({ error: "confirmDrift must be a boolean", code: "invalid_confirm_drift" }, 400, req, ctx.config);
     }
     const opId = parsed.opId.trim();
+    const scopeResponse = restoreClientScopeResponse(ctx, opId, parsed.expectedClientId, url.pathname === "/api/client-integrations/commandcode/restore/preview" ? "commandcode" : undefined);
+    if (scopeResponse) return scopeResponse;
     try {
       const store = integrationStore();
       const operation = store.findOperation(opId);
@@ -776,7 +840,7 @@ export async function handleIntegrationRoutes(ctx: ManagementContext): Promise<R
     }
   }
 
-  if (url.pathname === "/api/client-integrations/restore") {
+  if (url.pathname === "/api/client-integrations/restore" || url.pathname === "/api/client-integrations/commandcode/restore") {
     if (req.method !== "POST") return null;
     const parsed = await readJsonBody(ctx);
     if (parsed instanceof Response) return parsed;
@@ -794,6 +858,8 @@ export async function handleIntegrationRoutes(ctx: ManagementContext): Promise<R
     }
 
     const opId = parsed.opId.trim();
+    const scopeResponse = restoreClientScopeResponse(ctx, opId, parsed.expectedClientId, url.pathname === "/api/client-integrations/commandcode/restore" ? "commandcode" : undefined);
+    if (scopeResponse) return scopeResponse;
     const confirmDrift = parsed.confirmDrift ?? false;
     const restoreBinding = planBindingOf(parsed);
     if (restoreBinding === "half") return halfBoundResponse(ctx);
@@ -907,7 +973,15 @@ export async function handleIntegrationRoutes(ctx: ManagementContext): Promise<R
       // process spawn, and no other client's read should pay for it.
       const envelope: IntegrationStateEnvelope = requestedClient === "raycast"
         ? { ...state, raycast: (raycastDetectTestHook ?? detectRaycast)() }
-        : state;
+        : requestedClient === "droid"
+          ? {
+              ...state,
+              droidReasoning: {
+                models: droidReasoningModels(input.models),
+                defaults: readOwnedDroidReasoningDefaults(input),
+              },
+            }
+          : state;
       return jsonResponse(envelope, 200, req, ctx.config);
     } catch (error) {
       return internalErrorResponse(error, ctx);
@@ -944,6 +1018,8 @@ export async function handleIntegrationRoutes(ctx: ManagementContext): Promise<R
   const requestedOperation: IntegrationPlanOperation = parsed.enabled
     ? (parsed.overwriteConflict === true ? "overwrite" : "apply")
     : "disable";
+  const droidDefaults = readDroidReasoningDefaults(ctx, parsed, requestedClient, requestedOperation);
+  if (droidDefaults instanceof Response) return droidDefaults;
   const binding = planBindingOf(parsed);
   if (binding === "half") return halfBoundResponse(ctx);
   if (binding === "unknown-operation" || (binding !== "none" && binding.operation !== requestedOperation)) {
@@ -964,11 +1040,15 @@ export async function handleIntegrationRoutes(ctx: ManagementContext): Promise<R
      */
     const boundToggle = binding === "none"
       ? null
-      : await buildIntegrationPreviewInput(requestedClient, ctx, integrationStore());
+      : await buildIntegrationPreviewInput(requestedClient, ctx, integrationStore(), droidDefaults);
     if (binding !== "none" && boundToggle === null) return previewUnavailableResponse(ctx);
     const input = boundToggle
       ? boundToggle.input
-      : await buildIntegrationWriteInput(requestedClient, ctx, integrationStore());
+      : await buildIntegrationWriteInput(requestedClient, ctx, integrationStore(), droidDefaults);
+    if (droidDefaults !== undefined) {
+      const invalid = validateDroidReasoningDefaults(input.models, droidDefaults);
+      if (invalid) return invalidDroidDefaultsResponse(ctx, invalid);
+    }
     const guard = binding === "none" ? null : stalePlanGuard(
       requestedClient,
       ctx,
@@ -976,6 +1056,7 @@ export async function handleIntegrationRoutes(ctx: ManagementContext): Promise<R
       { operation: binding.operation },
       binding.fingerprint,
       boundToggle === null ? null : boundToggle.identity,
+      droidDefaults,
     );
     const result = await runIntegrationMutationFlight(
       requestedClient,

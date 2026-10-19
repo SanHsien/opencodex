@@ -7,46 +7,135 @@ description: 監聽器、遠端存取、許可金鑰、逾時、儲存、sidecar
 
 ## 伺服器欄位
 
-| 欄位 | 型別 | 預設值 | 意義 |
+| Field | Type | Default | Meaning |
 | --- | --- | --- | --- |
-| `port` | `number` | `10100` | 代理監聽連接埠。 |
-| `hostname?` | `string` | `"127.0.0.1"` | 綁定位址。非回送綁定需要 `OPENCODEX_API_AUTH_TOKEN`。 |
-| `proxy?` | `string` | — | 對外 HTTP(S) 或 SOCKS5 代理 URL（`socks5://host:port`）或 `${ENV_VAR}`。HTTP URL 僅在那些變數未設定時套用至 `HTTP_PROXY` / `HTTPS_PROXY`。SOCKS5 URL 使用內建的真實 SOCKS5 通道，也會套用至 `ALL_PROXY`（`ocx start --socks5`），並清除此行程繼承的 `HTTP(S)_PROXY`。回送保留在 `NO_PROXY` 中。 |
-| `emptyCompletionRetry?` | `boolean` | `false` | 明確啟用：當 Responses 完成時沒有文字或工具呼叫，以相同請求重試一次。重試可能產生費用。`OCX_EMPTY_COMPLETION_RETRY=0` 可在不變更設定的情況下停用；combo 與 routed-compaction turn 不適用。 |
-| `dropCodexSafetyBuffering?` | `boolean` | `false` | 從規範的 Codex Responses 透傳中移除選用的、面向客戶端的提示：兩個 `x-codex-safety-buffering-enabled` / `x-codex-safety-buffering-faster-model` 回應標頭、中繼資料類型為 `safety_buffering` 的 `response.metadata` 事件，以及頂層的 `safety_buffering` 欄位。其他標頭、回應資料、政策拒絕與失敗都會保留。這不會停用供應商的安全機制或上游緩衝。原生的 `codex.response.metadata.headers` WebSocket 中繼資料與 `/responses/compact` 不受此過濾影響。 |
-| `stallTimeoutSec?` | `number` | `300`（public）/ 停用（local） | 上游無有效進展（Responses 與原生 Chat）多少秒後切斷串流。未設定時**本地**上游（loopback、private、`.local`/`.lan` 名稱）預設停用，公網上游預設 300 秒；正值對兩者生效（最小 1 秒）；`0` 全面停用靜默 watchdog。對於把 canonical ChatGPT SSE 折疊為非串流 JSON 的 Responses 請求，即使 watchdog 已停用，仍保留獨立的 15 分鐘整體上限。`/v1/responses/compact` 的擱置回應本文讀取共用此預算，但即使本地上游也預設 300 秒；明確值（含 `0`）優先。 |
-| `oauthOpenBrowser?` | `boolean` | `true` | 登入是否可以在執行 proxy 的機器上開啟瀏覽器。缺省與 `true` 都會開啟，所以既有安裝不受影響；只有明確的 `false` 才會拒絕。當你需要在不同的瀏覽器設定檔中開啟授權連結，或儀表板不在 proxy 所在機器上時，請選擇拒絕——登入仍會開始，URL 仍會被回傳並顯示。`POST /api/oauth/login` 與 `POST /api/codex-auth/login` 接受可覆寫此設定的逐請求 `openBrowser` 布林值，儀表板也在登入按鈕旁提供相同選項。裝置碼流程無論如何都不會開啟瀏覽器。 |
-| `connectTimeoutMs?` | `number` | `200000` | 每次嘗試的 DNS/TCP/TLS/final-header 截止時間；它在 body 生成前結束。 |
-| `shutdownTimeoutMs?` | `number` | `5000` | 在中止活躍回合前的優雅排空截止時間。 |
-| `websockets?` | `boolean` | `false` | 廣告並允許面向 client 的 Responses WebSocket 路徑。False 時 client 使用 HTTP/SSE；不會停用符合條件的 canonical ChatGPT upstream WS 最佳化。 |
-| `corsAllowOrigins?` | `string[]` | `[]` | 額外的精確 CORS 來源。回送來源恆被允許。 |
-| `apiKeys?` | `OcxApiKey[]` | `[]` | 生成的 `ocx_…` data-plane 准入憑證（用於非回送綁定）。它們不授權管理 API；管理存取使用[管理 API 參考](/zh-tw/reference/management-api/)中說明的獨立憑證。由儀表板管理。 |
-| `storageCleanupPolicy?` | `StorageCleanupPolicy` | 停用 | 選擇加入的已封存 session 清理政策。永不隱含啟用。 |
-| `appOwnedMemoryBudgetMb?` | `number` | `256` | 以 MiB 為單位、可被驅逐的 app 擁有日誌、快取、blob 與 continuation payload 上限。範圍 64–4096；非 RSS 上限。 |
-| `metricsExport.enabled?` | `boolean` | `false` | 在已驗證的 `GET /api/metrics` 啟用程序本機的彙總請求指標。需要重新啟動；停用時路徑回傳 404，且不會啟動任何匯出活動。 |
-| `codexAutoStart?` | `boolean` | `true` | 讓 Codex shim 在啟動 Codex 前執行 `ocx ensure`。False 使 ensure 為 no-op。 |
-| `codexShimAutoRestore?` | `boolean` | `true` | 在完成的外部 Codex 更新取代已安裝的 shim 後還原它。環境退出：`OPENCODEX_CODEX_SHIM_AUTO_RESTORE=0`。 |
-| `codexDesktopAuthless?` | `boolean` | `false` | 在回送綁定上選擇加入無驗證的 Codex Desktop 路由：注入專屬的 `opencodex` 供應商並設定 `requires_openai_auth = false`，讓 Desktop 不需要 ChatGPT 登入即可開啟。在非回送綁定上會被忽略。`ocx system settings --desktop-authless on`。詳見 [Codex 整合](/zh-tw/guides/codex-integration/#免登入-codex-desktop選擇加入)。 |
-| `codexClientCompaction?` | `boolean` | `false` | 在已驗證的回送綁定上選擇加入 Codex 用戶端壓縮。使用專屬的 `opencodex` 供應商身分並設定 `requires_openai_auth = true`，防止新的路由壓縮儲存 OpenCodeX 擁有的 `ocx1:` 狀態。兩者都啟用時，`codexDesktopAuthless` 優先，並維持 `requires_openai_auth = false`。V2 子代理路由不受影響。`ocx system settings --client-compaction on`。詳見 [Codex 整合](/zh-tw/guides/codex-integration/#用戶端側壓縮選擇加入)。 |
-| `resetCreditAutoRedeem?` | `{ enabled?: boolean; leadTimeMinutes?: number }` | 關閉 | 選擇加入：在主要 Codex 帳號最快到期的 reset credit 過期前 `leadTimeMinutes` 分鐘（1–60，預設 10）兌換它。每次嘗試都會先重新讀取上游的 credit 清單，若該 credit 已消失（例如已被手動兌換）則跳過；呼叫前會先把 `redeem_request_id` 記錄到 `$OPENCODEX_HOME/reset-credit-auto-redeem.json`，因此當機後重播的是同一個冪等請求，而不會消耗第二個 credit。共享這個設定目錄的多個伺服器會協調保留與結算，避免一個行程覆寫另一個行程的請求紀錄。日誌只帶有經雜湊的帳號金鑰。 |
-| `syncResumeHistory?` | `boolean` | `true` | 可逆的 Codex App 歷史相容性。原始中繼資料由 `ocx stop` / `ocx restore` 備份並還原。 |
-| `shadowCallIntercept?` | `{ enabled?: boolean; model?: string; sourceModels?: string[] }` | off | 將識別的 Codex helper/shadow call 重定向到所選模型，並保留為請求設定的 reasoning effort。預設來源前綴為 `gpt-6-luna`, `gpt-5.6-luna`；0.144.x 及更舊的客戶端使用 `gpt-5.4-mini`，可透過 `sourceModels` 恢復。 |
-| `webSearchSidecar?` | `OcxWebSearchSidecarConfig` | 可用時開啟 | 網頁搜尋 sidecar 選項。 |
-| `visionSidecar?` | `OcxVisionSidecarConfig` | 可用時開啟 | 圖片描述 sidecar 選項。 |
-| `images?` | `OcxImagesConfig` | 自動 OpenAI 選擇 | Codex `image_gen` 的獨立 Images 中繼選項。 |
+| `port` | `number` | `10100` | Proxy listen port. |
+| `hostname?` | `string` | `"127.0.0.1"` | Bind address. A non-loopback bind requires a data-admission token, resolved from `OPENCODEX_API_AUTH_TOKEN`, then `OCX_API_TOKEN_FILE`, then the installed owner-only `service-api-token` — nothing has to be exported by hand. See [Remote access](#遠端存取). |
+| `proxy?` | `string` | — | Outbound HTTP(S) or SOCKS5 proxy URL (`socks5://host:port`), `${ENV_VAR}`, or `"auto"`. HTTP URLs apply to `HTTP_PROXY` / `HTTPS_PROXY` when those are unset. SOCKS5 URLs use OpenCodex's real SOCKS5 transport and are also exposed through `ALL_PROXY` (`ocx start --socks5`); inherited `HTTP(S)_PROXY` is cleared in this process. Loopback stays in `NO_PROXY`. `"auto"` reads Windows WinINET or macOS static HTTP/HTTPS settings once at startup. Inherited HTTP(S) proxy variables skip discovery; on macOS, inherited `ALL_PROXY`/`all_proxy` also skips it. Windows keeps separate `http=` and `https=` entries; a bare `ProxyServer` applies to both. macOS translates IP literals, `*`, and a valid `*.<domain>` glob to Bun's `.<domain>` bypass. That glob also bypasses the bare apex `<domain>`. The exact link-local ranges `169.254/16`, `169.254.0.0/16`, and `fe80::/10` are omitted with a diagnostic: link-local IP literals use the proxy. Other CIDRs, globs, and simple-host exceptions refuse discovery without changing the proxy environment. Disabled, malformed, PAC/WPAD, SOCKS-only, and live changes are not followed. Restart after changing system settings. |
+| `noProxy?` | `string \| string[]` | — | Hosts that bypass `proxy`, merged with inherited `NO_PROXY` and loopback entries. A string may use comma-separated `NO_PROXY` syntax or `${ENV_VAR}`. |
+| `emptyCompletionRetry?` | `boolean` | `false` | Opt in to one identical Responses retry when a turn has no text or tool call, including a stream that ends before a terminal event and a Vertex AI `MALFORMED_FUNCTION_CALL` failure that arrives before any output. The retry may be billable. `OCX_EMPTY_COMPLETION_RETRY=0` disables it without changing config; combo and routed-compaction turns remain excluded. |
+| `dropCodexSafetyBuffering?` | `boolean` | `false` | Remove optional client-facing hints from canonical Codex Responses passthrough: the two `x-codex-safety-buffering-enabled` / `x-codex-safety-buffering-faster-model` response headers, `response.metadata` events whose metadata type is `safety_buffering`, and top-level `safety_buffering` fields. Other headers, response data, policy refusals and failures are preserved. This does not disable provider safety enforcement or upstream buffering. Native `codex.response.metadata.headers` WebSocket metadata and `/responses/compact` are outside this filter. |
+| `stallTimeoutSec?` | `number` | `300` (public) / disabled (local) | Seconds without meaningful upstream progress (Responses and native Chat) before the stream is cut. Unset, a **local** upstream (loopback, private, or a `.local`/`.lan` name) defaults to disabled and a public upstream to 300 s; a positive value applies to both (minimum 1 s); `0` disables the silence watchdog everywhere. Disabled leaves a silent-but-healthy local model connected (keep-alives still flow). Canonical ChatGPT Responses folded from SSE into non-streaming JSON retain a separate 15-minute whole-turn ceiling even when the silence watchdog is disabled. Pending `/v1/responses/compact` body reads share this budget but default to 300 s even for a local upstream — the route buffers the complete body while holding an active-turn lease — and an explicit value, including `0`, still wins. |
+| `oauthOpenBrowser?` | `boolean` | `true` | Whether a login may open a browser on the machine running the proxy. Absent and `true` both open, so an existing install is unchanged; only an explicit `false` declines. Decline when you need the authorization link in a different browser profile, or when the dashboard is not on the proxy's machine — the login still starts and the URL is still returned and displayed. `POST /api/oauth/login` and `POST /api/codex-auth/login` accept a per-request `openBrowser` boolean that overrides this, and the dashboard exposes the same choice beside the login button. Both routes report the outcome as `browserLaunch`: `started`, `failed` (nothing could be opened; the dashboard says so), or `skipped`. Device-code flows never open a browser either way. |
+| `connectTimeoutMs?` | `number` | `200000` | Per-attempt DNS/TCP/TLS/final-header deadline; it ends before body generation. |
+| `shutdownTimeoutMs?` | `number` | `5000` | Graceful drain deadline before active turns are aborted. |
+| `websockets?` | `boolean` | `false` | Advertise and admit the client-facing Responses WebSocket path. False keeps clients on HTTP/SSE; it does not disable an eligible canonical ChatGPT upstream WS optimization. Complete-input requests may reuse an upstream connection within the same selected credential, account, thread and turn; changed handshake policy or missing identity keeps requests on separate connections. This does not trim HTTP input or create previous-response IDs. |
+| `codexNativeSteering?` | `boolean` | `false` | Experimental, native-only mid-turn steering on the Responses WebSocket endpoint. Requires `websockets: true`, a compatible upstream/client, and a pinned account/model/tool surface. Validated generation settings can change in explicit saved-result continuations. Does not enable translated models or HTTP fallback. See [native steering](/zh-tw/guides/codex-integration/#實驗性原生對話中途-steering). |
+| `codexNativeInjection?` | `boolean` | `false` | Experimental saved function-result injection on compatible native multi-agent WebSocket turns. Requires `websockets: true`, explicit `multi_agent.enabled`, and an eligible provider. Separate from steering; no automatic tool rerun or recovery create. See [native injection](/zh-tw/guides/codex-integration/#實驗性原生-function-result-注入). |
+| `nativeReasoningRetention?` | `{ modelSwitch?: boolean; accountSwitch?: boolean }` | both `false` | Permit reasoning ciphertext forwarding across a known model or account change on the same canonical ChatGPT backend. Account retention is experimental. See [Native reasoning retention](#native-reasoning-retention). |
+| `corsAllowOrigins?` | `string[]` | `[]` | Additional exact origins allowed by CORS. Loopback origins are always allowed. Authority-based browser extension origins such as `chrome-extension://<extension-id>` are supported; `*` is not a wildcard. Firefox and Safari regenerate the extension UUID (per install / per browser launch), so update the entry when the origin changes. |
+| `apiKeys?` | `OcxApiKey[]` | `[]` | Generated `ocx_…` data-plane admission credentials on non-loopback binds. They do not authorize management APIs; management access uses the separate credential documented in the [management reference](/zh-tw/reference/management-api/). Dashboard-managed. |
+| `storageCleanupPolicy?` | `StorageCleanupPolicy` | disabled | Opt-in archived-session cleanup policy. Never enabled implicitly. |
+| `usageLedgerMaxBytes?` | `number` | unset | Opt-in ceiling in bytes for `usage.jsonl`. Absent means the request history grows without limit, which stays the default. See [usage history size](#用量歷史大小). |
+| `appOwnedMemoryBudgetMb?` | `number` | `256` | Cap in MiB for evictable app-owned logs, caches, blobs, and continuation payloads. Range 64–4096; not an RSS cap. |
+| `metricsExport.enabled?` | `boolean` | `false` | Enable process-local aggregate request metrics at authenticated `GET /api/metrics`. Restart required; disabled mode returns 404 and starts no exporter activity. |
+| `serviceHealthRecovery.enabled?` | `boolean` | `false` | Opt-in recovery for the background service: a small sentinel process probes `/healthz` and, when the proxy stays alive but answers nothing for about a minute of back-to-back probes, terminates it so the service manager (Task Scheduler, launchd, systemd, WinSW) restarts it. Only the managed service child starts one; requests the stuck process held are not replayed. At most three recoveries per hour. Restart required. Automatic recovery requires a numeric bind address (or the default localhost/wildcard mapping); DNS bind names are not monitored. A changed recorded address or port stops monitoring. |
+| `spend?` | `{ root?: { maxTokens?: number }; identity?: { maxTokens?: number }; pool?: { maxTokens?: number }; retentionDays?: number }` | unset | Durable token ceilings, off unless you write one. Each scope bounds settled spend plus in-flight reservations plus unresolved spend: `root` is one task including its whole fan-out, `identity` is one account across every task it serves, and `pool` is one provider pool. They intersect, so a request is admitted only when all three have room — which is what holds a ceiling against a client that mints a new task id per request. A reservation is the request's whole input plus its enforceable output ceiling, counted as if every cached prefix misses. Observe-only mode still journals, so every server owns the state directory's single-writer lease; an explicit sibling must use a separate `OPENCODEX_HOME`. Spend survives an ordinary process restart when its writes reached the filesystem, but the journal does not promise survival across host power loss because each append is not fsynced. Raising or removing a ceiling changes the allowance for requests started afterward; requests already running keep their starting policy. `maxTokens` must be a positive integer (0 would refuse everything), `retentionDays` is 1–365 and defaults to 7, and an unknown key in this section is rejected rather than ignored. A refusal is a local HTTP 429 carrying `x-opencodex-local-refusal: workflow_spend_exhausted`, and its message names the scope and the ceiling; no provider is contacted. With an applicable ceiling, dispatch is also refused if its token reservation cannot be booked, including full tracking capacity. Requests without an applicable ceiling remain observe-only. |
 
-當規範的 ChatGPT 上游 WebSocket 在送出 create frame 後等待第一個 Responses 事件時，它監看的是
-存活訊號而不是固定的截止時間。當該 socket 支援協定層級的 ping 時，proxy 每 15 秒 ping 它一次。
-任何進來的 frame——配額、回應中繼資料，或一個 pong——都會重設一個 90 秒的靜默計時器，所以即使
-socket 不支援 ping，只要有自己的 frame 就仍會維持存活；只有完全沒有任何東西持續 90 秒，請求才會
-以 HTTP 504、帶著 `upstream_no_response` 錯誤結束。因此一個緩慢但存活的來源，會等待客戶端自己的
-截止時間或 `connectTimeoutMs`（預設 200 秒）兩者較早者；在送出 create frame 之後才觸發的連線
-逾時，同樣以那個 504 結束。在第一個 Responses 事件之前就關閉或出錯的 socket，會以 HTTP 502、帶著
-`upstream_closed_before_response` 結束。這些狀態絕不會在 proxy 內部重試——該 frame 可能已經在
-上游執行，所以客戶端會套用它自己的重試政策，就跟直接連到後端時一樣。一旦回應已經開始，之後的
-斷線仍會照舊在串流中顯現。`stallTimeoutSec` 與這個時間窗無關。
+| `codexAutoStart?` | `boolean` | `true` | Let the Codex shim run `ocx ensure` before launching Codex. False makes ensure a no-op. |
+| `codexShimAutoRestore?` | `boolean` | `true` | Restore an installed shim after a completed external Codex update replaces it. Environment opt-out: `OPENCODEX_CODEX_SHIM_AUTO_RESTORE=0`. |
+| `codexDesktopAuthless?` | `boolean` | `false` | Opt-in authless Codex Desktop routing on a loopback bind: inject the dedicated `opencodex` provider with `requires_openai_auth = false` so Desktop opens without a ChatGPT login. Ignored on non-loopback binds. `ocx system settings --desktop-authless on`. See [Codex integration](/zh-tw/guides/codex-integration/#免登入-codex-desktop選擇加入). |
+| `codexAccountPickerEnabled?` | `boolean` | unset | Whether generated account-qualified catalog rows (`<selector>/<model>`) are advertised. Enabling it once fills an absent or empty `codexAccountNamespaces` with default selectors; `false` hides the generated rows without deleting exact routing bindings. An omitted flag keeps a non-empty hand-written selector map enabled. The Luna Reserve row is account-qualified, so it is written only when a selector targets the main Codex account; when it is suppressed, catalog sync logs the reason and the action that restores it. |
+| `codexAccountNamespaces?` | `Record<string, string>` | unset | Public selector to Codex account mapping. The main login maps to the config-only sentinel `@main`; added accounts map to their account id. Normally generated by enabling `codexAccountPickerEnabled` rather than hand-authored. An empty map means no account-qualified rows exist, including the Luna Reserve row. |
+| `codexClientCompaction?` | `boolean` | `false` | Opt into Codex client-side compaction on an authenticated loopback bind. Uses the dedicated `opencodex` provider identity with `requires_openai_auth = true`, preventing new routed compactions from storing OpenCodeX-owned `ocx1:` state. `codexDesktopAuthless` takes precedence when both are enabled and keeps `requires_openai_auth = false`. V2 sub-agent routing is unchanged. `ocx system settings --client-compaction on`. See [Codex integration](/zh-tw/guides/codex-integration/#用戶端側壓縮選擇加入). |
+| `codexProviderDisplayName?` | `string` | `"OpenCodex Proxy"` | Label Codex shows for the injected `opencodex` provider, written as its `name` field in `config.toml` and the reference profile. Presentation only: routing resolves through the provider id `opencodex`, so a rename never moves `model_provider = "opencodex"` or the `[model_providers.opencodex]` header and cannot orphan threads already tagged with that id. Codex refuses to load a provider with no name, so there is no way to omit the field — choose a neutral label instead. A blank, over-128-character, or control-character value is ignored and the default label is written. |
+| `codexMainAccountHardLock?` | `boolean` | `true` | Block new identity-matched main-account requests at their per-window threshold. Only explicit `false` opts out. See [main-account protection](/zh-tw/reference/cli/providers-accounts/#主帳號額度保護). |
+| `codexMainAccountHardLockThresholds?` | `{ short?: number; long?: number }` | `{ short: 90, long: 98 }` | Independent 5h and weekly/monthly thresholds. Integers 80–100, with `short <= long`. Invalid persisted fields fall back to defaults; the settings API rejects invalid writes before mutation. |
+| `codexMainAccountHardLockFallback?` | `{ enabled?: boolean; model?: string; reasoningEffort?: string }` | off | Extended hard-lock settings: while the lock blocks and no Codex account can serve the request, qualifying native-Codex-model requests reroute to `model` with `reasoningEffort` instead of failing. `enabled: false` pauses the reroute and keeps the model. An absent section or model keeps the refusal behavior; a usable Pool account still serves first. `reasoningEffort` must be a declared effort; invalid persisted sections degrade to off and the settings API rejects invalid writes before mutation. See [main-account protection](/zh-tw/reference/cli/providers-accounts/#主帳號額度保護). |
+| `nativeMainRefresh?` | `"codex" \| "opencodex"` | auto | Who refreshes the native main ChatGPT login in `CODEX_HOME`. `"codex"` asks the Codex binary (app-server `getAuthStatus`, Codex 0.130.0 or newer, found through the same runtime resolution as `ocx sync`, including the ChatGPT app bundle) and never writes `auth.json`; this also works when Codex stores its login in the OS keyring. `"opencodex"` keeps OpenCodex's guarded `auth.json` writer. Unset picks `"codex"` when a supported binary is found; without one, both unset and `"codex"` fall back to the guarded writer. `ocx doctor` shows the active mode under Native main refresh. |
+| `resetCreditAutoRedeem?` | `{ enabled?: boolean; leadTimeMinutes?: number }` | off | Opt-in: redeem the main Codex account's soonest-expiring reset credit `leadTimeMinutes` (1–60, default 10) before it expires. Every attempt re-reads the upstream credit list first and skips when the credit is gone (for example, redeemed by hand); the `redeem_request_id` is journaled in `$OPENCODEX_HOME/reset-credit-auto-redeem.json` before the call so a crash replays the same idempotent request instead of spending a second credit. Servers sharing this configuration directory coordinate reservations and settlements so one process does not replace another's request record. Logs carry a hashed account key only. |
+| `syncResumeHistory?` | `boolean` | `true` | Reversible Codex App history compatibility. Original metadata is backed up and restored by `ocx stop` / `ocx restore`. |
+| `spendPoolAliases?` | `Record<string, string>` | unset | Explicit historical salted pool-alias to canonical provider mappings. Keep this key at the top level, outside `spend`. See [Historical pool continuity](#historical-pool-continuity). |
+| `shadowCallIntercept?` | `{ enabled?: boolean; model?: string; sourceModels?: string[] }` | off | Redirect recognized Codex helper/shadow calls to a chosen model while preserving the request's configured reasoning effort. The default source prefixes are `gpt-6-luna` and `gpt-5.6-luna`; older clients through 0.144.x used `gpt-5.4-mini`, which `sourceModels` can restore. |
+| `memoryModels?` | `{ extract?: { model: string; reasoningEffort?: string }; consolidation?: { model: string; reasoningEffort?: string } }` | off | Route Codex's two memory phases to a chosen model, with an optional reasoning effort per phase. See [Memory routing](#記憶體路由). |
+| `webSearchSidecar?` | `OcxWebSearchSidecarConfig` | on when usable | Web-search sidecar options. |
+| `visionSidecar?` | `OcxVisionSidecarConfig` | on when usable | Image-description sidecar options. |
+| `images?` | `OcxImagesConfig` | automatic OpenAI selection | Standalone Images relay options for Codex `image_gen`. |
 
-`noProxy` 接受逗號分隔的字串或陣列。兩種形式都是新增項目，不會取代繼承的 `NO_PROXY`：
+On Linux x64/arm64 with pidfd support, service health recovery binds termination to the proxy's
+kernel process identity, so PID reuse cannot redirect it. The sentinel's watching log ends in
+`(pidfd)`. Unsupported kernels or architectures retain the existing live-parent PID check and log
+that fallback; other binding failures disable recovery for that proxy. macOS retains the live-parent
+check, and Windows retains its process handle binding.
+## Native reasoning retention
+
+The dashboard overview exposes two independent opt-ins: retain reasoning when switching models, and retain it when switching accounts. Both default off. The same policy can be saved in `config.json`:
+
+```jsonc
+{
+  "nativeReasoningRetention": {
+    "modelSwitch": true,
+    "accountSwitch": false
+  }
+}
+```
+
+This example retains reasoning `encrypted_content` on a known model switch within the same native ChatGPT destination and credential. Set `accountSwitch` to `true` only to opt into experimental cross-account forwarding. When both model and account change, both switches must be enabled. The policy applies to each actual native Combo target and pool retry; it does not grant retention to third-party or API-key destinations.
+
+Retention means that OpenCodex may forward the carried ciphertext. It cannot confirm that the upstream accepts or reuses that reasoning. A detected decrypt rejection still enters the existing bounded cleanup recovery, and the rejection memo takes precedence over either switch. Response and conversation references, foreign reasoning item ids, uploaded-file account restrictions and cache isolation continue using their own ownership rules. Native compaction blocks keep their existing cleanup behavior; direct native `/v1/responses/compact` sanitization is unchanged.
+
+Use `GET /api/native-reasoning-retention` to read the resolved booleans and `PUT` with a partial boolean object to update them. `PUT` with JSON `null` restores both defaults. Invalid fields or unknown keys are rejected; a malformed file block disables retention with a warning. Dashboard/API changes apply to subsequent requests. Local `ocx config set/unset` edits require a restart to converge the running proxy.
+
+## Upstream transport recovery
+
+While the canonical ChatGPT upstream WebSocket waits for the first Responses event after
+sending the create frame, it watches for liveness rather than a fixed deadline. When the socket
+supports protocol pings, the proxy pings it every 15 seconds. Any inbound frame — quota,
+response metadata, or a pong — resets a 90-second silence clock, so a socket without ping
+support still stays alive on its own frames, and only 90 seconds with nothing at all settles the request as an
+HTTP 504 with an `upstream_no_response` error. A slow but alive origin therefore waits for the
+client's own deadline or for `connectTimeoutMs` (default 200s), whichever comes first; a
+connect timeout that fires after the create frame was sent settles as the same 504. A socket
+that closes or errors before the first Responses event settles as an HTTP 502 with
+`upstream_closed_before_response`. The proxy does not retry either status on its own: the frame
+may already be executing upstream, so the client applies its own retry policy exactly as it would
+when connected to the backend directly. The one exception is that 502 on a provider that opted
+into `retryOnReset`, described below. Once the response has started, a later drop
+surfaces inside the stream as before. `stallTimeoutSec` is unrelated to this window.
+
+An ordinary HTTP send has a third case. When the connection dies before any response header
+arrives, the proxy cannot tell whether the model already processed the request, so it refuses
+to send it again and answers HTTP 429 with `upstream_reset_replay_refused`. The status is
+deliberate: a 5xx here is an instruction to most clients, including Codex, to send the whole
+turn again, which is the duplicate the refusal exists to prevent. No `Retry-After` is
+attached, and the response carries `x-should-retry: false`, which the official OpenAI and
+Anthropic SDKs read before their own status rules — without it those clients retry a 429 on
+their own schedule and resend the turn anyway. The same replay-refusal behavior applies on
+`/v1/responses` and `/v1/chat/completions`, whether the request is forwarded natively or translated.
+Routed `/v1/messages` requests translate through Responses and project the same status, code, and
+retry headers into an Anthropic-shaped error envelope. The proxy
+performs no key rotation, account failover or same-target replay on it, nor does it record the
+refusal as rate-limit or quota evidence against the credential it was holding. Tool-call side
+requests such as vision and web search are replayed normally, because repeating them cannot
+duplicate a turn.
+
+Native ChatGPT Responses and compact HTTP requests whose serialized JSON strings are at least
+1 MiB in UTF-8 use byte-buffer uploads to avoid Bun resetting a large string upload before response
+headers arrive. This preserves the request
+contents and does not enable automatic retries. A genuine connection reset still follows the
+replay-refusal policy above.
+
+A native Responses provider can opt into replacing that send with
+[`retryOnReset`](/zh-tw/reference/configuration/providers/#供應商項目ocxproviderconfig). The same grant covers the
+case where the connection survives the header and the SSE body then dies carrying only control
+events, because the caller has observed nothing in either one. It also covers the canonical
+ChatGPT WebSocket above: a socket that closes or errors before the first Responses event is
+replaced by one HTTP send, never by a second socket. A silent socket keeps its 504, and a native
+steering or injection turn is never replaced. A replacement happens only when
+the request is self-contained (`store: false`, complete input, client-executed tools only, no
+server-side continuation state), and one logical request gets the configured number of
+replacements in total — across every recovery leg and every combo child, not one each. The
+refusal returns as soon as that grant is spent, the leg has no send left, or a replacement fails
+for any other reason. A request that already emitted output or a tool call keeps the refusal
+regardless. A caller that cancels mid-replacement gets the cancellation, not the refusal.
+
+For WebSocket recovery, “before the first Responses event” is stricter than “before the
+first text”: even `response.created`, a tool event or a usage-bearing response closes the
+replacement window. Ping/pong and quota metadata alone do not. A later socket close cannot
+turn an already settled cancellation or connect/silence timeout into an HTTP retry.
+
+`noProxy` accepts either a comma-separated string or an array. Both forms add entries without
+replacing an inherited `NO_PROXY`:
 
 ```jsonc
 { "proxy": "http://proxy.corp:8080", "noProxy": "internal.example,10.0.0.0/8" }
@@ -56,14 +145,22 @@ socket 不支援 ping，只要有自己的 frame 就仍會維持存活；只有�
 { "proxy": "http://proxy.corp:8080", "noProxy": ["internal.example", "10.0.0.0/8"] }
 ```
 
-SOCKS5（包括 Clash 混合連接埠監聽器）屬於 `ALL_PROXY`，不是 `HTTP_PROXY`：
+SOCKS5 (Clash mixed-port listeners included) belongs on `ALL_PROXY`, not `HTTP_PROXY`:
 
 ```jsonc
 { "proxy": "socks5://127.0.0.1:10808" }
 ```
 
-若較舊的開發組建在備份支援存在前變更了 resume-history 中繼資料，請執行 `ocx recover-history --legacy-openai --yes` 以強制原生供應商復原。
-此命令會重新標記所有含有使用者訊息的 `opencodex` row，其中也包含正常的專用 provider 歷史；執行前請查看 lifecycle reference 中的完整範圍警告。
+`ocx start --socks5` writes that value; `ocx start --socks5-off` clears it.
+
+HTTPS requests through SOCKS5 have a separate 30-second TLS handshake deadline.
+A stalled handshake fails without disabling certificate verification; caller
+cancellation can stop it sooner.
+
+If an older development build changed resume-history metadata before backup support existed, run
+`ocx recover-history --legacy-openai --yes` to force native-provider recovery.
+It force-relabels every user-message `opencodex` row, including legitimate dedicated-provider
+history; review the full-scope warning in the lifecycle reference before running it.
 
 ### 原生 Chat 的逾時與完成狀態
 
@@ -490,6 +587,21 @@ API 頁面與 `PATCH /api/protocols/settings` 使用相同的驗證。
 
 自動認證在找到已儲存的 Claude 認證時選擇訂閱，無認證時選擇 proxy，偵測不明確時選擇訂閱並附帶警告。請見[Claude Code 認證模式](/zh-tw/guides/claude-code/#認證模式)。
 
+## Retained requests after compaction
+
+For translated providers and routed Responses gateways, OpenCodex automatically frames
+plain-text user requests before the latest readable Codex checkpoint as historical context.
+Requests the checkpoint reports as completed should not be repeated; retained text remains
+available for unfinished work within its existing authorization. Later user input takes priority,
+including pauses, cancellations and changes of scope. A checkpoint grants no new permission.
+
+This is enabled by default and needs no setting. Original request text and canonical thread/replay
+history are preserved. Native OpenAI Responses passthrough, summarizer turns, context wrappers,
+images/files and assistant/tool items are unchanged. The framing applies to plaintext checkpoints
+beginning with Codex's summary prefix; decoded OpenCodex checkpoints retain their existing
+continuation guidance. Client-side summarizer turns using Codex's standard compaction prompt
+also bypass framing. Framing is a prompt instruction, so model behavior can vary.
+
 ## Compaction 路由
 
 在**儀表板 → Overview → Compaction routing**中，選擇一個模型、它適用的觸發條件，以及選填的
@@ -543,6 +655,68 @@ OpenCodex 會改用可攜式摘要器，這樣當對話在自己的模型上恢�
 跨到另一個供應商。所選模型必須支援輸入大小與內容。手動編輯 `config.json` 後請重啟代理。
 儀表板儲存會立即套用。
 
+### Reasoning retention during compaction
+
+Readable reasoning retention is an advanced, explicit opt-in and is **off by default**.
+Only `reasoningRetention.enabled: true` enables it; an omitted block, `enabled: false`,
+or legacy limits without `enabled: true` leave ordinary compaction behavior unchanged.
+When enabled for routed v1 `POST /v1/responses/compact` and routed v2 `compaction_trigger` requests, readable reasoning stays local while the selected
+model summarizes other context. After a readable summary succeeds, exact retained text returns
+alongside it in framed historical context messages, not as new assistant reasoning or instructions.
+Repeated compaction withholds those messages again. Ordinary subsequent turns replay them as history.
+
+```json
+{
+  "reasoningRetention": {
+    "enabled": true,
+    "maxContextPercent": 20,
+    "maxTokens": 100000
+  }
+}
+```
+
+Both limit fields are optional and, **when enabled**, default at runtime to `20` percent and `100000` estimated tokens.
+The effective limit is the smaller of the percentage of the compacting model's context window
+and the absolute token cap; when the context window is unknown, only the absolute cap applies.
+The estimate includes each retained message's historical-context frame, not just its reasoning text.
+Above the limit, readable text is written verbatim under the resolved OpenCodex home's
+`reasoning-archive/` (normally `~/.opencodex/reasoning-archive/`). The summarizer receives a
+path note instead of the text, and the finished readable summary includes a notice naming that file.
+New archives are private to the user on POSIX. An archive is provisional until successful replacement history
+returns its path, either in a readable summary or in a separate notice alongside a native result
+after routed v1 Combo failover. Failures, cancellation, and invalid summaries remove
+the current attempt's file. Internal retries reuse it; previously successful archives are preserved.
+Failed compaction returns no replacement history.
+
+The percentage/token limits bound reasoning returned in context, **not cumulative archive storage**.
+Each archive contains only readable reasoning admitted in that request; request admission is bounded
+by `maxInboundBodyBytes` (256 MiB by default, configurable up to 512 MiB), plus small block separators.
+There is **no aggregate archive byte/file limit, automatic expiry, or background archive cleanup**.
+Successful archives remain until you manually delete their files, including after disabling retention
+or resetting the setting. They are plaintext, contain potentially sensitive conversation reasoning,
+and share the resolved OpenCodex home of that proxy instance. Deleting an archive makes any existing
+path notice unable to recover its contents; save anything you need first. A process crash or failed
+filesystem write/cleanup can also leave a provisional file requiring manual cleanup.
+
+**Dashboard → Overview → Advanced settings → Reasoning retention** provides the explicit switch
+and both limits; **Reset and turn off** removes the override and switches retention off. GET/PUT `/api/settings` exposes `reasoningRetention`: null clears the block,
+and omission preserves it. `enabled` must be a boolean when present. Percentages must be greater than 0 and at most 100; token caps must
+be positive integers, and unknown fields are rejected. Invalid hand edits disable only this
+block with a warning, keeping unrelated providers and settings.
+
+Private provider ciphertext and signatures are not decrypted or copied into portable retained
+messages. An upstream native opaque compaction response retains its exact output item and
+ciphertext. If routed v1 Combo failover reaches a native result after withholding readable reasoning,
+replacement history also includes the retained historical messages or a notice naming their archive.
+Native compact endpoints keep their existing behavior.
+
+Routed v2 still returns exactly one compaction item. Its proxy-owned `ocx2:` envelope stores
+the summary and retained historical reasoning separately as JSON/Base64; this is encoding,
+not provider encryption. Subsequent requests restore separate historical messages, and
+repeated compaction withholds the reasoning again. Old `ocx1:` summaries remain supported.
+Opt-in emergency compaction recovery also preserves this separation for JSON and SSE.
+Explicit native-history recovery restores separate summary and historical reasoning messages too.
+
 ## 記憶體路由
 
 在 **Dashboard → Overview → Memory routing** 中，為 Codex 的兩個記憶體階段各自選擇一個模型與選用的 reasoning effort，然後按 **Save**。選擇 **Off** 並儲存即可移除覆寫。變更會套用到下一個記憶體請求，不需要重新啟動 proxy。
@@ -570,7 +744,7 @@ Codex 使用小型 helper 模型處理如標題與 commit 訊息等任務。啟�
 攔截是以模型為基礎的：任何裸模型 id 符合 `sourceModels` 的請求都可能被重新導向，包括一般的
 `request_kind: "turn"` 請求。`x-codex-turn-metadata` 不會讓相符的請求豁免。
 
-攔截依模型判定：裸模型 ID 符合 `sourceModels` 的請求（包括一般的 `request_kind: "turn"` 請求）都可以被重定向。由 `x-openai-subagent: collab_spawn` 或 `x-codex-turn-metadata` JSON 標頭中的 `subagent_kind: "thread_spawn"` 標記為已產生子代理的請求不受攔截，因此明確產生的子代理會保留其模型。
+裸模型 ID 符合 `sourceModels` 的請求可被攔截，但 `x-codex-turn-metadata` 同時包含 `request_kind: "turn"` 和 `thread_source: "user"` 的使用者回合保留所選模型。連線標頭 `x-openai-subagent: collab_spawn`（HTTP 請求或 WebSocket 交握） 或中繼資料中的 `subagent_kind: "thread_spawn"` 標記的子代理也保留模型。WebSocket 的回合中繼資料僅依據每個框架的 `client_metadata["x-codex-turn-metadata"]`，不使用交握中的回合中繼資料分類後續框架。中繼資料缺失或格式錯誤時保留原有攔截行為。輔助呼叫也可能帶有 `request_kind: "turn"`，因此單憑此欄位不能豁免。這些規則適用於具體模型與 combo 目標。
 
 ```json
 {
@@ -671,3 +845,102 @@ companion 形式，正是讓 hub 成為單一連接埠部署的原因，而它�
 [支援的 steering 路由與設定](/zh-tw/guides/codex-integration/#steering-續傳設定)、
 [型別化結果與核准的續傳](/zh-tw/guides/codex-integration/#回應完成後的豐富工具結果與明確核准)，
 以及[確認期限與保留的內容](/zh-tw/guides/codex-integration/#steering-確認期限與保留的-context)。
+
+### Forced Claude Code subagent model
+
+The Subagents page offers **Force all subagents onto one model**, off by default. Select an exposed roster-style id, such as `combo/tev-auto`, then enable the switch. The roster is offered first; unavailable saved roster entries cannot be force targets.
+
+`ocx agent subagents force combo/tev-auto` sets `claudeCode.subagentModelForce`; `ocx agent subagents force -` clears it. `ocx agent status` reports the setting. `GET /api/subagent-models` returns `force`, `forceAvailable`, and `forceStatus`; `PUT` accepts `{ "force": "combo/tev-auto" }` or `{ "force": null }` without changing the roster. Omitting `force` leaves it unchanged. Invalid or unexposed targets are rejected on write; stale targets are reported and skipped at launch.
+
+This takes effect on the **next routed `ocx claude` launch**, injecting `CLAUDE_CODE_SUBAGENT_MODEL` as an explicit proxy alias (with `[1m]` only for an authoritative million-token window; native Claude targets use a reversible native alias) and `CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1`. Each nonempty shell-exported variable independently wins. Native launches inject neither variable; plain `claude` is not affected. No plugin files or `settings.json` are modified by this setting.
+
+Claude Code **2.1.257 or newer** is required for FORCE. Plugin and built-in agents (including Explore/Plan) and per-call model arguments are overridden. Forks and subagent skills with `model: inherit` keep the main conversation model. The main loop and Haiku/small-fast sidecars are unaffected. Existing roster files remain available.
+
+The dashboard warns about old or unknown CLI versions, unavailable targets, and either variable already present in `settings.json` → `env` (which overrides launch env). Detection is read-only and server-local: it cannot inspect another launch shell, another machine, or project-local settings. An unknown result is not proof of force support.
+
+## Historical pool continuity
+
+Provider-pool ceilings use the canonical routed provider. For every currently configured provider
+`P`, OpenCodex automatically binds its salted pool alias, `h(pool, P)`, to `P` when reading
+balances. No manual self-mapping or salt calculation is needed for independent
+provider ceilings. This rule also applies to retained historical balances with that exact alias.
+
+Request logs still use account-specific display labels. A different historical label, including an
+account ordinal, does not establish provider ownership. With `spend.pool.maxTokens`, each original
+balance contributes once to its bound provider group or, when still unbound and positive, to every
+candidate pool. Settled, reserved and unresolved usage all count; unknown usage is not a refund.
+Unbound history may therefore restrict an otherwise unused pool. Current account order and display
+names do not resolve that history. Root and identity ceilings remain independent.
+
+For distinct historical labels whose ownership you have verified, add mappings to the top-level
+`spendPoolAliases` object in `config.json`. Each key is an exact 32-character lowercase hexadecimal
+pool alias from this installation's journal; each value is the exact ID of a verified, currently
+configured canonical provider, with no surrounding whitespace.
+Keep evidence for the mapping and keep the journal and salt private.
+
+Automatic self-bindings and explicit mappings apply only when balances are read. They do not move
+original balances or persist identity links in the journal. Removing an explicit historical mapping
+makes that history unbound again unless its alias is a currently configured provider's own alias.
+Keep `spendPoolAliases` outside `spend`, because older versions reject unknown fields inside that
+strict section. Invalid mappings are rejected on writes; invalid hand edits retain ceilings and
+refuse pool admission. A configured provider's own salted pool alias cannot map to another provider.
+This is checked again when the provider set changes. Validation reads an existing salt without
+creating one.
+
+Dormant unbound history expires only after its last activity is strictly older than
+`spend.retentionDays`. Capacity pressure cannot shorten that interval for positive unknown history.
+Live reservations and seed targets remain protected, even at zero tokens. Cleanup persists a normal
+journal deletion record before admission uses the reduced total. Known groups keep the ordinary
+active/exhausted protections. No automatic tool reconstructs unverifiable mappings.
+
+### Token reservations and reporting
+
+When a root, identity or pool ceiling applies, the first physical send for each selected target/key
+requires a normal-capacity reservation. If that cannot be recorded, the send is refused before it
+reaches upstream. Stable retries reuse that reservation's scopes; a different target/key needs a
+new one. `L` is the request-wide physical-send limit, frozen when the request starts
+(default four; the existing bounded OAuth request profile allows up to eighteen).
+Every additional physical send shares this finite limit.
+
+The enforcement state, applicable root/identity/pool token ceilings, and `L` are captured when each
+request starts. Configuration changes apply only to requests started after the change. Requests
+already running keep their starting policy for all retries and continuations: enabling or lowering
+a ceiling does not tighten them, and raising or removing a ceiling does not relax them. A request
+that started in observe-only mode remains observe-only until it finishes.
+
+Delayed reports retain already-started usage. Terminal settlement waits for reporters, and send IDs
+are forgotten only after their accounting is durable; forgetting an ID does not remove its balance.
+The limit bounds retries, not the final bill: actual usage or already-started retries can exceed a
+token estimate, and their full liability remains counted. With no applicable ceiling, behavior stays
+observe-only, including omitted bookings when tracking capacity is full. No identity checkpoints are
+added for unconfigured traffic.
+
+Claude CLI, CodeBuddy and Qoder count each CLI invocation as one send. Their first invocation
+still needs a normal reservation and is refused if that reservation cannot be obtained. Internal
+CLI retries and tool turns do not separately consume this request-wide send limit; their cost
+settles from actual reported usage, including amounts above the initial estimate. This exception preserves CLI use with configured
+spend ceilings while limiting the number of child invocations.
+
+### Rollback to 2.80.0: contract C
+
+New records use the existing v1 format and `pool` alias domain. **Unmodified 2.80.0 reads them using
+its own per-label rules**, including ordinary compaction and retention. There is no required
+backport, launcher fence or reconciliation command. Keep the current journal and salt: restoring
+an older copy loses the spend recorded since that copy.
+
+This does not preserve canonical aggregation after downgrade, nor promise the same remaining
+allowance that 2.80.0 would have calculated for identical traffic without the upgrade. It may book
+new traffic under account labels. On re-upgrade, current configured-provider self-bindings and explicit
+alias mappings apply to the original balances still retained by 2.80.0. New checkpoints contain no identity-link metadata that
+an older reader must preserve.
+
+Journals written by unpublished experimental builds with `pool-current` aliases or `poolContinuity`
+metadata are excluded from this compatibility contract, including later checkpoints carrying those
+aliases. Their original balances and send targets remain conservative unbound history until normal
+retention expires them; they are not converted or immediately deleted.
+
+A complete invalid journal record (including a final `null`) causes configured admission to refuse.
+Compaction can still preserve valid accounting in a clean checkpoint; the live refusal remains until
+a clean restart replays it. A torn, unparseable final line keeps the existing recovery behavior.
+Storage/corruption denials use `workflow_spend_undurable`; unsafe files and ownership failures remain
+storage errors. Alias validation failures use `workflow_pool_history_unresolved`.

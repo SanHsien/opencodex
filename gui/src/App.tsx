@@ -3,11 +3,11 @@ import { useKeyedClientResource } from "./client-resource";
 import Dashboard from "./pages/Dashboard";
 import Providers from "./pages/Providers";
 import Models from "./pages/Models";
+import Advisor from "./pages/Advisor";
 import Subagents from "./pages/Subagents";
 import Logs from "./pages/Logs";
 import Usage from "./pages/Usage";
 import Storage from "./pages/Storage";
-import Claude from "./pages/Claude";
 import CodexSet from "./pages/CodexSet";
 import Integrations from "./pages/Integrations";
 import Startup from "./pages/Startup";
@@ -17,24 +17,31 @@ import ErrorBoundary from "./components/ErrorBoundary";
 import QuotaSummaryBar from "./components/quota-summary-bar/QuotaSummaryBar";
 import { SidebarGithubRow } from "./components/sidebar-github-row";
 import { DesktopStarOnboarding } from "./components/desktop-star-onboarding";
-import { IconGrid, IconServer, IconBoxes, IconBot, IconList, IconActivity, IconHardDrive, IconCodex, IconClaude, IconMenu, IconSun, IconMoon, IconMonitor, IconGlobe, IconPower, IconX, IconRefresh} from "./icons";
+import { IconMenu, IconGlobe, IconPower, IconX, IconRefresh} from "./icons";
+import { NAV_GROUPS, groupForPage, visibleGroupPages } from "./nav-groups";
+import { SectionSwitcher } from "./components/SectionSwitcher";
 import { useI18n, useT, LOCALES, localeDisplayName, type Locale, type TKey } from "./i18n/shared";
 import { Notice, Select, ToastNotice, type NoticeTone } from "./ui";
-import { configureApiTargets, hasApiSession, installApiAuthFetch, installApiSessionFromHtml, logoutApiSession, SESSION_UNAVAILABLE_EVENT } from "./api";
-import { adminTokenPromptAllowed, apiBaseForPlane, discoverApiTargets, isConnectedRuntime, runtimeRoleFromDocument, standaloneApiTargets, type ApiTargets } from "./api-targets";
+import { bootstrapApiSession, configureApiTargets, hasApiSession, installApiAuthFetch, logoutApiSession, SESSION_UNAVAILABLE_EVENT } from "./api";
+import { apiBaseForPlane, discoverApiTargets, isConnectedRuntime, runtimeRoleFromDocument, standaloneApiTargets, type ApiTargets } from "./api-targets";
 import { ConnectPairingForm } from "./connect-pairing";
+import { validateRemoteLinkSession } from "./connect-pairing-transport";
 import { type Page } from "./app-routing";
 import { readModelsTab, type ModelsTab } from "./pages/models-tab";
 import { useAppRouteState } from "./use-app-route-state";
 import { requestProxyStop } from "./stop-proxy";
 import { useCodexRestart } from "./use-codex-restart";
 import { confirmAction } from "./action-dialogs";
-import { hostOs, isDesktopShell, isExternalLink, openDesktopUpdatePage } from "./lib/desktop-shell";
+import { hostOs, isDesktopShell, isExternalLink, openDesktopCliPage, openDesktopUpdatePage } from "./lib/desktop-shell";
+import { zoomManagedOn } from "./lib/desktop-zoom";
 import { useSidebarCollapse } from "./use-sidebar-collapse";
+import { useDesktopZoom } from "./use-desktop-zoom";
+import { DesktopZoomControl } from "./components/desktop-zoom-control";
+import { ThemeSwitch, type ThemeMode } from "./components/theme-switch";
 import { MainTopStrip, SidebarTopStrip } from "./components/app-titlebar";
 import { watchMacTitlebarMetrics, windowChromeHandlers } from "./lib/window-chrome";
 
-type Theme = "light" | "dark" | "system";
+type Theme = ThemeMode;
 
 const PAGE_TKEY: Record<Page, TKey> = {
   dashboard: "nav.dashboard",
@@ -42,13 +49,14 @@ const PAGE_TKEY: Record<Page, TKey> = {
   providers: "nav.providers",
   models: "nav.models",
   subagents: "nav.subagents",
+  advisor: "nav.advisor",
   logs: "nav.logs",
   usage: "nav.usage",
   storage: "nav.storage",
   remote: "nav.remote",
   "remote-workspace": "nav.remoteWorkspace",
   "codex-set": "nav.codexSet",
-  integrations: "nav.integrations",
+  integrations: "nav.connect",
   claude: "nav.claude",
 };
 
@@ -58,30 +66,6 @@ configureApiTargets(INITIAL_TARGETS);
 installApiAuthFetch();
 const THEME_KEY = "ocx-theme";
 
-/** Every sidebar row maps to its own page. */
-type NavEntry = {
-  id: Page;
-  tkey: TKey;
-  Icon: typeof IconGrid;
-};
-
-const NAV: NavEntry[] = [
-  { id: "dashboard", tkey: "nav.dashboard", Icon: IconGrid },
-  { id: "codex-set", tkey: "nav.codexSet", Icon: IconCodex },
-  { id: "claude", tkey: "nav.claude", Icon: IconClaude },
-  { id: "providers", tkey: "nav.providers", Icon: IconServer },
-  { id: "models", tkey: "nav.models", Icon: IconBoxes },
-  { id: "subagents", tkey: "nav.subagents", Icon: IconBot },
-  { id: "logs", tkey: "nav.logs", Icon: IconList },
-  { id: "usage", tkey: "nav.usage", Icon: IconActivity },
-  { id: "storage", tkey: "nav.storage", Icon: IconHardDrive },
-  { id: "remote", tkey: "nav.remote", Icon: IconMonitor },
-  { id: "remote-workspace", tkey: "nav.remoteWorkspace", Icon: IconMonitor },
-  { id: "integrations", tkey: "nav.integrations", Icon: IconGlobe },
-];
-
-const THEME_ICON = { light: IconSun, dark: IconMoon, system: IconMonitor } as const;
-const THEME_TKEY: Record<Theme, TKey> = { light: "theme.light", dark: "theme.dark", system: "theme.system" };
 
 export interface RemoteWorkspaceRouteProps {
   available: boolean;
@@ -107,6 +91,27 @@ function readRuntimeVersion(data: unknown): string | null {
 function readStoredTheme(): Theme {
   const t = localStorage.getItem(THEME_KEY);
   return t === "light" || t === "dark" ? t : "system";
+}
+
+/*
+ * The section switcher hides once only one member is left (Remote Workspace becoming
+ * unavailable). If a switcher button had focus, hand it to this page's sidebar row when that
+ * row is on screen, else to the main region, so keyboard focus never drops to <body>.
+ */
+function focusAfterSwitcher(): void {
+  const row = document.querySelector<HTMLElement>(".sidebar .nav-item.active");
+  const box = row?.getBoundingClientRect();
+  const onScreen = !!box && box.width > 0 && box.height > 0
+    && box.right > 0 && box.left < window.innerWidth
+    && box.bottom > 0 && box.top < window.innerHeight;
+  if (row && onScreen) {
+    row.focus({ preventScroll: true });
+    return;
+  }
+  const main = document.querySelector<HTMLElement>("main.main");
+  if (!main) return;
+  main.tabIndex = -1;
+  main.focus({ preventScroll: true });
 }
 
 export default function App() {
@@ -136,6 +141,7 @@ export default function App() {
   const [targetError, setTargetError] = useState(false);
   const [sharedSessionReady, setSharedSessionReady] = useState(() => hasApiSession("shared"));
   const [sharedSessionEpoch, setSharedSessionEpoch] = useState(0);
+  const [hubPairingOpen, setHubPairingOpen] = useState(false);
   const [remoteWorkspaceAvailableState, setRemoteWorkspaceAvailable] = useState(false);
   const [sessionLoggingOut, setSessionLoggingOut] = useState(false);
   /*
@@ -167,13 +173,7 @@ export default function App() {
       configureApiTargets(next);
       setTargets(next);
       if (next.connected && !hasApiSession("shared")) {
-        try {
-          const response = await fetch(next.shared.bootstrapPath, {
-            cache: "no-store",
-            signal: AbortSignal.any([controller.signal, AbortSignal.timeout(5_000)]),
-          });
-          if (response.ok) installApiSessionFromHtml("shared", await response.text());
-        } catch { /* pairing form remains available */ }
+        await bootstrapApiSession("shared", controller.signal);
       }
       if (controller.signal.aborted) return;
       setSharedSessionReady(hasApiSession("shared"));
@@ -199,12 +199,18 @@ export default function App() {
     return () => controller.abort();
   }, [page, sharedSessionReady, sharedBase]);
   const remoteWorkspaceAvailable = sharedSessionReady && remoteWorkspaceAvailableState;
-  // A standalone/hub dashboard exposed through an authenticated non-loopback origin can need a
-  // consent-bearing GUI session even though it is not a connected client. Remote Link requires
-  // that stronger principal, so offer the existing one-time pairing flow instead of a dead-end
-  // "sign in" warning. Other pages keep their ordinary admin-token flow unchanged.
-  const remotePairingRequired = page === "remote" && !sharedSessionReady
-    && runtimeRoleFromDocument() === "hub" && adminTokenPromptAllowed();
+  // The sidebar row that owns this page, and the members its switcher may offer.
+  const activeGroup = groupForPage(page);
+  const sectionPages = activeGroup ? visibleGroupPages(activeGroup, { remoteWorkspaceAvailable }) : [];
+  // Claude is a tab inside Connect: both pages render one Integrations shell under one
+  // boundary, so moving between Claude and another Connect tab keeps drafts and focus.
+  const shellPage: Page = page === "claude" ? "integrations" : page;
+  // A Hub can serve the dashboard on a public HTTPS origin without requiring an admin token.
+  // Such a request cannot mint the ordinary loopback session; only an operator-paired session
+  // can manage Remote Link. Pairing recovery therefore follows the actual runtime role and the
+  // RemoteLink authorization result, not the unrelated admin-token prompt policy.
+  const hubPairingAvailable = page === "remote" && runtimeRoleFromDocument() === "hub";
+  const remotePairingFormOpen = hubPairingAvailable && hubPairingOpen;
 
   // Narrow screens: the sidebar becomes an off-canvas drawer behind a hamburger toggle.
   const [navOpen, setNavOpen] = useState(false);
@@ -212,6 +218,8 @@ export default function App() {
   const desktopShell = isDesktopShell();
   const { collapsed: navCollapsed, toggle: toggleNavCollapse } = useSidebarCollapse({ shortcut: desktopShell });
   const desktopMac = desktopShell && hostOs() === "macos";
+  const zoomManaged = desktopShell && zoomManagedOn(hostOs());
+  const desktopZoom = useDesktopZoom({ managed: zoomManaged });
   const appRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (desktopMac && appRef.current) return watchMacTitlebarMetrics(appRef.current);
@@ -273,8 +281,7 @@ export default function App() {
     { pollMs: 30_000, enabled: targetsSettled },
   );
 
-  const cycleTheme = () => setTheme(t => (t === "light" ? "dark" : t === "dark" ? "system" : "light"));
-  const ThemeIcon = THEME_ICON[theme];
+  const themeSwitch = <ThemeSwitch theme={theme} onChange={setTheme} />;
   const displayedVersion: string = healthPoll.data ?? __APP_VERSION__;
 
   const [stopping, setStopping] = useState(false);
@@ -447,17 +454,22 @@ export default function App() {
             written when the Claude row carried the Claude Code connection switch;
             ClaudeCode owns GET/PUT /api/claude-code now, and the row itself is gone.
           */}
-          {NAV.map(entry => {
-            if (entry.id === "remote-workspace" && !remoteWorkspaceAvailable) return null;
-            const { id, tkey, Icon } = entry;
-            const active = id === page;
+          {/*
+            One row per navigation group (nav-groups.ts). A row lights up for any
+            page it owns, so #logs/debug highlights Usage & Logs, and a click opens the
+            group's first page.
+          */}
+          {NAV_GROUPS.map(group => {
+            const { id, tkey, Icon } = group;
+            const active = activeGroup?.id === id;
             return (
               <div key={id} className="nav-entry">
                 <button type="button" className={`nav-item${active ? " active" : ""}`}
-                  data-page={id}
+                  data-page={group.pages[0]}
+                  data-group={id}
                   onClick={() => {
                     // Deliberate sidebar navigation — push a history entry.
-                    navigateToPage(id);
+                    navigateToPage(group.pages[0]);
                     setNavOpen(false);
                   }}
                   aria-current={active ? "page" : undefined}>
@@ -480,10 +492,18 @@ export default function App() {
               style={{ flex: 1, minWidth: 0, width: "100%" }}
             />
           </div>
-          <button type="button" className="theme-toggle" onClick={cycleTheme}
-            aria-label={`${t("theme.label")}: ${t(THEME_TKEY[theme])}`} title={`${t("theme.label")}: ${t(THEME_TKEY[theme])}`}>
-            <ThemeIcon /> <span className="mode">{t(THEME_TKEY[theme])}</span>
-          </button>
+          {zoomManaged ? (
+            <div className="sidebar-display-row">
+              {themeSwitch}
+              <DesktopZoomControl percent={desktopZoom.percent} canZoomIn={desktopZoom.canZoomIn}
+                canZoomOut={desktopZoom.canZoomOut} onStep={desktopZoom.step} />
+            </div>
+          ) : (
+            <div className="sidebar-action-row sidebar-action-row--theme">
+              <span className="sidebar-action-label">{t("theme.label")}</span>
+              {themeSwitch}
+            </div>
+          )}
           <div className="sidebar-action-row">
             <span className="sidebar-action-label">{t("dash.actions")}</span>
             <div className="sidebar-action-orbs">
@@ -515,6 +535,10 @@ export default function App() {
               if (openDesktopUpdatePage()) return;
               navigateToPage("dashboard", "update");
             }}
+            onOpenTerminalCommand={() => {
+              setNavOpen(false);
+              openDesktopCliPage();
+            }}
           />
         </div>
       </aside>
@@ -533,9 +557,31 @@ export default function App() {
         <div className={`main-inner${
           page === "models" && modelsTab === "combos" ? " main-inner--combos" : ""
         }`}>
+          {/*
+            Outside the page-keyed ErrorBoundary on purpose: that boundary remounts on
+            every page change, which would destroy the button the user just activated
+            and drop keyboard focus to <body>.
+          */}
+          {targetsSettled && sectionPages.length > 1 && (
+            <SectionSwitcher
+              items={sectionPages.map(member => ({ page: member, label: t(PAGE_TKEY[member]) }))}
+              currentPage={page}
+              onNavigate={navigateToPage}
+              ariaLabel={t("nav.sectionNavigation")}
+              onFocusOrphaned={focusAfterSwitcher}
+            />
+          )}
+          {/* Outside the page boundary: a page that fails to render must not hide whose state this is. */}
+          {targetsSettled && targets.link && (
+            <Notice tone="warn">
+              {targets.link.home
+                ? t("connection.linkManaged", { home: targets.link.home, linkId: targets.link.linkId })
+                : t("connection.linkManagedUnnamed", { linkId: targets.link.linkId })}
+            </Notice>
+          )}
           <ErrorBoundary
-            key={page}
-            pageName={t(PAGE_TKEY[page])}
+            key={shellPage}
+            pageName={t(PAGE_TKEY[shellPage])}
             title={t("errorBoundary.title")}
             message={t("errorBoundary.message")}
             detailsLabel={t("errorBoundary.details")}
@@ -554,9 +600,12 @@ export default function App() {
                 {targetError && (
                   <div className="alert alert-err" role="alert">{t("connection.machineUnavailable")}</div>
                 )}
-                {((targets.connected && !sharedSessionReady) || remotePairingRequired) && (
-                  <ConnectPairingForm key={`${targets.shared.serverOrigin}:${targets.shared.bootstrapPath}`} target={targets.shared} onConnected={() => {
-                    setSharedSessionReady(true);
+                {((targets.connected && !sharedSessionReady) || remotePairingFormOpen) && (
+                  <ConnectPairingForm key={`${targets.shared.serverOrigin}:${targets.shared.bootstrapPath}`} target={targets.shared} focusOnMount={remotePairingFormOpen} onConnected={async signal => {
+                    if (remotePairingFormOpen) await validateRemoteLinkSession(sharedBase, undefined, signal);
+                    signal.throwIfAborted();
+                    setHubPairingOpen(false);
+                    setSharedSessionReady(hasApiSession("shared"));
                     setSharedSessionEpoch(epoch => epoch + 1);
                   }} />
                 )}
@@ -566,14 +615,14 @@ export default function App() {
                 {page === "providers" && <Providers apiBase={sharedBase} />}
                 {page === "models" && <Models key={sharedBase} apiBase={sharedBase} restartEpoch={codexRestartEpoch} connected={targets.connected} catalogSyncedAt={targets.catalogSyncedAt} reportRestart={report} />}
                 {page === "subagents" && <Subagents key={sharedBase} apiBase={sharedBase} />}
+                {page === "advisor" && <Advisor key={sharedBase} apiBase={sharedBase} />}
                 {page === "logs" && <Logs apiBase={sharedBase} />}
                 {page === "usage" && <Usage apiBase={sharedBase} connected={targets.connected} apiKeyId={targets.apiKeyId} />}
                 {page === "storage" && <Storage apiBase={sharedBase} />}
-                {page === "remote" && !remotePairingRequired && <RemoteLink apiBase={sharedBase} sessionReady={sharedSessionReady} workspaceAvailable={remoteWorkspaceAvailable} onOpenWorkspace={() => navigateToPage("remote-workspace")} />}
+                {page === "remote" && !remotePairingFormOpen && <RemoteLink key={`${sharedBase}:${sharedSessionEpoch}`} apiBase={sharedBase} sessionReady={sharedSessionReady} pairingRecoveryAvailable={hubPairingAvailable} onRequestPairing={() => setHubPairingOpen(true)} workspaceAvailable={remoteWorkspaceAvailable} onOpenWorkspace={() => navigateToPage("remote-workspace")} />}
                 {page === "remote-workspace" && <RemoteWorkspaceRoute available={remoteWorkspaceAvailable} apiBase={sharedBase} hubOrigin={targets.shared.serverOrigin} onOpenRemoteLink={() => navigateToPage("remote")} />}
-                {page === "codex-set" && <CodexSet apiBase={sharedBase} />}
-                {page === "claude" && <Claude apiBase={sharedBase} />}
-                {page === "integrations" && <Integrations apiBase={sharedBase} machineApiBase={machineBase} connected={targets.connected} />}
+                {page === "codex-set" && <CodexSet apiBase={sharedBase} machineApiBase={machineBase} connected={targets.connected} />}
+                {shellPage === "integrations" && <Integrations apiBase={sharedBase} machineApiBase={machineBase} connected={targets.connected} />}
               </>
             )}
           </ErrorBoundary>

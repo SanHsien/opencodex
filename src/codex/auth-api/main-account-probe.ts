@@ -16,14 +16,15 @@ import { getMainAccountPlan, isMainAccountTokenVerifiablyLive, MAIN_CODEX_ACCOUN
 import { captureConfigGeneration } from "../../lib/state-store-sweeper";
 import { captureMainAccountIdentityGeneration, clearMainAccountInfoCache, getMainAccountInfoCache, getMainQuotaCredentialGeneration, isMainAccountIdentityGenerationLive, isMainQuotaWriterLive, matchesMainQuotaCredential, observeMainQuotaCredential, setMainAccountCredentialPresence, setMainAccountInfoCache } from "../main-account-cache";
 import type { MainQuotaWriter, MainAccountInfo } from "../main-account-cache";
-import type { CodexQuotaRefreshOutcome } from "../quota-refresh-outcome";
+import { isCodexTerminalAuthCode } from "../quota-refresh-outcome";
+import type { CodexQuotaRefreshOutcome, CodexTerminalAuthCode } from "../quota-refresh-outcome";
 import { observeMainReserveRevocation } from "../reserve-availability";
 import type { AdmissionLease } from "../../lib/admission";
 import { nonEmptyPlan } from "./runtime-config";
 import { tryAcquireNativeMainProfileClaim } from "../native-main-admission";
 import { WHAM_REQUEST_TIMEOUT_MS } from "../quota-recovery-timing";
 import { withNativeMainCredentialClaim, isNativeMainClaimUnavailable } from "./http";
-import { MAIN_TERMINAL_AUTH_CODES, readMainAuthErrorCode, currentQuotaDispatchSequence, nextQuotaDispatchSequence, isQuotaDispatchCurrent, publishQuotaDispatch } from "./pool-quota-probe";
+import { readMainAuthErrorCode, currentQuotaDispatchSequence, nextQuotaDispatchSequence, isQuotaDispatchCurrent, publishQuotaDispatch } from "./pool-quota-probe";
 
 /**
  * Last reset-credit count this process parsed for the main account, tagged with the
@@ -79,14 +80,18 @@ function sharedMainQuotaPacingEnabled(config: OcxConfig): boolean {
  * itself would make a real 401 permanently transient.
  */
 export async function isTerminalMainAuthResponse(resp: Response, accessTokenLive: boolean): Promise<boolean> {
-  if (resp.status === 401) {
-    if (!accessTokenLive) return true;
-    const code = await readMainAuthErrorCode(resp);
-    return typeof code === "string" && MAIN_TERMINAL_AUTH_CODES.has(code);
-  }
-  if (resp.status !== 403) return false;
+  return (await classifyMainAuthResponse(resp, accessTokenLive)).terminal;
+}
+
+/** As `isTerminalMainAuthResponse`, also naming the provider code that made it terminal. */
+async function classifyMainAuthResponse(
+  resp: Response,
+  accessTokenLive: boolean,
+): Promise<{ terminal: boolean; code?: CodexTerminalAuthCode }> {
+  if (resp.status !== 401 && resp.status !== 403) return { terminal: false };
   const code = await readMainAuthErrorCode(resp);
-  return typeof code === "string" && MAIN_TERMINAL_AUTH_CODES.has(code);
+  if (isCodexTerminalAuthCode(code)) return { terminal: true, code };
+  return { terminal: resp.status === 401 && !accessTokenLive };
 }
 
 export interface MainResetQuotaProof {
@@ -103,6 +108,8 @@ export interface MainAccountInfoFetchResult {
   quotaRefresh?: CodexQuotaRefreshOutcome;
   /** Internal dispatch fence for diagnostics only; never copied into a public DTO or cache. */
   quotaRefreshGeneration?: number;
+  /** This current-credential usage response supplied terminal auth evidence; never public. */
+  terminalAuthFailure?: true;
   /** Whether this attempt safely inspected the physical native-main credential. */
   credentialChecked: boolean;
   /** Meaningful only when credentialChecked is true. */
@@ -139,6 +146,11 @@ export async function fetchMainAccountInfo(forceRefresh = false, config?: OcxCon
   return (await fetchMainAccountInfoSnapshot(forceRefresh, config)).info;
 }
 
+export interface MainAccountInfoProbeOptions {
+  /** Metadata-only renewal never sets or clears the traffic reauth quarantine. */
+  passive?: boolean;
+}
+
 export const EMPTY_MAIN_ACCOUNT_INFO: MainAccountInfo = { email: null, plan: null, quota: null };
 
 export async function retryMainAccountInfoIfIdentityChanged(
@@ -147,12 +159,13 @@ export async function retryMainAccountInfoIfIdentityChanged(
   nativeMainLease: AdmissionLease,
   explicitRefresh: boolean,
   paced: boolean,
+  options: MainAccountInfoProbeOptions = {},
 ): Promise<MainAccountInfoFetchResult | null> {
   const currentAccountId = getMainChatgptAccountId();
   if (currentAccountId === null || currentAccountId === requestAccountId) return null;
   reconcileMainCodexAccountRuntimeState();
   return retriesRemaining > 0
-    ? fetchMainAccountInfoWhileOwned(true, retriesRemaining - 1, nativeMainLease, explicitRefresh, false, paced)
+    ? fetchMainAccountInfoWhileOwned(true, retriesRemaining - 1, nativeMainLease, explicitRefresh, false, paced, options)
     : { info: EMPTY_MAIN_ACCOUNT_INFO, credentialChecked: true, hasCredential: true };
 }
 
@@ -164,6 +177,7 @@ export async function fetchMainAccountInfoAttempt(
   explicitRefresh: boolean = forceRefresh,
   postReset = false,
   config?: OcxConfig,
+  options: MainAccountInfoProbeOptions = {},
 ): Promise<MainAccountInfoFetchResult> {
   const nativeMainLease = existingNativeMainLease ?? tryAcquireNativeMainProfileClaim();
   if (!nativeMainLease) {
@@ -177,7 +191,7 @@ export async function fetchMainAccountInfoAttempt(
   try {
     const paced = sharedMainQuotaPacingEnabled(config ?? loadConfig());
     const operation = async () => ({
-      ...await fetchMainAccountInfoWhileOwned(forceRefresh, retriesRemaining, nativeMainLease, explicitRefresh, postReset, paced),
+      ...await fetchMainAccountInfoWhileOwned(forceRefresh, retriesRemaining, nativeMainLease, explicitRefresh, postReset, paced, options),
       identityGeneration: captureMainAccountIdentityGeneration(),
     });
     if (nativeMainSharedClaimHeld) return await operation();
@@ -218,6 +232,7 @@ export async function fetchMainAccountInfoWhileOwned(
   /** Reset-credit consume needs a fresh post-spend observation, not an earlier read. */
   postReset = false,
   paced = true,
+  options: MainAccountInfoProbeOptions = {},
 ): Promise<MainAccountInfoFetchResult> {
   const writerGeneration = captureConfigGeneration();
   reconcileMainCodexAccountRuntimeState();
@@ -280,7 +295,16 @@ export async function fetchMainAccountInfoWhileOwned(
         const current = credentialIsCurrent() && writerGeneration === captureConfigGeneration();
         if (!current) return { info: getMainAccountInfoCache() ?? EMPTY_MAIN_ACCOUNT_INFO,
           credentialChecked: true, hasCredential: true };
-        if (explicitRefresh && (admission.result.quotaRefresh?.status === "ok"
+        // Single-flight shares evidence, but each caller retains its own auth behavior.
+        if (!options.passive && admission.result.terminalAuthFailure) {
+          const diagnosticStillLive = admission.result.quotaRefreshGeneration !== undefined
+            && isMainAccountIdentityGenerationLive(admission.result.quotaRefreshGeneration);
+          clearMainAccountInfoCache();
+          markAccountNeedsReauth(MAIN_CODEX_ACCOUNT_ID, writerGeneration);
+          return { ...admission.result, ...(diagnosticStillLive
+            ? { quotaRefreshGeneration: captureMainAccountIdentityGeneration() } : {}) };
+        }
+        if (!options.passive && explicitRefresh && (admission.result.quotaRefresh?.status === "ok"
           || admission.result.quotaRefresh?.status === "not_reported")) clearAccountNeedsReauth(MAIN_CODEX_ACCOUNT_ID);
         return admission.result;
       }
@@ -288,30 +312,36 @@ export async function fetchMainAccountInfoWhileOwned(
       const resp = admission.response;
       quotaPhase = "publish";
       if (!resp.ok) {
-        const terminalAuthFailure = await isTerminalMainAuthResponse(resp, isMainAccountTokenVerifiablyLive());
-        const retried = await retryMainAccountInfoIfIdentityChanged(requestAccountId, retriesRemaining, nativeMainLease, explicitRefresh, paced);
+        const authFailure = await classifyMainAuthResponse(resp, isMainAccountTokenVerifiablyLive());
+        const terminalAuthFailure = authFailure.terminal;
+        const retried = await retryMainAccountInfoIfIdentityChanged(requestAccountId, retriesRemaining, nativeMainLease, explicitRefresh, paced, options);
         if (retried) return retried;
         if (!isQuotaDispatchCurrent(dispatchSequence) || !credentialIsCurrent()) {
           return { info: getMainAccountInfoCache() ?? EMPTY_MAIN_ACCOUNT_INFO,
             credentialChecked: true, hasCredential: true };
         }
-        if (terminalAuthFailure) {
+        if (terminalAuthFailure && !options.passive) {
           // Account for this attempt's own synchronous invalidation, never prior external drift.
           const diagnosticStillLive = isMainAccountIdentityGenerationLive(quotaRefreshGeneration);
           clearMainAccountInfoCache();
           if (diagnosticStillLive) quotaRefreshGeneration = captureMainAccountIdentityGeneration();
           markAccountNeedsReauth(MAIN_CODEX_ACCOUNT_ID, writerGeneration);
         }
+        // Keep the last-known plan visible: after a plan change revokes the session, the plan the
+        // account HAD is what tells the operator why it stopped working.
         return {
-          info: EMPTY_MAIN_ACCOUNT_INFO, credentialChecked: true, hasCredential: true,
-          quotaRefresh: { status: "http_error", httpStatus: resp.status },
+          info: { ...EMPTY_MAIN_ACCOUNT_INFO, plan: nonEmptyPlan(cached?.plan) ?? nonEmptyPlan(getMainAccountPlan()) },
+          credentialChecked: true, hasCredential: true,
+          quotaRefresh: { status: "http_error", httpStatus: resp.status,
+            ...(authFailure.code ? { code: authFailure.code } : {}) },
           quotaRefreshGeneration,
+          ...(terminalAuthFailure ? { terminalAuthFailure: true as const } : {}),
         };
       }
       quotaPhase = "body";
       const data = (await resp.json()) as WhamUsageResponse;
       quotaPhase = "publish";
-      const retried = await retryMainAccountInfoIfIdentityChanged(requestAccountId, retriesRemaining, nativeMainLease, explicitRefresh, paced);
+      const retried = await retryMainAccountInfoIfIdentityChanged(requestAccountId, retriesRemaining, nativeMainLease, explicitRefresh, paced, options);
       if (retried) return retried;
       quotaPhase = "decode";
       if (data === null || typeof data !== "object" || Array.isArray(data)) {
@@ -363,7 +393,7 @@ export async function fetchMainAccountInfoWhileOwned(
       // never settled and the dashboard kept showing nothing — the symptom #327 reported.
       // An explicit refresh is an operator asking to re-evaluate, normally right after
       // signing in again, so it stays authoritative.
-      if (explicitRefresh) clearAccountNeedsReauth(MAIN_CODEX_ACCOUNT_ID);
+      if (explicitRefresh && !options.passive) clearAccountNeedsReauth(MAIN_CODEX_ACCOUNT_ID);
       // Mirror main quota + plan into the shared stores so the rotation engine can
       // score and auto-switch the main account exactly like a pool account (Option A).
       setMainAccountPlan(result.plan);
@@ -385,7 +415,7 @@ export async function fetchMainAccountInfoWhileOwned(
         ...(freshResetCredits !== undefined ? { freshResetCredits } : {}),
       };
     } catch (error) {
-      const retried = await retryMainAccountInfoIfIdentityChanged(requestAccountId, retriesRemaining, nativeMainLease, explicitRefresh, paced);
+      const retried = await retryMainAccountInfoIfIdentityChanged(requestAccountId, retriesRemaining, nativeMainLease, explicitRefresh, paced, options);
       if (retried) return retried;
       if (!credentialIsCurrent()) {
         return { info: getMainAccountInfoCache() ?? EMPTY_MAIN_ACCOUNT_INFO,

@@ -9,7 +9,7 @@
   "domains": {
     "providers": {
       "match": [
-        "^(?:aside(?!-profile)|auto|azure|baseten|chutes|cline(?!-(?:client|writer))|command|commandcode|context(?!-compat|-history)|crusoe|cyber|deepinfra|deepseek|digitalocean|exa|featherless|forward|hyperbolic|kimi|meta|mimo|minimax|moonshot|muse|new|nous|novita|nscale|nvidia|opencode|openrouter|qwen38|sambanova|umans|vercel|zcode|zhipu)-"
+        "^(?:aside(?!-profile)|auto|azure|baseten|chutes|cline(?!-(?:client|writer))|command(?!-code-client)|commandcode|context(?!-compat|-history)|crusoe|cyber|deepinfra|deepseek|digitalocean|dsh-account(?!-adapter)|exa|featherless|forward|hyperbolic|kimi|meta|mimo|minimax|moonshot|muse|new|nous|novita|nscale|nvidia|opencode(?!-kilo)|openrouter|qwen38|sambanova|umans|vercel|zcode|zhipu)-"
       ],
       "children": {
         "cursor": [
@@ -32,7 +32,7 @@
     "codex-integration": {
       "match": [
         "^context-compat\\.test\\.ts$",
-        "^(?:active|app|bearer|catalog|combos\\.test\\.ts|doctor\\.test\\.ts|effort|gather|history|injection|issue|multi|native|parallel|project|selected|slug|ultrafast|warmup\\.test\\.ts)-"
+        "^(?:active|app|bearer|catalog|combos\\.test\\.ts|doctor\\.test\\.ts|effort|gather|history|injection|issue|multi|native(?!-compaction-(?:gateway|provenance|oauth))|parallel|project|selected|slug|ultrafast|warmup\\.test\\.ts)-"
       ]
     },
     "server": {
@@ -40,12 +40,13 @@
         "^context-history\\.test\\.ts$",
         "^aside-profiles-routes",
         "^update-async-routes\\.test\\.ts$",
-        "^(?:account|alias|bounded|cancel|config\\.test\\.ts|consume|data|debug|error|errors|fetch|health|input|loopback|management|memory|outbound|owned|passive|port|ports\\.test\\.ts|proxy|relay|response|retry|server|session|sidebar|stream|v2)-"
+        "^(?!bounded-file-read\\.test\\.ts$)(?:account|alias|bounded|cancel|config\\.test\\.ts|consume|data|debug|error|errors|fetch|health|input|loopback|management|memory|outbound|owned|passive|port|ports\\.test\\.ts|proxy|relay|response|retry|server|session|sidebar|stream|v2)-",
+        "^subagent-model-force-api\\.test\\.ts$"
       ]
     },
     "adapters": {
       "match": [
-        "^(?:bridge\\.test\\.ts|buffered|identity|run|tool|translator)-"
+        "^(?:bridge\\.test\\.ts|buffered|dsh-account-adapter|identity|run|tool|translator)-"
       ],
       "children": {
         "google": [
@@ -61,6 +62,7 @@
     },
     "responses": {
       "match": [
+        "^native-compaction-(?:gateway|provenance|oauth)\\.test\\.ts$",
         "^openai-responses-summary-none\\.test\\.ts$",
         "^(?:apply|chat|citation|continuation|eventstream|legacy|namespace|passthrough|responses|sse|thought|ws)-"
       ]
@@ -77,7 +79,7 @@
     },
     "routing": {
       "match": [
-        "^(?:cl01|destination|fastwire|policy|router|router\\.test\\.ts|subagent)-"
+        "^(?:cl01|destination|fastwire|policy|router|router\\.test\\.ts|subagent(?!-model-force-api))-"
       ]
     },
     "gui": {
@@ -87,7 +89,7 @@
     },
     "oauth": {
       "match": [
-        "^(?:chatgpt|generic|state)-"
+        "^(?:chatgpt|dsh-login|generic|state)-"
       ]
     },
     "claude-integration": {
@@ -95,7 +97,7 @@
     },
     "ci-workflows": {
       "match": [
-        "^(?:assert|build|bump|ci|cleanup|closed|docs|dsh|fixture|install|keyring|package|release|repo|skill|test|zz)-"
+        "^(?:assert|build|bump|ci|cleanup|closed|docs|dsh-(?:path|rc6|writer)|fixture|install|keyring|package|release|repo|skill|test|zz)-"
       ]
     },
     "usage": {
@@ -105,14 +107,16 @@
     },
     "lib": {
       "match": [
-        "^(?:acl|clearable|credential|debug\\.test\\.ts|optional|redact\\.test\\.ts|remove|self|stall|strict|transient)-"
+        "^(?:acl|bounded|clearable|credential|debug\\.test\\.ts|optional|redact\\.test\\.ts|remove|self|stall|strict|transient)-"
       ]
     },
     "clients": {
       "match": [
         "^aside-profile(?!s-routes)",
         "^cline-(?:client|writer)(?:-|[.])",
-        "^(?:desktop|omp|pi|prime|remote|sync)-"
+        "^opencode-kilo-",
+        "^(?:desktop|omp|pi|prime|remote|sync)-",
+        "^command-code-client(?:-|[.])"
       ]
     },
     "service": {

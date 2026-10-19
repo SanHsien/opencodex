@@ -1,5 +1,35 @@
 # 維護決策
 
+## 2026-10-19：stable 整合 v2.88.0（不帶入上游歷史）
+
+**決定**：在以 tag `v2.88.0`（`6936d9885d8a9bda9301737affcbaf1a4ff00e17`）為起點的分支 `sync/v2.88.0` 上重放 `git diff v2.76.0 main` 的 fork overlay（391 刪除、3-way patch 後 52 個衝突檔），
+方法與 `v2.76.0` 相同：`main` 以單一 parent 的 commit 採用該分支的 tree，不建立 ancestry bridge。`tools/upstream_baseline.json` 推進到 `v2.88.0`（`reviewed_through`／`integrated_through` 同為 `6936d9885`，`reviewed_date` 2026-10-19；issue／PR 水位未動）。
+
+**版本**：`package.json`／`Cargo.toml`／`tauri.conf.json` 維持上游 `2.88.0`，不再前推 `2.89.0`——本次要用 tag `v2.88.0` 直接發 fork 的 Windows MSI（MSI 版本須純數字），前推會讓版本來源檢查與 tag 不符。`Cargo.lock` 取上游。
+
+**語系**：非保留 locale 持續剃除，包含上游新增的 `pt`（`gui/src/i18n/pt.ts`、各翻譯表的 pt 區塊）與 `docs-site/.../{fr,ja,ko,ru,tr,zh-cn}/reference/configuration/advisor.md`；
+`lab-translations.ts`、`desktop-compatibility-copy.ts`（新）、`status-codes.ts`、`vision-reasoning-labels.ts`、`native-main-translations.ts` 只留 en／zh-TW；`gui/index.html`、`shared.ts`、`catalogs.ts`、兩個 `bcp47()` 同步縮減。
+上游測試中寫死 ko／ja／ru／pt／vi／de 的案例，改為 en／zh-TW 或刪除（`compaction-routing-panel` 的 ja／ru、`i18n-locales` 的 pt、`i18n-language-switch` 的 French、`theme-switch-dom` ko→zh-TW、`remote-link-route` vi→en 等）。
+
+**衝突判定**（其餘依 v2.76.0 的原則：以上游為底、重新套 fork 修正）
+- `src/lib/bounded-file-read.ts`／`tests/lib/bounded-file-read.test.ts`：add/add。上游新增同步 `readBoundedRegularFileSync(path, limit): Buffer`（`gentle-shell-path`、`integrations/config-io` 使用），fork 的 `readBoundedRegularFile`（判別聯集）早已被十幾處呼叫；兩者並存，測試合併為同一檔。上游對 shim state 讀取新增的 mode／uid 比對移植進 fork 的共用 reader。
+- `src/codex/shim-state-file.ts`：保留 fork 以共用 reader 取代本地實作的結構，補上上游新增的 overlay state（`decodeOverlayState`、`stat` 回傳、`schema 2`）；對 `shim-migration`／`shim-overlay` 仍以原簽章匯出（`readShimStateFile as readBoundedRegularFile`）。
+- `scripts/test.ts`：保留 fork 的 fresh-process 分批 runner，採上游新的 `getTestRunnerBun()`（固定 Bun 版本）並把 `testRunner` 傳入每個 lane 與重試；`resolveTestLaneEnvironment` 保留。
+- `codex-app-server-processes.test.ts`：採上游新的 CIM 列舉寫法（取代 fork 的輪詢），保留 fork 新增的 fixture 測試所需 import。
+- `.github/workflows/service-lifecycle.yml`：上游改成 PR 只跑 Linux 腿；與 fork 的官方 repo guard 合併成 `repository == 'lidge-jun/opencodex' && event_name != 'pull_request'`。
+- `tests/ci-workflows/test-runner.test.ts`：auto-merge 後 2102 行超過 file-size ratchet 上限，將「transpiler cache isolation」與「Windows test TEMP recovery」兩個 describe 原樣搬到 `test-runner-temp-isolation.test.ts`（layout.json 與 expected fixture 同步登記），不調高任何 cap。
+- `layout.json`／`test-layout-expected.json`／`file-size-baseline.json`：以上游為底，只補 fork 自有的 `ci-watchdog`、`fork-hygiene` 並移除 `docs-readme-translation-parity`。
+- `structure/runtime.md`：取上游列（已含 fork 的 service.ts 句子）。
+- zh-tw 文件（16 頁）：保留 fork 的繁中翻譯為底，把上游新增／改寫段落帶入（上游新段落未翻譯者先以英文呈現）；`docs-zh-tw-parity` 因此補齊 27 頁的段落、程式碼區塊與連結，並新增 `reference/cli/messaging.md`。英文 heading 錨點改為對應繁中 slug，`docs-site` 建置的 missing-fragment 清零。
+
+**新增 workflow**：`catalog-async-contracts.yml` 為產品回歸（無祕鑰、不改 issue／PR），保留在 fork 執行；`dev-version-bump`、`cleanup-orphaned-workflows`、`codex-queue-helpers`、`desktop-installed-gate` 沿用官方 repo guard。
+新增 fork 專屬 `fork-release-windows.yml`（guard `SanHsien/opencodex`；`workflow_dispatch(tag)` 或推 `v*` tag；windows-latest 建置未簽章 MSI，以 `GITHUB_TOKEN` 的 `gh release create/upload --repo SanHsien/opencodex` 發佈）。
+
+**自動更新不指向上游**：`tauri.conf.json` 的 `bundle.createUpdaterArtifacts` 改 false、`plugins.updater.endpoints` 清空（保留 `pubkey`，plugin 設定反序列化與 `verify-release-assets` 需要它）。Rust 端 `tauri_plugin_updater` 仍註冊以維持可編譯；
+無 endpoint 時檢查會在本機回報 EmptyEndpoints，不會連線上游（未改 Rust，本機無 Rust 工具鏈，交由 CI 編譯驗證）。`release-desktop-scripts.test.ts` 的期望值同步改為 false。
+
+**審查後 nit**：`legacy-config-keys` 過大檔不再誤報 `not_a_file`，新增 `too_large` 原因（`readBoundedCodexConfig` 對過大檔丟出 code `EFBIG`，與 `prompt-text-probe` 的詞彙一致），補專屬測試；`context-compat.ts` 移除過時的註解。
+
 ## 2026-10-07：修復 v2.76.0 整合後 main CI（docs 建置、GUI 測試、test-runner 鎖測試）
 
 - docs-site：`Header.astro` 語言選單只留 English／繁體中文（原列 8 個語系，造成 840 筆 missing-page）；zh-tw 頁面內的英文 heading 錨點改成對應的繁中 slug（約 40 筆 missing-fragment）。

@@ -1,4 +1,5 @@
 import type { UpstreamHttpVersion, ReasoningSummaryDelivery, CodexAccountMode } from "./wire";
+import type { AnthropicAccountPoolConfig } from "./anthropic-account-pool";
 
 /**
  * Per-provider proactive-refresh policy. The guardian only ever touches a provider whose EFFECTIVE
@@ -13,6 +14,8 @@ export interface ProviderApiKeySelection {
   entryId?: string;
   reference?: string;
   revision?: string;
+  /** Request-local allocation; does not replace the saved active key. */
+  distributed?: boolean;
 }
 
 export interface OpenRouterProviderRouting {
@@ -68,15 +71,15 @@ export interface TransientRetryPolicy {
 }
 
 /**
- * Opt-in replacement of a native Responses send whose upstream connection closed while the
+ * Opt-in replacement of a Responses send whose upstream connection closed while the
  * caller had observed nothing (`providers.<name>.retryOnReset`).
  *
- * Covers both ambiguous stages the proxy can be in: no response head at all, and a head whose
- * SSE body carried only control events. Disabled unless the object is present; a bare `{}`
- * opts in with defaults. Only a request the proxy can judge self-contained is ever replaced;
- * see `src/server/responses/reset-replay.ts`. The replacement inference may still be billed if
- * the origin had already started the first one, which is what makes this opt-in rather than
- * default.
+ * Native Responses covers pre-header resets and post-header SSE carrying only control events.
+ * Generic translated dispatch covers initial and rebuilt pre-header sends, sharing the same
+ * grant and send budget; adapter-owned transports and translated post-header failures are excluded.
+ * Disabled unless present; `{}` opts in. Only self-contained requests qualify (see
+ * `src/server/responses/reset-replay.ts`). Replacement inference may still be billed if the
+ * origin had already started the first one, so this is opt-in rather than default.
  */
 export interface ResetReplayPolicy {
   /** Master switch. Presence of the object also enables the policy (default true). */
@@ -163,16 +166,25 @@ export interface ProviderWebSearchBridgeConfig {
   endpoint?: string;
 }
 
-/**
- * User-configured display price for one model (USD per 1M tokens).
- * Mirrors the `Cost4` shape used by the usage cost estimator; structurally
- * compatible so config rows can be lifted directly into price overlays.
- */
+/** Optional user-owned prompt-length policy; rates are USD per 1M tokens. */
+export type PromptLengthPricing =
+  | { mode: "automatic" }
+  | { mode: "flat" }
+  | {
+    mode: "custom";
+    thresholdTokens: number;
+    comparison: "gt" | "gte";
+    rates: { input: number; output: number; cacheRead: number; cacheWrite: number };
+  };
+
+/** Complete base rates for one model, with automatic pricing when policy is absent. */
 export interface ProviderCostOverlay {
   input: number;
   output: number;
   cacheRead: number;
   cacheWrite: number;
+  /** Absent means automatic vendor prompt-length pricing. */
+  promptLengthPricing?: PromptLengthPricing;
 }
 
 export interface RequestPacingRule {
@@ -189,6 +201,10 @@ export interface ProviderRequestPacingConfig extends RequestPacingRule {
   enabled: boolean;
   /** Exact upstream model-id overrides; other models inherit the provider rule. */
   models?: Record<string, RequestPacingRule>;
+  /** Normal request allocation, separate from cooldown recovery ordering. */
+  keySelection?: "active" | "round-robin";
+  /** Additional uniform limits per pool credential, across all models. */
+  keys?: RequestPacingRule;
 }
 
 export interface FastWire {
@@ -274,6 +290,10 @@ export interface ModelCapabilities {
 }
 
 export interface OcxProviderConfig {
+  /** Explicit builtin Pool 2 provenance; endpoints never imply ownership. */
+  anthropicOAuthInstance?: "anthropic2";
+  /** Independent Anthropic pool settings; valid only on providers.anthropic2. */
+  anthropicAccountPool?: AnthropicAccountPoolConfig;
   /** Optional browser-compatible outbound TLS profile; disabled by default. */
   tlsProfile?: "antigravity-browser";
   /** Optional short provider namespace used only at request/catalog presentation time. */
@@ -412,6 +432,27 @@ export interface OcxProviderConfig {
    */
   preserveResponsesReasoningContent?: boolean;
   /**
+   * Whether to preserve Codex-private `input[].id` on `store: false` requests.
+   * Disabled by default: ordinary Responses upstreams interpret input IDs as references
+   * to nonexistent stored items and return 404. Upstream launcher relays such as
+   * Codex Web GPT (`chatgpt-web/*`) require the current-turn user message ID for
+   * browser-session replay (#6220).
+   */
+  preserveResponsesInputItemIds?: boolean;
+  /**
+   * Whether to preserve ChatGPT-internal `internal_chat_message_metadata_passthrough`
+   * on outgoing input messages for noncanonical destinations. Disabled by default:
+   * public Responses gateways reject the private field as an unknown parameter.
+   * Upstream launcher relays such as Codex Web GPT require this metadata (or the item ID)
+   * to extract turn provenance (#6220).
+   */
+  preserveResponsesMessageMetadata?: boolean;
+  /**
+   * Opt in to lossy hosted-search history notes on ordinary canonical Codex Lite requests.
+   * Default off; only literal true enables it, and non-Lite/native compact stay unchanged.
+   */
+  projectResponsesLiteHostedSearchHistory?: boolean;
+  /**
    * Treat this provider's `modelReasoningEfforts` as authoritative at the wire, not only in the
    * catalog. Adapters that ship their own per-model effort table (currently `command-code`)
    * otherwise let that table win for models it knows, so a widened row is advertised in the
@@ -432,6 +473,10 @@ export interface OcxProviderConfig {
    * compaction blobs. Absent or false degrades foreign blobs to an opaque note.
    */
   decodesNativeCompactionBlobs?: boolean;
+  /** Accept native Responses v2 `input` compaction_trigger items. Responses adapter only. */
+  supportsNativeCompactionTrigger?: boolean;
+  /** Serve native Responses v1 /responses/compact. Responses adapter only; no auth authority. */
+  supportsNativeCompactEndpoint?: boolean;
   /**
    * Trust this direct key-auth Responses provider to consume or relay opaque encrypted
    * V2 agent tasks. OpenCodex does not decrypt, translate, or recover an eligible task.
@@ -601,6 +646,11 @@ export interface OcxProviderConfig {
   contextWindow?: number;
   /** Per-model fallback when context metadata is absent; otherwise caps the reported window. */
   modelContextWindows?: Record<string, number>;
+  /**
+   * Custom providers only, default off: fill a missing context window from bundled model-ID
+   * metadata before the Context cap / 128k fallback. An estimate, not verified relay capacity.
+   */
+  inferContextWindow?: boolean;
   /** Per-model Copilot upstream tier; only the github-copilot route sends it. */
   modelContextTiers?: Record<string, "default" | "long_context">;
   /** Model-specific Codex catalog input modalities, e.g. ["text"] or ["text", "image"]. */
@@ -618,6 +668,8 @@ export interface OcxProviderConfig {
    * Responses `max_output_tokens`. Adapters still let an explicit request win.
    */
   defaultMaxOutputTokens?: number;
+  /** Opt-in Azure Responses floor for explicit positive output budgets; may raise the caller cap. */
+  minMaxOutputTokens?: number;
   /** Model-specific fallback output token budgets. Exact/model-pattern entries beat the provider default. */
   modelMaxOutputTokens?: Record<string, number>;
   /**
@@ -652,6 +704,8 @@ export interface OcxProviderConfig {
    */
   autoReviewModelOverrides?: Record<string, string>;
   headers?: Record<string, string>;
+  /** Inbound client metadata headers to copy to this provider when the outbound field is otherwise unset. */
+  forwardClientHeaders?: string[];
   /** Default provider-routing preferences for models sent through the canonical OpenRouter API. */
   openRouterRouting?: OpenRouterProviderRouting;
   /** Exact model-id overrides for `openRouterRouting`. Each matching entry replaces the default. */
@@ -682,12 +736,14 @@ export interface OcxProviderConfig {
     /** Kiro OAuth only: active serving requests per account, 1..100. */
     maxConcurrentPerAccount?: number;
     enabled?: boolean;
+    /** Opt-in process-local conversation ownership; requires proactive enablement. */
+    sessionAffinity?: "conversation" | "none";
     /**
      * Generic OAuth pool selection strategy (#695). Persisted through the pool-settings
      * contract. Consumed by the selector only while `pool.kernel` is on; with the flag off
      * it is still merely persisted, so omitted and set behave the same.
      */
-    strategy?: "quota" | "round-robin" | "fill-first" | "least-loaded";
+    strategy?: "quota" | "round-robin" | "fill-first" | "reset-first" | "least-loaded";
     /**
      * 0-100 usage percent at which fill-first advances off the active account (#695).
      * Read only under `pool.kernel` with `strategy: "fill-first"`; 80 when unset, matching
@@ -992,9 +1048,9 @@ export interface OcxProviderConfig {
    */
   transientRetryOn5xx?: TransientRetryPolicy;
   /**
-   * Opt-in replacement of a native Responses send that died while the caller had observed
-   * nothing (`providers.<name>.retryOnReset`). Disabled unless present; a bare `{}` opts in
-   * with defaults. Native Responses sends only, and only for self-contained requests.
+   * Opt-in replacement of self-contained Responses sends (`providers.<name>.retryOnReset`).
+   * Disabled unless present; `{}` opts in. Native sends and generic translated initial/rebuilt
+   * pre-header sends share the grant/budget; adapter-owned and translated post-header failures are excluded.
    */
   retryOnReset?: ResetReplayPolicy;
   /**

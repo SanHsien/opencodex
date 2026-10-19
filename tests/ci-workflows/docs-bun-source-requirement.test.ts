@@ -3,8 +3,8 @@ import { repoPath } from "../helpers/repo-root";
 
 /**
  * Every contributor entry point must say that building from source needs a local `bun`, and
- * must keep that separate from the bundled runtime that ships inside the npm package. Users
- * who install `ocx` never need their own Bun; contributors always do.
+ * explain the bundled runtime and package-script PATH shadowing. Users who install `ocx`
+ * never need their own Bun; contributors need the CLI and the separately pinned test runner.
  *
  * Each file is checked as one whole normalized paragraph rather than as scattered fragments.
  * Matching fragments independently across a whole file passes even after the explanatory
@@ -20,25 +20,25 @@ const CASES = [
     path: "CONTRIBUTING.md",
     paragraph:
       "Source development requires the `bun` CLI on your `PATH`. The published npm package bundles its own"
-      + " Bun runtime for end users, but contributor commands such as `bun install`, `bun run test`, and"
-      + " `bun run prepush` run from your local Bun installation.",
+      + " Bun runtime for end users. Package scripts such as `bun run test` and `bun run prepush` may resolve"
+      + " Bun through that bundled dependency.",
   },
   {
     path: "README.en.md",
     paragraph:
-      "Source development requires the `bun` CLI on your `PATH`. This is separate from the published npm"
-      + " package's bundled Bun runtime, which is used only by installed `ocx` commands.",
+      "Source development requires the `bun` CLI on your `PATH`. The published npm package bundles its own"
+      + " Bun runtime for installed `ocx` commands; package scripts may also resolve Bun through that bundled dependency.",
   },
   {
     path: "README.md",
     paragraph:
-      "從原始碼開發需要在 `PATH` 中有本機 `bun` CLI。這與已發佈 npm 套件內附、僅供已安裝 `ocx` 指令使用的 Bun 執行環境不同。",
+      "從原始碼開發需要在 `PATH` 中有本機 `bun` CLI。已發佈的 npm 套件內附自己的 Bun 執行環境供已安裝的 `ocx` 指令使用；套件 scripts 也可能透過該內附相依解析 Bun。",
   },
   {
     path: "docs-site/src/content/docs/contributing.md",
     paragraph:
       "Source development requires the `bun` CLI on your `PATH`. The published npm package bundles its own"
-      + " Bun runtime for users, but this checkout's scripts run through your local Bun installation.",
+      + " Bun runtime for users; package scripts may resolve Bun through that bundled dependency.",
   },
 ] as const;
 
@@ -56,5 +56,14 @@ test("source development docs require a local Bun CLI while preserving the bundl
   for (const entry of CASES) {
     const text = await Bun.file(repoPath(entry.path)).text();
     expect(normalizedRequirementParagraph(text, entry.path === "README.md" ? ZH_TW_PARAGRAPH_START : PARAGRAPH_START)).toBe(entry.paragraph);
+  }
+});
+
+test("contributor docs report the test and shipped Bun pins from package.json", async () => {
+  const pkg = await Bun.file(repoPath("package.json")).json();
+  for (const path of ["CONTRIBUTING.md", "docs-site/src/content/docs/contributing.md"]) {
+    const text = await Bun.file(repoPath(path)).text();
+    const versions = /The suite uses Bun (\d+\.\d+\.\d+) \([^)]*testRunnerBun[^)]*\) while the shipped runtime is (\d+\.\d+\.\d+)\./.exec(text);
+    expect(versions?.slice(1)).toEqual([pkg.testRunnerBun, pkg.dependencies.bun]);
   }
 });

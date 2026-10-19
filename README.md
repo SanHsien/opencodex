@@ -447,6 +447,10 @@ opencodex 是獨立的社群維護專案，**與 OpenAI、Anthropic 或其他任
 
 部分供應商——尤其是 Anthropic（Claude）——可能會暫停或限制經第三方代理路由 API 流量的帳號。**使用風險自負（UAYOR）。** 連線供應商前，請先查其服務條款，確認是否允許代理式存取。上游供應商對帳號採取的任何處置，opencodex 維護者概不負責。
 
+## 多 Agent 流水線
+
+本 repo 是 [agent-relay](https://github.com/SanHsien/agent-relay) 多 Agent 派工與驗收流水線的一環（角色：通用供應商代理）。與 agent-relay 的整合規劃中（Phase 2）。協定規格與所有相關 repo 的總目錄見 agent-relay。
+
 ## 授權
 
 MIT

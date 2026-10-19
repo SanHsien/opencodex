@@ -364,6 +364,10 @@ opencodex is an independent, community-maintained project and is **not affiliate
 
 Some providers — notably Anthropic (Claude) — may suspend or restrict accounts that route API traffic through third-party proxies. **Use at your own risk (UAYOR).** Before connecting a provider, review its Terms of Service to confirm that proxy-based access is permitted. The opencodex maintainers are not responsible for any account actions taken by upstream providers.
 
+## Multi-agent pipeline
+
+This repo is part of the [agent-relay](https://github.com/SanHsien/agent-relay) multi-agent dispatch and verification pipeline (role: generic provider proxy). Integration with agent-relay is planned (Phase 2). The protocol spec and the index of all related repos live in agent-relay.
+
 ## License
 
 MIT

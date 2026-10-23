@@ -44,6 +44,8 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           ref: refs/tags/${{ env.TAG }}
+          # Full history so the next step can prove the tag is reachable from origin/main.
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Refuse a tag that is not a fork commit
@@ -52,6 +54,16 @@ jobs:
           # An upstream tag of the same name has no fork overlay; publishing it would ship upstream code.
           [ -f FORK.md ] && [ -f tools/upstream_baseline.json ] || {
             echo "::error::$TAG does not point at a SanHsien fork commit (FORK.md / tools/upstream_baseline.json missing)."
+            exit 1
+          }
+          # A tag on a stray or unmerged branch carries the overlay files too; only a commit that
+          # is already on main may be published.
+          git rev-parse --verify --quiet refs/remotes/origin/main >/dev/null || {
+            echo "::error::origin/main was not fetched, so $TAG cannot be checked against it."
+            exit 1
+          }
+          git merge-base --is-ancestor HEAD refs/remotes/origin/main || {
+            echo "::error::$TAG does not point at a commit reachable from origin/main."
             exit 1
           }
 

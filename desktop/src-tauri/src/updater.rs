@@ -445,7 +445,24 @@ pub fn update_label(version: &str) -> String {
     format!("Install update v{version}")
 }
 
+/// Whether the updater section of the app config names at least one endpoint. The fork ships
+/// `plugins.updater.endpoints: []`, so an empty or missing list means updates are disabled.
+pub fn updater_endpoints_configured(updater: Option<&serde_json::Value>) -> bool {
+    updater
+        .and_then(|config| config.get("endpoints"))
+        .and_then(serde_json::Value::as_array)
+        .is_some_and(|endpoints| !endpoints.is_empty())
+}
+
+pub fn updates_enabled(app: &AppHandle) -> bool {
+    updater_endpoints_configured(app.config().plugins.0.get("updater"))
+}
+
 pub fn start_background_checks(app: AppHandle) {
+    // Nothing to poll without an endpoint; a loop here would only log "updater check failed".
+    if !updates_enabled(&app) {
+        return;
+    }
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(std::time::Duration::from_secs(30)).await;
         loop {
@@ -456,6 +473,11 @@ pub fn start_background_checks(app: AppHandle) {
 }
 
 pub async fn check_and_show(app: &AppHandle) -> Result<(), String> {
+    // Disabled updates are a quiet no-op, so a stray manual check neither errors nor flips the
+    // page into a "checking" state that would never resolve.
+    if !updates_enabled(app) {
+        return Ok(());
+    }
     let gate = app.state::<CheckGeneration>();
     let state = app.state::<tray::TrayState>();
     let Some((generation, epoch)) = gate.begin_if_not_installing(&state.installing, || {
@@ -508,8 +530,8 @@ pub async fn check_and_show(app: &AppHandle) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        after_install_failure, linux_updater_target, update_label, CheckGeneration,
-        DesktopUpdateState, InstallClaim, UiProjection,
+        after_install_failure, linux_updater_target, update_label, updater_endpoints_configured,
+        CheckGeneration, DesktopUpdateState, InstallClaim, UiProjection,
     };
     use crate::exit::{DrainVerdict, ExitCoordinator, ExitDecision, ExitReason};
     use crate::tray_availability::TrayAvailability;
@@ -902,5 +924,24 @@ mod tests {
     fn unbundled_builds_keep_the_default_updater_key() {
         // Dev builds and any format without a patcher entry resolve the default key.
         assert_eq!(linux_updater_target(None), None);
+    }
+
+    #[test]
+    fn empty_or_missing_updater_endpoints_disable_updates() {
+        assert!(!updater_endpoints_configured(None));
+        assert!(!updater_endpoints_configured(Some(&serde_json::json!({}))));
+        assert!(!updater_endpoints_configured(Some(
+            &serde_json::json!({ "endpoints": [] })
+        )));
+        assert!(!updater_endpoints_configured(Some(
+            &serde_json::json!({ "endpoints": "https://example.invalid/latest.json" })
+        )));
+    }
+
+    #[test]
+    fn a_configured_updater_endpoint_enables_updates() {
+        assert!(updater_endpoints_configured(Some(&serde_json::json!({
+            "endpoints": ["https://example.invalid/latest.json"]
+        }))));
     }
 }

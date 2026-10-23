@@ -101,6 +101,29 @@ describe("upstream workflow isolation", () => {
   });
 });
 
+describe("fork release workflow", () => {
+  test("refuses a tag that is not an ancestor of origin/main and keeps a read-only token", async () => {
+    const text = (await Bun.file(join(ROOT, ".github/workflows/fork-release-windows.yml")).text()).replaceAll("\r\n", "\n");
+    const guard = text.slice(
+      text.indexOf("- name: Refuse a tag that is not a fork commit"),
+      text.indexOf("- name: Setup project Bun"),
+    );
+    expect(guard).toContain("FORK.md");
+    expect(guard).toContain("tools/upstream_baseline.json");
+    expect(guard).toContain("git merge-base --is-ancestor HEAD refs/remotes/origin/main");
+    expect(guard).toContain("::error::");
+    // The ancestry check needs history, so the checkout must not be the default depth-1 clone.
+    const checkout = text.slice(text.indexOf("- name: Checkout tag"), text.indexOf("- name: Refuse a tag"));
+    expect(checkout).toContain("fetch-depth: 0");
+    expect(checkout).toContain("persist-credentials: false");
+    // Permissions stay read-only for the build job; only publish may write.
+    expect(text).toMatch(/\npermissions:\n  contents: read\n/);
+    const msiJob = text.slice(text.indexOf("\n  msi:"), text.indexOf("\n  publish:"));
+    expect(msiJob).not.toContain("permissions:");
+    expect(text.match(/contents: write/g)?.length).toBe(1);
+  });
+});
+
 describe("fork markdown links", () => {
   test("check-links scans overlay docs and not README", () => {
     const rels = iterDocuments().map((path) =>

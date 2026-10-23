@@ -590,3 +590,15 @@ commit，均 defer 至 stable promotion。open platform `#4200`（remote-hub doc
 **理由**：這輪 upstream 對多個大檔（`provider-fetch.ts`、`shim.ts`、`server/index.ts`）做了拆分成多個小檔的重構，逐檔比對後確認 fork 的安全/穩健性修正要點沒有一項被 upstream 真正涵蓋以外的情況遺漏——凡是 upstream 已有等價修正就採 upstream，凡是沒有就移植到新檔位置，不在舊檔位置留重複定義製造未來衝突。
 
 **測試與語系**：`gui/`、`docs-site/` 的非保留 locale（ru/ja/tr/vi/fr/ko/zh-cn 等）延續既有政策一併剃除，包含 upstream 這次新增的 `gui/src/i18n/vi.ts`、`native-main-translations.ts` 的 7 個非保留 locale 區塊，以及 3 個假設多語 README／docs-site 存在的新 `tests/ci-workflows/` 測試（`docs-provider-discovery-limits`、`docs-provider-preset-counts`、`docs-readme-memory-inventory`）。`scripts/test.ts` 的 fresh-process batch runner 保留 fork 版本，不採 upstream 改成的單一 `OCX_TEST_MAIN_TIMEOUT_MS` 主 lane 設計。
+
+## 2026-10-24：Dependabot security updates 不適用 Bun，不加 bun 條目
+
+**現象**：2026-10-23 Dependabot security update（警示 `#4`，`zod` < 4.6.6，GHSA-mrhx-c7xc-m3w5）失敗：`Dependabot detected that Bun is misconfigured ... This project has a bun.lock file but no package-lock.json ... npm_and_yarn ecosystem cannot update`。
+
+**查證**：GitHub 官方「Dependabot supported ecosystems and repositories」表（2026-10-24 讀取）：`bun` 支援 version updates，**不支援 security updates**。security updates 是 repo 設定觸發，不看 `dependabot.yml`，遇到 Bun 專案一律走 `npm_and_yarn`，所以在 `dependabot.yml` 加 `package-ecosystem: "bun"` 修不了這個錯。
+
+**決定**：
+- `dependabot.yml` 維持只追 `github-actions`；不加 `bun` 的 version updates——理由同 2026-08-22：`package.json`／`bun.lock` 屬上游，lockfile PR 會與每次同步衝突。
+- npm 生態的警示由上游處理：本 fork 產品依賴跟隨上游，`zod` 修正等上游升級後隨下次同步進來（上游 `main` 此時仍是 `zod 4.4.3`）。
+- 建議維護者在 repo **Settings → Code security → Dependabot security updates** 關閉，避免每次警示都產生失敗的 job；Dependabot alerts 保留，作為同步時的檢查清單。Rust 警示（`#1` `glib` 0.18.5，Tauri 間接依賴）同樣跟隨上游。
+- 若 GitHub 日後宣布 Bun 支援 security updates，再重新評估。

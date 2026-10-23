@@ -129,12 +129,19 @@ pub fn install(app: &AppHandle) -> tauri::Result<()> {
             &login,
             &stop,
             &PredefinedMenuItem::separator(app)?,
+        ],
+    )?;
+    // With no updater endpoint configured (the fork ships none) the update items would only
+    // lead to a check that cannot succeed, so they stay out of the menu. The handles are still
+    // kept in `TrayMenu`, which lets the update-state setters stay unconditional.
+    if updater::updates_enabled(app) {
+        menu.append_items(&[
             &check_updates,
             &install_update,
             &PredefinedMenuItem::separator(app)?,
-            &quit,
-        ],
-    )?;
+        ])?;
+    }
+    menu.append(&quit)?;
     if let Ok(mut state) = app.state::<TrayState>().menu.lock() {
         *state = Some(TrayMenu {
             check_updates: check_updates.clone(),

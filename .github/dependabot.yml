@@ -8,6 +8,11 @@ updates:
   # 每天推進，fork 不維護那些宣告，比對出來的落差不是本線該處理的事。
   # fleet-waiver: freshness -- package.json 屬上游且由上游每天推進，本線不維護那些宣告
   # fork 自己擁有的依賴面只有 workflow 的 action pin，已由下面這條看著。
+  #
+  # 不加 `package-ecosystem: "bun"`：GitHub 官方支援表（2026-10-24 查）Bun 只支援
+  # version updates，不支援 security updates；repo 設定的 security updates 遇到
+  # bun.lock 一律走 npm_and_yarn 並報「Bun is misconfigured」，加 bun 條目也修不好。
+  # 處理方式見 docs/fork/DECISIONS.md 2026-10-24 條目。
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:

@@ -352,9 +352,21 @@ describe("service API token ownership", () => {
     }
     if (symlinkAvailable) {
       expect(readTokenBackupState()).toMatchObject({ kind: "unsafe" });
-      expect(() => removeOrphanTokenBackup()).toThrow("owner-only bounded regular file");
+      expect(() => removeOrphanTokenBackup()).toThrow("service token backup is not a regular file");
       expect(existsSync(serviceApiTokenBackupPath())).toBe(true);
     }
+  });
+
+  test("distinguishes why an unsafe backup was refused", () => {
+    const path = serviceApiTokenBackupPath();
+    writeFileSync(path, "x".repeat(5000), { mode: 0o600 });
+    expect(readTokenBackupState()).toEqual({ kind: "unsafe", reason: "service token backup exceeds the size limit" });
+    rmSync(path);
+
+    mkdirSync(path);
+    expect(readTokenBackupState()).toEqual({ kind: "unsafe", reason: "service token backup is not a regular file" });
+    rmSync(path, { recursive: true });
+    expect(readTokenBackupState()).toEqual({ kind: "absent" });
   });
 
   test("refuses a mismatched backup path without exposing either candidate", () => {

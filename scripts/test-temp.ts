@@ -1,12 +1,8 @@
 import { randomUUID } from "node:crypto";
 import {
-  closeSync,
   existsSync,
-  fstatSync,
   lstatSync,
   mkdirSync,
-  openSync,
-  readFileSync,
   readdirSync,
   realpathSync,
   renameSync,
@@ -16,6 +12,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { readBoundedRegularFile } from "../src/lib/bounded-file-read";
 import { quarantineFinalEperm, WRAPPED_TEST_ROOT_NAME, type LockedTempDiagnostic } from "./test-temp-lock";
 
 export const TEST_TEMP_OWNER_FILE = ".opencodex-test-owner.json";
@@ -25,6 +22,7 @@ const TEST_TEMP_OWNER_VERSION = 1;
 const TEST_TEMP_OWNER_KIND = "opencodex-test-root";
 const WRAPPED_TEST_ROOT = WRAPPED_TEST_ROOT_NAME;
 const TRANSIENT_REMOVE_CODES = new Set(["EPERM", "EBUSY", "ENOTEMPTY"]);
+const MAX_OWNER_MARKER_BYTES = 64 * 1024;
 const DEFAULT_MAX_CANDIDATES = 10_000;
 const DEFAULT_MAX_TREE_ENTRIES = 250_000;
 const DEFAULT_MAX_DURATION_MS = 30_000;
@@ -113,23 +111,16 @@ function processIsAlive(pid: number): boolean {
   }
 }
 
-function parseOwner(path: string): TestTempOwner | null | undefined {
-  const markerPath = join(path, TEST_TEMP_OWNER_FILE);
-  let fd: number;
+/**
+ * The marker is read through the bounded reader: it lstat()s before opening (a symlink or a FIFO
+ * is refused without being opened) and compares the descriptor's identity afterwards.
+ */
+export function parseOwner(path: string): TestTempOwner | null | undefined {
+  const read = readBoundedRegularFile(join(path, TEST_TEMP_OWNER_FILE), MAX_OWNER_MARKER_BYTES);
+  if (read.kind === "absent") return undefined;
+  if (read.kind === "refused") return null;
   try {
-    fd = openSync(markerPath, "r");
-  } catch (error) {
-    if (error && typeof error === "object" && (error as { code?: string }).code === "ENOENT") {
-      return undefined;
-    }
-    return null;
-  }
-  try {
-    const marker = fstatSync(fd);
-    if (!marker.isFile()) return null;
-    const lexical = lstatSync(markerPath);
-    if (lexical.isSymbolicLink() || lexical.dev !== marker.dev || lexical.ino !== marker.ino) return null;
-    const parsed = JSON.parse(readFileSync(fd, "utf8")) as Partial<TestTempOwner>;
+    const parsed = JSON.parse(read.content) as Partial<TestTempOwner>;
     if (
       parsed.schemaVersion !== TEST_TEMP_OWNER_VERSION
       || parsed.kind !== TEST_TEMP_OWNER_KIND
@@ -144,8 +135,6 @@ function parseOwner(path: string): TestTempOwner | null | undefined {
     return parsed as TestTempOwner;
   } catch {
     return null;
-  } finally {
-    closeSync(fd);
   }
 }
 

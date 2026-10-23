@@ -129,7 +129,7 @@ describe("bundled desktop update surface", () => {
     expect(nodes.get("error")?.textContent).toContain("install the package manually");
     expect(nodes.get("manual")?.hidden).toBe(false);
     expect(nodes.get("release")?.textContent).toContain("2.66.0-preview.1");
-    expect(nodes.get("release")?.href).toBe("https://github.com/lidge-jun/opencodex/releases/tag/v2.66.0-preview.1");
+    expect(nodes.get("release")?.href).toBe("https://github.com/SanHsien/opencodex/releases/tag/v2.66.0-preview.1");
   });
   test("an install failure without a known version has no manual hint", async () => {
     const status = { currentVersion: "2.65.0", latestVersion: null, available: true, installing: false, checking: false };

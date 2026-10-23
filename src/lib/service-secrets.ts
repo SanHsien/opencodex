@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { closeSync, constants, fchmodSync, fstatSync, fsyncSync, lstatSync, openSync, readFileSync, readSync, unlinkSync } from "node:fs";
-import { readBoundedRegularFile } from "./bounded-file-read";
+import { readBoundedRegularFile, type BoundedFileRefusal } from "./bounded-file-read";
 import { join } from "node:path";
 import { getConfigDir } from "../config";
 import { atomicWriteFile, atomicWriteFileNoFollow } from "../config/atomic-write";
@@ -189,22 +189,26 @@ export function replaceServiceApiTokenFile(token: string): PersistedServiceApiTo
   return { path, fingerprint: serviceApiTokenFingerprint(value) };
 }
 
+function tokenBackupRefusalReason(reason: BoundedFileRefusal): string {
+  switch (reason) {
+    case "not-a-regular-file": return "service token backup is not a regular file";
+    case "too-large": return "service token backup exceeds the size limit";
+    case "changed-while-reading": return "service token backup changed while it was being read";
+    case "unreadable": return "service token backup could not be inspected";
+  }
+}
+
 export function readTokenBackupState(): ServiceApiTokenState {
   const path = serviceApiTokenBackupPath();
   const read = readBoundedRegularFile(path, MAX_SERVICE_API_TOKEN_BYTES);
   if (read.kind === "absent") return { kind: "absent" };
   if (read.kind === "refused") {
-    return {
-      kind: "unsafe",
-      reason: read.reason === "unreadable"
-        ? "service token backup could not be inspected"
-        : "service token backup is not an owner-only bounded regular file",
-    };
+    return { kind: "unsafe", reason: tokenBackupRefusalReason(read.reason) };
   }
   // The permission check reads the DESCRIPTOR's mode, so it describes the file these bytes
   // were read from rather than whatever the name resolved to a moment earlier.
   if (process.platform !== "win32" && (read.stat.mode & 0o077) !== 0) {
-    return { kind: "unsafe", reason: "service token backup is not an owner-only bounded regular file" };
+    return { kind: "unsafe", reason: "service token backup is not owner-only" };
   }
   const token = read.content.trim();
   if (!token || /[\r\n\0]/.test(token)) return { kind: "unsafe", reason: "service token backup is invalid" };

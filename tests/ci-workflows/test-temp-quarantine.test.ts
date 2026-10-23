@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { exitCodeAfterTempSweep, settleIsolatedTestRoot } from "../../scripts/test";
-import { removeTestTempTree } from "../../scripts/test-temp";
+import { parseOwner, removeTestTempTree, TEST_TEMP_OWNER_FILE } from "../../scripts/test-temp";
 import {
   containedRunTemp,
   describeLockedTemp,
@@ -207,5 +207,52 @@ describe("end-of-run sweep", () => {
     } finally {
       errors.mockRestore();
     }
+  });
+});
+
+describe("ownership marker read", () => {
+  const validMarker = {
+    schemaVersion: 1,
+    kind: "opencodex-test-root",
+    root: "/not/checked/here",
+    createdAtMs: 1,
+    pid: 4242,
+  };
+
+  function markerRoot(): string {
+    const root = mkdtempSync(join(tmpdir(), "opencodex-owner-marker-"));
+    roots.push(root);
+    return root;
+  }
+
+  test("a missing marker is undefined and a valid one is parsed", () => {
+    const root = markerRoot();
+    expect(parseOwner(root)).toBeUndefined();
+    writeFileSync(join(root, TEST_TEMP_OWNER_FILE), JSON.stringify(validMarker));
+    expect(parseOwner(root)).toEqual(validMarker as never);
+  });
+
+  test("an invalid schema or an oversize marker is refused", () => {
+    const root = markerRoot();
+    writeFileSync(join(root, TEST_TEMP_OWNER_FILE), JSON.stringify({ ...validMarker, pid: -1 }));
+    expect(parseOwner(root)).toBeNull();
+    writeFileSync(join(root, TEST_TEMP_OWNER_FILE), JSON.stringify({ ...validMarker, pad: "x".repeat(70 * 1024) }));
+    expect(parseOwner(root)).toBeNull();
+  });
+
+  test("a marker that is a directory or a symlink is refused without being followed", () => {
+    const dirRoot = markerRoot();
+    mkdirSync(join(dirRoot, TEST_TEMP_OWNER_FILE));
+    expect(parseOwner(dirRoot)).toBeNull();
+
+    const linkRoot = markerRoot();
+    const target = join(linkRoot, "real-marker.json");
+    writeFileSync(target, JSON.stringify(validMarker));
+    try { symlinkSync(target, join(linkRoot, TEST_TEMP_OWNER_FILE)); }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "EPERM") return;
+      throw error;
+    }
+    expect(parseOwner(linkRoot)).toBeNull();
   });
 });

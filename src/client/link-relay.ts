@@ -1,4 +1,5 @@
 import { fetchBoundLinkRelay, LinkRelayAuthenticationError } from "./link-relay-transport";
+import { homeUnreachableBody } from "./home-unreachable";
 import {
   boundedRelayResponseStream,
   filterRelayHeaders,
@@ -110,6 +111,29 @@ const CALLER_CREDENTIAL_HEADERS = [
 function jsonError(status: number, error: string, retry = false): Response {
   const headers = retry ? { "Retry-After": String(LINK_RELAY_RETRY_AFTER_SECONDS) } : undefined;
   return Response.json({ error }, { status, headers });
+}
+
+/** A retryable 503 for a Home this Child cannot reach (OCX-11 `home_unreachable`). */
+function homeUnreachable(error: string): Response {
+  return Response.json(homeUnreachableBody(error), {
+    status: 503,
+    headers: { "Retry-After": String(LINK_RELAY_RETRY_AFTER_SECONDS) },
+  });
+}
+
+/**
+ * The peer answered but the connection-bound relay authentication failed. That is not a Home
+ * outage (an unrecognized protocol needs an upgrade or a re-link), so it must never read as
+ * `home_unreachable`, which GOAT's device-local fallback keys on. The status and Retry-After it
+ * carried before OCX-11 are kept: a lost bound socket can succeed on a fresh connection.
+ */
+export const LINK_RELAY_AUTH_FAILED_CODE = "link_relay_auth_failed";
+
+function relayAuthenticationFailed(error: string): Response {
+  return Response.json({ error, code: LINK_RELAY_AUTH_FAILED_CODE }, {
+    status: 503,
+    headers: { "Retry-After": String(LINK_RELAY_RETRY_AFTER_SECONDS) },
+  });
 }
 
 export function linkRelayDestination(url: URL, target: Pick<LinkRelayTarget, "tunnelPort">): string {
@@ -369,7 +393,7 @@ export async function relayLinkDataRequest(
   const tunnelUnavailable = async (): Promise<Response> => {
     cleanup();
     try { await body?.cancel(); } catch { /* best effort */ }
-    return jsonError(503, "link tunnel unavailable", true);
+    return homeUnreachable("link tunnel unavailable");
   };
   const readyForFetch = async (): Promise<boolean> => {
     if (!tunnel) return false;
@@ -393,7 +417,7 @@ export async function relayLinkDataRequest(
       if (error instanceof LinkRelayAuthenticationError) {
         cleanup();
         try { await body?.cancel(); } catch { /* an upload might already be drained */ }
-        return jsonError(503, error.message, true);
+        return relayAuthenticationFailed(error.message);
       }
       if (bodyOverflow) {
         cleanup();
@@ -408,7 +432,7 @@ export async function relayLinkDataRequest(
   if (relayAbort.signal.aborted) {
     cleanup();
     try { await upstream.body?.cancel(); } catch { /* best effort */ }
-    return jsonError(503, "link tunnel unavailable", true);
+    return homeUnreachable("link tunnel unavailable");
   }
 
   const sse = isSse(upstream.headers);

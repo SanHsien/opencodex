@@ -609,7 +609,7 @@ Labels are read on login/import or refresh, never inferred from quota percentage
 | `GET /api/key-providers` | List providers configured through API-key login | — |
 | `POST /api/oauth/login` | Start an OAuth login or account-add flow. `mode: "code"` starts a code-display login (Anthropic only) and returns `mode`, `flowId`, `expiresAt` | 400 unknown/invalid provider, invalid `mode`, `code_mode_unsupported`; `oauth_mutation_busy` |
 | `POST /api/oauth/login/code` | Submit a manual callback URL or authorization code. For a code-display flow (with `flowId`) returns the token-exchange outcome `{ok, account}` / `{ok:false, error}` | 400 invalid provider/code, `state_mismatch`, `invalid_or_expired_code`, `provider_unreachable`, `malformed_input`; 409 `no_pending_login`; `oauth_mutation_busy` |
-| `POST /api/oauth/login/cancel` | Cancel a public in-progress OAuth flow; an optional `flowId` names one code-display flow (a flow of another provider is refused) | 400 unknown provider |
+| `POST /api/oauth/login/cancel` | Cancel a public in-progress OAuth flow or dismiss its settled failure; an optional `flowId` names one code-display flow (a flow of another provider is refused) | 400 unknown provider |
 | `GET /api/oauth/status` | Poll one provider's OAuth flow | 400 unknown provider |
 | `POST /api/oauth/logout` | Remove the selected provider credential | 400 unknown provider; `oauth_mutation_busy` |
 | `GET /api/oauth/accounts` | List masked accounts; Anthropic and generic OAuth account rows include their `paused` state. Kiro rows include `autoSelectable` and a closed `skipReason` when excluded from automatic selection; an active singleton may still send. Quota remains opt-in. | 400 invalid provider |
@@ -624,6 +624,9 @@ Labels are read on login/import or refresh, never inferred from quota percentage
 | `PUT /api/providers/keys/active` | Select a provider's active key | 400 invalid input; 404 provider/key missing |
 | `PUT /api/providers/keys/alias` | Set or clear a provider-key alias | 400 invalid input; 404 provider/key missing |
 | `GET, POST, PATCH, DELETE /api/keys` | List, create, edit, or delete data-plane admission keys | 400 invalid body/id; 404 key missing |
+
+`POST /api/oauth/login/cancel` can also dismiss the selected settled failed login attempt. It leaves stored credentials and successful login results intact; status then reports the remaining flow or idle. Cancelling an in-progress attempt still records its cancelled outcome.
+
 
 For Anthropic, `routes` is an ordered array of `{name, match, accounts, fallback?}` rules on both settings endpoints. GET and write echoes include `routes` (`null` when absent); unified DTOs expose `routes: null` for other kinds. A supplied `routes` on another kind is rejected. Omission preserves rules, `[]` matches nothing, and `null` clears them. The `accounts` values are stored IDs; removed IDs remain valid in a rule so re-adding an account can restore routing. Management responses retain valid configured names; request logs identify a match only as `route:#<n>` (1-based list position). If a hand-edited stored rule is invalid, both settings GETs return `routes: null` and a `routesError` diagnostic instead of presenting that rule as valid; the stored value remains available for correction. Valid or absent rules omit `routesError`.
 
@@ -655,6 +658,23 @@ API page. The CLI drives these routes with `ocx api protocols`, `ocx api explain
 [API surfaces](/reference/configuration/server/#api-surfaces-apisurfaces) for how the Messages
 setting interacts with `claudeCode.enabled` across upgrades and downgrades.
 
+### Home identity and the served-by header
+
+`GET /healthz` includes `instanceId`, this install's opaque Home id: `home_` followed by 32 hex
+characters, generated at random once per install. It is the same value as `producer.homeId` in
+`GET /api/quota-pool`, it stays the same across restarts, and it is never a hostname or derived from
+one. Every response to `GET /v1/models` carries the same value in the `x-opencodex-served-by`
+header, so a client can tell which Home answered without reading logs. A Remote Link Child relays the
+Home's header unchanged, and a Hub-mode client's Codex reads the Hub's response directly, so on any
+device the header names the Home that served the model list. `GET /readyz` lists
+`served-by-header` in `features` when the build sends it.
+
+Right after a fresh install starts, before its identity file exists, or when that file is
+unreadable, both the `instanceId` field and the header are left out; an empty value is never sent.
+Deleting `quota-pool-identity.json` from the OpenCodex home rotates the id together with every
+quota-pool account reference when the proxy next starts; a running proxy keeps reporting the id it
+already read.
+
 ### Providers
 
 | Method and path | Purpose | Notable errors |
@@ -665,7 +685,10 @@ setting interacts with `claudeCode.enabled` across upgrades and downgrades.
 | `DELETE /api/providers?name=...` | Delete a provider, reassigning the default when possible | 404 unknown provider; 409 `last_provider`; 409 `provider_has_dependent_combos` |
 | `POST /api/providers/test?name=...` | Perform a bounded live provider connectivity/model-discovery probe | 404 unknown provider; failures are normally returned as `ok: false` evidence |
 | `GET /api/provider-quotas` | Read provider quota reports; `refresh=1` forces refresh | — |
+| `GET /api/quota-pool` | Read the passive `ocx.quota-pool/1` account quota pool (per-account and pooled windows, opaque account references) from cached evidence only; never probes or refreshes, and ignores `refresh`. Also readable from a Remote Link Child or Hub client at `/api/machine/hub-relay/api/quota-pool` | — |
 | `GET /api/quota-resets` | List recently detected quota-window resets and whether detection is enabled; `limit=<n>` caps the count | 400 invalid `limit` |
+| `GET /api/fallback` | Read the `ocx.fallback/1` fallback state: effective global switches, provider and route overrides, devices with local fallback permission, and the last 20 fallbacks taken or refused. Also readable from a Remote Link Child at `/api/machine/hub-relay/api/fallback` (link aliases omitted) | — |
+| `PUT /api/fallback` | Set or clear switches: one write `{ scope: "global"\|"provider"\|"route"\|"device", key?, setting: "model"\|"provider"\|"localFallback", value: true\|false\|null }`, or `{ writes: [ … ] }` with up to 8 applied in one config mutation; `localFallback` is per device; a device key may be a link alias. Returns the new state | 400 invalid body; 404 `unknown_device` (nothing written); 409 `config_unavailable` |
 | `GET, PUT /api/provider-context-caps` | Read or update global, all-provider, or one-provider context caps | 400 invalid request; 404 unknown provider |
 | `GET /api/provider-presets` | Return GUI provider presets derived from the runtime registry | — |
 
@@ -678,6 +701,12 @@ for its default-off, custom-provider-only behavior.
 When Antigravity's quota-summary endpoint has no usable response, quota reports may also include
 per-model Cloud Code Assist usage windows when the model-discovery response provides them. These
 measurements are diagnostic; an absent model window does not establish that the model is unavailable.
+
+With `quota=1`, an Anthropic or Antigravity account row whose probe returned no quota carries
+`quotaUnavailable: true` and, when the cause is known, a closed `quotaFailure` code:
+`account_unavailable` (sign the account in again), `access_denied`, `rate_limited`, `timeout`,
+`transport_error`, `upstream_error` or `response_unusable` (retry later), among others. The code
+never includes upstream text, and a quota failure never changes the row's `health`.
 
 The provider context-cap response includes `caps` (active limits) and `values` (last selected
 values, retained while disabled). Enabling a provider without `value` restores its selection,
@@ -776,7 +805,7 @@ manager. Its routes are:
 | `PUT, PATCH /api/codex-auth/pool-strategy` | Update Codex account-pool selection strategy | 400 invalid strategy/config |
 | `PUT /api/codex-auth/failover` | Set the account failover threshold | 400 invalid threshold |
 | `GET /api/codex-auth/quota` | Read cached quota state by account | — |
-| `GET /api/codex-auth/low-quota-events?limit=20` | Read only this server’s last 0–100 low-quota log/notice and pause-save events (default 20); includes account id and status (`logged` for the default log-only alert; `delivered` for a successful injected notice sink; `succeeded` for a completed pause save) | 400 invalid limit; management authentication required |
+| `GET /api/codex-auth/low-quota-events?limit=20` | Read only this server’s last 0–100 low-quota log/notice and pause-save events (default 20); includes account id and status (`logged` for the default log-only alert or a host without a supported notifier; `delivered` when the opted-in OS notifier accepted the notice; `failed` when it failed or timed out; `cancelled` when its episode ended first; `succeeded` for a completed pause save) | 400 invalid limit; management authentication required |
 | `GET /api/codex-auth/reset-credits` | Inspect reset-credit eligibility for an account | 400 missing account id; upstream status passthrough; 500 lookup failure |
 | `POST /api/codex-auth/reset-credits/consume` | Consume an eligible reset credit. Optional `operationId` (UUIDv4) makes the redemption idempotent: the same id replays one durable outcome instead of spending a second credit. | 400 missing account id or invalid `operationId`; 409 `identity_mismatch` when the id belongs to another account; upstream status passthrough; 503 `server_busy`, `capacity`, or `unavailable`; 500 consume failure |
 | `POST /api/codex-auth/login` | Start Codex login or reauthentication | 400 invalid request; conflict/busy login states |

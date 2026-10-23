@@ -338,3 +338,29 @@ provider 設定。因此無需手動分類，[vision sidecar](/zh-tw/guides/side
 **Claude** 側邊欄頁面位於 **Codex** 正下方。切換分頁時，同一個標頭與分頁列保持不動，順序為 Account、Code、Desktop、Settings。Account 分頁顯示 Anthropic 供應商在 **Providers** 的 **Accounts** 分頁所顯示的內容：登入、瀏覽器選項、含切換、暫停、移除與重新驗證的 Claude 帳號清單、貼上代碼欄位、帳號池設定，以及額度。供應商層級的控制項，例如預設供應商、移除與啟用開關，仍留在 **Providers**。Anthropic 尚未設定時，**Add Anthropic** 會在顯示與 Add provider 對話框相同的風險告知後，直接開始 Claude 登入。不指定分頁開啟 Claude 時，若 Anthropic 已設定就選擇 Account，否則選擇 Code。Code 內有 Claude 連線開關；Settings 顯示該連線為 On 或 Off、攔截為 Running 或 Stopped，以及攔截連接埠。攔截停止時，Settings 會顯示原因，並提供 **Start interception**，在原地啟動它而不必重新啟動 OpenCodex。在 Desktop 上，一列狀態顯示 Claude Desktop 是否執行該設定檔以及是否已儲存，旁邊有 Save 與 Save & apply。相容性、代理指令與上下文控制項仍留在 Code。
 
 書籤可直接選擇分頁：`#claude/account`、`#claude/code`、`#claude/desktop` 與 `#claude/settings`。舊的 `#integrations/claude` 與 `#integrations/claude/desktop` 書籤會重新導向到 Code 與 Desktop。方向鍵在分頁之間移動；Home 與 End 選擇第一個與最後一個分頁。
+
+## Test one provider model
+
+In **Providers**, **Test connection** checks discovery connectivity. Use the
+separate **Test completion** control to check whether a selected model answers.
+Choose a model and accept the confirmation that the request may incur provider
+charges. Cancelling the confirmation sends nothing. Changing the provider or
+model, or leaving the page, cancels the test and discards a stale result.
+
+The completion test sends `Reply exactly OK.` once with a 32-token output cap,
+a 20-second deadline and a 64 KiB stream limit. It reports TTFT at the first
+non-empty text delta, total latency, the upstream-reported model and a match,
+mismatch or unknown comparison against the wire model id. Missing or conflicting
+metadata is unknown; upstream metadata does not verify model identity. The panel
+shows the applicability reason when authentication, adapter or transport settings
+cannot be tested. No generated text is displayed, and the diagnostic does not
+update routing health, request history or the provider catalog.
+
+The authenticated management endpoint is
+`POST /api/providers/test-completion?name=<provider>` with exactly
+`{"model":"<model>","confirm":true}`. Dashboard sessions require their usual CSRF
+token. Invalid input returns 400, unknown providers return 404 and a concurrent
+test for the same provider returns 409. Completed diagnostics and applicability
+results return 200, including a structured error when inference fails. Destination
+policy and provider egress settings apply; redirects, retries and failover are disabled.
+For the CLI workflow, see [Providers and accounts](/zh-tw/reference/cli/providers-accounts/).

@@ -1,3 +1,4 @@
+import { observeAccountAutoPauseRevisions, snapshotAutoPauseFingerprints } from "./account-auto-pause-revisions";
 import type { OcxConfig, OcxProviderConfig, ProviderCostOverlay } from "../types";
 import { configReasoningPinsConfigError } from "./provider-validation";
 import { adoptCustomModelCatalogMigration, projectCustomModelCatalogMigration } from "../codex/custom-model-catalog-migration";
@@ -18,6 +19,7 @@ import { withConfigMutationLockSync, bumpGenerationForCooperatingConfigWrite } f
 import { ConfigWritePublishedError, persistConfigUnlocked, readRawConfigJson } from "./persist-unlocked";
 import { configDiagnosticsFromRaw, readConfigDiagnostics, validateConfigCandidate } from "./diagnostics";
 import { normalizePersistedClaudeCode } from "./load-degrade";
+import { sanitizeRemovedOpenCodeFreeForLoad } from "./removed-opencode-free";
 import { reconcileApiKeys } from "./api-key-reconcile";
 import { captureLiveTopologyBaseline, LIVE_TOPOLOGY_KEYS, projectLiveTopology } from "./live-topology";
 
@@ -161,7 +163,9 @@ export function adoptPersistedProviderIntoLiveConfig(
   provider: OcxProviderConfig,
   persistedConfig?: OcxConfig,
 ): void {
+  const pauseBefore = snapshotAutoPauseFingerprints(config);
   config.providers[name] = structuredClone(provider);
+  observeAccountAutoPauseRevisions(config, persistedConfig ?? readRawConfigJson() ?? { accountAutoPausePolicyRevisions: null }, pauseBefore);
   const baseline = liveConfigBaseline.get(config);
   if (baseline) baseline.providers[name] = structuredClone(provider);
   if (persistedConfig) refreshPreservedProviderOwner(config, persistedConfig);
@@ -436,6 +440,7 @@ export function reconcileLiveConfigFromDisk(config: OcxConfig, persistedBaseline
   if (diagnostics.source === "fallback") {
     throw new Error(`OAuth config reconciliation failed: ${diagnostics.error ?? "invalid config file"}`);
   }
+  const pauseBefore = snapshotAutoPauseFingerprints(config);
   const persisted = diagnostics.config;
   const claudeGuardArmed = claudeCodeBaseline.has(config);
   const pendingLiveClaudeMutation = claudeGuardArmed
@@ -460,6 +465,7 @@ export function reconcileLiveConfigFromDisk(config: OcxConfig, persistedBaseline
     else config.claudeCode = structuredClone(persisted.claudeCode);
     claudeCodeBaseline.set(config, structuredClone(config.claudeCode));
   }
+  observeAccountAutoPauseRevisions(config, persisted, pauseBefore);
   // The reconciliation may have adopted a providers.<name>.modelCosts edit made
   // by a cooperating process while the OAuth login was pending; keep the overlay
   // registry (and the usage-cache overlay version) in sync with the live config.
@@ -526,6 +532,8 @@ export function saveConfigPreservingClaudeCode(config: OcxConfig): void {
     // One authoritative pre-write read feeds both the live-config reconciliation and
     // custom-model deletion migration. A second read could observe different bytes.
     const onDisk = readRawConfigJson();
+    sanitizeRemovedOpenCodeFreeForLoad(onDisk);
+    const pauseBefore = snapshotAutoPauseFingerprints(config);
     const baseline = liveConfigBaseline.get(config);
     let diskDeletedKeys = new Set<string>();
     let persistedSnapshot: OcxConfig | undefined;
@@ -576,6 +584,7 @@ export function saveConfigPreservingClaudeCode(config: OcxConfig): void {
         }
       }
     }
+    observeAccountAutoPauseRevisions(config, onDisk ?? config, pauseBefore);
     applyConfigObjectChildDeletions(config, childDeletions);
     // Recursive three-way merging preserves sibling rows; explicit PUT/reset
     // replaces only its model after merging, including absent policy fields.

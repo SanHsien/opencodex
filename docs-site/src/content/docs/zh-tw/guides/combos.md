@@ -179,6 +179,53 @@ ocx combo set balanced \
 
 此排序與傳送前的供應商排除，需要適用於目前單一 API 金鑰全部模型推論的最新限額資訊。OAuth／目前帳戶摘要、轉送呼叫者憑證的路由、多金鑰，以及憑證或目的地位址已變更的快照，在這項預先判斷中僅供顯示。透過 `Authorization`、`x-api-key` 或 `x-goog-api-key` 標頭覆寫憑證時也適用相同規則；僅供搜尋或 MCP 使用的時段不參與判斷。若所有符合條件的目標都沒有適用的重設時間，則依設定順序選擇。實際帳戶選擇與重試仍套用一般限制。
 
+### Advisory quota signals for JEV
+
+Quota evidence is separately opt-in **per JEV Combo**, for all three decision methods:
+
+```bash
+ocx combo set coding --decision-quota-signals on --json
+ocx combo set coding --decision-quota-tiers '{"moderate":40}' --json
+```
+
+Only enable this on an existing `strategy: "jev"` Combo. `decisionQuotaSignals: true` adds
+subscription quota tiers to the decision request, not a hard eligibility rule. The decision
+backend is asked to prefer healthier quota among adequate options; it still chooses only from
+configured eligible targets and effort allowlists. Unknown is not exhausted, and ordinary
+fallback, cooldown, account selection and provider limits remain unchanged.
+
+Defaults are `limited: 70` and `nearlyExhausted: 90`, inclusive percentages used. There is no
+moderate tier unless you set it explicitly (for example, `moderate: 40`). Partial overrides merge
+with those defaults, then all thresholds must be finite, within 0–100 and strictly ascending.
+
+Evidence comes only from memory snapshots published by existing quota collectors, accepted
+response headers and credential/account owners, and only while at least one JEV Combo has this
+switch on: until then opencodex collects nothing for it, so evidence starts accumulating (and reads
+as unknown) from the moment you enable it. Reading advisory quota evidence never resolves
+credentials, loads auth stores or quota files, reads a keychain, probes upstream, or starts a
+refresher. Normal decision-backend credential resolution is unchanged. Cold, missing, stale (over
+30 minutes), future, invalid or reset-expired evidence is unknown. Each account uses its worst valid
+relevant five-hour, weekly, monthly or structurally model-scoped window. An enabled usable
+Anthropic/Codex pool uses its healthiest account tier; unknown ties healthy. A pool is nearly
+exhausted only if every usable account has known nearly-exhausted evidence. Reserve models
+without separately attributable bars remain unknown. Active-account summaries, multiple-key
+display reports, credits and API/Spark/USD meters are not quota evidence for this decision.
+The separate Anthropic · Pool 2 (`anthropic2`) account pool is not a source of this evidence, so its targets stay unknown.
+
+:::caution[Additional decision data]
+Opting in sends quota tiers, and available used percentage/window/reset delay, to your selected
+decision backend, including hosted TypeSafe. No account ids, tokens or credential fingerprints
+are sent or logged by this feature. Local decision records retain only bounded tier counts and
+the selected tier. If quota would exceed the 64 KiB request cap, it is removed before retrying
+serialization; an ordinary oversized decision still fails open.
+:::
+
+`--decision-quota-signals off` disables evidence while retaining configured tiers; `-` clears
+the switch. `--decision-quota-tiers -` clears overrides, restoring defaults. API `null` clears;
+API `false` disables the switch. Omitted fields survive JEV updates, target replacement and
+rename, including saves through the existing editor. Switching away from JEV removes both
+quota settings. No new editor controls or background quota work are enabled.
+
 ### 決策方法
 
 `strategy: "jev"` 會請決策後端為目前請求選擇第一個合格目標與相容的推理 effort。這是選擇加入的：建立一個 JEV Combo 並選擇該 Combo 才會使用它。新增決策憑證不會改變既有的模型、別名或預設值。
@@ -498,6 +545,22 @@ OpenCodex 同樣會確定使用目前目標，而不是無限成長記憶體。
 effort 值，也不會把這個例外擴大到任意的無效請求。政策拒絕、取消與已經確定的輸出仍然不可重播。
 單一目標的請求仍會回傳未解決的上游拒絕。
 
+## Tool calls stay on one target
+
+When a model asks your client to run a tool, the request that returns the tool result finishes the
+same assistant turn. OpenCodex sends that request to the target that issued the tool call, as long
+as the target is still enabled, still in the combo, and out of cooldown. This holds for every
+strategy, including JEV, which skips its decision for that request. The next user message chooses a
+target normally.
+
+Tracking uses the client's thread or session id, so a client that sends neither gets a normal pick.
+If the original target is unavailable or fails, the combo fails over as usual, and the new target
+receives the earlier tool calls in a form it accepts. DeepSeek thinking models get a one-space
+reasoning placeholder for a tool call that another model issued without reasoning. Gemini gets
+Google's documented signature placeholder. Anthropic gets a plain tool call and result. Earlier
+versions could send DeepSeek a bare tool call here and fail with `The reasoning_text in the
+thinking mode must be passed back to the API`.
+
 ## 預設推理 effort
 
 當 combo 設定非 null 預設值且目標支援清單已知且非空時，`defaultEffort` 會補入省略的 `reasoning.effort`。目標支援設定值時保留該值，否則選擇不高於設定值的最高支援層級；若沒有更低層級，則使用最低支援層級。未知或空清單不會注入預設值。
@@ -587,7 +650,7 @@ ocx combo remove <id> --yes
 ```
 
 `set` 也接受 `--strategy`、`--sticky`、`--effort`、`--alias`、`--native-alias`、
-`--display-name` 與 `--rename-from`。用 `-` 作為 `--effort`、`--alias` 或 `--display-name` 的值
+`--display-name`、`--description` 與 `--rename-from`。用 `-` 作為 `--effort`、`--alias`、`--display-name` 或 `--description` 的值
 可清除該欄位。`--native-alias` 需要一個目前受支援的裸原生模型別名，並搭配非空的顯示名稱。
 `create` 與 `update` 為 `set` 的別名；`delete` 為 `remove` 的別名；且相同子指令在
 `ocx route combo` 下也可用。
@@ -638,6 +701,7 @@ Combo 儲存於頂層 `combos` 物件中，以 combo id 為 key：
 | `alias` | 否 | 無 | 可選的修剪後公開模型 id；使用上述別名規則。空值儲存為無別名。 |
 | `nativeAlias` | 否 | `false` | 明確允許目前受支援的裸原生 `alias` 取得路由與目錄的優先權。絕不會從別名自動推斷。 |
 | `displayName` | 否 | 無 | 有長度上限、僅供顯示的目錄標籤。當 `nativeAlias` 為 `true` 時為必填且不可為空。 |
+| `description` | 否 | 無 | 僅供 catalog 顯示的列描述，最多 128 個字元且不含控制字元。未設定時保留產生的 `Routed via opencodex → combo (combo).` 文字。 |
 
 ## 疑難排解
 

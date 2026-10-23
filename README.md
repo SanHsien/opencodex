@@ -441,6 +441,16 @@ bun run dev:gui
 
 見 **[貢獻指南](https://opencodex.me/zh-tw/contributing/)**。
 
+## 程式碼簽署政策
+
+上游的 Windows 二進位檔正在導入 Authenticode 簽署（[#7207](https://github.com/lidge-jun/opencodex/issues/7207)）；詳見[Windows 程式碼簽署指南](https://opencodex.me/reference/code-signing/)。本 fork 自編的 Windows MSI **未簽署**（不使用上游的簽署祕鑰）。
+
+上游免費簽署服務由 [SignPath.io](https://about.signpath.io/) 提供，憑證由 [SignPath Foundation](https://signpath.org/) 核發。
+
+- 提交者與審查者：[lidge-jun](https://github.com/lidge-jun)
+- 核准者：[lidge-jun](https://github.com/lidge-jun)
+- 隱私：除非使用者或安裝、操作者明確要求，本程式不會把任何資訊傳送到其他網路系統。
+
 ## 免責聲明
 
 opencodex 是獨立的社群維護專案，**與 OpenAI、Anthropic 或其他任何供應商無關，也未獲其背書。**

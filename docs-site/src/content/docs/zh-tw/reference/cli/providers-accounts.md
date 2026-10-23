@@ -102,6 +102,33 @@ Errors use safe prose on stderr, including in JSON mode, rather than a JSON erro
 `applicable: false` is an expected static-catalog result, not successful inference
 or a failed connection.
 
+To send one completion request for a chosen model, use:
+
+```bash
+ocx provider test my-relay --model my-model
+ocx provider test my-relay --model my-model --yes --json
+```
+
+This test may incur provider charges. An interactive terminal asks for confirmation;
+`--yes` accepts the charge warning. Non-interactive use and `--json` require
+`--yes`. Using `--yes` without `--model` is a usage error. Declining confirmation
+sends no request and exits 1. The command uses the running proxy's management API.
+
+The completion test sends the fixed prompt `Reply exactly OK.`, requests a 32-token output cap, stops after 20 seconds or 64 KiB, and never retries or fails over.
+It supports key-auth or local OpenAI Chat and Responses providers, including
+per-model wire overrides. Disabled, OAuth, forwarded-auth and unsupported adapter
+or transport configurations return an applicability reason without sending a completion.
+TLS profiles, HTTP version pins, enabled request pacing and custom executors with
+a provider proxy override are currently unsupported.
+
+Results include time to first text delta (TTFT), total latency, the requested and
+wire model ids, sanitized upstream model metadata and a distinct match, mismatch
+or unknown comparison. Missing or conflicting metadata is unknown. The comparison
+uses the upstream id before masking, against the id actually sent after alias and
+suffix handling. Provider-reported metadata cannot verify model identity:
+`identityVerified` is always `false`. Generated text is not returned. A failed
+completion exits 1; success and a not-applicable result exit 0.
+
 ### Transport settings and request pacing
 
 `provider edit` is already live. Use `--upstream-http-version http1.1` to pin that

@@ -2,7 +2,9 @@ import type { OcxProviderConfig } from "./provider";
 import type { CodexAccount } from "./accounts";
 import type { AnthropicAccountPoolConfig, OcxAccountPoolRotationStrategy } from "./anthropic-account-pool";
 import type { AnthropicInstanceId } from "../providers/anthropic-instance-id";
+import type { OcxFallbackConfig } from "./fallback";
 export type { AnthropicAccountPoolConfig, AnthropicModelRoute, OcxAccountPoolRotationStrategy, OcxAccountPoolQuotaWindow } from "./anthropic-account-pool";
+export type { OcxFallbackConfig, OcxFallbackDeviceConfig, OcxFallbackKind, OcxFallbackSwitches } from "./fallback";
 
 /** Public inference API exposure. Responses and Chat Completions are always served. */
 export interface OcxApiSurfacesConfig {
@@ -1089,7 +1091,11 @@ export interface OcxConfig {
   modelCacheTtlMs?: number;
   /** Evictable retained app-state budget in MiB. Default 256; valid 64..4096. */
   appOwnedMemoryBudgetMb?: number;
-  /** Anthropic prompt-cache retention: "short" = 5-min ephemeral (default), "long" = 1-hour extended, "none" = disabled. */
+  /**
+   * Anthropic prompt-cache retention: "short" = 5-min ephemeral, "long" = 1-hour extended,
+   * "none" = disabled. Unset = "long" on first-party api.anthropic.com, "short" on
+   * Anthropic-compatible endpoints (adapters/anthropic/cache-retention.ts).
+   */
   cacheRetention?: "none" | "short" | "long";
   /** Web-search sidecar: route web_search for non-OpenAI models through a gpt-mini via ChatGPT passthrough. */
   webSearchSidecar?: OcxWebSearchSidecarConfig;
@@ -1113,6 +1119,9 @@ export interface OcxConfig {
   codexAccounts?: CodexAccount[];
   /** Account ids administratively excluded from future pool selection until resumed. */
   pausedCodexAccountIds?: string[];
+  /** Internal policy epochs; null marks malformed disk input and suppresses automatic pause. */
+  accountAutoPausePolicyRevisions?: Record<string, string> | null;
+  codexAccountPauseState?: Record<string, { revision: string; details?: import("./account-auto-pause").AccountPauseDetails }>;
   /**
    * Account ids, `__main__` included, allowed to keep serving from ChatGPT credits once one of
    * their usage windows is full. Every other account is skipped by selection at 100% until its
@@ -1294,6 +1303,13 @@ export interface OcxConfig {
    */
   maxUpstreamBodyBytes?: number;
   /**
+   * Opt-in compression of native ChatGPT Responses HTTP request bodies (#7247): "gzip" or "zstd".
+   * Omitted, "off", or any other value = identity, the default. Applies only at the final HTTP send
+   * to chatgpt.com Codex responses/compact, to string bodies from 1 KiB to 16 MiB; WebSocket turns
+   * and every other destination are unchanged. Compression runs synchronously on the event loop.
+   */
+  upstreamRequestCompression?: "off" | "gzip" | "zstd";
+  /**
    * Opt-in ceiling, in bytes, on a decompressed INBOUND data-plane request body (#3573).
    *
    * Omitted or 0 = the built-in 256 MiB default. The lever exists because a session on the
@@ -1347,6 +1363,11 @@ export interface OcxConfig {
   tokenGuardian?: OcxTokenGuardianConfig;
   /** Additional exact origins allowed for CORS (e.g. HTTPS or chrome-extension://<id>). Loopback origins are always allowed. */
   corsAllowOrigins?: string[];
+  /**
+   * OCX-11 fallback off: refuse model or provider fallback per scope, and record per-device local
+   * fallback permission. Absent keeps every chain as it was. See src/routing/fallback-policy.ts.
+   */
+  fallback?: OcxFallbackConfig;
 }
 
 export type OcxComboStrategy = "failover" | "round-robin" | "random" | "least-used" | "reset-window" | "jev";
@@ -1454,6 +1475,8 @@ export interface OcxComboConfig {
   nativeAlias?: boolean;
   /** Display-only label for the public catalog row. Required for native aliases. */
   displayName?: string;
+  /** Display-only description for the public catalog row; unset keeps the generated text (#7229). */
+  description?: string;
   /**
    * `strategy: "jev"` only: provider id of the decision service. Omitted or `"jev"` uses the
    * canonical TypeSafe endpoint; any other id must name a configured `adapter: "jev-decision"`
@@ -1469,6 +1492,10 @@ export interface OcxComboConfig {
    * whose first call may include a cold model load.
    */
   decisionTimeoutMs?: number;
+  /** JEV-only advisory loaded quota evidence; off/unset leaves request bytes unchanged. */
+  decisionQuotaSignals?: boolean | null;
+  /** Partial 0..100 tier overrides; defaults limited 70/nearlyExhausted 90. null clears. */
+  decisionQuotaTiers?: import("../combos/jev-quota-config").JevQuotaTiers | null;
 }
 
 export type OcxRoutingUnknownEvidenceMode = "allow" | "penalize" | "exclude";
@@ -1757,6 +1784,8 @@ export interface CodexLowQuotaProtectionConfig {
   actions: {
     pause: boolean;
     notify: boolean;
+    /** Opt-in: also hand each notice to this host's OS notifier (macOS, Linux). Requires notify. */
+    desktop?: boolean;
   };
   windows: {
     short: boolean;

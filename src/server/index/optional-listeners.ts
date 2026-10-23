@@ -15,8 +15,10 @@ import {
 } from "./link-listener";
 import { createLinkSupervisor, type LinkSupervisor } from "../../link/supervisor";
 import { linkManagementRouteAllowed } from "../../link/management-routes";
+import { linkChildParityRouteAllowed } from "../../link/child-parity";
 import { saveConfigPreservingClaudeCode } from "../../config/live-reconcile";
 import { reconcileLiveStateStores } from "../../lib/state-store-registrations";
+import { startJevQuotaActivation } from "../../combos/jev-quota-activation";
 export { LINK_INGRESS_HOSTNAME } from "./link-listener";
 import type { ServerIngress } from "./serve-options";
 
@@ -37,6 +39,7 @@ export interface OptionalListenerSet<T> {
   linkAdmissionKeyIds(): ReadonlySet<string>;
   onAuthenticatedCatalog(listener: (apiKeyId: string) => void): () => void;
   notifyAuthenticatedCatalog(apiKeyId: string): void;
+  peerObservation(linkId: string): import("../../link/peer-report").LinkPeerEntry;
   status(): LinkListenerStatus;
   linkStatus(): LinkListenerStatus;
   linkSupervisor(): LinkSupervisor;
@@ -51,6 +54,7 @@ export function createOptionalListenerSet<T>(linkDeps: LinkListenerDeps = {}): O
   const claudeIntercept: ClaudeInterceptLifecycle<T> = createClaudeInterceptLifecycle<T>();
   const linkListener: LinkListenerLifecycle<T> = createLinkListenerLifecycle<T>(linkDeps);
   let activeConfig: OcxConfig | undefined;
+  let stopJevQuotaActivation: (() => void) | undefined;
   const supervisor = createLinkSupervisor({
     apiKeys: () => activeConfig?.apiKeys ?? [],
     revokeApiKey: id => {
@@ -81,11 +85,14 @@ export function createOptionalListenerSet<T>(linkDeps: LinkListenerDeps = {}): O
     },
     // The Home's link listener admits the data plane plus the read-only management relay
     // (#6957). The Child's own ingress keeps the data-only table, so a local caller on the Child
-    // cannot reach the Home's management reads without the Child's dashboard session.
-    linkRouteAllowed: (url, req) => linkRouteAllowed(url, req) || linkManagementRouteAllowed(url, req),
+    // cannot reach the Home's management reads without the Child's dashboard session. The one
+    // write is the Child's apply report (OCX-6), which changes only an in-memory status field.
+    linkRouteAllowed: (url, req) => linkRouteAllowed(url, req) || linkManagementRouteAllowed(url, req)
+      || linkChildParityRouteAllowed(url, req),
     linkAdmissionKeyIds: () => linkListener.linkAdmissionKeyIds(),
     onAuthenticatedCatalog: listener => linkListener.onAuthenticatedCatalog(listener),
     notifyAuthenticatedCatalog: apiKeyId => linkListener.notifyAuthenticatedCatalog(apiKeyId),
+    peerObservation: linkId => linkListener.peerObservation(linkId),
     status: () => linkListener.status(),
     linkStatus: () => linkListener.status(),
     linkSupervisor: () => supervisor,
@@ -114,6 +121,8 @@ export function createOptionalListenerSet<T>(linkDeps: LinkListenerDeps = {}): O
         maxRequestBodySize: ctx.maxRequestBodySize,
         dispatch: ctx.dispatch,
       });
+      // Last, after every listener started: JEV advisory quota follows the live config while serving.
+      stopJevQuotaActivation = startJevQuotaActivation(ctx.config);
     },
     ensureStarted: () => linkListener.ensureStarted(),
     close: () => linkListener.close(),
@@ -132,6 +141,8 @@ export function createOptionalListenerSet<T>(linkDeps: LinkListenerDeps = {}): O
       try { await claudeIntercept.stop(); } catch (error) { failure ??= error; }
       unregisterSupervisorAdmission?.();
       unregisterSupervisorAdmission = undefined;
+      stopJevQuotaActivation?.();
+      stopJevQuotaActivation = undefined;
       if (failure) throw failure;
     },
   };

@@ -264,6 +264,13 @@ opencodex route (for example `ollama/qwen3:4b`) that answers the same choice as 
 this combo or any JEV combo. Omitting both uses TypeSafe. `--decision-timeout <ms|->` sets the
 decision deadline (1000–120000, default 4000); `-` clears any of the three.
 
+`ocx combo set <id> --decision-quota-signals on|off|-` controls per-Combo advisory evidence.
+`--decision-quota-tiers '{"limited":80}'` sets partial threshold overrides; `-` clears them.
+Both are JEV-only. Omitted policy survives `--targets-file` replacement, `--targets` with `--strategy jev`, and rename (`--targets` alone keeps the existing failover default). Off retains thresholds;
+switching away from JEV removes both settings. This adds quota data to the selected decision
+backend, not probes, new account selection or hard exclusions. See
+[quota defaults, freshness and privacy](/guides/combos/#advisory-quota-signals-for-jev).
+
 `ocx combo test [--combo <id>] [--decision-provider <provider|jev> | --decision-model <route>]
 [--decision-timeout <ms>]` sends one synthetic decision probe through a saved combo's method or an
 unsaved selection and reports the gate, backend, and latency; it may spend one decision call.
@@ -326,6 +333,25 @@ counts and snapshot-window boundaries. Zero observations do not prove success.
 There is no monetary cost or comparative savings field in this report.
 
 See [Combos](/guides/combos/) for routing behavior and configuration guidance.
+
+## Fallback off
+
+### `ocx fallback <status|off|on|clear|local> ...`
+
+```bash
+ocx fallback status --json
+ocx fallback off --kind provider
+ocx fallback on --route combo/coding
+ocx fallback clear --provider anthropic --kind model
+ocx fallback local on --device mac-studio
+```
+
+`off`, `on` and `clear` take `--kind model|provider|all` (default `all`) and at most one scope:
+`--provider <name>`, `--route <selector>` or `--device <id|alias>`; with none they set the global switch.
+A device set to off always refuses; otherwise route beats provider beats global. `local` records whether a
+device may use its own providers while the Home is unreachable, a permission GOAT reads; OpenCodex itself
+still answers `home_unreachable` there. The commands talk to the live proxy; on a Remote Link Child,
+`status` reads the Home and writes are refused. See [Fallback off](/guides/fallback-off/).
 
 ## Routing profiles
 

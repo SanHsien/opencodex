@@ -40,12 +40,14 @@ import { DECLARABLE_HOSTED_TOOL_TYPES } from "../responses/hosted-tool-policy";
 import { effectiveGoogleMode, getProviderRegistryEntry, providerCodexAccountMode, providerMatchesRegistryTransport, registryEntryForProviderDestination } from "../providers/registry";
 import { providerConfigSeed } from "../providers/derive";
 import { anthropicOAuthInstanceConfigError } from "../config/schema/anthropic-account-pool";
+import { accountAutoPausePolicySchema } from "../config/schema/account-auto-pause";
 import type { OcxConfig, OcxProviderConfig } from "../types";
 import { openRouterRoutingConfigError } from "../providers/openrouter-routing";
 import { modelAutoCompactTokenLimitsConfigError } from "../providers/auto-compact-budget";
 import { vercelGatewayRoutingConfigError } from "../providers/vercel-gateway-routing";
 import { googleVertexLocationConfigError } from "../providers/google-vertex-location";
 import { xaiResponsesOptInState } from "../providers/xai-responses-opt-in";
+import { authorizationCredential } from "../lib/authorization-scheme";
 
 let _corsOrigin = "http://localhost:10100";
 // Listener identity is process-local. Never infer this trust from forwarded headers: the
@@ -500,7 +502,7 @@ export function resolveContextPrincipal(req: Request, config: OcxConfig, admissi
   if (named) return named;
   if (admission?.kind !== "loopback") return undefined;
   const dedicated = req.headers.get("x-opencodex-api-key")?.trim();
-  const bearer = req.headers.get("authorization")?.replace(/^Bearer\s+/i, "").trim();
+  const bearer = authorizationCredential(req.headers);
   const apiKey = req.headers.get("x-api-key")?.trim();
   for (const [token, source] of [[dedicated, "dedicated"], [bearer, "bearer"], [apiKey, "x-api-key"]] as const) {
     if (!token) continue;
@@ -599,13 +601,13 @@ export class ForwardAdmissionCredentialError extends Error {
 }
 
 export function validateForwardAdmissionCredential(headers: Headers, config: OcxConfig): void {
-  const bearer = headers.get("authorization")?.replace(/^Bearer\s+/i, "").trim();
+  const bearer = authorizationCredential(headers);
   if (bearer && isProxyAdmissionSecret(bearer, config)) throw new ForwardAdmissionCredentialError();
 }
 
 /** Whether Authorization carries a caller-owned native Codex credential safe to forward. */
 export function hasForwardableCodexBearer(headers: Headers, config: OcxConfig): boolean {
-  const bearer = headers.get("authorization")?.replace(/^Bearer\s+/i, "").trim();
+  const bearer = authorizationCredential(headers);
   const accountId = headers.get("chatgpt-account-id")?.trim()
     || (bearer ? extractAccountId(undefined, bearer) : undefined);
   return !!bearer && !!accountId && !isProxyAdmissionSecret(bearer, config);
@@ -620,7 +622,7 @@ export function resolveApiAuth(req: Request, config: RequestPolicyView): DataPla
   if (!isApiAuthRequired(config)) return { kind: "loopback", source: "loopback" };
   const dedicated = req.headers.get("x-opencodex-api-key")?.trim();
   if (dedicated) return resolveDataPlaneAdmissionSecret(dedicated, config, "dedicated", { linkIngress: config.linkIngress?.allowedKeyIds });
-  const bearer = req.headers.get("authorization")?.replace(/^Bearer\s+/i, "").trim();
+  const bearer = authorizationCredential(req.headers);
   if (bearer) return resolveDataPlaneAdmissionSecret(bearer, config, "bearer", { linkIngress: config.linkIngress?.allowedKeyIds });
   // Anthropic-SDK clients (Claude Code with ANTHROPIC_API_KEY) authenticate via x-api-key.
   const apiKey = req.headers.get("x-api-key")?.trim();
@@ -652,7 +654,7 @@ export function resolveResponsesApiAuth(req: Request, config: RequestPolicyView)
   // safe because the upstream credential is then SUBSTITUTED rather than forwarded -- see
   // materializeCodexUpstreamAuth. A bearer that is NOT our secret stays unadmitted here and
   // remains Codex Direct passthrough, so the two bearer domains still never mix.
-  const bearer = req.headers.get("authorization")?.replace(/^Bearer\s+/i, "").trim();
+  const bearer = authorizationCredential(req.headers);
   if (bearer) return resolveDataPlaneAdmissionSecret(bearer, config, "bearer", { linkIngress: config.linkIngress?.allowedKeyIds });
   // `x-api-key` is deliberately NOT accepted on this transport.
   return null;
@@ -740,6 +742,9 @@ export function providerManagementConfigError(
     return "provider must be a plain object";
   }
   const raw = provider as Record<string, unknown>;
+  if (raw.accountAutoPause !== undefined && !accountAutoPausePolicySchema.safeParse(raw.accountAutoPause).success) {
+    return "accountAutoPause must be an object with optional boolean enabled and integer consecutiveFailures (1-100)";
+  }
   const contextTiersError = contextTierRecordConfigError(raw.modelContextTiers);
   if (contextTiersError) return contextTiersError;
   const capabilitiesError = modelCapabilitiesConfigError(raw.modelCapabilities);
@@ -796,6 +801,8 @@ export function providerManagementConfigError(
     // sends recover, not what the canonical forward seed is. Validated below
     // (retryOnResetPolicyConfigError).
     delete canonicalCandidate.retryOnReset;
+    // Validated account eligibility policy is independent of the canonical transport.
+    delete canonicalCandidate.accountAutoPause;
     // Context windows are the same kind of user-owned overlay as requestPacing: the operator
     // narrowing what their own native rows advertise. They can only ever LOWER the measured
     // window (see nativeOpenAiContextWindow), so admitting them cannot widen what the proxy
@@ -1087,6 +1094,7 @@ const PROVIDER_CONFIG_FIELD_POLICY = {
   apiKeyPool: "redacted",
   // Ordering preference only; it names no key material, so an editor may read and set it.
   apiKeyPoolStrategy: "editor",
+  accountAutoPause: "editor",
   apiKeySelectionRevision: "runtime",
   _apiKeyAttempt: "runtime",
   defaultModel: "editor",

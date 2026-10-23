@@ -358,6 +358,16 @@ Contributor work that landed through a maintainer carry or reimplementation,
 where the commit does not name its original author, is recorded in
 **[CREDITS.md](./CREDITS.md)**.
 
+## Code signing policy
+
+Upstream Windows binaries are moving to Authenticode signing ([#7207](https://github.com/lidge-jun/opencodex/issues/7207)); see the [Windows Code Signing guide](https://opencodex.me/reference/code-signing/). The Windows MSI built by this fork is **unsigned** (it does not use the upstream signing secrets).
+
+Upstream's free code signing is provided by [SignPath.io](https://about.signpath.io/), certificate by [SignPath Foundation](https://signpath.org/).
+
+- Committers and reviewers: [lidge-jun](https://github.com/lidge-jun)
+- Approvers: [lidge-jun](https://github.com/lidge-jun)
+- Privacy: This program will not transfer any information to other networked systems unless specifically requested by the user or the person installing or operating it.
+
 ## Disclaimer
 
 opencodex is an independent, community-maintained project and is **not affiliated with or endorsed by OpenAI, Anthropic, or any other provider**.

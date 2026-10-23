@@ -216,11 +216,12 @@ not traffic missed between polls; injection seq cannot exclude restart/eviction 
 ### `ocx ready [--json] [--wait [--timeout <seconds>]]`
 
 透過免認證的 `GET /readyz` 端點檢查同步後的就緒狀態。就緒時回傳 `200`，或 `pending` 與終端 `failed` 時回傳附帶 `Retry-After: 1` 的 `503`。其淨化的 HTTP 身分為 `{service, version, uptime, pid, port, status}`，外加遠端 hub 協定欄位
-`{protocol, minimumClientProtocol, managementUrl}`。`protocol` 是這個 proxy 所使用的 hub 協定，
+`{protocol, minimumClientProtocol, managementUrl, features}`。`protocol` 是這個 proxy 所使用的 hub 協定，
 `minimumClientProtocol` 是它仍接受的最舊用戶端協定，因此用戶端可以在送出任何其他內容之前，就
 拒絕一次不相容的配對。`managementUrl` 是用戶端應該用於管理平面的 origin：當 `runtimeRole` 為
 `hub` 時，是已設定的 `hub.managementPublicOrigin`；否則就是請求實際抵達時所用的 origin。沒有
-HTTP(S) origin 的就緒請求會被拒絕，而不是用猜測的方式回答。沒有 `/readyz` 的舊代理會以
+HTTP(S) origin 的就緒請求會被拒絕，而不是用猜測的方式回答。`features` 列出此版本提供的對等功能，讓對等端不必比對版本就能檢查某項能力：`relay-auth/<n>` 是 Remote Link relay 認證版本，`link-management-relay` 是唯讀的 Remote Link 管理 relay，`link-peer-report/<n>` 表示 Remote Link Home 會在 `ocx link status` 回報各 Child 的版本與相容性，`quota-pool/1` 是 `GET /api/quota-pool` 管理讀取，`served-by-header` 是 `x-opencodex-served-by` 回應標頭。此版本不提供的功能不會出現。清單只含固定名稱，絕不含帳號或設定資料。
+沒有 `/readyz` 的舊代理會以
 `unreachable` 方式 fail closed；`/healthz` 是分開的存活檢查，而非就緒檢查。此指令預設執行一次
 探測；`--wait` 輪詢直到就緒或逾時，但在觀察到終端 `failed` 狀態時立即退出。預設逾時為 45 秒；
 `--timeout <seconds>` 需要 `--wait`，接受 1–300 的正整數秒。CLI 自己的 `--json` 輸出刻意比 HTTP
@@ -289,6 +290,8 @@ for target, scope and spending boundaries. A reset-grant status read can contact
 upstream status but never consumes or resumes a grant.
 
 ### `ocx sync [--restart-codex] [--restart-app-server-only]`
+
+> **Remote Link Child：** `ocx sync` 也會套用 Home 的 Codex 設定；如果用戶端執行階段在該次套用之前啟動，即使沒有重新啟動旗標也會重新啟動執行階段。重新啟動失敗時，原有執行階段會繼續提供服務，指令以非零狀態結束。`ocx status --json` 與 `ocx link status --json` 的相關欄位請見 [Remote Link apply parity](/zh-tw/reference/cli/lifecycle/#remote-link-apply-parity)（英文）。
 
 明確指定重新啟動旗標後，即使目錄和快取的位元組未變，成功提交 `config.toml` 變更也會觸發重新啟動。僅處理設定的操作若沒有變更、遭拒、只做預先檢查或寫入已回復，則不會觸發重新啟動。未指定重新啟動旗標時，sync 不會自動重新啟動 Codex。
 
@@ -771,6 +774,46 @@ The new-field receipt is `{ok:true,policy,job:{status}}`, with observed trigger,
 target, mode, schedule and optional last/next-run facts. `job.status` describes an
 existing idle/running state, not a cleanup started by this command. Read back on
 an unknown outcome rather than replaying the write.
+
+## Remote Link apply parity
+
+A Remote Link Child applies its Home's OpenCodex-owned Codex settings when it is linked
+(`ocx link add` on the Home) and on every `ocx sync`. Three facts let a peer check that the
+Child really runs under the settings it applied, without reading either machine's configuration.
+
+`ocx status --json`, on any device, carries:
+
+| Field | Meaning |
+| --- | --- |
+| `appliedCodexSettingsDigest` | Lowercase hex SHA-256 of the applied settings (below). On a Child, the values its last recorded apply wrote. On a Home or standalone install, the settings document it serves its Children right now, computed from its current configuration. `null` on a hub client, on a Child with no recorded apply, and on a Child whose apply of changed settings is in progress or failed (the previous digest is withdrawn first, so it is never reported for values Codex no longer has). |
+| `lastApplyAt` | Child only: epoch milliseconds of the last successful apply that changed the applied settings. Re-applying the same values is not a new apply and keeps it, so an unchanged `ocx sync` never forces a restart. `null` elsewhere. |
+| `runtimeStartedAt` | Child only: epoch milliseconds the running client runtime started. `null` when no client runtime answers. |
+
+The digest is computed over this compact UTF-8 JSON, with the keys in exactly this order and no
+whitespace, from the values actually applied:
+
+```json
+{"version":1,"settings":{"fastMode":true,"multiAgentMode":"v1","webSearchSidecarEnabled":false,"subagentDefaults":null}}
+```
+
+`subagentDefaults` is `null` when unset, otherwise `{"model":…,"reasoningEffort":…}` in that order.
+The example above hashes to `57c751eff89844f93db71a6ee4acdac03afbc29fec52734ade80a40193e826cd`. The digest
+never contains a setting value, and the Home's name and version are not part of it, so a Home and
+a Child that applied the same values report the same digest.
+
+On the Home, every row of `ocx link status --json` carries what that Child last reported:
+`lastApplyAt`, `runtimeStartedAt`, `appliedCodexSettingsDigest` (same meanings as above) and
+`reportedAt` (epoch milliseconds, the Home's clock). A linked Child reports shortly after its runtime
+starts and then once a minute; the Home keeps reports in memory only, so after a Home restart the
+fields read `null` until the next report. A Child whose runtime started before `lastApplyAt` is
+running an older runtime than its last apply.
+
+After `ocx sync` applies the Home's settings on a Child, it restarts the Child's client runtime when
+that runtime started before `lastApplyAt`, using the same restart as `ocx restart`. A runtime that
+already started after the apply is left alone, nothing is started when no client runtime is
+running, and a failed restart exits nonzero while the previous runtime keeps serving; run
+`ocx sync` or `ocx restart` again to retry. Two applies on one Child never interleave: a second
+`ocx sync` while one is applying fails fast and changes nothing.
 
 ## Forced link revoke and remote recovery
 

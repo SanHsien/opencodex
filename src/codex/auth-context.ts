@@ -69,7 +69,7 @@ import type { CodexCooldownSource, CodexQuotaScope } from "./routing";
 import { maskAccountId } from "../lib/privacy";
 import { formatErrorResponse, formatUsageLimitReachedResponse } from "../bridge";
 import { nextCodexPoolRecoveryAt } from "./routing/pool-recovery";
-import { CODEX_UNKNOWN_USAGE_SCORE, getAccountQuota, getMainPolicyQuota, parseUsageQuota, parseMainPolicyUsageQuota, setAccountQuotaFromParsed } from "./quota";
+import { CODEX_UNKNOWN_USAGE_SCORE, getAccountQuota, getMainPolicyQuota, isValidWhamHistoryObservation, parseUsageQuota, parseMainPolicyUsageQuota, setAccountQuotaFromParsed } from "./quota";
 import { codexAccountUsesCreditsAfterLimit, codexUsageLimitResetAt } from "./account-credit-use";
 import type { CodexAccountMode, OcxConfig, OcxProviderConfig } from "../types";
 import { FORWARD_HEADERS } from "../adapters/openai-responses";
@@ -97,6 +97,8 @@ import type { DataPlaneAdmission } from "../server/auth-cors";
 import { getMainReserveAuthorization, isMainReserveAuthorizationLive, nativeUserIdClaims, type MainReserveAuthorization } from "./reserve-availability";
 import { UpstreamRetryEvidenceError } from "../lib/upstream-retry";
 import { getEffectiveCodexAutoSwitchThreshold } from "./account-auto-switch";
+import { CODEX_MAIN_DUPLICATE_ACTION, configuredCodexMainDuplicate } from "./collision-identity";
+import { AgentAssertionUnsupportedError, authorizationCredential, hasAgentAssertionAuthorization } from "../lib/authorization-scheme";
 
 /**
  * A request-owned bearer cannot inspect the physical main credential for its plan, but cached
@@ -324,6 +326,8 @@ export type CodexAuthContext =
       writerGeneration: number;
       /** Captured before async credential work; never reconstructed after the upstream response. */
       mainQuotaWriter?: MainQuotaWriter;
+      /** Immutable credential proof captured while materializing this physical attempt's headers. */
+      mainQuotaDispatch?: MainQuotaDispatch;
       reserveAuthorization?: MainReserveAuthorization;
       accessToken: string;
       chatgptAccountId: string;
@@ -665,6 +669,7 @@ function assertReserveAdmission(config: CodexAuthPolicyConfig): void {
   }
 }
 
+/** Authorize a reserve request for the main credential, re-checking admission and writer liveness, and publish the ordinary quota observed during the capability read. */
 async function authorizeReserveCredential(
   token: { accessToken: string; chatgptAccountId: string },
   writer: MainQuotaWriter | undefined,
@@ -681,9 +686,11 @@ async function authorizeReserveCredential(
   const authorization = isMainReserveAuthorizationLive(existing, token) ? existing
     : await getMainReserveAuthorization({
       token, writer, signal,
+      /** Publish the ordinary usage observed during the reserve capability read: parse it once and reuse that observation as the advisory decision evidence when it is a valid history observation. */
       observeOrdinaryQuota(data, capturedWriter) {
-        setAccountQuotaFromParsed(MAIN_CODEX_ACCOUNT_ID, parseUsageQuota(data), writerGeneration,
-          capturedWriter, parseMainPolicyUsageQuota(data));
+        const parsed = parseUsageQuota(data);
+        setAccountQuotaFromParsed(MAIN_CODEX_ACCOUNT_ID, parsed, writerGeneration,
+          capturedWriter, parseMainPolicyUsageQuota(data), undefined, false, false, isValidWhamHistoryObservation(data) ? parsed : null);
       },
     });
   // The capability read also publishes ordinary quota. A new 99% reading or cooldown wins.
@@ -695,7 +702,7 @@ async function authorizeReserveCredential(
 
 function selectedCodexToken(headers: Headers): { accessToken: string; chatgptAccountId: string } {
   return {
-    accessToken: headers.get("authorization")?.replace(/^Bearer\s+/i, "").trim() ?? "",
+    accessToken: authorizationCredential(headers) ?? "",
     chatgptAccountId: headers.get("chatgpt-account-id") ?? "",
   };
 }
@@ -710,7 +717,7 @@ function selectedCodexToken(headers: Headers): { accessToken: string; chatgptAcc
 export function callerCodexWorkspaceAccountId(headers: Headers): string | undefined {
   const explicit = headers.get("chatgpt-account-id");
   if (explicit) return explicit;
-  const bearer = headers.get("authorization")?.replace(/^Bearer\s+/i, "").trim();
+  const bearer = authorizationCredential(headers);
   return bearer ? extractAccountId(undefined, bearer) : undefined;
 }
 
@@ -769,8 +776,10 @@ export function createCodexAuthDispatchGuard(
   terminalHelper = false,
 ): ((headers: Headers) => void) | undefined {
   const reserveGuard = createCodexReserveDispatchGuard(ctx, config, modelId, admission, terminalHelper);
-  if (ctx.kind !== "pool") return reserveGuard;
+  if (ctx.kind !== "pool" && ctx.kind !== "main-pool") return reserveGuard;
   return headers => {
+    if (config.pausedCodexAccountIds?.includes(ctx.accountId)) throw new CodexPoolAuthenticationError("Selected Codex account is paused; resume it in account settings");
+    if (ctx.kind === "main-pool") { reserveGuard?.(headers); return; }
     assertPoolAccountCredits(ctx.accountId, poolContextCreditHoldResetAt(ctx, config));
     reserveGuard?.(headers);
   };
@@ -799,7 +808,7 @@ function assertMainAccountPolicy(
 
 /** No auth-file I/O: an unsigned claim alone never identifies a caller as stored main. */
 function callerMatchesObservedMain(headers: Headers): boolean {
-  const bearer = headers.get("authorization")?.replace(/^Bearer\s+/i, "").trim();
+  const bearer = authorizationCredential(headers);
   if (!bearer) return false;
   const effectiveAccountId = headers.get("chatgpt-account-id")
     ?? extractAccountId(undefined, bearer);
@@ -823,7 +832,7 @@ function sameCredentialMaterial(a: string, b: string): boolean {
  * cooldown — the safe direction.
  */
 function callerIsCooledPoolAccount(headers: Headers, config: OcxConfig, accountId: string): boolean {
-  const bearer = headers.get("authorization")?.replace(/^Bearer\s+/i, "").trim();
+  const bearer = authorizationCredential(headers);
   if (!bearer) return true;
   const callerAccountId = headers.get("chatgpt-account-id") ?? extractAccountId(undefined, bearer);
   if (callerAccountId === undefined) return true;
@@ -1075,6 +1084,33 @@ async function awaitMainAccountPolicyBindingSettled(
   if (!settled) throw new CodexMainProfileDrainingError();
 }
 
+/** Memory-only ownership check shared by Direct admission and pre-auth hard-lock routing. */
+export async function mainAccountHardLockAppliesToCaller(
+  headers: Headers,
+  policy: CodexAuthPolicyConfig,
+  options: Pick<ResolveCodexAuthContextOptions,
+    "substituteMainCredentialForDirect" | "signal" | "mainAccountPolicyBindingWaitMs"> = {},
+): Promise<boolean> {
+  if (options.substituteMainCredentialForDirect === true) return true;
+  if (!hasCallerCodexBearer(headers)) return false;
+  if (isMainAccountHardLockEnabled(policy)) await awaitMainAccountPolicyBindingSettled(options);
+  return callerMatchesObservedMain(headers);
+}
+
+/**
+ * Resolve ownership once, then hand back a synchronous proof. Main identity or its observed bearer
+ * can change across the await; the hard-lock reroute rechecks the proof with no await between it
+ * and the body rewrite, so a replacement main's lock never reroutes the original caller.
+ */
+export async function mainAccountHardLockCallerProof(
+  headers: Headers,
+  policy: CodexAuthPolicyConfig,
+  options: Parameters<typeof mainAccountHardLockAppliesToCaller>[2] = {},
+): Promise<(() => boolean) | null> {
+  if (!await mainAccountHardLockAppliesToCaller(headers, policy, options)) return null;
+  return options.substituteMainCredentialForDirect === true ? () => true : () => callerMatchesObservedMain(headers);
+}
+
 /**
  * Resolve the credential for one Codex turn. A main hard-lock reached through unpinned pool
  * selection is annotated with the earliest known pool recovery, so the refusal can name a retry
@@ -1167,8 +1203,7 @@ async function resolveCodexAuthContextUnannotated(
     // Trusted substitution still has to claim and validate stored main below.
     if (!substituteStoredMain && !hasCallerCodexBearer(headers)) throw new CodexDirectAuthenticationError();
     if (!substituteStoredMain) {
-      if (isMainAccountHardLockEnabled(policy)) await awaitMainAccountPolicyBindingSettled(options);
-      if (callerMatchesObservedMain(headers)) assertMainAccountPolicy(policy);
+      if (await mainAccountHardLockAppliesToCaller(headers, policy, options)) assertMainAccountPolicy(policy);
       assertCallerOwnedMainPoolNotCooled();
       if (reserve) {
         const selected = materializeCodexUpstreamAuth(headers, { kind: "main", accountId: null }, { config: policy });
@@ -1417,7 +1452,9 @@ async function resolveCodexAuthContextUnannotated(
     // cool down. Hand back any trial first -- no Pool account is being sent to.
     if (selected === MAIN_CODEX_ACCOUNT_ID && requestScopedMainCredential) {
       releaseTransientProbeGrant();
-      return await resolveCallerOwnedMainContext();
+      const context = await resolveCallerOwnedMainContext();
+      console.info("[codex] Pool selected caller-owned main credential.");
+      return context;
     }
     if (!selected) {
       // A retry that excluded a failed Pool account may still use the validated caller-owned
@@ -1427,9 +1464,12 @@ async function resolveCodexAuthContextUnannotated(
       if (
         requestScopedMainCredential
         && fixedAccountId === undefined
+        && !(callerMatchesObservedMain(headers) && policy.pausedCodexAccountIds?.includes(MAIN_CODEX_ACCOUNT_ID))
         && options.excludeAccountId !== MAIN_CODEX_ACCOUNT_ID
       ) {
-        return await resolveCallerOwnedMainContext();
+        const context = await resolveCallerOwnedMainContext();
+        console.info("[codex] Pool used caller-owned main credential: no selectable stored account.");
+        return context;
       }
       if (fixedAccountId !== undefined) {
         if (modelEligibleAccountIds && !modelEligibleAccountIds.has(fixedAccountId)) {
@@ -1528,6 +1568,7 @@ async function resolveCodexAuthContextUnannotated(
   // deferred credential must never become request auth through that fallback.
   try {
     assertCodexAccountValidationReady(accountId);
+    if (configuredCodexMainDuplicate(config, accountId)) throw new CodexPoolAuthenticationError(CODEX_MAIN_DUPLICATE_ACTION);
     assertPoolAccountCredits(accountId, poolCreditHoldResetAt(policy, accountId, config));
   } catch (cause) {
     // Nothing will reach upstream, so give the trial back instead of leaving the held account
@@ -1585,9 +1626,12 @@ async function resolveCodexAuthContextUnannotated(
       // alternate is eligible. A validated caller may still serve this request,
       // just as it can after an upstream rejection, without changing Pool state.
       if (requestScopedMainCredential && fixedAccountId === undefined
+        && !(callerMatchesObservedMain(headers) && policy.pausedCodexAccountIds?.includes(MAIN_CODEX_ACCOUNT_ID))
         && options.excludeAccountId !== MAIN_CODEX_ACCOUNT_ID
         && !callerIsCooledPoolAccount(headers, config, accountId)) {
-        return await resolveCallerOwnedMainContext();
+        const context = await resolveCallerOwnedMainContext();
+        console.info("[codex] Pool used caller-owned main credential: stored account cooldown.");
+        return context;
       }
       throw new CodexAccountCooldownError(accountId, cooldownUntil, cooldown?.cooldownSource, cooldown?.quotaScope);
     }
@@ -1655,6 +1699,7 @@ async function resolveCodexAuthContextUnannotated(
   try {
     const token = await getValidCodexToken(accountId, { signal: options.signal });
     assertCodexAccountValidationReady(accountId);
+    if (configuredCodexMainDuplicate(config, accountId)) throw new CodexPoolAuthenticationError(CODEX_MAIN_DUPLICATE_ACTION);
     assertPoolAccountCredits(accountId, poolCreditHoldResetAt(policy, accountId, config));
     return bindPoolCreditPolicy({
       kind: "pool",
@@ -1676,7 +1721,8 @@ async function resolveCodexAuthContextUnannotated(
     releaseTransientProbeGrant();
     if (probeLeaseId && probeQuotaScope) releaseCodexQuotaScopeProbeLease(accountId, probeQuotaScope, probeLeaseId);
     else if (probeLeaseId) releaseCodexQuotaProbeLease(accountId, probeLeaseId);
-    if (cause instanceof CodexPoolAccountCreditsOffError) throw cause;
+    // Post-refresh eligibility refusals do not invalidate a healthy credential.
+    if (cause instanceof CodexPoolAccountCreditsOffError || cause instanceof CodexPoolAuthenticationError) throw cause;
     if (!options.signal?.aborted && shouldMarkAccountNeedsReauthForCodexAuthFailure(cause)) {
       markAccountNeedsReauth(accountId, writerGeneration);
     }
@@ -1722,7 +1768,7 @@ export class CodexMainSubstitutionUnavailableError extends Error {
 
 /** Dispatch identity comes only from an owned observation of the selected credential. */
 function selectedMainQuotaDispatch(selected: Headers): MainQuotaDispatch | undefined {
-  const bearer = selected.get("authorization")?.replace(/^Bearer\s+/i, "").trim();
+  const bearer = authorizationCredential(selected);
   if (!bearer) return undefined;
   const accountId = selected.get("chatgpt-account-id") ?? extractAccountId(undefined, bearer);
   return captureMainQuotaDispatch(bearer, accountId, captureConfigGeneration());
@@ -1747,6 +1793,8 @@ export function materializeCodexUpstreamAuth(
   ctx: CodexAuthContext,
   options: CodexAuthMaterializationOptions = {},
 ): Headers {
+  // assertion_only must never be answered with a pool, stored-main, or other substituted Bearer.
+  if (hasAgentAssertionAuthorization(headers)) throw new AgentAssertionUnsupportedError();
   if (ctx.kind === "main") ctx.mainQuotaDispatch = undefined;
   const selected = new Headers();
   for (const name of FORWARD_HEADERS) {
@@ -1761,13 +1809,15 @@ export function materializeCodexUpstreamAuth(
     if (ctx.kind === "main-pool") {
       ctx.mainQuotaWriter = observeSelectedMainCredential(ctx, ctx.mainQuotaWriter);
       assertMainAccountPolicy(options.config);
+      ctx.mainQuotaDispatch = ctx.mainQuotaWriter && isMainQuotaWriterLive(ctx.mainQuotaWriter)
+        ? selectedMainQuotaDispatch(selected) : undefined;
     }
     assertMaterializedReserve(selected, ctx, options);
     return selected;
   }
   if (ctx.kind === "main" && options.substituteMainCredential !== true
     && !selected.has("chatgpt-account-id")) {
-    const bearer = selected.get("authorization")?.replace(/^Bearer\s+/i, "").trim();
+    const bearer = authorizationCredential(selected);
     const accountId = bearer ? extractAccountId(undefined, bearer) : undefined;
     if (accountId) selected.set("chatgpt-account-id", accountId);
   }
@@ -1845,6 +1895,7 @@ export async function materializeCodexUpstreamAuthAsync(
   ctx: CodexAuthContext,
   options: CodexAuthMaterializationOptions = {},
 ): Promise<Headers> {
+  if (hasAgentAssertionAuthorization(headers)) throw new AgentAssertionUnsupportedError();
   if (ctx.kind === "main") ctx.mainQuotaDispatch = undefined;
   if (requiresReserveAuthorization(options.config, options.modelId, options.admission)) {
     return materializeReserveUpstreamAuth(headers, ctx, options);

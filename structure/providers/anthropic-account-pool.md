@@ -173,6 +173,14 @@ quota epoch, configured row, account incarnation and login identity are unchange
 `src/providers/quota/account-cache.ts` are per instance, so clearing Pool 2 quota never
 invalidates the primary pool.
 
+A probe that yields no quota names one closed `quotaFailure` code from
+`src/providers/quota/failure-codes.ts`: `account_unavailable` when no usable credential could
+be obtained (no request is sent), the HTTP status class (`access_denied`, `rate_limited`,
+`upstream_error`, `redirect_blocked`), `response_unusable` for an unparsable or empty body,
+and `timeout` or `transport_error` for a thrown dispatch. Ownership and cooldown refusals set
+no code. The code is published only while the flight is current, never carries upstream text,
+and never changes account health or `needsReauth`.
+
 `src/providers/anthropic-reset-grant-ledger.ts` names the journal by instance:
 `anthropic-reset-grant-ledger.json` keeps the primary pool's existing bytes and records,
 and Pool 2 uses `anthropic2-reset-grant-ledger.json`.
@@ -461,3 +469,22 @@ reload and are not represented as a successful save. The GUI checkbox is a saved
 than a promise that a route is eligible; explicit rollout opt-outs still apply.
 
 The shared conversation-key precedence is implemented by `src/oauth/session-affinity-key.ts` and re-exported as `anthropicSessionKeyFromParts`; Anthropic routing semantics remain owned here. [Generic OAuth affinity](generic-account-pool.md#conversation-affinity) uses independent request-local receipts.
+
+## JEV advisory publication
+
+While a live JEV combo enables quota signals, auth-store load/persist and accepted quota producer
+boundaries hand bounded secret-free rosters/windows to the core slot `src/lib/decision-quota-sink.ts`,
+which forwards them to the activation-owned snapshot; otherwise those calls are no-ops
+([activation](jev-decision.md#loaded-advisory-quota)). These owner-observed generations
+are separate from display caches and serving-account selection. Request decisions consume only
+loaded evidence; cold or mismatched generations remain unknown. Usability, partial-window clocks
+and late-writer fences follow [loaded advisory quota](jev-decision.md#loaded-advisory-quota). Only the primary `anthropic` pool publishes; `anthropic2` is excluded and stays unknown.
+
+## Permanent refusal auto-pause
+
+The separate `providers.<instance>.accountAutoPause` policy is default off. Physical
+Responses and native Messages sends observe their captured bearer before recovery. Exact
+organization/OAuth or subscription refusals can persist `pauseDetails` with a fixed reason
+and timestamp through `src/oauth/store.ts`. `pauseRevision` changes on resume, so late
+pre-resume responses cannot pause the resumed account. The existing selectors rebuild an
+eligible sibling within their send budgets; proactive-pool activation is not required.

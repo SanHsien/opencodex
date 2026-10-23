@@ -1,5 +1,52 @@
 # 維護決策
 
+## 2026-10-23：stable 整合 v2.91.0（不帶入上游歷史）
+
+**決定**：在以 tag `v2.91.0`（`83ec4f75a4cc97030c2fa7857e05e2ce222f376f`）為起點的暫存 worktree 上重放 `git diff v2.88.0 main` 的 fork overlay（398 刪除、251 新增／修改走 3-way patch，其中 9 個衝突檔），
+方法與 `v2.76.0`、`v2.88.0` 相同：`main` 以單一 parent 的 commit 採用該 tree，不建立 ancestry bridge、不推送上游。`tools/upstream_baseline.json` 推進到 `v2.91.0`
+（`reviewed_through`／`integrated_through` 同為 `83ec4f75a`，`reviewed_date` 2026-10-23；issue／PR 水位未動）。這一輪納入上游 77 個 commit，包含 `#7470`（拒絕 Codex runtime AgentAssertion 認證、限縮 dual_header assertion）與 `#7397`（OAuth 登入／匯入、service／update 路徑與 shim token 的加固，B5）；fork 在這些路徑沒有重疊修正者，全數直接採上游。
+
+**版本**：`package.json`／`desktop/src-tauri/Cargo.toml`／`Cargo.lock`／`tauri.conf.json` 維持上游 `2.91.0`（`release-version-sources check 2.91.0` 通過四個來源一致），不前推；發版沿用 tag `v2.91.0`，MSI 版本為純數字 `2.91.0`。
+
+**語系**：398 個既有刪除清單全數套用；上游這一輪沒有新增檔案層級的語系，但 `gui/src/i18n/*.ts` 與 `readme/*` 譯本的更新隨刪除一併丟棄，`docs-site/astro.config.mjs` 以 `.tmp/astro_tx.py` 對 v2.91.0 檔重新轉換（只留 `zh-TW` 翻譯，並維持 fork 拿掉 `Platform Support` 外部連結的差異）。
+上游新增的 `gui/tests/account-pause-display.test.tsx` 寫死 fr／ko，改為 en／zh-TW。
+
+**手動解的衝突檔**（9 個）
+- `README.md`：取 fork 繁中版，補上游新增的「Code signing policy」段落（繁中，並註明 fork 的 MSI 未簽署）；上游 Windows 下載表的措辭改動不適用（fork README 沒有該表）。`README.en.md` 同步補同一段英文。
+- `docs-site/astro.config.mjs`：見語系。新增側欄項目 `Fallback off`、`Windows Code Signing`。
+- `docs-site/.../zh-tw/guides/combos.md`：取 fork 版為底，補上游新增的 `--description` 旗標與 `description` 欄位列。
+- `docs-site/.../zh-tw/reference/cli/lifecycle.md`：取 fork 版為底，`/readyz` 身分欄位補上游新增的 `features` 及其說明（繁中）。
+- `docs-site/.../zh-tw/reference/configuration/providers.md`：取 fork 版為底，逐列套用上游改動的 5 列（`cacheRetention`、`projectResponsesLiteHostedSearchHistory`、`noJsonSchemaModels`、`project`、`location`）；跨頁錨點改為 fork 保留的英文 heading slug。
+- `docs-site/.../zh-tw/reference/proxy-formats.md`：fork 在此頁保留英文的 `Codex-native ordinary Lite hosted-search history` 段，改以上游 v2.91.0 英文新段取代。
+- `scripts/test-layout/layout.json`、`tests/fixtures/test-layout-expected.json`：以上游為底（含新的 `test-home-guard-unpreloaded`），補 fork 的 `test-runner-temp-isolation`。
+- `tests/ci-workflows/test-runner.test.ts`：維持 fork 已搬走 transpiler cache／TEMP 兩個 describe 的版本；上游在該 describe 新增的 `TMPDIR` 0700 斷言移到 `test-runner-temp-isolation.test.ts`。
+
+**zh-tw 文件同步（`docs-zh-tw-parity`）**：上游 2.88→2.91 在英文頁新增的段落與程式碼區塊，以英文原文（連結改 `/zh-tw/`）插入 11 頁 zh-tw（`codex-integration`、`combos`、`remote-link`、`web-dashboard`、`cli/agents`、`cli/lifecycle`、`cli/providers-accounts`、`configuration/providers`、`management-api`、`proxy-formats`、`cli/messaging`）；`messaging` 的 fork 頁本來就是英文，整頁換成 v2.91.0 正文。新增 `guides/fallback-off`、`reference/code-signing` 兩頁（標題與描述繁中，正文暫英文；後者加 fork MSI 未簽署的提醒）。已翻譯段落的內文漂移不在結構 oracle 範圍，維持原狀。
+**檔案大小 ratchet**：`scripts/test-layout/layout.json` 合併後 2001 行超過 2000 行上限，把 fork 的 `bounded-file-read`、`ci-watchdog` 兩筆併到相鄰行（1999 行），不調高任何 cap。
+
+**新增 workflow**：上游新增 `windows-signing-test.yml`（SignPath 測試簽署，需祕鑰；只 `workflow_dispatch`），兩個 job 加官方 repo-only guard，fork 不執行。`fork-release-windows.yml` 不變：仍不使用 SignPath 或上游簽章祕鑰，MSI 未簽署。
+`release.yml` 的上游簽署步驟隨上游進來，原有官方 repo guard 仍在。
+
+**自動更新不指向上游**：`createUpdaterArtifacts: false`、updater `endpoints: []` 在新 tree 驗證仍成立。
+
+**安全邊界逐檔判定**（上游與 fork 加固同檔者；原則：上游已提供相同保護就採上游，只在上游沒有時保留 fork 修正）
+
+| 檔案 | 判定 | 理由 |
+| --- | --- | --- |
+| `src/lib/service-secrets.ts` | 合併 | 上游新增 `loadServiceTokenFromFile` 的 no-follow／有界／單行檢查（B5）；fork 的 `readServiceApiTokenState`、`readTokenBackupState` 改走單一 descriptor 的有界讀取，兩邊是不同函式，並存 |
+| `src/oauth/store.ts` | 合併 | 上游加暫停細節、roster 通知、設定鎖；備份讀取沒有等效保護，保留 fork 的 lstat＋fstat dev/ino 比對 |
+| `src/codex/auth-collision.ts` | 合併 | 上游新增主帳號碰撞身分與 `readMainAuth`（建立在 `readCodexTokensResult` 之上）；上游沒有 token／account id 字元集驗證，保留 fork 的嚴格驗證 |
+| `src/lib/redact.ts` | 合併 | 上游把 `x-openai-agent-assertion` 加入敏感標頭與標籤清單（#7470）採上游；fork 的換行 barrier 保留 |
+| `src/server/responses/codex-ws-exchange.ts` | 合併 | 上游只加 metadata seed；fork 對失敗訊息的 redact／單行／長度上限保留 |
+| `src/client/connect.ts` | 合併 | 上游加 link apply lock 與 apply receipt；fork 的 `readBoundedRegularFile` 單次 open 保留 |
+| `scripts/test-temp.ts` | 合併 | 上游加 `mkdir` mode `0o700`；fork 的 marker fd 讀取保留 |
+| `tests/service/service-secrets.test.ts` | 合併 | 上游新增 token 檔案載入案例；fork 對 fd 讀取與 fsync 模式的案例保留 |
+| 其餘 fork 加固檔（`shim-probe`、`shim-state-file`、`proxy-auth`、`orca-auth-source`、`state-lock`、`windows-taskxml`、`transactional-install`、`managing-cli`、`vendor-probes-key`、`spill-inspect` 等） | 保留 fork | 上游這一輪沒有動這些檔 |
+
+審查筆記（攻擊面推理）只放在 `.tmp/`，不入庫。
+
+**本機驗證**：見 `UPSTREAM.md` 同日條目。
+
 ## 2026-10-19：stable 整合 v2.88.0（不帶入上游歷史）
 
 **決定**：在以 tag `v2.88.0`（`6936d9885d8a9bda9301737affcbaf1a4ff00e17`）為起點的分支 `sync/v2.88.0` 上重放 `git diff v2.76.0 main` 的 fork overlay（391 刪除、3-way patch 後 52 個衝突檔），

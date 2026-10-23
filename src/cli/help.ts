@@ -79,8 +79,9 @@ Usage:
   ocx alias <sub>             Short names for providers and models (list, set, rm, defaults)
   ocx combo <sub>             Combo routing strategies and failover
   ocx agent <sub>             Subagents, injection, effort caps, and sidecars
-  ocx message <sub>           Loaded local Codex sessions and queued peer messages (sessions|send)
+  ocx message <sub>           Codex queued messages, explicit SSH peers and foreground ownership
   ocx effort [sub]            Inspect and configure reasoning effort caps and defaults
+  ocx fallback <sub>          Turn model or provider fallback off per scope; per-device local fallback
   ocx observe <sub>           Logs, usage, storage, memory, and debug data
   ocx inspect <sub>           Effective config, catalog, analytics, pacing, client-config
   ocx route <sub>             Routing features (combo, policy)

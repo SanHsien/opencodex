@@ -1040,3 +1040,15 @@ GUI 方面，`gui/src/i18n/zh-TW.ts` 與 fork 改過的 `gui/tests/{i18n-locales
 - 桌面自動更新停用：`createUpdaterArtifacts: false`、updater `endpoints: []`。
 - 水位：`integrated_tag = v2.88.0`、`integrated_through`／`reviewed_through = 6936d9885`、`reviewed_date = 2026-10-19`；issue／PR 水位維持（`#6504`／`#6507`），本輪沒有新增 PR／issue 審查。
 - 本機驗證限制：測試固定 Bun `1.4.3`（`package.json testRunnerBun`），本機只有 `1.4.2`，經 `scripts/test.ts` 的測試與 Windows symlink 權限案例（`keyring-smoke`）在本機無法通過，需在 CI 或安裝 Bun 1.4.3 後確認。
+
+## 2026-10-23：stable 整合 v2.91.0（`v2.88.0..v2.91.0`）
+
+`v2.91.0`（`83ec4f75a4cc97030c2fa7857e05e2ce222f376f`）整合，重放 `git diff v2.88.0 main` 的 fork overlay，方法同前兩次；逐項判定見 [`DECISIONS.md`](DECISIONS.md) 同日條目。要點：
+
+- 上游 77 個 commit、873 個檔案變更；overlay 398 個刪除全數套用，251 個新增／修改以 3-way patch 套用，9 個衝突檔手動解（README 兩份、`astro.config.mjs`、4 頁 zh-tw 文件、test-layout 兩個 JSON 與 `test-runner.test.ts`）。
+- 安全邊界：fork 加固與上游改動同檔者共 8 個，逐檔判定在 `DECISIONS.md`；`#7470`（AgentAssertion）與 B5（OAuth 登入／匯入、service／update、shim token）在 fork 沒有重疊修正的路徑一律採上游。
+- 語系：沒有新增語系，非保留語系的更新隨刪除清單丟棄；上游新增的 `account-pause-display` 測試改為 en／zh-TW。
+- 新 workflow `windows-signing-test.yml` 加官方 repo-only guard；`fork-release-windows.yml` 不變，MSI 仍未簽署，updater `endpoints` 仍為空。
+- 水位：`integrated_tag = v2.91.0`、`integrated_through`／`reviewed_through = 83ec4f75a4cc97030c2fa7857e05e2ce222f376f`、`reviewed_date = 2026-10-23`；issue／PR 水位維持（`#6504`／`#6507`），本輪沒有新增 PR／issue 審查。
+- 版本維持上游 `2.91.0`，發版 tag 為 `v2.91.0`（推 tag 時用 `git push origin <main SHA>:refs/tags/v2.91.0`；本機 `v2.91.0` 是上游的 tag）。
+- 本機驗證（Windows，Bun `1.4.3` 作測試 runner）：`typecheck`（3 個 tsc）、`structure:check`、`privacy:scan`、`skill:surface:check`、`dev_check.ps1`、`gui` lint／build／`bun test --isolate tests`（3438 個測試；寫死 fr／ko 的 4 個 `account-pause-display` 案例改寫後該檔 6/6 通過）、`docs-site` build（149 頁、21005 個內部連結、0 錯誤）皆綠。完整 `bun run test` 160 批：本機失敗的測試檔（至少 70 個）在乾淨 `v2.91.0` 上同樣失敗（symlink EPERM、Claude Desktop／Codex 設定寫入鎖等環境問題），其餘 4 個檔單獨重跑兩邊皆過（負載造成的逾時）；fork 造成的失敗（zh-tw parity、file-size ratchet）已修。

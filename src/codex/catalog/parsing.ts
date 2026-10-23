@@ -43,6 +43,7 @@ import { NATIVE_OPENAI_CONTEXT_OVERRIDES, SUPPORTED_NATIVE_OPENAI_SLUGS, UPSTREA
 import { clampAutoCompactTokenLimit } from "../../providers/auto-compact-budget";
 import { trustedAccountBoundNativeCatalogSlug } from "./account-models";
 import { CODEX_NATIVE_ALIAS_CATALOG_KIND } from "./kinds";
+import { hasComboRoutedOriginMarker, hasOcxRoutedAuthorship } from "./ownership";
 import { NATIVE_GPT6_ASTRA_MODEL } from "./native-models";
 import { recordOwnedConfigPath } from "../../lib/config-ownership";
 
@@ -95,6 +96,12 @@ export interface CatalogModel {
    * which carries no CatalogModel, so a configured displayName can never override a native name.
    */
   displayName?: string;
+  /**
+   * Display-only Codex catalog `description` override, honored for combo rows only (#7229).
+   * Unset keeps the generated "Routed via opencodex → …" text; a set value stamps the row with
+   * the ownership marker in ./ownership so removal and template selection still recognize it.
+   */
+  description?: string;
   owned_by?: string;
   reasoningEfforts?: string[];
   /** Exact CCA family evidence, retained through the in-memory discovery cache. */
@@ -297,7 +304,7 @@ export function findNativeTemplate(catalog: RawCatalog | null): RawEntry | null 
       && "base_instructions" in m
       && m.opencodex_catalog_kind !== CODEX_NATIVE_ALIAS_CATALOG_KIND
       && m.owned_by !== COMBO_NAMESPACE
-      && !(typeof m.description === "string" && m.description.startsWith("Routed via opencodex → ")),
+      && !hasOcxRoutedAuthorship(m),
   ) ?? null;
 }
 
@@ -325,7 +332,7 @@ export function findSupportedNativeTemplate(catalog: RawCatalog | null): RawEntr
       && "base_instructions" in m
       && m.opencodex_catalog_kind !== CODEX_NATIVE_ALIAS_CATALOG_KIND
       && m.owned_by !== COMBO_NAMESPACE
-      && !(typeof m.description === "string" && m.description.startsWith("Routed via opencodex → ")),
+      && !hasOcxRoutedAuthorship(m),
   ) ?? null;
 }
 
@@ -802,6 +809,10 @@ export function normalizeRoutedCatalogEntry(
   delete entry.multi_agent_version;
   delete entry.multi_agent_reasoning_effort;
   delete entry.use_responses_lite;
+  // Codex 0.164 sends positional `configuration_update` effort items only for rows declaring this
+  // and freezes the request-level effort for the context window. A routed provider never
+  // negotiated that contract, so a row cloned from a GPT-6 template must not inherit it.
+  delete entry.supports_reasoning_effort_updates;
   delete entry.supports_websockets;
   // Routed rows cloned from native templates must not inherit OpenAI-only experimental context
   // delivery. Codex reads the flag as "this model accepts experimental context history" and drives
@@ -925,7 +936,9 @@ export function readCatalogBackup(catalogPath: string): RawCatalog | null {
 
 export function catalogHasRoutedEntries(catalog: RawCatalog | null): boolean {
   return (catalog?.models ?? []).some(m => typeof m.slug === "string"
-    && (m.slug.includes("/") || m.opencodex_catalog_kind === CODEX_NATIVE_ALIAS_CATALOG_KIND));
+    && (m.slug.includes("/")
+      || m.opencodex_catalog_kind === CODEX_NATIVE_ALIAS_CATALOG_KIND
+      || hasComboRoutedOriginMarker(m)));
 }
 
 export function writePristineCatalogBackup(backupPath: string, catalogPath: string, catalog: RawCatalog): void {

@@ -6,6 +6,8 @@
  * - HostKeyAlias=<alias> with UserKnownHostsFile=<link known_hosts> and
  *   GlobalKnownHostsFile=none: only a host key the user confirmed for this link is trusted,
  *   and the stored entry has the same form for every port and ProxyJump route.
+ * - HashKnownHosts=no: private probe records keep their alias-prefixed form even
+ *   when the user's normal SSH configuration hashes its own known_hosts file.
  * - KnownHostsCommand=none, VerifyHostKeyDNS=no and CheckHostIP=no: no other source of host-key
  *   trust (a helper command, DNS SSHFP records, IP entries) can stand in for the link file.
  *   Command-line options win over ~/.ssh/config, so a user config cannot re-enable them.
@@ -73,6 +75,7 @@ function commonOptions(alias: string, knownHostsFile: string, strict: "yes" | "a
     "-o", `StrictHostKeyChecking=${strict}`,
     "-o", `HostKeyAlias=${alias}`,
     "-o", `UserKnownHostsFile=${optionPath(knownHostsFile)}`,
+    "-o", "HashKnownHosts=no",
     "-o", "GlobalKnownHostsFile=none",
     "-o", "KnownHostsCommand=none",
     "-o", "VerifyHostKeyDNS=no",
@@ -185,6 +188,25 @@ export function buildProbeArgv(options: ProbeArgvOptions): string[] {
     "-o", "ClearAllForwardings=yes",
     "--", alias,
     "true",
+  ];
+}
+
+/**
+ * Locale-independent Windows check for a host whose SSH shell is cmd.exe or PowerShell. Both run
+ * `cmd /c echo %OS%`, and cmd expands it to `Windows_NT` regardless of display language. The
+ * command is a fixed literal; a POSIX shell answers "command not found" and nothing else.
+ */
+export const WINDOWS_OS_PROBE = "cmd /c echo %OS%";
+
+/** Run WINDOWS_OS_PROBE against an already trusted (pinned or just-probed) host key only. */
+export function buildWindowsProbeArgv(options: { alias: string; knownHostsFile: string }): string[] {
+  const alias = assertSshAlias(options.alias);
+  return [
+    "ssh", "-T",
+    ...commonOptions(alias, options.knownHostsFile, "yes"),
+    "-o", "ClearAllForwardings=yes",
+    "--", alias,
+    WINDOWS_OS_PROBE,
   ];
 }
 

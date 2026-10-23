@@ -1,4 +1,5 @@
 import type { UpstreamHttpVersion, ReasoningSummaryDelivery, CodexAccountMode } from "./wire";
+import type { AccountAutoPausePolicy, AccountPauseDetails } from "./account-auto-pause";
 import type { AnthropicAccountPoolConfig } from "./anthropic-account-pool";
 
 /**
@@ -287,6 +288,8 @@ export interface ModelCapabilities {
   /** Requested tier only; does not imply an upstream window or activate an unverified wire. */
   contextTier?: "default" | "long_context";
   video?: { processing?: "static" | "agentic" };
+  /** Opt in exact first-party DeepSeek models to one-hour image file persistence. */
+  deepseekImageFiles?: boolean;
 }
 
 export interface OcxProviderConfig {
@@ -448,8 +451,9 @@ export interface OcxProviderConfig {
    */
   preserveResponsesMessageMetadata?: boolean;
   /**
-   * Opt in to lossy hosted-search history notes on ordinary canonical Codex Lite requests.
-   * Default off; only literal true enables it, and non-Lite/native compact stay unchanged.
+   * Opt in to lossy hosted-search history notes on canonical Codex Lite ordinary turns and
+   * native v2 compaction triggers, even when search is declared. Default off; only literal true
+   * enables it. History without a search declaration is always projected, independent of this.
    */
   projectResponsesLiteHostedSearchHistory?: boolean;
   /**
@@ -567,7 +571,9 @@ export interface OcxProviderConfig {
    * entry so routing stays single-key; managed via /api/providers/keys. A legacy bare
    * `apiKey` seeds a one-entry pool on first management touch.
    */
-  apiKeyPool?: Array<{ id: string; key: string; label?: string; addedAt?: number }>;
+  apiKeyPool?: Array<{ id: string; key: string; label?: string; addedAt?: number; disabled?: boolean; pauseDetails?: AccountPauseDetails; pauseRevision?: string }>;
+  /** Explicit opt-in permanent account refusal policy; default off. */
+  accountAutoPause?: AccountAutoPausePolicy;
   /**
    * Optional proactive ordering for `apiKeyPool` when the committed key is already
    * cooling. Deliberately NOT named like the OAuth `accountPoolStrategy`: an API key
@@ -1110,9 +1116,9 @@ export interface OcxProviderConfig {
   googleMode?: "ai-studio" | "vertex" | "cloud-code-assist";
   /** Google tool-schema compatibility policy. Omitted preserves compatible report-only behavior. */
   googleToolSchemaPolicy?: "compatible" | "reject-lossy";
-  /** Vertex AI GCP project id (or GOOGLE_CLOUD_PROJECT / GCLOUD_PROJECT env). */
+  /** Vertex AI GCP project id. API keys use it to select the project endpoint; ADC falls back to GOOGLE_CLOUD_PROJECT / GCLOUD_PROJECT env. */
   project?: string;
-  /** Vertex AI location, e.g. "us-central1" or "global" (or GOOGLE_CLOUD_LOCATION env). */
+  /** Vertex AI location, e.g. "us-central1" or "global". API-key project endpoints default to "global"; ADC falls back to GOOGLE_CLOUD_LOCATION env. */
   location?: string;
   /**
    * Cursor adapter only: MCP servers opencodex starts/connects and exposes to the Cursor agent

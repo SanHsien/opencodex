@@ -1,6 +1,7 @@
 import { listCodexAuthAccountsSnapshot } from "../codex/auth-api";
 import { isAnthropicInstanceId, configuredAnthropicInstance } from "./anthropic-instance";
 import { fetchAnthropicAccountQuota } from "./quota/anthropic-account-quota";
+import { thrownQuotaFailure } from "./quota/failure-codes";
 import { resolveEnvValue } from "../config";
 import { getAccountCredential, getAccountSet } from "../oauth/store";
 import { apiKeyPoolEntryId } from "./api-keys";
@@ -31,7 +32,7 @@ import {
   isProviderQuotaReportCurrent,
   LAST_GOOD_MAX_AGE_MS,
   providerQuotaBeforePublishForTests,
-  routingEvidence,
+  routingEvidence, publishCollectedDecisionQuota,
   setProviderQuotaReportCache,
   TERMINAL_QUOTA_FAILURE,
   type CodexAuthAccountsSnapshotPromise,
@@ -228,6 +229,7 @@ export function flushProviderQuotaObservationsForTests(): Promise<void> {
   return pendingProviderObservation;
 }
 
+/** Collect provider quota reports, using the cache unless refresh is forced, and publish the secret-free decision evidence from the collected reports. */
 export async function fetchProviderQuotaReports(config: OcxConfig, forceRefresh = false): Promise<ProviderQuotaResponse> {
   // A passive read (a Remote Link Child's, #6959) shows the held reports and starts nothing.
   if (isPassiveRead()) return heldProviderQuotaReports(Object.keys(config.providers));
@@ -328,7 +330,7 @@ export async function fetchProviderQuotaReports(config: OcxConfig, forceRefresh 
     ) {
       const reports = response.reports.filter(item => mayCommitProviderQuotaKey(item.provider, writerGeneration));
       setProviderQuotaReportCache({ key, ts: Date.now(), response: { ...response, reports } });
-      replaceCachedProviderQuotas(reports, routingEvidence);
+      replaceCachedProviderQuotas(reports, routingEvidence); publishCollectedDecisionQuota(reports, config);
       notifyProviderQuotaSnapshot(reports, config);
     }
     return response;
@@ -514,7 +516,10 @@ async function fetchAccountQuota(
       }
       return entry;
     } catch (error) {
-      if (provider === "google-antigravity") quotaFailure = "account_unavailable";
+      // The probe itself reports HTTP and transport failures as results; what throws here is the
+      // credential side (missing/paused account, failed refresh, no project). A refresh that hit
+      // its deadline is a timeout to retry, not an account the operator must re-sign.
+      if (provider === "google-antigravity") quotaFailure = thrownQuotaFailure(error) === "timeout" ? "timeout" : "account_unavailable";
       return unavailable();
     }
   })().finally(() => {

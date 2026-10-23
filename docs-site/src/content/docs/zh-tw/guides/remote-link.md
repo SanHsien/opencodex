@@ -121,6 +121,25 @@ ocx link reconnect --link-id <id> [--json]
 
 `ocx link probe <alias> --json` · `ocx link add <alias> --expect-fingerprint SHA256:… --json` — [CLI, restart, relay verification and recovery](/zh-tw/guides/remote-link/#add-a-child-from-the-terminal).
 
+### Home and Child versions
+
+On the Home, `ocx link status --json` reports the Home's own `local` version, relay authentication version and features, and gives every link a `peer` block. Nothing is read over SSH: the Home learns about a Child from the relay authentication check the Child sends before each relayed request. From 2.91.0 that check also carries the Child's version and feature list. The Home keeps what it learned in memory, so after a Home restart a link reads `unknown` until its Child relays a request again.
+
+| Part of the link | First release |
+|---|---|
+| `relay-auth/2`, connection-bound relay authentication | 2.69.0 |
+| `link-management-relay`, read-only Home management on the Child | 2.84.0 |
+| `link-peer-report/1`, the Child reports its version and features | 2.91.0 |
+
+`peer.compatibility` is one of:
+
+- `compatible`: the relay authentication versions match, and the Home serves every feature the Child reports. A Child older than 2.91.0 reports no version; `peer.version` is then `null` and `peer.versionRange` gives the range its relay authentication implies, for example `{ "min": "2.69.0", "below": "2.91.0" }`.
+- `degraded`: the Child reports a feature this Home does not serve. Upgrade the Home.
+- `incompatible`: the Child asked for a relay authentication version this Home does not speak, so its relayed requests are refused. `peer.reasons` names the side to upgrade.
+- `unknown`: the Child has not relayed a request since the Home started, or it sent a version or feature list the Home could not read, so its features cannot be checked.
+
+The version a Child reports is its own claim, bound to its link key. OpenCodex uses it for display and never for admission. Older `ocx` installations keep receiving the previous status document; only a 2.91.0 or newer CLI asks for these fields.
+
 ### Standalone pairing authorization
 
 The existing `ocx gui pair --origin <local-origin>` command works while OpenCodex runs as a background service. Run it under the account that owns the service's private OpenCodex home, then enter the returned one-use code in the local dashboard. No server terminal, additional password, Windows Hello or hardware key is required. The CLI and server must use the same current version and configuration home; restart an older server after updating. Mixed-version Hub invitations also require updating the CLI and server together. Pairing refuses a symlinked configuration home or intent directory; use the actual protected directory as `OPENCODEX_HOME`.
@@ -142,3 +161,9 @@ Home-initiated connections now restart the Child after saving its connection, in
 Restart waits for running turns and may take several minutes. Success requires the restarted Child to serve the client role and relay a fresh complete catalog to this Home. SSH setup has a bounded allowance derived from measured latency; relay verification starts after restart with its own 15-second window. Errors name the failing phase. If an error reports residual Child configuration, run `ocx disconnect` and `ocx restart` on that Child before retrying. Home cleanup alone does not restore Child configuration. A CLI timeout reports an uncertain outcome; inspect Home `ocx link status` and Child `ocx connect status` first.
 
 On a Home-initiated Child, `ocx link status` reports role `child`, link identity and tunnel port from its saved connection even though its Home-side link store is empty. Locally unobserved tunnel state is `idle`. `ocx status` calls the peer a Remote Link Home. When Home runs in Hub mode, status reads its supported projection through the local Child relay. A standalone Home reports that it does not publish Hub state. Child-initiated tunnel identity comes from its valid sidecar; unreadable evidence does not claim a direction.
+
+### Windows computers
+
+`ocx link add` and the dashboard refuse a Windows computer during the probe or host confirmation, before any link key is issued or tunnel started. The refusal covers Windows OpenSSH with Git Bash, MSYS2 or Cygwin as its shell (`uname -s` reports MINGW, MSYS or CYGWIN) and with cmd or PowerShell as its shell. Connect a Windows computer in Hub mode instead: run `ocx hub invite` on a Hub and run the printed `ocx connect` command on the Windows computer.
+
+A Windows Child linked by an older release keeps its link. Run `ocx link cleanup` on the Home to find such links; add `--link-id <id>` to check one, or `--json` for a machine-readable report. It asks each Home-initiated Child for its platform over the link's pinned SSH trust and changes nothing. For each Windows Child it prints the recovery order: run `ocx disconnect` and `ocx restart` on the Windows computer, then `ocx link revoke --link-id <id> --force --yes` on the Home, then connect it in Hub mode. A plain revoke fails on these Children because its remote disconnect runs a POSIX command that Windows refuses.

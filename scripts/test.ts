@@ -2,13 +2,21 @@ import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { basename, join } from "node:path";
+import { resolveEffectiveUserIdentity, resolveEffectiveUserRuntimeRoot } from "../src/codex/user-identity";
 import { getTestRunnerBun } from "./lib/test-runner-bun";
+import {
+  codexHomeDatabaseName,
+  snapshotRuntimeLocks,
+  sweepRuntimeLocksCreatedSince,
+  type RuntimeLockSnapshot,
+} from "./lib/test-runtime-lock-sweep";
 import {
   acquireTestRunLock,
   resolveWrappedTestRunLockPath,
   TEST_RUN_ID_ENV,
   TEST_RUN_LOCK_PATH_ENV,
   TEST_RUN_LOCK_TOKEN_ENV,
+  TEST_RUN_NO_QUEUE_ENV,
 } from "./test-run-lock";
 import {
   createContainedTestTemp,
@@ -58,13 +66,11 @@ export function createIsolatedTestEnvironment(
   mkdirSync(opencodexHome, { recursive: true });
   mkdirSync(codexHome, { recursive: true });
   if (process.platform === "win32") {
-    // A Windows sandbox has to look like a real profile, because the known-folder APIs
-    // resolve relative to USERPROFILE and .NET returns an EMPTY STRING — not an error —
-    // when the folder it computes does not exist. `resolveWindowsRuntimeRoot` asks
-    // PowerShell for `GetFolderPath(LocalApplicationData)`, so without these directories
-    // every Codex coordinator lookup refuses with "Windows effective-account lookup
-    // returned an empty value" and each refusal surfaces as an unrelated assertion in
-    // whichever suite happened to touch a Codex home.
+    // A Windows sandbox still looks like a real profile so code that does read USERPROFILE
+    // finds its AppData folders. The per-user runtime root is NOT redirected by this:
+    // `resolveWindowsRuntimeRoot` uses SHGetKnownFolderPath for the effective token, which
+    // ignores USERPROFILE, so Codex lock databases land in the developer's real runtime
+    // namespace. The wrapper sweeps the ones a run created (scripts/lib/test-runtime-lock-sweep.ts).
     mkdirSync(join(root, "AppData", "Local"), { recursive: true });
     mkdirSync(join(root, "AppData", "Roaming"), { recursive: true });
   }
@@ -951,6 +957,25 @@ if (import.meta.main) {
       ),
       onAcquiredAfterWait: elapsedMs => console.warn(`[test] acquired the user lock after ${Math.round(elapsedMs / 1000)}s.`),
     });
+    // Only the outermost, queued wrapper sweeps. A wrapper launched from inside a suite inherits
+    // the run id, and an intentionally overlapping run (no queue) would sweep the other run's
+    // files while its lanes still use them. The developer's real Codex home is protected.
+    let runtimeLocks: RuntimeLockSnapshot | undefined;
+    if (!process.env[TEST_RUN_ID_ENV]?.trim() && process.env[TEST_RUN_NO_QUEUE_ENV] !== "1") {
+      try {
+        // Loaded here, not at module scope: nested wrappers never sweep and must not pay for it.
+        const { canonicalizeCodexHome } = await import("../src/codex/codex-write-lock");
+        const real = canonicalizeCodexHome(process.env.CODEX_HOME?.trim() || join(homedir(), ".codex"));
+        const realHome = real.ok ? codexHomeDatabaseName(real.home.path) : undefined;
+        runtimeLocks = snapshotRuntimeLocks(
+          resolveEffectiveUserRuntimeRoot(resolveEffectiveUserIdentity()),
+          undefined,
+          realHome ? [realHome] : [],
+        );
+      } catch (error) {
+        console.warn(`[test] per-user runtime lock sweep disabled: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
     const startedAt = Date.now();
     try {
       const inheritedLock = process.platform === "win32" && lockPath && lock.owner
@@ -1049,6 +1074,18 @@ if (import.meta.main) {
       }
       process.exitCode = exitCode;
     } finally {
+      // Every lane has exited. A detached grandchild could outlive its lane, so the sweep
+      // still probes each lock and keeps any that someone holds.
+      if (runtimeLocks) {
+        const sweep = sweepRuntimeLocksCreatedSince(runtimeLocks);
+        if (sweep.removed > 0 || sweep.kept > 0) {
+          console.warn(
+            `[test] removed ${sweep.removed} lock database(s) this run left in the per-user runtime`
+            + (sweep.kept > 0 ? `; kept ${sweep.kept} that were still held or could not be removed` : "")
+            + ".",
+          );
+        }
+      }
       lock.release();
     }
   }

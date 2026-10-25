@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from "node:fs
 import { homedir, tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { resolveEffectiveUserIdentity, resolveEffectiveUserRuntimeRoot } from "../src/codex/user-identity";
+import { REAL_DESKTOP_PATH_ENV, REAL_DESKTOP_PATH_UNSET } from "../src/lib/test-home-guard";
 import { getTestRunnerBun } from "./lib/test-runner-bun";
 import {
   codexHomeDatabaseName,
@@ -44,6 +45,9 @@ export const LIVE_INSTALL_CREDENTIAL_ENV = [
   "OCX_API_TOKEN_FILE",
 ] as const;
 
+/** Names Claude Desktop's own directory verbatim; the sandbox never inherits it (see test-home-guard). */
+export const SANDBOX_DROPPED_DESKTOP_ENV = "CLAUDE_USER_DATA_DIR";
+
 export function createIsolatedTestEnvironment(
   baseEnv: Record<string, string | undefined> = process.env,
 ): IsolatedTestEnvironment {
@@ -77,6 +81,20 @@ export function createIsolatedTestEnvironment(
   writeTestTempOwner(root, baseEnv[TEST_RUN_ID_ENV]);
   const inherited = { ...baseEnv };
   for (const name of LIVE_INSTALL_CREDENTIAL_ENV) delete inherited[name];
+  // Claude Desktop's configLibrary is derived from these, not from HOME, so a sandbox that only moves
+  // HOME let suites replace the developer's live 3P profile. The sandbox pins the library itself
+  // through OPENCODEX_CLAUDE_DESKTOP_CONFIG_DIR (below) and leaves these inputs alone, because dozens
+  // of other modules read LOCALAPPDATA/APPDATA and PowerShell keeps its module-analysis cache there.
+  // The developer's values go to the guard as OCX_REAL_<NAME>. CLAUDE_USER_DATA_DIR names the
+  // Desktop directory outright, so it is never inherited at all.
+  // Always emitted (REAL_DESKTOP_PATH_UNSET when the developer had none): an absent key makes the
+  // child fall back to its own plain name, which a suite or hand-built environment may have
+  // changed, and the guard would then protect the wrong library.
+  const realDesktopPathEnv = Object.fromEntries(REAL_DESKTOP_PATH_ENV.map(name => [
+    `OCX_REAL_${name}`,
+    baseEnv[`OCX_REAL_${name}`] || baseEnv[name] || REAL_DESKTOP_PATH_UNSET,
+  ]));
+  delete inherited[SANDBOX_DROPPED_DESKTOP_ENV];
 
   return {
     root,
@@ -119,6 +137,8 @@ export function createIsolatedTestEnvironment(
       // the sandbox; never inherit a live override.
       CLAUDE_CONFIG_DIR: join(root, ".claude"),
       GROK_HOME: join(root, ".grok"),
+      ...realDesktopPathEnv,
+      OPENCODEX_CLAUDE_DESKTOP_CONFIG_DIR: join(root, "claude-desktop", "configLibrary"),
       TEMP: containedTemp,
       TMP: containedTemp,
       TMPDIR: containedTemp,

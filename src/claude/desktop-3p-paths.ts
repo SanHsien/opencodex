@@ -1,5 +1,10 @@
 import { homedir } from "node:os";
 import { posix, win32 } from "node:path";
+import {
+  assertNotRealClaudeDesktopLibraryUnderTest,
+  isTestHomeGuardArmed,
+  realDesktopPathInputsForTests,
+} from "../lib/test-home-guard";
 
 /**
  * Claude Desktop's own configLibrary location, ported from the shipped app bundle.
@@ -78,7 +83,31 @@ export function resolveConfigLibraryDir(inputs: DesktopPathInputs): string {
   return joinForPlatform(inputs.platform, resolveUserDataDir(inputs), "configLibrary");
 }
 
-/** Runtime wrapper. Keep it thin: all branching lives in the pure functions above. */
+/**
+ * Runtime wrapper. Keep it thin: all branching lives in the pure functions above. Under an armed
+ * test process it refuses the developer's real library, derived from the developer's own inputs
+ * (`OCX_REAL_<NAME>` and `OCX_REAL_HOME`, or in a bare run the values present when the guard module
+ * loaded). `homedir()` alone cannot be trusted there: Bun keeps the startup home.
+ */
 export function claudeDesktopConfigLibraryDir(): string {
-  return resolveConfigLibraryDir({ env: process.env, platform: process.platform, home: homedir() });
+  return guardDesktopLibraryUnderTest(
+    resolveConfigLibraryDir({ env: process.env, platform: process.platform, home: homedir() }),
+  );
+}
+
+/**
+ * Return `dir` unchanged, or throw when an armed Windows test process resolved the developer's real
+ * library. The test sandbox pins the library with OPENCODEX_CLAUDE_DESKTOP_CONFIG_DIR on every
+ * platform, so this fires when a suite or child environment drops the override or points it at the
+ * real library. Armed on
+ * Windows only, where it has been verified; elsewhere the pinned override is the protection.
+ */
+export function guardDesktopLibraryUnderTest(dir: string): string {
+  if (process.platform !== "win32" || !isTestHomeGuardArmed()) return dir;
+  const real = realDesktopPathInputsForTests();
+  assertNotRealClaudeDesktopLibraryUnderTest(
+    dir,
+    resolveConfigLibraryDir({ env: real.env, platform: process.platform, home: real.home }),
+  );
+  return dir;
 }

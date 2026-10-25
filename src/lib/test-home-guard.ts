@@ -85,6 +85,32 @@ const PROTECTED_CLAUDE_TREES = REAL_CLAUDE_CONFIG_DIRS.map(path => ({
   label: "the real Claude config directory",
 }));
 /**
+ * The inputs Claude Desktop's configLibrary path is derived from (`src/claude/desktop-3p-paths.ts`).
+ * The test sandbox does NOT move them: it still inherits the real LOCALAPPDATA/APPDATA, because
+ * other modules and PowerShell's module-analysis cache read them. It pins the library instead with
+ * OPENCODEX_CLAUDE_DESKTOP_CONFIG_DIR, drops CLAUDE_USER_DATA_DIR, and hands the developer's values
+ * over as `OCX_REAL_<NAME>`. A bare run imports this module before the preload copies that sandbox
+ * environment in, so the plain names still hold the developer's values here.
+ *
+ * The override is the protection; this capture only lets the guard recognise the real library when
+ * a suite or child drops it. The incident: a sandbox that pinned nothing let suites enabling the
+ * Desktop integration replace the developer's live 3P profile with mock models on a random port.
+ */
+export const REAL_DESKTOP_PATH_ENV = ["LOCALAPPDATA", "APPDATA", "XDG_CONFIG_HOME", "CLAUDE_USER_DATA_DIR"] as const;
+/**
+ * Hand-off value for "the developer had none". Not an empty string: Windows cannot carry an empty
+ * environment value, so it would arrive as a missing key, and the child would fall back to its own
+ * plain variable instead of the developer's value.
+ */
+export const REAL_DESKTOP_PATH_UNSET = "<unset>";
+// A present OCX_REAL_<NAME> is authoritative; only a missing key falls back to the plain name,
+// which is the bare-run case.
+const REAL_DESKTOP_ENV: Record<string, string | undefined> = Object.fromEntries(REAL_DESKTOP_PATH_ENV.map(name => {
+  const handedOff = process.env[`OCX_REAL_${name}`]?.trim();
+  if (handedOff !== undefined) return [name, handedOff && handedOff !== REAL_DESKTOP_PATH_UNSET ? handedOff : undefined];
+  return [name, process.env[name]?.trim() || undefined];
+}));
+/**
  * `~/Library/LaunchAgents` needs its own entry because HOME isolation does not reach it:
  * `os.homedir()` reads the password database, not `$HOME`, so a macOS test that rewrites
  * HOME still resolves `plistPath()` to the developer's real LaunchAgents directory. The
@@ -273,6 +299,31 @@ export function assertNotRealClaudeConfigUnderTest(...paths: string[]): void {
           + "(for a server, startServer's managementApi.claudeAgentConfigDir).",
         );
       }
+    }
+  }
+}
+
+/** The developer's own Claude Desktop path inputs, for deriving the library this process protects. */
+export function realDesktopPathInputsForTests(): { env: Record<string, string | undefined>; home: string } {
+  return { env: { ...REAL_DESKTOP_ENV }, home: REAL_HOME };
+}
+
+/**
+ * Throw when an armed test process resolves the developer's real Claude Desktop configLibrary.
+ * `realLibrary` is derived by the caller from {@link realDesktopPathInputsForTests} with the same
+ * resolver it used for `dir`, so the two can only differ in their inputs. Refusing at resolution
+ * rather than at each writer also stops a test from inspecting the live profile and acting on it.
+ */
+export function assertNotRealClaudeDesktopLibraryUnderTest(dir: string, realLibrary: string): void {
+  if (!isTestHomeGuardArmed()) return;
+  for (const candidate of [canonicalize(dir), resolve(dir)]) {
+    for (const root of [canonicalize(realLibrary), resolve(realLibrary)]) {
+      if (!isSameOrInsideIgnoringPlatformCase(root, candidate)) continue;
+      throw new Error(
+        `refusing to use the real Claude Desktop configLibrary (${root}) from a test process. `
+        + "Set OPENCODEX_CLAUDE_DESKTOP_CONFIG_DIR to a temp directory for this test."
+        + missingPreloadHint(),
+      );
     }
   }
 }

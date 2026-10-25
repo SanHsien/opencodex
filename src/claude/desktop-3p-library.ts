@@ -1,7 +1,7 @@
 import { closeSync, constants, fstatSync, lstatSync, openSync, readSync, type BigIntStats } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { claudeDesktopConfigLibraryDir, resolveConfigLibraryDir } from "./desktop-3p-paths";
+import { claudeDesktopConfigLibraryDir, guardDesktopLibraryUnderTest, resolveConfigLibraryDir } from "./desktop-3p-paths";
 
 export interface Desktop3pConfigLibraryOptions {
   env?: NodeJS.ProcessEnv;
@@ -23,11 +23,11 @@ export function resolveDesktop3pConfigLibraryPath(
   if (options.env === undefined && options.platform === undefined && options.homeDir === undefined) {
     return claudeDesktopConfigLibraryDir();
   }
-  return resolveConfigLibraryDir({
+  return guardDesktopLibraryUnderTest(resolveConfigLibraryDir({
     env: options.env ?? process.env,
     platform: options.platform ?? process.platform,
     home: options.homeDir ?? homedir(),
-  });
+  }));
 }
 
 export interface Desktop3pMetadataEntry {

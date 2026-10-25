@@ -52,6 +52,18 @@ protected roots resolve at check time and compare case-insensitively on macOS an
 directory is also a protected removal tree.
 `tests/claude-integration/claude-config-home-isolation.test.ts` pins each layer.
 
+Claude Desktop's configLibrary is derived from LOCALAPPDATA, APPDATA, XDG_CONFIG_HOME and
+CLAUDE_USER_DATA_DIR rather than HOME. The sandbox pins the library itself on every platform by
+setting OPENCODEX_CLAUDE_DESKTOP_CONFIG_DIR inside its root, and leaves those inputs alone because
+other modules and PowerShell's module-analysis cache read LOCALAPPDATA/APPDATA. It drops
+CLAUDE_USER_DATA_DIR and hands the developer's values to the guard as `OCX_REAL_<NAME>` (`<unset>`
+when there was none, because Windows cannot carry an empty value). Both entry points in
+`src/claude/desktop-3p-paths.ts` and `src/claude/desktop-3p-library.ts` pass the resolved library
+through `guardDesktopLibraryUnderTest`, which on an armed Windows process derives the developer's
+library with the same resolver and lets `assertNotRealClaudeDesktopLibraryUnderTest` refuse it, so
+a suite or child environment that drops the override fails instead of replacing the live 3P
+profile. The refusal is armed on Windows only. The same test file pins both layers.
+
 The write guard arms without the preload too. Bun reads `bunfig.toml` from the current working
 directory, so `bun test` started outside the repository loads no preload and keeps the real HOME.
 `isTestHomeGuardArmed()` therefore also arms when the entry module (`Bun.main`) has a Bun

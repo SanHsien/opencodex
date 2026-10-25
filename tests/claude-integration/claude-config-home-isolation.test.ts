@@ -14,7 +14,7 @@ import { homedir, tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
 import { createIsolatedTestEnvironment } from "../../scripts/test";
 import { claudeConfigDir, currentUserHome } from "../../src/claude/gateway-cache";
-import { protectedClaudeConfigDirsForTests } from "../../src/lib/test-home-guard";
+import { protectedClaudeConfigDirsForTests, REAL_DESKTOP_PATH_UNSET } from "../../src/lib/test-home-guard";
 import { repoPath, repoRoot } from "../helpers/repo-root";
 
 const HOME_ENV = ["HOME", "USERPROFILE", "CLAUDE_CONFIG_DIR"] as const;
@@ -276,6 +276,82 @@ test("removal protection keeps the running checkout's own content removable when
     expect(child.exitCode).toBe(0);
     const lines = new TextDecoder().decode(child.stdout).trim().split("\n");
     expect(JSON.parse(lines.at(-1)!)).toEqual({ content: true, checkoutRoot: true, protectedRoot: true });
+  } finally {
+    isolated.cleanup();
+  }
+});
+
+test("the sandbox pins Claude Desktop's library and hands the developer's path inputs to the guard", () => {
+  const outer = createIsolatedTestEnvironment({
+    OCX_REAL_HOME: join(tmpdir(), "real-home-sentinel"),
+    LOCALAPPDATA: join(tmpdir(), "developer-local"),
+    APPDATA: join(tmpdir(), "developer-roaming"),
+    CLAUDE_USER_DATA_DIR: join(tmpdir(), "developer-claude-desktop"),
+  });
+  try {
+    expect(outer.env.OCX_REAL_LOCALAPPDATA).toBe(join(tmpdir(), "developer-local"));
+    expect(outer.env.OCX_REAL_APPDATA).toBe(join(tmpdir(), "developer-roaming"));
+    expect(outer.env.OCX_REAL_CLAUDE_USER_DATA_DIR).toBe(join(tmpdir(), "developer-claude-desktop"));
+    // An unset input is still handed off, so the child never falls back to its own plain variable.
+    expect(outer.env.OCX_REAL_XDG_CONFIG_HOME).toBe(REAL_DESKTOP_PATH_UNSET);
+    expect(outer.env.CLAUDE_USER_DATA_DIR).toBeUndefined();
+    expect(outer.env.OPENCODEX_CLAUDE_DESKTOP_CONFIG_DIR).toBe(join(outer.root, "claude-desktop", "configLibrary"));
+    // The inputs themselves are left alone: other modules and PowerShell's cache read them.
+    expect(outer.env.LOCALAPPDATA).toBe(join(tmpdir(), "developer-local"));
+    const inner = createIsolatedTestEnvironment(outer.env);
+    try {
+      expect(inner.env.OCX_REAL_LOCALAPPDATA).toBe(join(tmpdir(), "developer-local"));
+    } finally {
+      inner.cleanup();
+    }
+  } finally {
+    outer.cleanup();
+  }
+});
+
+test.skipIf(process.platform !== "win32")("an armed Windows process refuses the developer's real Claude Desktop configLibrary", () => {
+  const isolated = createIsolatedTestEnvironment();
+  const sentinel = join(isolated.root, "sentinel");
+  const fixture = join(isolated.root, "fixture-library");
+  // Every input names the same sentinel tree, so whichever platform branch resolves the library,
+  // the leaked environment and the developer's captured one agree, exactly as when a suite inherits
+  // the real LOCALAPPDATA.
+  const leaked = {
+    HOME: sentinel,
+    USERPROFILE: sentinel,
+    LOCALAPPDATA: join(sentinel, "Local"),
+    APPDATA: join(sentinel, "Roaming"),
+    XDG_CONFIG_HOME: join(sentinel, "config"),
+  };
+  const code = `
+    const { claudeDesktopConfigLibraryDir } = await import(${JSON.stringify(repoPath("src", "claude", "desktop-3p-paths.ts"))});
+    let leakedRefused = false;
+    try { claudeDesktopConfigLibraryDir(); } catch (error) { leakedRefused = /real Claude Desktop configLibrary/.test(String(error)); }
+    process.env.OPENCODEX_CLAUDE_DESKTOP_CONFIG_DIR = ${JSON.stringify(fixture)};
+    const overrideAllowed = claudeDesktopConfigLibraryDir() === ${JSON.stringify(fixture)};
+    console.log(JSON.stringify({ leakedRefused, overrideAllowed }));
+  `;
+  try {
+    const child = Bun.spawnSync([process.execPath, "-e", code], {
+      cwd: repoRoot(),
+      env: {
+        ...isolated.env,
+        ...leaked,
+        OCX_TEST_HOME_GUARD: "1",
+        OCX_REAL_HOME: sentinel,
+        OCX_REAL_LOCALAPPDATA: leaked.LOCALAPPDATA,
+        OCX_REAL_APPDATA: leaked.APPDATA,
+        OCX_REAL_XDG_CONFIG_HOME: leaked.XDG_CONFIG_HOME,
+        OCX_REAL_CLAUDE_USER_DATA_DIR: REAL_DESKTOP_PATH_UNSET,
+        OPENCODEX_CLAUDE_DESKTOP_CONFIG_DIR: undefined,
+      },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const stderr = new TextDecoder().decode(child.stderr);
+    expect({ exitCode: child.exitCode, stderr: child.exitCode === 0 ? "" : stderr }).toEqual({ exitCode: 0, stderr: "" });
+    const lines = new TextDecoder().decode(child.stdout).trim().split("\n");
+    expect(JSON.parse(lines.at(-1)!)).toEqual({ leakedRefused: true, overrideAllowed: true });
   } finally {
     isolated.cleanup();
   }

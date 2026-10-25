@@ -478,7 +478,7 @@ database 並移除目前的 WAL、SHM 與 journal sidecar，再發布先前的 s
 
 ## 3. API 金鑰目錄
 
-opencodex 內建 104 個 preset：84 個 key-based、16 個 OAuth、3 個 local，以及 1 個預設 ChatGPT-forward
+opencodex 內建 105 個 preset：84 個 key-based、17 個 OAuth、3 個 local，以及 1 個預設 ChatGPT-forward
 preset。儀表板的 **Add provider** picker 會開啟 key provider 的 dashboard、驗證金鑰並儲存；驗證方式
 依 provider 而異。主要條目如下。
 
@@ -549,7 +549,7 @@ token；preset 會把該列釘選在 Add provider picker 的頂端附近並標�
 | Z.AI (GLM Coding) | `https://api.z.ai` — 預設 Responses 在 `/api/v1/responses`；Chat Completions 在 `/api/coding/paas/v4/chat/completions`，依模型透過 `modelAdapters` 切換 |
 | Zhipu AI (BigModel) | `https://open.bigmodel.cn/api/paas/v4` |
 | BigModel Coding Plan（Responses，靜態模型清單） | `https://open.bigmodel.cn/api/v1` |
-| Qwen Cloud | Token plan（預設）：`https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1` · pay as you go：`https://dashscope.aliyuncs.com/compatible-mode/v1` · 或 Custom |
+| Qwen Cloud | Token plan（預設）：`https://token-plan.maas.qwencloudapi.com/compatible-mode/v1` · pay as you go：`https://dashscope.aliyuncs.com/compatible-mode/v1` · 或 Custom |
 | Tencent Cloud Coding Plan | `https://api.lkeap.cloud.tencent.com/coding/v3` |
 | SiliconFlow | `https://api.siliconflow.cn/v1` |
 | Volcengine Ark · Coding Plan · Agent Plan | `https://ark.cn-beijing.volces.com/api/v3` · `https://ark.cn-beijing.volces.com/api/coding/v3` · `https://ark.cn-beijing.volces.com/api/plan/v3` |
@@ -797,6 +797,28 @@ provider-wide parallel tool call 或 OpenAI `reasoning_effort`。可在
 > [API key](https://docs.baseten.co/organization/api-keys)；共用／production 使用則採具備 **Call Model
 > APIs** 權限的 team key。Dedicated Truss `predict` endpoint 使用不同 host 與 schema，不會被此 preset
 > 路由。此 preset 的 live discovery 上限為 1 MiB response／256 個 raw model row。
+
+### WorkBuddy AI 訂閱
+
+`workbuddy-ai` 讓你把國際版 WorkBuddy AI 訂閱當成模型供應商使用。在 Providers 選擇 **WorkBuddy AI** 並登入，或執行：
+
+```bash
+ocx login workbuddy-ai
+```
+
+完成瀏覽器登入；OpenCodex 最多會輪詢授權五分鐘。權杖儲存在 OpenCodex 內，並依需求更新。新增帳號沿用既有的
+OAuth 帳號清單；團隊身分仍綁在它自己的權杖上。不需要安裝 WorkBuddy 桌面版，也不需要匯入憑證檔。
+
+模型與能力來自你帳號的即時產品目錄。登入後選擇 `workbuddy-ai/<model-id>` 模型；探索無法使用時，
+`workbuddy-ai/default-model` 是後備選擇器。串流、工具呼叫與緩衝回應使用 WorkBuddy 的 Chat endpoint。
+Overview 與 Accounts 分頁會顯示剩餘額度、已用／總額度、基本與贈送餘額，以及可取得時下一筆即將到期的非每日額度。
+重新整理會讀取已登入帳號的帳務摘要；讀取不到不代表餘額為零。這些額度僅供參考，付費額度用完時不會停用免費模型。
+
+這使用的是非官方的訂閱協定，依據
+[Magpie 的 WorkBuddy 外掛](https://github.com/magpie-community/plugins/tree/e7f65641df820dfd715c0d2241f99f2092e4efb1/packages/workbuddy)。
+上游的 client 通道或帳號限制會原樣回傳給呼叫端；OpenCodex 不會改寫 agent 身分提示來繞過它們。可用性取決於你的帳號、
+地區、模型權限與 WorkBuddy 目前的 API。這與 CodeBuddy CLI 的 API 金鑰供應商是分開的，也不會把 WorkBuddy 桌面 client
+連到 OpenCodex。
 
 ### 官方 CodeBuddy Code CLI（Global 與 CN）
 
@@ -1166,7 +1188,13 @@ refresh 的即時 utilization bar。bar 代表特定 window（5 小時、weekly�
 
 具有 live probe 的 provider：OpenAI/Codex、Anthropic、xAI、Cursor、Kimi、Google Antigravity、
 OpenCode Go、OpenRouter、DeepSeek、ClinePass、Z.AI、MiniMax、Moonshot、Venice、Synthetic、DeepInfra、
-Neuralwatt、Command Code，以及任何由 a6api 支援的 custom provider。
+Neuralwatt、Command Code，以及任何由 a6api 或 Abliteration 支援的 custom provider。
+
+**Abliteration 額度。** 任何名稱的 provider，只要 `baseUrl` 是 `https://api.abliteration.ai` 或
+`https://api.abliteration.ai/v1`，就會以目前使用中的 key 當 Bearer token 讀取
+`GET https://api.abliteration.ai/v1/credits`，且不跟隨 redirect。`total_credits` 減去 `total_usage`
+就是剩餘美元餘額，顯示為已消耗金額的 credits bar。沒有額度的帳號不顯示 bar。key 被拒絕時會清除該列；
+`503 credit_balance_unavailable`、408 與 429 會保留上一次的讀數。
 
 **OpenCode Go 配額。** canonical 的 `opencode-go` preset 會用設定的 key 當作 Bearer token 讀取
 `GET https://opencode.ai/zen/go/v1/usage`，且不跟隨 redirect。回應中的 rolling、weekly 與 monthly

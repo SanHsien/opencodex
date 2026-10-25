@@ -55,9 +55,11 @@ Host devbox
 
 - **Connected** 表示 SSH 通道已準備好，Child 可以使用 Home 連結。
 - **Reconnecting** 表示正在重試通道。重試期間請求可能暫時回傳帶有 `Retry-After` 的 `503`。在從自己的儀表板連線的 Child 上，請求會先最多等待 15 秒讓通道恢復。
-- **Failed** 表示連結需要處理。請檢查 SSH 驗證、已確認的主機金鑰、轉送或逾時原因。建立 SSH 通道的一方會在睡眠、故障或重新啟動後自動重試（Home 新增的 Child 由 Home 重試，從自己的儀表板連線的 Child 由 Child 重試）：逾時或轉送錯誤後大約每分鐘一次，驗證錯誤後每五分鐘一次。主機金鑰變更時不會重試。要立即重新連線，請在 Home 的儀表板中選擇 **Retry**，或在 Home 上執行 `ocx link reconnect --link-id <id>`。這只會重新啟動該連結的通道，不會重新啟動 OpenCodex。
+- **Failed** 表示連結需要處理。請檢查 SSH 驗證、已確認的主機金鑰、轉送或逾時原因。建立 SSH 通道的一方會在睡眠、故障或重新啟動後自動重試（Home 新增的 Child 由 Home 重試，從自己的儀表板連線的 Child 由 Child 重試）：逾時或轉送錯誤後先在一分鐘後重試，之後每次重試失敗等待時間加倍，最長五分鐘一次；驗證錯誤後每五分鐘一次。主機金鑰變更時不會重試。要立即重新連線，請在 Home 的儀表板中選擇 **Retry**，或在 Home 上執行 `ocx link reconnect --link-id <id>`。這只會重新啟動該連結的通道，不會重新啟動 OpenCodex。
 
 連結失敗時不會靜默切換到本機供應商。
+
+在 Child 上，`GET /healthz` 只代表 OpenCodex 正在執行。`GET /readyz`（以及 `ocx ready`）還會告訴你連結此刻能否承載請求：不能時回 `503`，帶 `Retry-After: 1`、`"status": "pending"` 與 `link` 物件，例如 `{ "state": "unavailable", "reason": "home_unreachable" }`；可以時回 `200`，帶 `"status": "ready"` 與 `{ "state": "available" }`。原因有 `tunnel_connecting`、`tunnel_failed`、`tunnel_idle`、`tunnel_unavailable`、`sidecar_invalid`、`home_unreachable`、`home_unauthorized`、`link_auth_failed`、`link_credential_unavailable` 與 `link_unverified`。從自己的儀表板連線的 Child 依自己的通道回答；由 Home 新增的 Child 本身沒有通道可看，所以透過通道，用每個轉送請求一開始都會做的那個不帶憑證的檢查去問 Home；這個檢查最多每五秒重複一次，Home 在半秒內沒有回應時回答 `link_unverified`。
 
 ## What a Child shows and manages
 
@@ -89,6 +91,20 @@ ocx disconnect
 - **在遠端電腦上找不到 ocx**：OpenCodex 會先在非互動 SSH session 的 PATH 上尋找 `ocx`，再找 `~/.bun/bin`、`~/.local/bin`、`/opt/homebrew/bin` 與 `/usr/local/bin`。如果它安裝在別處，請把該目錄加入遠端 shell 在非互動 session 會讀取的檔案中的 PATH，例如 zsh 的 `~/.zshenv`。
 - **遠端電腦上的 OpenCodex 太舊**：在那台電腦上執行 `ocx update`。Remote Link 需要 2.66.0 或更新版本。
 - **遠端電腦沒有回報 OpenCodex 版本**：那台電腦上的 `ocx --version` 印出了別的東西，例如不受支援的 Windows 安裝所印出的用法文字。
+
+- **Home 睡眠或換網路後，Home 連結一直是 Failed 並帶轉送錯誤**：在 Home 上執行 `ocx link status --json`。它的 `tunnel` 欄位會顯示自連結上次連線以來的嘗試次數、`nextRetryAt` 與最後一次失敗。`lastFailure.cause` 為 `remote_forward_conflict` 表示 Child 的 SSH 伺服器仍為隨 Home 舊連線一起死掉的 session 佔著通道連接埠，在它放手之前，每條新通道都會被拒絕。OpenCodex 會持續重試，連接埠一釋出就自動連上；它絕不會停止 Child 上的任何行程。Child 的 SSH 伺服器只有在探測時才會發現死掉的 session；如果 Child 的 `sshd_config` 沒有 `ClientAliveInterval`，可能要等到作業系統的 TCP keepalive（macOS 預設兩小時）。在那裡設定 `ClientAliveInterval 15` 與 `ClientAliveCountMax 3`，可讓它約一分鐘內丟掉這類 session。
+
+### 可重試的 503 診斷
+
+relay 產生的 `503` 會帶一個由伺服器產生的 `x-opencodex-link-request-id`。用它對照 Child 的 OpenCodex 設定目錄下的本機證據：`link/diagnostics.jsonl` 與一份輪替備份 `link/diagnostics.jsonl.1`。每個檔案上限 256 KiB，權限為私有（POSIX 上目錄 0700、檔案 0600；Windows 上為私有 ACL）。紀錄只含固定的事件／結果／狀態類別、產生的關聯 ID、數值的時間／世代／嘗試次數中繼資料與時間戳，絕不含祕密、請求本文、標頭、URL、帳號識別碼或原始錯誤。每個事件／結果組合每秒最多一筆；下一筆紀錄會帶被抑制事件的計數，所以缺少紀錄不代表沒有失敗。牆鐘往回調整會開啟新的限速視窗（寫入佇列已滿時亦同），並保留抑制計數。非同步寫入器最多保留 56 筆待寫紀錄，溢出計入抑制，並在 Windows ACL 作業進行時讓出。記錄是盡力而為，不會改變請求是否被放行。優雅的訊號關閉與獨立程序的回收最多會等一秒讓佇列中的診斷寫出再結束；儲存停滯、強制終止與斷電仍可能遺失紀錄。
+
+`owner_lookup` 記錄被拒絕的擁有者檢查；例行成功的檢查不留紀錄。`owner_lookup.elapsedMs` 量的是擁有者查詢本身。對 `auth_timeout`，`relay_retry` 與 `relay_failure` 在 `elapsedMs` 回報實際的傳輸嘗試時間（通常約五秒）。結果為 `recovered` 的 `relay_recovered` 事件，只有在重試收到 `upstream.ok`（HTTP 2xx）的上游回應後才會發出；它不證明串流本文已完成。限速使請求 ID 對照成為抽樣證據，而不是每個失敗請求的完整追蹤。
+
+Home 也會在自己的設定目錄下為它執行的通道寫同類檔案。Home 發起的通道每次狀態變更都是一筆 `tunnel_transition` 紀錄，含 `previousState`、`state`、以 `outcome` 表示的原因（`auth`、`hostkey`、`forward`、`remote_forward_conflict`、`timeout`、`network`、`unknown`、`spawn_failed` 或 `listener_unavailable`；沒有失敗時為 `connected`、`spawned` 或 `stopped`）、自連結上次連線以來的 `attempt` 次數、連結的 `tunnelPort`，以及排定重試時的 `retryAfterMs`。失敗連結的重試若再次失敗也會記錄，所以一次中斷每次嘗試都留下一筆。限速規則相同，且跨所有連結計算。
+
+在送出資料之前，OpenCodex 對擁有者查詢期限，或明確辨識的五秒驗證期限，允許一次共用的預檢重試。重試會在需要時取得新的擁有者證明與新的實體 socket，並在送出連結憑證或本文之前先驗證該 socket。它不會重用快取的擁有者核准、不繞過安全檢查、不重啟 SSH 或 OpenCodex，也不重播已送出的請求本文。每次嘗試的兩秒擁有者查詢期限與五秒驗證期限不變；其他失敗不適用這次預檢重試。
+
+這可以從這些暫時性的期限路徑中恢復，也有助於診斷未來的失敗。它並未確立 [#7297](https://github.com/lidge-jun/opencodex/issues/7297) 的歷史成因。
 
 ## 安全性
 

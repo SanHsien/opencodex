@@ -569,10 +569,17 @@ jobs:
             echo 'checkout_ref=' >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          sha="$(gh api "repos/${GITHUB_REPOSITORY}/commits/dev" --jq .sha)"
+          sha="$(gh api "repos/${GITHUB_REPOSITORY}/commits/dev" --jq .sha 2>/dev/null || true)"
           if ! printf '%s' "$sha" | grep -Eqx '[0-9a-f]{40}'; then
-            printf '::error::could not resolve dev to a commit SHA\n'
-            exit 1
+            # SanHsien/opencodex has no dev branch (fork rule: edits go straight to main),
+            # so the nightly tests the head of the default branch instead.
+            if [ "$GITHUB_REPOSITORY" = "SanHsien/opencodex" ]; then
+              sha="$GITHUB_SHA"
+              printf '::notice::no dev branch in this fork; the scheduled run tests main at %s\n' "$sha"
+            else
+              printf '::error::could not resolve dev to a commit SHA\n'
+              exit 1
+            fi
           fi
           printf 'checkout_ref=%s\n' "$sha" >> "$GITHUB_OUTPUT"
           printf 'Scheduled run: workflow from %s, testing dev at %s\n' "$GITHUB_SHA" "$sha" >> "$GITHUB_STEP_SUMMARY"

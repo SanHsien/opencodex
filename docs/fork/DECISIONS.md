@@ -602,3 +602,30 @@ commit，均 defer 至 stable promotion。open platform `#4200`（remote-hub doc
 - npm 生態的警示由上游處理：本 fork 產品依賴跟隨上游，`zod` 修正等上游升級後隨下次同步進來（上游 `main` 此時仍是 `zod 4.4.3`）。
 - 建議維護者在 repo **Settings → Code security → Dependabot security updates** 關閉，避免每次警示都產生失敗的 job；Dependabot alerts 保留，作為同步時的檢查清單。Rust 警示（`#1` `glib` 0.18.5，Tauri 間接依賴）同樣跟隨上游。
 - 若 GitHub 日後宣布 Bun 支援 security updates，再重新評估。
+
+
+## 2026-10-25：整合 v2.92.0；PR 軸補審（257 筆）；排程 CI 在無 dev 的 fork 改測 main
+
+**決定（一）**：整版採用 `v2.92.0`（`9f0d40a25f8b842c33ab233d466d0bd991d86052`，與 `upstream/main` 同一點），46 個 commit、361 個檔案。方法同前：`git diff v2.91.0 v2.92.0` 以 3-way 套到 `main`，非保留語系（`docs-site` 的 fr/ja/ko/ru/tr/zh-cn、`gui/src/i18n` 的 de/fr/ja/ko/pt/ru/tr/vi/zh）排除；3 個衝突檔手動解：
+
+- `src/router.ts`：fork 的 CodeQL 修正（2026-09 把明文 `key` 改名為 `cacheIdentityMaterial`）保留，上游新增的 WorkBuddy 分支沿用同名變數（`workBuddyCatalogIdentity(cacheIdentityMaterial, …)`）。
+- zh-tw 兩頁 providers 文件：fork 側為底，補上游的 Qwen Token plan 網址、Abliteration 額度段落、`messagePhaseInference`、`project: "auto"`。
+
+**理由**：產品碼本來就以上游為準；`7416f18`／`44e4ed2`／`9f0d40a` 三個依賴安全修正（Bun 1.4.4、zod 4.6.6、body-parser 2.4.0、gui happy-dom 21.0.4）正好對應本 repo 開著的 Dependabot 警示（zod、happy-dom），整版採用比逐筆移植便宜。workflow：新增的官方限定 guard 沒被動到（`release.yml` 與 `windows-signing-test.yml` 的 `github.repository == 'lidge-jun/opencodex'` 條件仍在）。
+
+**決定（二）**：PR 軸補審。檢查器原本 `gh pr list --limit 200`，上游已有 257 筆「關閉未合併、編號大於 6507」的 PR，檢查器只看得到最新 51 筆（6508–7367 的 206 筆從未被列出，而報告仍寫「51 筆待審」），**水位若照報告推進會把 206 筆標成已審**。已把上限改 1000，並加護欄：一整頁且最舊一筆仍新於水位時回「未檢查」，不回看似完整的短清單。
+
+**判定（257 筆，水位推進到 `#7713`）**：
+
+- 165 筆的編號出現在 `upstream/main` 的 commit 訊息（`carry #N`、bundle 的 `(#N)`），已被上游 main 引用（carry 或 bundle 落地），隨 release 抵達本 fork。
+- 其餘 92 筆逐筆比對：檔案與本 fork 分歧產品檔（`git diff upstream/main --name-only`，40 個 src／bin 檔）的重疊，扣掉 generated 的 `scripts/test-layout/layout.json` 後只有 `src/router.ts`（`#6803`、`#6841`、`#7318`）、`src/client/connect.ts`（`#7116`）、`src/codex/auth-collision.ts`（`#7344`）、`src/server/responses/codex-ws-exchange.ts`（`#7465`）、`src/providers/quota/vendor-probes-key.ts`（`#7275`、`#7446`）、`src/codex/catalog/provider-models.ts`（`#7318`）。逐筆讀上游結案說明：全部是「已 carry 進 dev 的 bundle 並隨 2.90–2.92 出貨」、「維護者拒絕並寫明理由」（`#6628` 重導向會繞過 send budget、`#7116` 與刻意保留的安全決定衝突）、「作者自行關閉」（`#7460`、`#7486`、`#7384`、`#7386`）、`[WRONG BRANCH]`（`#7168`、`#7169`、`#7446`、`#7454`、`#7594`）或 i18n（`#7406`、`#7432`；本 fork 只保留 en／zh-TW）。`#6865` 的「full-width」是 64 位元 file ID 的測試（Rust 診斷目錄），不是 CJK 全形字，與本 fork 無關。
+- Windows／CJK 例外類別（判準六）只有 `#7595`（Windows 優先 `.exe`）與 `#7553`（`ocx sync` 保留使用者編輯的 `config.toml`）：兩者上游都改由 dev 上的 `#7527`（`9534c0c94b`）與 `#7659`（`e9df82cb5`）取代，**尚未進 `main`**。
+- 隱藏內容掃描（判準八）：只對 `#7595` 的目前 head（`4db7da314`）做了（無長空白夾內容、無超長行、無 `eval`／`new Function`／`global.require`、無長 base64／hex）；其餘沒有移植任何 PR 內容，不需掃。
+
+**不引進（附觸發條件）**：
+- `#7527`（Qoder CN／CodeBuddy 等 coding-agent CLI 的 Windows `.cmd` shim 空參數問題）：影響的是維護者沒在用的 Qoder／CodeBuddy 轉接器，且只在 dev。**觸發**：`v2.93.0`（含 `9534c0c94b`）出版時隨整版進來；或維護者實際用到這些轉接器。
+- `#7659`（`ocx sync` 覆寫 `~/.codex/config.toml` 的使用者編輯，上游 issue `#7425`，該 issue 仍在要求最小重現）：只在 dev，未被證實在本 fork 重現，且為 15 檔／375 行的改動。**觸發**：`v2.93.0` 出版；或維護者回報 `ocx sync` 吃掉自己的 Codex 設定。
+
+**決定（三）platform issue**：`#7207`（防毒誤判 bun，上游已確認 MSI 摘要相同、尚無結論）、`#7425`（見上）、`#7515`／`#7716`（上游 Windows CI 測試清理與 Bun 1.4.4 逾時）。本 fork 的 push CI 不跑 Windows shard，皆為資訊；不採取行動。**觸發**：`#7207` 若上游結論為 Bun 1.4.4 本身被誤判，重新評估 `fork-release-windows.yml` 是否改鎖 Bun 版本。
+
+**決定（四）排程 CI**：上游 `ci.yml` 的夜間排程會 `gh api repos/…/commits/dev`，本 fork 沒有 `dev`，2026-10-24 的第一次排程在 `changes` 工作失敗（26 秒、全部後續工作 skipped、`ci` 斷言紅）。改為：解析不到 `dev` 且倉庫是 `SanHsien/opencodex` 時改測 `GITHUB_SHA`（main head），並在日誌留 `::notice::`；其他倉庫行為不變（仍然 error）。**理由**：這條排程是上游「Windows shard 與 macOS control 的夜間保險」，改測 main 比停用更符合本 fork 要的覆蓋；如夜間結果持續紅且與本 fork 無關，再改為停用該排程。

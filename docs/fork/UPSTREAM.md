@@ -1052,3 +1052,13 @@ GUI 方面，`gui/src/i18n/zh-TW.ts` 與 fork 改過的 `gui/tests/{i18n-locales
 - 水位：`integrated_tag = v2.91.0`、`integrated_through`／`reviewed_through = 83ec4f75a4cc97030c2fa7857e05e2ce222f376f`、`reviewed_date = 2026-10-23`；issue／PR 水位維持（`#6504`／`#6507`），本輪沒有新增 PR／issue 審查。
 - 版本維持上游 `2.91.0`，發版 tag 為 `v2.91.0`（推 tag 時用 `git push origin <main SHA>:refs/tags/v2.91.0`；本機 `v2.91.0` 是上游的 tag）。
 - 本機驗證（Windows，Bun `1.4.3` 作測試 runner）：`typecheck`（3 個 tsc）、`structure:check`、`privacy:scan`、`skill:surface:check`、`dev_check.ps1`、`gui` lint／build／`bun test --isolate tests`（3438 個測試；寫死 fr／ko 的 4 個 `account-pause-display` 案例改寫後該檔 6/6 通過）、`docs-site` build（149 頁、21005 個內部連結、0 錯誤）皆綠。完整 `bun run test` 160 批：本機失敗的測試檔（至少 70 個）在乾淨 `v2.91.0` 上同樣失敗（symlink EPERM、Claude Desktop／Codex 設定寫入鎖等環境問題），其餘 4 個檔單獨重跑兩邊皆過（負載造成的逾時）；fork 造成的失敗（zh-tw parity、file-size ratchet）已修。
+
+## 2026-10-25：stable 整合 v2.92.0（`v2.91.0..v2.92.0`）
+
+`v2.92.0`（`9f0d40a25f8b842c33ab233d466d0bd991d86052`）整合，方法同前（`git diff v2.91.0 v2.92.0` 以 3-way 套到 `main`）；逐項判定見 [`DECISIONS.md`](DECISIONS.md) 同日條目。要點：
+
+- 46 個 commit、361 個檔案；排除非保留語系後 318 個檔案；3 個衝突檔（`src/router.ts`、zh-tw 兩頁 providers 文件）手動解。
+- 水位：`integrated_tag = v2.92.0`、`integrated_through`／`reviewed_through = 9f0d40a2…`、`reviewed_date = 2026-10-25`；`reviewed_pr_through = 7713`、`reviewed_issue_through = 7716`（本輪完成 PR 與 platform issue 軸補審）。
+- 檢查器修正：PR 清單上限 200 → 1000，且被截斷時回「未檢查」（原本會少列 206 筆）。
+- 排程 CI：無 `dev` 的 fork 改測 main head。
+- 下一次：`git fetch upstream main --tags && bun tools/check-upstream-updates.ts --strict`；`v2.93.0` 出版時一併重看 `#7527`／`#7659`。

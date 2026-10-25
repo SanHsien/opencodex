@@ -178,6 +178,8 @@ export function collectNewIssues(baseline: Baseline): Ticket[] | undefined {
     }));
 }
 
+const PULL_REQUEST_LIST_LIMIT = 1000;
+
 /**
  * Upstream pull requests that were closed **without merging**, above the watermark.
  *
@@ -196,7 +198,7 @@ export function collectUnmergedPullRequests(baseline: Baseline): Ticket[] | unde
   if (!slug) return undefined;
   const result = Bun.spawnSync(
     ["gh", "pr", "list", "--repo", slug, "--state", "closed",
-     "--limit", "200", "--json", "number,title,mergedAt,labels"],
+     "--limit", String(PULL_REQUEST_LIST_LIMIT), "--json", "number,title,mergedAt,labels"],
     { stdout: "pipe", stderr: "pipe" },
   );
   if (result.exitCode !== 0) return undefined;
@@ -212,6 +214,11 @@ export function collectUnmergedPullRequests(baseline: Baseline): Ticket[] | unde
     return undefined;
   }
   const watermark = Number(baseline.reviewed_pr_through ?? 0);
+  // A full page whose oldest row is still newer than the watermark means older unreviewed pull
+  // requests were cut off. Report "not checked" rather than a short list that reads as complete
+  // (the previous limit of 200 hid 206 of 257 unmerged pull requests).
+  if (parsed.length >= PULL_REQUEST_LIST_LIMIT
+    && Math.min(...parsed.map(row => row.number)) > watermark) return undefined;
   return parsed
     .filter((item) => item.number > watermark && !item.mergedAt)
     .sort((left, right) => left.number - right.number)

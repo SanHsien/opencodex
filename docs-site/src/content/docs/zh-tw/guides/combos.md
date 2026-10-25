@@ -212,6 +212,12 @@ without separately attributable bars remain unknown. Active-account summaries, m
 display reports, credits and API/Spark/USD meters are not quota evidence for this decision.
 The separate Anthropic · Pool 2 (`anthropic2`) account pool is not a source of this evidence, so its targets stay unknown.
 
+Antigravity 只有在其唯一的可用中 OAuth 帳號通過一次新的已認證探測後，才會提供 Gem／Cla 的五小時與每週區間，
+而且只提供給以該帳號登入的 `google-antigravity` 供應商。被改名的供應商列一律視為未知，絕不沿用該帳號的配額。
+配額跟隨解析後的原生 `gemini-*` 或 `claude-*` 模型，而不是它的顯示別名。帳號、憑證、專案或目的地一有變動，
+舊的觀測就會撤回。僅更新顯示的重新整理，只能連同原本的時間戳保留相符的家族計數；單一模型與 Argon 的列
+絕不會成為決策證據。
+
 :::caution[Additional decision data]
 Opting in sends quota tiers, and available used percentage/window/reset delay, to your selected
 decision backend, including hosted TypeSafe. No account ids, tokens or credential fingerprints
@@ -225,6 +231,48 @@ the switch. `--decision-quota-tiers -` clears overrides, restoring defaults. API
 API `false` disables the switch. Omitted fields survive JEV updates, target replacement and
 rename, including saves through the existing editor. Switching away from JEV removes both
 quota settings. No new editor controls or background quota work are enabled.
+
+### JEV 的 session pin
+
+JEV Combo 會為每個請求決定目標，因此同一段對話的連續回合可能在供應商之間移動，而每次移動都會讓供應商的
+prompt cache 從冷啟動開始。`sessionPin` 是每個 JEV Combo 的 opt-in 設定，預設關閉；開啟後，只要 session 保持活躍，
+就讓該 client session 留在 JEV 為它選定的目標上：
+
+```bash
+ocx combo set jev-auto --session-pin 20m --json
+```
+
+```json
+{ "strategy": "jev", "sessionPin": { "ttlMs": 1200000 } }
+```
+
+session 的第一個請求照常決定。JEV 為它套用的目標完成一次回應後，同一 session 的後續請求會沿用該目標與 effort，
+不再呼叫決策。`ttlMs`（1 分鐘到 24 小時）是閒置視窗：每個在已 pin 目標上完成的回合（包含工具呼叫的接續）都會讓它
+重新計時，靜默超過視窗的 session 會重新決定。
+
+session 由 client 自己的 session 標頭（`thread-id`、`session_id` 或 `session-id`、`x-codex-parent-thread-id`，
+或被提升的 `x-session-id`）、放行該請求的 API 金鑰，以及 Combo 共同識別。沒有 session 標頭的請求絕不會被 pin，
+`prompt_cache_key` 絕不當作 session 身分，兩把 API 金鑰也絕不共用同一個 pin。
+
+出現下列情況時，JEV 會重新決定，新的決定取代舊 pin：
+
+- 已 pin 的目標不在這次請求的提供範圍：被停用、從 Combo 移除、因 429 或其他失敗而冷卻中、快取配額已用盡、
+  按量計費，或因其他原因不合格；
+- 已 pin 的 effort 不再為該目標提供；
+- `decisionQuotaSignals` 開啟，且該目標的配額證據顯示即將用盡；
+- 已 pin session 的任何一次送出失敗（該請求仍照常 failover）；
+- 寫入 pin 之後設定已變更。
+
+被取消的請求會保留 pin。fail-open 的決定（逾時、缺少金鑰、無效回答）絕不會建立 pin。pin 存在 proxy 的記憶體中，
+最多 512 個 session，重新啟動後不會保留。
+
+用量紀錄以 `jevDecision.pinned: true` 與 `pinReason: "session"` 標記沿用的回合。取代已釋放 pin 的決定，會在
+`pinReason` 記錄原因（`expired`、`config_changed`、`target_unavailable`、`effort_unavailable` 或
+`quota_nearly_exhausted`）。`ocx combo stats` 把被 pin 的請求與決定分開計數；它們仍計入成功請求、模型 fallback
+與各模型 token。
+
+pin 讓供應商的 cache 重用成為可能；供應商是否真的提供快取 token，仍取決於供應商、帳號與穩定的 prompt 前綴。
+`--session-pin -`（API `null`）會關閉它，改用其他策略會移除它，從儀表板編輯器儲存則會保留它。
 
 ### 決策方法
 
@@ -454,7 +502,7 @@ accepts keyless calls. Never reuse `TYPESAFE_API_KEY` or `JEV_API_KEY` for it.
 
 對每個 JEV 目標，**Models → Combos → Config** 有一個選用的 **Additional model notes for JEV** 欄位（最多 512 個字元；允許換行與 Tab，其他控制字元會被拒絕）。它儲存為 combo 設定中的 `targets[].modelProfile`。內建的目標設定檔仍保留在受信任的 `instructions.model_profiles` 中；非空的備註會另外放在決策狀態的 `operator_notes` 中、以目標為鍵送出，補充而不是取代那個內建設定檔。備註可以描述操作者專屬的情境或訂閱額度；請不要把訂閱額度與公開的按 token API 定價混為一談。空白的備註會被忽略。操作者備註是決策的證據，不是指令，且不能擴大目標允許清單或 reasoning-effort 限制。只把可以對所選決策後端揭露的資訊放在那裡。
 
-每次邏輯上的模型呼叫都各自決定，不會有整段對話的固定 pin。因此同一個 session 的連續回合可能落在不同的目標上，而每次切換都會啟動一次全新（冷）的供應商 prompt cache，所以混用差異很大的目標可能反而比省下的還多花輸入 token。請把允許清單維持在你能接受互相輪替的目標範圍。標記為 `lastResort` 的目標，在 `cooldownWaitPolicy: "before-last-resort"` 下，只要還有任何一般目標可用就會被排除在 JEV 之外，只有在沒有其他目標可達時才會被提供。
+預設情況下，每次邏輯上的模型呼叫都各自決定。除非啟用 opt-in 的 [session pin](#jev-的-session-pin)，同一個 session 的連續回合可能落在不同的目標上，而每次切換都會啟動一次全新（冷）的供應商 prompt cache，所以混用差異很大的目標可能反而比省下的還多花輸入 token。請把允許清單維持在你能接受互相輪替的目標範圍。標記為 `lastResort` 的目標，在 `cooldownWaitPolicy: "before-last-resort"` 下，只要還有任何一般目標可用就會被排除在 JEV 之外，只有在沒有其他目標可達時才會被提供。
 
 當金鑰缺失、沒有可用的安全任務／工具／圖像決策狀態、設定的決策期限已到、服務發生重新導向或回傳錯誤，或回應格式錯誤或選了未列出的選項時，這個決策邊界會 fail open。在這些情況下，OpenCodex 會使用目前合格的第一個目標，並在該目標支援時偏好 `medium`。呼叫者取消的情況不同：它會取消這次決策與模型請求，而不是改派 fail-open 目標。
 
@@ -651,7 +699,8 @@ ocx combo remove <id> --yes
 
 `set` 也接受 `--strategy`、`--sticky`、`--effort`、`--alias`、`--native-alias`、
 `--display-name`、`--description` 與 `--rename-from`。用 `-` 作為 `--effort`、`--alias`、`--display-name` 或 `--description` 的值
-可清除該欄位。`--native-alias` 需要一個目前受支援的裸原生模型別名，並搭配非空的顯示名稱。
+可清除該欄位。決策旗標只在有效策略為 JEV 時適用：`--strategy jev`，或省略 `--strategy` 但已儲存的 combo 是 JEV。
+對既有 combo，`--targets` 只取代目標清單：未指定 `--strategy` 時，已儲存的策略與其 JEV 設定維持不變。`--native-alias` 需要一個目前受支援的裸原生模型別名，並搭配非空的顯示名稱。
 `create` 與 `update` 為 `set` 的別名；`delete` 為 `remove` 的別名；且相同子指令在
 `ocx route combo` 下也可用。
 

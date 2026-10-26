@@ -19,6 +19,27 @@ import {
 
 const PINNED_VERDICT_CODES = new Set([CYBER_POLICY_ERROR_CODE, "client_closed_request"]);
 
+const STACK_FRAME_FUNCTION = /^(?:async\s+)?(?:new\s+)?(?:<anonymous>|[A-Za-z_$][\w$.[\]<>]*)(?:\s+\[as\s+[A-Za-z_$][\w$]*\])?$/;
+const STACK_FRAME_LOCATION = /^(?:file:|node:|https?:|webpack:|bun:|\/|[A-Za-z]:[\\/])[^\r\n]*:\d+:\d+$/;
+
+function isV8OrBunStackFrame(line: string): boolean {
+  const frame = line.trim();
+  if (!frame.startsWith("at ")) return false;
+  const detail = frame.slice("at ".length);
+  if (detail === "native" || STACK_FRAME_LOCATION.test(detail)) return true;
+  const match = /^(.*?) \(([^()]+)\)$/.exec(detail);
+  return match !== null
+    && STACK_FRAME_FUNCTION.test(match[1]!)
+    && (match[2] === "native" || /:\d+:\d+$/.test(match[2]!));
+}
+
+function clientSafeErrorMessage(message: string): string {
+  const lines = message.split(/\r?\n/);
+  const firstStackFrame = lines.findIndex(isV8OrBunStackFrame);
+  if (firstStackFrame === -1) return message;
+  return lines.slice(0, firstStackFrame).join("\n").trimEnd() || "upstream request failed";
+}
+
 export function formatErrorResponse(
   status: number,
   type: string,
@@ -26,6 +47,9 @@ export function formatErrorResponse(
   options?: { code?: string | null; retryAfter?: string | null; classified?: boolean },
 ): Response {
   const error = classifyError(status, type, message);
+  // Provider failures can carry a V8/Bun stack after their diagnostic message. The response
+  // envelope is client-visible, so retain the diagnostic but never serialize local frames.
+  error.message = clientSafeErrorMessage(error.message);
   // A combo child holding an adapterFailureFromEvent verdict has already classified this
   // failure. Re-deriving it from the status folded insufficient_quota into rate_limit_exceeded
   // and a 400 modality refusal into invalid_request_error, so the combo loop cooled and hopped

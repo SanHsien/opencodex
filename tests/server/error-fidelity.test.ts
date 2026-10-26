@@ -110,6 +110,41 @@ describe("error fidelity", () => {
     });
   });
 
+  test("formatErrorResponse omits local stack frames from the client envelope", async () => {
+    const response = formatErrorResponse(502, "upstream_error", "upstream request failed\n    at fetch (file:///private/path.ts:1:2)");
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        message: "upstream request failed",
+        type: "server_error",
+        code: "upstream_server_error",
+      },
+    });
+  });
+
+  test("formatErrorResponse omits standard anonymous and spaced-path V8 frames", async () => {
+    for (const frame of [
+      "at Object.<anonymous> (file:///private/path.ts:1:2)",
+      "at C:\\Program Files\\OpenCodex\\src.ts:1:2",
+    ]) {
+      const response = formatErrorResponse(502, "upstream_error", `upstream request failed\n${frame}`);
+      await expect(response.json()).resolves.toMatchObject({
+        error: { message: "upstream request failed" },
+      });
+    }
+  });
+
+  test("formatErrorResponse retains multiline diagnostics that merely begin with at", async () => {
+    const message = "upstream request failed\nat least one tool is required\nat position 4";
+    const response = formatErrorResponse(502, "upstream_error", message);
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        message,
+        type: "server_error",
+        code: "upstream_server_error",
+      },
+    });
+  });
+
   test("streaming response.failed includes both error and last_error", async () => {
     const frames = await collectSse(bridgeToResponsesSSE(replay([
       { type: "error", message: "Your input exceeds the context window" },

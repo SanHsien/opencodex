@@ -334,6 +334,9 @@ describe("upstream checker", () => {
   });
 });
 
+// Whole-tree scans take <1 s alone but >5 s (the default) inside a parallel full-suite batch.
+const TREE_SCAN_TIMEOUT_MS = 60_000;
+
 describe("fork Hangul hygiene", () => {
   const read = (file: string) => readTextOrUndefined(ROOT, file);
 
@@ -341,7 +344,7 @@ describe("fork Hangul hygiene", () => {
     const files = listTextFiles(ROOT, HANGUL_ROOTS);
     expect(files.length).toBeGreaterThan(1000);
     expect(findHangulViolations(files, read)).toEqual([]);
-  });
+ }, TREE_SCAN_TIMEOUT_MS);
 
   test("the guard fails on a Korean UI string and on a stale allowlist line", () => {
     const sample = new Map([
@@ -381,12 +384,12 @@ describe("fork update paths never reach upstream", () => {
     const files = expandFiles();
     expect(files.length).toBeGreaterThan(20);
     expect(findUpstreamUpdateRefs(files, read, UPSTREAM_REPO)).toEqual([]);
-  });
+ }, TREE_SCAN_TIMEOUT_MS);
 
   test("no product code links or calls upstream releases", () => {
     const files = listTextFiles(ROOT, ["src", "gui/src", "bin", "desktop/ui", "desktop/src-tauri/src", "desktop/scripts"]);
     expect(findUpstreamUpdateRefs(files, read, UPSTREAM_RELEASE_REF)).toEqual([]);
-  });
+ }, TREE_SCAN_TIMEOUT_MS);
 
   test("the guard fails on an upstream releases link", () => {
     const sample = new Map([

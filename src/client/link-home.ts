@@ -6,7 +6,8 @@
  * is sent only after the listener on the tunnel port proves it holds the same link identity, so a
  * process that took the tunnel port never sees the key.
  */
-import { chmodSync, lstatSync, mkdirSync, readFileSync, unlinkSync } from "node:fs";
+import { chmodSync, mkdirSync, unlinkSync } from "node:fs";
+import { readBoundedRegularFile } from "../lib/bounded-file-read";
 import { join } from "node:path";
 import { atomicWriteFile, isMissingPathError } from "../config/atomic-write";
 import { readBoundedResponseBytes } from "../lib/bounded-body";
@@ -76,9 +77,9 @@ function linkTarget(connection: LinkHomeConnection, admissionKey: string) {
 /** The last applied Home settings for this link, or null when absent, malformed or another link's. */
 export function readHomeCodexSettingsRecord(linkId: string, path = homeCodexSettingsPath()): HomeCodexSettingsRecord | null {
   try {
-    const stat = lstatSync(path);
-    if (!stat.isFile() || stat.size > RECORD_MAX_BYTES) return null;
-    const raw = JSON.parse(readFileSync(path, "utf8")) as unknown;
+    const read = readBoundedRegularFile(path, RECORD_MAX_BYTES);
+    if (read.kind !== "present") return null;
+    const raw = JSON.parse(read.content) as unknown;
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
     const record = raw as Record<string, unknown>;
     if (record.linkId !== linkId || typeof record.fetchedAt !== "string" || Number.isNaN(Date.parse(record.fetchedAt))) return null;

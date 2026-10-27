@@ -9,6 +9,13 @@ import type { OcxParsedRequest, OcxProviderConfig } from "../../types";
 const ZEN_SCHEMA_MAP_KEYS = new Set(["properties", "$defs", "definitions"]);
 const ZEN_DROPPED_SCHEMA_KEYS = new Set(["encrypted"]);
 
+/** Linear trailing-slash trim; `/\/+$/` is polynomial on long slash runs (CodeQL js/polynomial-redos). */
+function stripTrailingSlashes(value: string): string {
+  let end = value.length;
+  while (end > 0 && value.charCodeAt(end - 1) === 47) end -= 1;
+  return end === value.length ? value : value.slice(0, end);
+}
+
 function sanitizeZenSchemaMap(value: unknown): unknown {
   if (!value || typeof value !== "object" || Array.isArray(value)) return sanitizeZenToolParameters(value);
   const out: Record<string, unknown> = {};
@@ -85,7 +92,7 @@ function ensureZenRootObjectSchema(schema: unknown): Record<string, unknown> {
 }
 
 function shouldSanitizeZenToolParameters(provider: OcxProviderConfig): boolean {
-  const baseUrl = provider.baseUrl.replace(/\/+$/, "");
+  const baseUrl = stripTrailingSlashes(provider.baseUrl);
   return baseUrl === "https://opencode.ai/zen/v1"
     || baseUrl === "https://opencode.ai/zen/go/v1";
 }
@@ -147,7 +154,7 @@ const VOLCENGINE_ARK_HOSTNAMES = new Set([
 export function isVolcengineArkPaygChatTarget(provider: OcxProviderConfig): boolean {
   try {
     const url = new URL(provider.baseUrl);
-    const pathname = url.pathname.replace(/\/+$/, "") || "/";
+    const pathname = stripTrailingSlashes(url.pathname) || "/";
     return VOLCENGINE_ARK_HOSTNAMES.has(url.hostname) && pathname === "/api/v3";
   } catch {
     return false;

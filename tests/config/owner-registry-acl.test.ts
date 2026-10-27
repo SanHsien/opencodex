@@ -114,3 +114,13 @@ test("registry publication refuses a directory symlink without hardening or writ
   expect(readdirSync(target)).toEqual(["canary"]);
   expect(readFileSync(canary, "utf8")).toBe("synthetic canary\n");
 });
+
+test("readOwnerRegistry reads each entry through one bounded descriptor: oversize and linked entries name nothing", () => {
+  const registry = process.env.OCX_OWNER_REGISTRY_DIR!;
+  mkdirSync(registry, { recursive: true });
+  writeFileSync(join(registry, "a.json"), JSON.stringify({ home }));
+  writeFileSync(join(registry, "b.json"), JSON.stringify({ home, pad: "x".repeat(8192) }));
+  // Link creation needs a privilege some hosts withhold; the oversize entry is checked either way.
+  try { symlinkSync(join(registry, "a.json"), join(registry, "c.json")); } catch { /* no privilege */ }
+  expect(readOwnerRegistry().homes).toEqual([home]);
+});

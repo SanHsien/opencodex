@@ -1,4 +1,4 @@
-import { lstatSync, readFileSync } from "node:fs";
+import { readBoundedRegularFile } from "../../lib/bounded-file-read";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
 import type { OcxConfig } from "../../types";
@@ -56,9 +56,10 @@ export function createNativeRoutingVerifier(codexHome: string, readOwner = nativ
     try {
       // Process-level overrides could put the app on another transport despite its TOML.
       if (["CODEX_API_BASE_URL", "CODEX_APP_SERVER_WS_URL", "CODEX_ELECTRON_USER_DATA_PATH", "ELECTRON_RUN_AS_NODE"].some(key => process.env[key]?.trim())) { invalidated = true; return false; }
-      const stat = lstatSync(path);
-      if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 1048576) { invalidated = true; return false; }
-      const text = readFileSync(path, "utf8"), owner = readOwner();
+      // One descriptor read: a link, non-file or oversize config invalidates routing, never gets followed.
+      const read = readBoundedRegularFile(path, 1048576);
+      if (read.kind !== "present") { invalidated = true; return false; }
+      const text = read.content, owner = readOwner();
       if (!owner || !matchesNativeCompatibilityRouting(text, owner)) { invalidated = true; return false; }
       const current = routingDigest(text, owner);
       if (baseline !== undefined && current !== baseline) { invalidated = true; return false; }

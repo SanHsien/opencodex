@@ -229,6 +229,15 @@ describe("cursor umbrella catalog (devlog 260828_cursor_umbrella_catalog)", () =
       }
     });
 
+    test("live roster scope trims trailing slashes in linear time (CodeQL js/polynomial-redos)", () => {
+      expect(cursorLiveRosterScope("https://trusted.cursor.test///", "t"))
+        .toBe(cursorLiveRosterScope("https://trusted.cursor.test", "t"));
+      expect(cursorLiveRosterScope("///", "t")).toBe(cursorLiveRosterScope(undefined, "t"));
+      const started = performance.now();
+      cursorLiveRosterScope(`https://h${"/".repeat(200_000)}x`, "t");
+      expect(performance.now() - started).toBeLessThan(1_000);
+    });
+
     test("live roster spellings stay isolated by provider credential scope and clear with its cache", () => {
       const trusted = cursorLiveRosterScope("https://trusted.cursor.test", "trusted-token");
       const untrusted = cursorLiveRosterScope("https://other.cursor.test", "other-token");

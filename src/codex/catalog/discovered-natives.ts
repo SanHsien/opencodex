@@ -1,7 +1,8 @@
-import { existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { atomicWriteFile } from "../../config/atomic-write";
 import { getConfigDir } from "../../config/paths";
+import { readBoundedRegularFile } from "../../lib/bounded-file-read";
 import { assertNotRealHomeUnderTest } from "../../lib/test-home-guard";
 import { isEligibleConfiguredNativeOpenAiModel, setDiscoveredNativeOpenAiModels } from "./native-models";
 
@@ -87,9 +88,10 @@ function readModels(path: string, now: number): DiscoveredNativeModel[] {
 function readModelsWithCount(path: string, now: number): { models: DiscoveredNativeModel[]; storedCount: number } {
   const empty = { models: [], storedCount: 0 };
   try {
-    if (statSync(path).size > DISCOVERED_NATIVE_MAX_FILE_BYTES) return empty;
-    const bytes = readFileSync(path, "utf8");
-    if (Buffer.byteLength(bytes, "utf8") > DISCOVERED_NATIVE_MAX_FILE_BYTES) return empty;
+    // One bounded descriptor read: size, type and bytes come from the same open file.
+    const read = readBoundedRegularFile(path, DISCOVERED_NATIVE_MAX_FILE_BYTES);
+    if (read.kind !== "present") return empty;
+    const bytes = read.content;
     const data = JSON.parse(bytes) as { version?: unknown; models?: unknown };
     if (data.version !== 1 || !Array.isArray(data.models) || data.models.length > DISCOVERED_NATIVE_MAX_ROWS) return empty;
     const valid = new Map<string, DiscoveredNativeModel>();

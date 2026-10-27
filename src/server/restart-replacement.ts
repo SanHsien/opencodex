@@ -121,10 +121,13 @@ export function restartHandoffLogPath(configDir: string = getConfigDir()): strin
 export function emptyRestartHandoffLogIfFull(path: string, now: () => number = Date.now): boolean {
   let fd: number | undefined;
   try {
-    const stat = lstatSync(path);
-    if (!stat.isFile() || stat.size < RESTART_HANDOFF_LOG_MAX_BYTES) return false;
+    const stat = lstatSync(path, { bigint: true });
+    if (!stat.isFile() || stat.size < BigInt(RESTART_HANDOFF_LOG_MAX_BYTES)) return false;
     fd = openSync(path, constants.O_WRONLY | (constants.O_NOFOLLOW ?? 0));
-    if (!fstatSync(fd).isFile()) return false;
+    // Truncate only the object the lstat described: Windows has no O_NOFOLLOW, so a link swapped in
+    // between the lstat and the open would otherwise be emptied (CodeQL js/file-system-race).
+    const opened = fstatSync(fd, { bigint: true });
+    if (!opened.isFile() || opened.dev !== stat.dev || opened.ino !== stat.ino) return false;
     ftruncateSync(fd, 0);
     writeSync(fd, `[${new Date(now()).toISOString()}] log emptied at the ${RESTART_HANDOFF_LOG_MAX_BYTES / 1024} KiB cap\n`);
     return true;

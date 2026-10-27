@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { atomicWriteFile } from "../config";
 import { atomicWriteFileNoFollow } from "../config/atomic-write";
+import { readBoundedRegularFile } from "../lib/bounded-file-read";
 import { assertConfigWriteDestination, publishConfigWrite, withConfigWriteLock, type ConfigWriteLockOutcome } from "../codex/config-write-lock";
 import { applyEol, dominantEol, isLoopbackHostname, providerBaseHost } from "../codex/inject";
 import {
@@ -91,12 +92,17 @@ export function findManagedRegion(content: string): ManagedRegion | null {
   return { start: begin.index, end: endMatch.index + endMatch[0].length, orphaned: false };
 }
 
+/** Upper bound for the presence probe; a config.toml past this is treated as not carrying the block. */
+const GROK_CONFIG_MAX_READ_BYTES = 8 * 1024 * 1024;
+
 /** A complete managed fence is the existing opt-in required by refresh-only callers. */
 export function grokManagedBlockPresent(grokHome?: string): boolean {
   try {
     const path = join(resolveGrokHome(grokHome), "config.toml");
-    if (!lstatSync(path).isFile()) return false;
-    const region = findManagedRegion(applyEol(readFileSync(path, "utf8"), "\n"));
+    // One descriptor read: a link or non-file is "not present", never followed.
+    const read = readBoundedRegularFile(path, GROK_CONFIG_MAX_READ_BYTES);
+    if (read.kind !== "present") return false;
+    const region = findManagedRegion(applyEol(read.content, "\n"));
     return region != null && !region.orphaned;
   } catch {
     return false;

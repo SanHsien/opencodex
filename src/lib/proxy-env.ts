@@ -10,8 +10,15 @@ export type ProxyRoute =
   | { kind: "proxy"; proxy: string }
   | { kind: "fallback" };
 
+/** Linear trailing-dot trim; `/\.+$/` is polynomial on long dot runs (CodeQL js/polynomial-redos). */
+function stripTrailingDots(value: string): string {
+  let end = value.length;
+  while (end > 0 && value.charCodeAt(end - 1) === 46) end -= 1;
+  return end === value.length ? value : value.slice(0, end);
+}
+
 export function normalizeProxyHostname(hostname: string): string {
-  const normalized = hostname.trim().toLowerCase().replace(/\.+$/, "");
+  const normalized = stripTrailingDots(hostname.trim().toLowerCase());
   return normalized.startsWith("[") && normalized.endsWith("]")
     ? normalized.slice(1, -1)
     : normalized;

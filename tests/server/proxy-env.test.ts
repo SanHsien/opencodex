@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { createServer } from "node:http";
 import { createServer as createTcpServer } from "node:net";
 import { applyProxyEnv } from "../../src/config";
-import { configuredOutboundFetch, noProxyMatches, resolveProxyRoute, configureSocks5Fetch, type ProxyCapableRequestInit } from "../../src/lib/proxy-env";
+import { configuredOutboundFetch, noProxyMatches, normalizeProxyHostname, resolveProxyRoute, configureSocks5Fetch, type ProxyCapableRequestInit } from "../../src/lib/proxy-env";
 import type { OcxConfig } from "../../src/types";
 
 const PROXY_ENV_KEYS = ["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "all_proxy", "no_proxy", "OCX_TEST_PROXY_REF", "OCX_TEST_NO_PROXY_REF"] as const;
@@ -33,6 +33,17 @@ function configWithProxy(proxy?: string, noProxy?: string | string[]): OcxConfig
 function configWithRawProxy(proxy: unknown, noProxy?: unknown): OcxConfig {
   return { proxy, noProxy, providers: {} } as unknown as OcxConfig;
 }
+
+describe("normalizeProxyHostname", () => {
+  test("trims trailing dots in linear time (CodeQL js/polynomial-redos)", () => {
+    expect(normalizeProxyHostname(" Example.COM... ")).toBe("example.com");
+    expect(normalizeProxyHostname("[::1].")).toBe("::1");
+    expect(normalizeProxyHostname("...")).toBe("");
+    const started = performance.now();
+    normalizeProxyHostname(`a${".".repeat(200_000)}b`);
+    expect(performance.now() - started).toBeLessThan(1_000);
+  });
+});
 
 describe("resolveProxyRoute", () => {
   test("wss uses HTTPS_PROXY and never HTTP_PROXY", () => {

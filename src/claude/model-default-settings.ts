@@ -1,8 +1,9 @@
 import { createHash, randomUUID } from "node:crypto";
-import { linkSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, renameSync, unlinkSync } from "node:fs";
+import { linkSync, lstatSync, mkdirSync, mkdtempSync, renameSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { atomicWriteFileNoFollow } from "../config/atomic-write";
 import { hardenSecretDir, hardenSecretPath } from "../lib/windows-secret-acl";
+import { readBoundedRegularFile } from "../lib/bounded-file-read";
 import { assertNotRealClaudeConfigUnderTest } from "../lib/test-home-guard";
 import { claudeConfigDir } from "./auth-detect";
 import { claudeTierDisplayName, type ClaudeTierModels } from "./context-windows";
@@ -13,13 +14,11 @@ function readSettings(path: string): { raw: string; exists: boolean; doc: Record
   let raw = "";
   let exists = false;
   try {
-    const stat = lstatSync(path);
-    if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 1024 * 1024) throw new Error("settings_unreadable");
-    raw = readFileSync(path, "utf8");
-    exists = true;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw new Error("settings_unreadable");
-  }
+    // One descriptor decides type, size and bytes; a link or oversize file is unreadable, not followed.
+    const read = readBoundedRegularFile(path, 1024 * 1024);
+    if (read.kind === "refused") throw new Error("settings_unreadable");
+    if (read.kind === "present") { raw = read.content; exists = true; }
+  } catch { throw new Error("settings_unreadable"); }
   let doc: Record<string, unknown>;
   try {
     const parsed: unknown = exists ? JSON.parse(raw) : {};

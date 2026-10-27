@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, statSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildCatalogEntries } from "../../src/codex/catalog";
@@ -162,6 +162,17 @@ describe("authenticated native discovery", () => {
     expect(SUPPORTED_NATIVE_OPENAI_SLUGS.has(FUTURE)).toBe(false);
     expect(upstreamNativeEntry(FUTURE)).toBeNull();
     writeFileSync(path, " ".repeat(DISCOVERED_NATIVE_MAX_FILE_BYTES + 1));
+    loadDiscoveredNativeModels();
+    expect(discoveredNativeOpenAiModels()).toEqual([]);
+  });
+
+  test("a linked store is refused instead of followed", () => {
+    const real = join(home, "real-discovered-native-models.json");
+    recordDiscoveredNativeModels([row()], "0.160.0");
+    writeFileSync(real, readFileSync(path));
+    unlinkSync(path);
+    // Link creation needs a privilege some hosts withhold; skip there rather than weaken the assertion.
+    try { symlinkSync(real, path); } catch { return; }
     loadDiscoveredNativeModels();
     expect(discoveredNativeOpenAiModels()).toEqual([]);
   });

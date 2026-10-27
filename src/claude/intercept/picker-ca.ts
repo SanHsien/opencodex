@@ -1,6 +1,7 @@
 import { createHash, randomUUID, X509Certificate } from "node:crypto";
 import { chmodSync, lstatSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { readBoundedRegularFile } from "../../lib/bounded-file-read";
 import { canonicalPickerConfigDir, ensurePersistentPickerCa } from "./picker-ca-persistence";
 import type { PickerCaStore } from "./picker-ca-store";
 import { withClientLifecycleSync } from "../../client/lifecycle-lock";
@@ -295,17 +296,12 @@ function publicCertificate(pem: string): PendingPickerCaUntrust | null {
 /** The pending record is public-only, but malformed or unsafe state must never be discarded. */
 export function readPendingPickerCaUntrust(configDir: string): PendingPickerCaUntrust | null {
   const path = pickerCaPendingUntrustPath(configDir);
-  let stat;
-  try { stat = lstatSync(path); }
-  catch (error) {
-    if (error !== null && typeof error === "object" && (error as { code?: unknown }).code === "ENOENT") return null;
-    throw error;
-  }
-  if (!stat.isFile() || stat.nlink !== 1 || stat.size > MAX_PENDING_CA_BYTES) {
-    throw new Error("picker_ca_pending_untrust_unsafe");
-  }
-  const raw = readFileSync(path, "utf8");
-  if (Buffer.byteLength(raw) > MAX_PENDING_CA_BYTES) throw new Error("picker_ca_pending_untrust_unsafe");
+  // One descriptor decides regular-file, link count, size and content together, so the name cannot
+  // be swapped between the check and the read (CodeQL js/file-system-race).
+  const read = readBoundedRegularFile(path, MAX_PENDING_CA_BYTES);
+  if (read.kind === "absent") return null;
+  if (read.kind !== "present" || read.stat.nlink !== 1) throw new Error("picker_ca_pending_untrust_unsafe");
+  const raw = read.content;
   let value: unknown;
   try { value = JSON.parse(raw); }
   catch { throw new Error("picker_ca_pending_untrust_invalid"); }

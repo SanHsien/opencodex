@@ -14,9 +14,10 @@
  * either. Deleting the file rotates `homeId` and every `accountRef` together.
  */
 import { createHmac, randomBytes, randomUUID } from "node:crypto";
-import { closeSync, constants as fsConstants, fsyncSync, linkSync, lstatSync, openSync, readFileSync, unlinkSync, writeSync } from "node:fs";
+import { closeSync, constants as fsConstants, fsyncSync, linkSync, lstatSync, openSync, unlinkSync, writeSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { getConfigDir } from "../config/paths";
+import { readBoundedRegularFile } from "../lib/bounded-file-read";
 
 export const QUOTA_POOL_IDENTITY_FILE = "quota-pool-identity.json";
 
@@ -48,14 +49,11 @@ function parseIdentity(text: string): QuotaPoolIdentity | null {
 export function readQuotaPoolIdentity(configDir = getConfigDir()): QuotaPoolIdentity | null {
   const path = quotaPoolIdentityPath(configDir);
   if (memo?.path === path) return memo.identity;
-  try {
-    const stat = lstatSync(path);
-    if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 1024) return null;
-  } catch {
-    return null;
-  }
+  // One descriptor read: a link, non-file or oversize record is "missing", never followed.
+  const read = readBoundedRegularFile(path, 1024);
+  if (read.kind !== "present") return null;
   let identity: QuotaPoolIdentity | null;
-  try { identity = parseIdentity(readFileSync(path, "utf8")); } catch { return null; }
+  try { identity = parseIdentity(read.content); } catch { return null; }
   if (identity) memo = { path, identity };
   return identity;
 }

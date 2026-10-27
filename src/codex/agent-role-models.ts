@@ -9,10 +9,11 @@
  * omitted model leaves the pin as it is, so a role that inherits its model keeps inheriting it.
  * It runs only on an explicit user action; no sync or startup path calls it.
  */
-import { lstatSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { atomicWriteFileNoFollowUnclaimed } from "../config/atomic-write";
 import { assertIntegrationWriteOwnership } from "../integrations/config-io";
+import { readBoundedRegularFile } from "../lib/bounded-file-read";
 import { encodeBasicString, findInvalidCharacter } from "./prompt-layers/encoding";
 import { dominantEol } from "./prompt-layers/toml-edit";
 import { isDeclaredReasoningEffort } from "../reasoning-effort";
@@ -22,6 +23,9 @@ import {
   locateTomlReasoningEffortKey,
   type TomlModelKeyLocation,
 } from "./subagent-model-fallback";
+
+/** A subagent role file is a few lines of TOML; this only bounds a hostile or runaway file. */
+const ROLE_FILE_MAX_BYTES = 1024 * 1024;
 
 export type AgentRoleModelErrorCode =
   | "unknown_role"
@@ -170,10 +174,15 @@ export function writeCodexAgentRoleModel(
 ): { status: "written" | "unchanged" } {
   requireKnownRole(role, codexHome);
   const path = roleFile(role, codexHome);
-  if (!lstatSync(path).isFile()) {
+  // One descriptor decides regular-file and supplies the bytes; the write below refuses links as well.
+  const read = readBoundedRegularFile(path, ROLE_FILE_MAX_BYTES);
+  if (read.kind === "refused" && read.reason === "not-a-regular-file") {
     throw new AgentRoleModelError("unsafe_target", `${role}.toml is not a regular file; edit it where it points`);
   }
-  const before = readFileSync(path, "utf8");
+  if (read.kind !== "present") {
+    throw new AgentRoleModelError("invalid_role_file", `${role}.toml could not be read safely`);
+  }
+  const before = read.content;
   assertValidRoleToml(role, before, "before");
   const withModel = model === undefined ? before : setTomlRootModel(before, validateAgentRoleModel(model));
   const after = effort === undefined

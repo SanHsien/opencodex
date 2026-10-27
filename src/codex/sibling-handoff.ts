@@ -1,10 +1,11 @@
 /** A one-use restart handoff from a running sibling to its own replacement. */
 import { randomBytes } from "node:crypto";
-import { lstatSync, readFileSync, realpathSync, renameSync, unlinkSync } from "node:fs";
+import { realpathSync, renameSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { atomicWriteFile } from "../config/atomic-write";
 import { getConfigDir } from "../config/paths";
 import { readRuntimePort } from "../config/process-state";
+import { readBoundedRegularFile } from "../lib/bounded-file-read";
 import { assertNotRealHomeUnderTest } from "../lib/test-home-guard";
 import { siblingOfLivePort } from "./sibling-start";
 
@@ -51,10 +52,13 @@ export function consumeSiblingHandoff(ownerPort: number, nonce: string | undefin
   try { renameSync(source, claimed); }
   catch { return false; }
   try {
-    const stat = lstatSync(claimed);
-    if (!stat.isFile() || stat.size > MAX_RECORD_BYTES || stat.size === 0
-      || (process.platform !== "win32" && ((stat.mode & 0o077) !== 0 || stat.uid !== process.getuid?.()))) return false;
-    const record = JSON.parse(readFileSync(claimed, "utf8")) as Record<string, unknown>;
+    // Type, size, mode and bytes all come from one descriptor, so the claimed name cannot be swapped
+    // between the check and the read (CodeQL js/file-system-race).
+    const read = readBoundedRegularFile(claimed, MAX_RECORD_BYTES);
+    if (read.kind !== "present" || read.bytes.length === 0) return false;
+    const stat = read.stat;
+    if (process.platform !== "win32" && ((stat.mode & 0o077) !== 0 || stat.uid !== process.getuid?.())) return false;
+    const record = JSON.parse(read.content) as Record<string, unknown>;
     const issuedAt = record.issuedAt;
     const now = Date.now();
     return record.version === 1 && record.nonce === nonce && record.home === canonicalHome

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { createOpenAIChatAdapter } from "../../src/adapters/openai-chat";
+import { isVolcengineArkPaygChatTarget } from "../../src/adapters/openai-chat/tool-schema";
 import type { OcxMessage, OcxParsedRequest, OcxProviderConfig } from "../../src/types";
 
 /**
@@ -136,5 +137,17 @@ describe("Volcengine Ark empty assistant content (#796)", () => {
     const genericReasoning = providerFor("https://example.test/v1");
     genericReasoning.preserveReasoningContentModels = ["kimi-k3"];
     expect(assistantsOf(wire(genericReasoning, reasoningHistory))[0].content).toBe("");
+  });
+});
+
+describe("tool-schema base URL normalization", () => {
+  const provider = (baseUrl: string) => ({ baseUrl }) as unknown as OcxProviderConfig;
+
+  test("Volcengine Ark path matching ignores trailing slashes in linear time (CodeQL js/polynomial-redos)", () => {
+    expect(isVolcengineArkPaygChatTarget(provider("https://ark.cn-beijing.volces.com/api/v3///"))).toBe(true);
+    expect(isVolcengineArkPaygChatTarget(provider("https://ark.cn-beijing.volces.com/api/v4"))).toBe(false);
+    const started = performance.now();
+    isVolcengineArkPaygChatTarget(provider(`https://ark.cn-beijing.volces.com/${"/".repeat(200_000)}x`));
+    expect(performance.now() - started).toBeLessThan(1_000);
   });
 });

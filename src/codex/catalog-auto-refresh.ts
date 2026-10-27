@@ -30,7 +30,7 @@ const INITIAL_DELAY_MS = 3 * 60_000;
  * callers fail fast and defer (ConvergeRequest.mode) rather than holding the
  * write lock across a slow tick.
  */
-import { closeSync, constants, fstatSync, lstatSync, openSync, readSync } from "node:fs";
+import { readBoundedRegularFileText } from "../lib/bounded-file-read";
 import type { OcxConfig } from "../types";
 
 const TICK_DEADLINE_MS = 1_000;
@@ -58,33 +58,9 @@ export function setCatalogAutoRefreshClientFanout(fanout: CatalogChangedClientFa
   clientFanout = fanout;
 }
 
-/** Read only a regular file, with a byte limit even if it grows after the stat. */
-function readBoundedRegularFile(path: string, maxBytes: number): string | null {
-  let fd: number | undefined;
-  try {
-    const entry = lstatSync(path);
-    if (!entry.isFile() || entry.size > maxBytes) return null;
-    fd = openSync(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
-    const opened = fstatSync(fd);
-    if (!opened.isFile() || opened.size > maxBytes) return null;
-    const bytes = Buffer.alloc(opened.size + 1);
-    let length = 0;
-    while (length < bytes.length) {
-      const read = readSync(fd, bytes, length, bytes.length - length, null);
-      if (read === 0) break;
-      length += read;
-    }
-    return length > maxBytes ? null : bytes.subarray(0, length).toString("utf8");
-  } catch {
-    return null;
-  } finally {
-    if (fd !== undefined) closeSync(fd);
-  }
-}
-
 /** A background observation must not use journaledInjectedCatalogPath(), which cleans invalid journals. */
 function readJournaledCatalogPath(journalPath: string): string | null {
-  const bytes = readBoundedRegularFile(journalPath, MAX_JOURNAL_BYTES);
+  const bytes = readBoundedRegularFileText(journalPath, MAX_JOURNAL_BYTES);
   if (bytes === null) return null;
   try {
     const journal: unknown = JSON.parse(bytes);
@@ -100,7 +76,7 @@ function readJournaledCatalogPath(journalPath: string): string | null {
 
 function usableCatalogPath(path: string | null): string | null {
   if (!path) return null;
-  const bytes = readBoundedRegularFile(path, MAX_CATALOG_BYTES);
+  const bytes = readBoundedRegularFileText(path, MAX_CATALOG_BYTES);
   if (bytes === null) return null;
   try {
     const catalog: unknown = JSON.parse(bytes);

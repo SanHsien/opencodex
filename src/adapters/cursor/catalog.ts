@@ -703,9 +703,16 @@ const liveCursorMaxModeBasesByScope = new Map<string, ReadonlySet<string>>();
 const liveCursorClaudeWireIdentitiesByScope = new Map<string, ReadonlyMap<string, CursorLiveClaudeWireIdentity>>();
 const liveCursorRosterScopesByProvider = new Map<string, Set<string>>();
 
+/** Linear trailing-slash trim; `/\/+$/` is polynomial on long slash runs (CodeQL js/polynomial-redos). */
+function stripTrailingSlashes(value: string): string {
+  let end = value.length;
+  while (end > 0 && value.charCodeAt(end - 1) === 47) end -= 1;
+  return end === value.length ? value : value.slice(0, end);
+}
+
 /** Non-secret key binding live roster evidence to one upstream destination and credential. */
 export function cursorLiveRosterScope(baseUrl: string | undefined, credential: string): string {
-  const destination = (baseUrl?.trim().replace(/\/+$/, "") || "https://api2.cursor.sh");
+  const destination = ((baseUrl ? stripTrailingSlashes(baseUrl.trim()) : "") || "https://api2.cursor.sh");
   return createHash("sha256")
     .update("ocx:cursor:live-roster\0")
     .update(destination)

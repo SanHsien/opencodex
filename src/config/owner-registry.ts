@@ -24,11 +24,12 @@
  */
 
 import { createHash } from "node:crypto";
-import { chmodSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, unlinkSync } from "node:fs";
+import { chmodSync, existsSync, lstatSync, mkdirSync, readdirSync, realpathSync, unlinkSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { atomicWriteFileNoFollow } from "./atomic-write";
 import { getConfigDir } from "./paths";
+import { readBoundedRegularFile } from "../lib/bounded-file-read";
 import { assertNotRealHomeUnderTest, isTestHomeGuardArmed } from "../lib/test-home-guard";
 import { hardenSecretDir } from "../lib/windows-secret-acl";
 
@@ -138,9 +139,10 @@ export function readOwnerRegistry(): OwnerRegistryRead {
   for (const name of names.slice(0, MAX_REGISTRY_LISTING)) {
     const path = join(dir, name);
     try {
-      const stat = statSync(path);
-      if (!stat.isFile() || stat.size === 0 || stat.size > MAX_ENTRY_BYTES) continue;
-      const parsed: unknown = JSON.parse(readFileSync(path, "utf8"));
+      // One descriptor read: a swapped-in link or oversize entry is skipped, never followed.
+      const read = readBoundedRegularFile(path, MAX_ENTRY_BYTES);
+      if (read.kind !== "present" || read.bytes.length === 0) continue;
+      const parsed: unknown = JSON.parse(read.content);
       const home = parsed && typeof parsed === "object"
         ? (parsed as Record<string, unknown>).home
         : undefined;

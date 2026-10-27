@@ -2,19 +2,14 @@ import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import {
   chmodSync,
-  closeSync,
   existsSync,
-  fstatSync,
-  lstatSync,
   mkdtempSync,
-  openSync,
-  readFileSync,
   rmSync,
-  constants as fsConstants,
 } from "node:fs";
 import { join } from "node:path";
 import { CODEX_SHIM_REENTRY_EXIT_CODE, CODEX_SHIM_REENTRY_DIAGNOSTIC } from "./shim-templates";
 import type { ShimFileState } from "./shim-state-file";
+import { readBoundedRegularFile } from "../lib/bounded-file-read";
 
 const CODEX_SHIM_INSTALL_PROBE_TIMEOUT_MS = 5_000;
 const CODEX_SHIM_INSTALL_PROBE_EXIT_TIMEOUT_MS = 1_000;
@@ -240,25 +235,9 @@ export function setCodexShimProbeObservationMsForTests(value: number | null): vo
 }
 
 function readProbeMetadata(path: string, maxBytes: number): string | null {
-  try {
-    // lstat keeps a symlinked metadata file unread; dev/ino rejects a swap before open.
-    const lexical = lstatSync(path);
-    if (!lexical.isFile() || lexical.size > maxBytes) return null;
-    // O_NOFOLLOW/O_NONBLOCK are undefined on Windows (?? 0); on POSIX a raced-in FIFO cannot block the open.
-    const fd = openSync(path, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0) | (fsConstants.O_NONBLOCK ?? 0));
-    try {
-      const stat = fstatSync(fd);
-      if (!stat.isFile() || stat.size > maxBytes || stat.dev !== lexical.dev || stat.ino !== lexical.ino) return null;
-      return readFileSync(fd, "utf8").trim();
-    } finally {
-      closeSync(fd);
-    }
-  } catch (error) {
-    if (error && typeof error === "object" && (error as { code?: string }).code === "ENOENT") {
-      return "";
-    }
-    return null;
-  }
+  const read = readBoundedRegularFile(path, maxBytes);
+  if (read.kind === "present") return read.content.trim();
+  return read.kind === "absent" ? "" : null;
 }
 
 function probeUnixShimInstall(wrapperPath: string, childEnv?: NodeJS.ProcessEnv): UnixShimProbeResult {

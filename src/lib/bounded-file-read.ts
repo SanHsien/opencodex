@@ -1,4 +1,4 @@
-import { closeSync, constants, fstatSync, lstatSync, openSync, readSync, type Stats } from "node:fs";
+import { closeSync, constants, fstatSync, lstatSync, openSync, readSync, type BigIntStats, type Stats } from "node:fs";
 
 /**
  * Read a small local file that has to be a plain file and has to stay one while it is read.
@@ -51,9 +51,9 @@ function errorCode(error: unknown): string | undefined {
 export function readBoundedRegularFile(path: string, maxBytes: number): BoundedFileRead {
   // The lexical lstat refuses a symlink or a FIFO before anything is opened; Windows has no
   // O_NOFOLLOW, and opening a FIFO without O_NONBLOCK would block.
-  let lexicalBefore: Stats;
+  let lexicalBefore: BigIntStats;
   try {
-    lexicalBefore = lstatSync(path);
+    lexicalBefore = lstatSync(path, { bigint: true });
   } catch (error) {
     const code = errorCode(error);
     if (code === "ENOENT") return { kind: "absent" };
@@ -76,14 +76,14 @@ export function readBoundedRegularFile(path: string, maxBytes: number): BoundedF
   }
 
   try {
-    const before = fstatSync(fd);
+    const before = fstatSync(fd, { bigint: true });
     if (!before.isFile()) return { kind: "refused", reason: "not-a-regular-file" };
-    if (before.dev !== lexicalBefore.dev || before.ino !== lexicalBefore.ino) {
+    if (!sameIdentity(before, lexicalBefore) || !hasTrustedIdentity(before) || !hasTrustedIdentity(lexicalBefore)) {
       return { kind: "refused", reason: "changed-while-reading" };
     }
-    if (before.size > maxBytes) return { kind: "refused", reason: "too-large" };
+    if (before.size > BigInt(maxBytes)) return { kind: "refused", reason: "too-large" };
 
-    const buffer = Buffer.allocUnsafe(before.size);
+    const buffer = Buffer.allocUnsafe(Number(before.size));
     let offset = 0;
     while (offset < buffer.length) {
       const bytesRead = readSync(fd, buffer, offset, buffer.length - offset, offset);
@@ -95,25 +95,25 @@ export function readBoundedRegularFile(path: string, maxBytes: number): BoundedF
     const extra = Buffer.allocUnsafe(1);
     if (readSync(fd, extra, 0, 1, offset) !== 0) return { kind: "refused", reason: "too-large" };
 
-    const after = fstatSync(fd);
-    let lexicalAfter: Stats;
+    const after = fstatSync(fd, { bigint: true });
+    let lexicalAfter: BigIntStats;
     try {
-      lexicalAfter = lstatSync(path);
+      lexicalAfter = lstatSync(path, { bigint: true });
     } catch {
       return { kind: "refused", reason: "changed-while-reading" };
     }
     // Mode and owner are compared too (v2.88 hardening of the shim state reader): a chmod/chown
     // between the lexical stat, the open and the last byte is not a trustworthy read.
-    if (before.dev !== after.dev || before.ino !== after.ino || before.size !== after.size
+    if (!sameIdentity(before, after) || !hasTrustedIdentity(after) || before.size !== after.size
       || before.mtimeMs !== after.mtimeMs || before.ctimeMs !== after.ctimeMs
       || before.mode !== after.mode || before.uid !== after.uid
       || lexicalBefore.mode !== before.mode || lexicalBefore.uid !== before.uid
       || lexicalAfter.isSymbolicLink() || !lexicalAfter.isFile()
-      || lexicalAfter.dev !== after.dev || lexicalAfter.ino !== after.ino
+      || !sameIdentity(lexicalAfter, after) || !hasTrustedIdentity(lexicalAfter)
       || lexicalAfter.mode !== after.mode || lexicalAfter.uid !== after.uid) {
       return { kind: "refused", reason: lexicalAfter.isSymbolicLink() || !lexicalAfter.isFile() ? "not-a-regular-file" : "changed-while-reading" };
     }
-    return { kind: "present", bytes: buffer, content: buffer.toString("utf8"), stat: after };
+    return { kind: "present", bytes: buffer, content: buffer.toString("utf8"), stat: fstatSync(fd) };
   } catch (error) {
     // A byte-range lock taken after the open (EBUSY/EACCES on Windows) lands here, not on the
     // open; keep its code so callers can still treat it as transient.
@@ -139,6 +139,10 @@ function sameIdentity(
   right: { dev: bigint; ino: bigint },
 ): boolean {
   return left.dev === right.dev && left.ino === right.ino;
+}
+
+function hasTrustedIdentity(stat: { dev: bigint; ino: bigint }): boolean {
+  return stat.dev !== 0n && stat.ino !== 0n;
 }
 
 export function readBoundedRegularFileSync(path: string, limit: number): Buffer {

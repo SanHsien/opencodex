@@ -1,5 +1,10 @@
 import { NoAvailableComboTargetsError } from "../../combos";
-import { NoEligiblePolicyCandidateError, type RouteResult } from "../../router";
+import {
+  NoEligiblePolicyCandidateError,
+  NoEnabledOpenAiProviderError,
+  UnknownRoutingPolicyError,
+  type RouteResult,
+} from "../../router";
 import { AdmissionModelDeniedError } from "../admission-model-scope";
 
 /**
@@ -37,8 +42,10 @@ export function resolveChosenTarget(
   } catch (error) {
     if (error instanceof AdmissionModelDeniedError
       || error instanceof NoAvailableComboTargetsError
-      || error instanceof NoEligiblePolicyCandidateError) throw error;
-    return { unavailable: error instanceof Error ? error.message : String(error) };
+      || error instanceof NoEligiblePolicyCandidateError
+      || error instanceof NoEnabledOpenAiProviderError
+      || error instanceof UnknownRoutingPolicyError) throw error;
+    return { unavailable: "selected target is unavailable" };
   }
   // A qualified target whose provider segment matched nothing reaches the default provider only
   // through the router's terminal fallback. A bare target resolved that way is the operator's

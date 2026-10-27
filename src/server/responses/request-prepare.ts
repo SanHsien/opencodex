@@ -84,6 +84,8 @@ import {
   routeModel,
   NoEligiblePolicyCandidateError,
   AnthropicSecondaryInstanceUnavailableError,
+  NoEnabledOpenAiProviderError,
+  UnknownRoutingPolicyError,
 } from "../../router";
 import { evidenceFromBody } from "../../routing/request-evidence";
 import { OPENAI_CODEX_PROVIDER_ID, isCanonicalOpenAiForwardProvider } from "../../providers/openai-tiers";
@@ -566,7 +568,8 @@ export async function prepareResponsesRequest(
         code: "translation_buffer_limit",
       });
     }
-    return formatErrorResponse(400, "invalid_request_error", err instanceof Error ? err.message : String(err));
+    logCtx.errorCode ??= "responses_request_prepare_failed";
+    return formatErrorResponse(400, "invalid_request_error", "request could not be prepared");
   }
   options.onRequestBodyRead?.();
   const responseStateOptions = (force = false): { force?: boolean; clientThreadId?: string } => ({
@@ -840,12 +843,20 @@ export async function prepareResponsesRequest(
     if (err instanceof NoAvailableComboTargetsError) {
       return comboUnavailable(err.comboId, undefined, err.reasons);
     }
+    if (err instanceof UnknownRoutingPolicyError) {
+      return formatErrorResponse(404, "invalid_request_error", err.message);
+    }
+    if (err instanceof NoEnabledOpenAiProviderError) {
+      return formatErrorResponse(404, "invalid_request_error", err.message);
+    }
     if (err instanceof NoEligiblePolicyCandidateError) {
       // Persist the evaluation trace (per-candidate exclusions + the
       // no-eligible reason) so failed policy requests stay auditable.
       logCtx.routeDecision = err.trace;
+      return formatErrorResponse(404, "invalid_request_error", "no eligible candidates for routing policy");
     }
-    return formatErrorResponse(404, "invalid_request_error", err instanceof Error ? err.message : String(err));
+    logCtx.errorCode ??= "responses_route_resolution_failed";
+    return formatErrorResponse(404, "invalid_request_error", "requested model is unavailable");
   }
 
   const hasUnexpandedPreviousResponse = !!parsed.previousResponseId
@@ -1060,10 +1071,18 @@ export async function prepareResponsesRequest(
         if (err instanceof NoAvailableComboTargetsError) {
           return comboUnavailable(err.comboId, undefined, err.reasons);
         }
+        if (err instanceof UnknownRoutingPolicyError) {
+          return formatErrorResponse(404, "invalid_request_error", err.message);
+        }
+        if (err instanceof NoEnabledOpenAiProviderError) {
+          return formatErrorResponse(404, "invalid_request_error", err.message);
+        }
         if (err instanceof NoEligiblePolicyCandidateError) {
           logCtx.routeDecision = err.trace;
+          return formatErrorResponse(404, "invalid_request_error", "no eligible candidates for routing policy");
         }
-        return formatErrorResponse(404, "invalid_request_error", err instanceof Error ? err.message : String(err));
+        logCtx.errorCode ??= "responses_route_resolution_failed";
+        return formatErrorResponse(404, "invalid_request_error", "requested model is unavailable");
       }
     }
   }
@@ -1282,14 +1301,18 @@ export async function prepareResponsesRequest(
               if (err instanceof NoAvailableComboTargetsError) {
                 return comboUnavailable(err.comboId, undefined, err.reasons);
               }
+              if (err instanceof UnknownRoutingPolicyError) {
+                return formatErrorResponse(404, "invalid_request_error", err.message);
+              }
+              if (err instanceof NoEnabledOpenAiProviderError) {
+                return formatErrorResponse(404, "invalid_request_error", err.message);
+              }
               if (err instanceof NoEligiblePolicyCandidateError) {
                 logCtx.routeDecision = err.trace;
+                return formatErrorResponse(404, "invalid_request_error", "no eligible candidates for routing policy");
               }
-              return formatErrorResponse(
-                404,
-                "invalid_request_error",
-                err instanceof Error ? err.message : String(err),
-              );
+              logCtx.errorCode ??= "responses_route_resolution_failed";
+              return formatErrorResponse(404, "invalid_request_error", "requested model is unavailable");
             }
           }
         } catch {

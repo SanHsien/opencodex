@@ -1,8 +1,8 @@
 import { execFile } from "node:child_process";
-import { readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { claudeConfigDir } from "./gateway-cache";
 import { commandInvocation } from "../lib/win-exec";
+import { readBoundedRegularFile } from "../lib/bounded-file-read";
 
 export interface SubagentForceStatus {
   targetValid: boolean;
@@ -39,9 +39,10 @@ export async function inspectSubagentForceStatus(
   let settingsReadable = true;
   try {
     const path = join(configDir, "settings.json");
-    const metadata = await stat(path);
-    if (!metadata.isFile() || metadata.size > 1_048_576) throw new Error("settings unavailable");
-    const parsed = JSON.parse(await readFile(path, "utf8"));
+    const read = readBoundedRegularFile(path, 1_048_576);
+    if (read.kind === "absent") return { targetValid, version, support: subagentForceSupport(version), settingsOverride, settingsReadable };
+    if (read.kind !== "present") throw new Error("settings unavailable");
+    const parsed = JSON.parse(read.content);
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("invalid settings");
     const env = parsed.env;
     settingsOverride = !!env && typeof env === "object" && !Array.isArray(env)

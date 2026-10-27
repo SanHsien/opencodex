@@ -28,7 +28,7 @@ import { FORWARD_HEADERS, sanitizeReasoningInputContent } from "../../adapters/o
 import { repairUrlCitationAnnotations, stripProviderInputItemMetadata } from "../../adapters/openai-responses/request-strips";
 import { expandPreviousResponseInput, previousResponseProviderState, rememberResponseState } from "../../responses/state";
 import { repairLegacyDottedToolCallNames } from "../../responses/legacy-dotted-tool-name-repair";
-import { NoEligiblePolicyCandidateError, routeCompactionModel } from "../../router";
+import { NoEligiblePolicyCandidateError, NoEnabledOpenAiProviderError, UnknownRoutingPolicyError, routeCompactionModel } from "../../router";
 import { evidenceFromBody } from "../../routing/request-evidence";
 import {
   advanceComboAfterFailure,
@@ -727,13 +727,21 @@ export async function handleResponsesCompact(
     });
   } catch (err) {
     if (err instanceof AdmissionModelDeniedError) return admissionModelDeniedResponse(err);
+    if (err instanceof UnknownRoutingPolicyError) {
+      return formatErrorResponse(404, "invalid_request_error", err.message);
+    }
+    if (err instanceof NoEnabledOpenAiProviderError) {
+      return formatErrorResponse(404, "invalid_request_error", err.message);
+    }
     if (err instanceof NoEligiblePolicyCandidateError) {
       // Persist the evaluation trace (per-candidate exclusions + the
       // no-eligible reason) so a failed compact policy request stays
       // auditable, matching the other request handlers.
       logCtx.routeDecision = err.trace;
+      return formatErrorResponse(404, "invalid_request_error", "no eligible candidates for routing policy");
     }
-    return formatErrorResponse(404, "invalid_request_error", err instanceof Error ? err.message : String(err));
+    logCtx.errorCode ??= "responses_compaction_route_resolution_failed";
+    return formatErrorResponse(404, "invalid_request_error", "requested compaction model is unavailable");
   }
   const selectedModelId = route.modelId;
   // Derive from the RESOLVED route model, not the caller's raw string. An account-qualified

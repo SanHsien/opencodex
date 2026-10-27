@@ -7,6 +7,8 @@ import {
   isLocationUnsupportedMessage,
 } from "../../src/lib/errors";
 import { sanitizePassthroughHeaders } from "../../src/server";
+import { resolveChosenTarget } from "../../src/server/responses/shadow-target-availability";
+import { NoEnabledOpenAiProviderError, UnknownRoutingPolicyError } from "../../src/router";
 import type { AdapterEvent } from "../../src/types";
 
 async function* replay(events: AdapterEvent[]): AsyncGenerator<AdapterEvent> {
@@ -143,6 +145,39 @@ describe("error fidelity", () => {
         code: "upstream_server_error",
       },
     });
+  });
+
+  test("unknown internal routing failures never expose private paths", async () => {
+    const resolution = resolveChosenTarget("configured/private-target", () => {
+      throw new Error("ENOENT: no such file or directory, open 'C:\\fixture-private\\config.json'");
+    });
+    expect(resolution).toEqual({ unavailable: "selected target is unavailable" });
+    const response = formatErrorResponse(409, "invalid_request_error", resolution.unavailable);
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        message: "selected target is unavailable",
+        type: "invalid_request_error",
+        code: "invalid_request_error",
+      },
+    });
+  });
+
+  test("known quota diagnostics remain client-visible", async () => {
+    const response = formatErrorResponse(402, "upstream_error", "You exceeded your current quota");
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        message: "You exceeded your current quota",
+        type: "insufficient_quota",
+        code: "insufficient_quota",
+      },
+    });
+  });
+
+  test("known routing refusals pass through the shadow resolver", () => {
+    expect(() => resolveChosenTarget("policy/missing", () => { throw new UnknownRoutingPolicyError("missing"); }))
+      .toThrow("Unknown routing policy: missing");
+    expect(() => resolveChosenTarget("gpt-6.1-sol", () => { throw new NoEnabledOpenAiProviderError("gpt-6.1-sol"); }))
+      .toThrow("requires the canonical openai provider");
   });
 
   test("streaming response.failed includes both error and last_error", async () => {

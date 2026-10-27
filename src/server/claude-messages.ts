@@ -930,7 +930,7 @@ async function handleClaudeMessagesWithBudget(
     if (err instanceof NoEligiblePolicyCandidateError) {
       logCtx.routeDecision = err.trace;
       if (logIds) addFinalRequestLog(logIds.requestId, logIds.start, logCtx, 404, { closeReason: "non_stream" });
-      return anthropicErrorResponse(404, err.message, "invalid_request_error");
+      return anthropicErrorResponse(404, "no eligible candidates for routing policy", "invalid_request_error");
     }
     /* unknown model: let handleResponses shape the 404 */
   }

@@ -236,6 +236,27 @@ describe("routing policy request evidence parity (via dev handlers)", () => {
       }
     }
   });
+
+  test("no-eligible policies retain their trace but not their profile id on every wire", async () => {
+    const config = testConfig();
+    config.routingProfiles = { private_profile_id: { candidates: [{ provider: "missing", model: "m1" }] } };
+    for (const { path, handler, body } of [
+      { path: "/v1/responses", handler: handleResponses, body: { model: "policy/private_profile_id", input: "hello" } },
+      { path: "/v1/chat/completions", handler: handleChatCompletions, body: { model: "policy/private_profile_id", messages: [{ role: "user", content: "hello" }] } },
+      { path: "/v1/messages", handler: handleClaudeMessages, body: { model: "policy/private_profile_id", max_tokens: 64, messages: [{ role: "user", content: "hello" }] } },
+      { path: "/v1/responses/compact", handler: handleResponsesCompact, body: { model: "policy/private_profile_id", input: "hello" } },
+    ]) {
+      const log: RequestLogContext = { model: "", provider: "" };
+      const response = await handler(new Request(`http://localhost${path}`, {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+      }), config, log);
+      expect(response.status).toBe(404);
+      const payload = await response.json() as { error: { message: string } };
+      expect(payload.error.message).toBe("no eligible candidates for routing policy");
+      expect(JSON.stringify(payload)).not.toContain("private_profile_id");
+      expect(log.routeDecision).toBeDefined();
+    }
+  });
   test("rich evidence (tools + image) produces identical route decision across all three surfaces", async () => {
     takeSpendHome();
     adapterFactory = minimalSuccessAdapter;

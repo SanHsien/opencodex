@@ -777,7 +777,10 @@ describe("bare native compaction model without canonical openai (#2901)", () => 
       { model: "", provider: "" },
     );
 
-    expect(res.status).toBe(404);
+    expect({ status: res.status, body: await res.json() }).toMatchObject({
+      status: 404,
+      body: { error: { message: "Model gpt-5.6-sol requires the canonical openai provider. Run: ocx provider add openai && ocx sync && ocx restart" } },
+    });
     expect(upstreamCalls).toBe(0);
   });
 });
@@ -2118,7 +2121,10 @@ test("a no-eligible policy compact request persists the evaluation trace", async
     config,
     logCtx,
   );
-  expect(response.status).toBe(404);
+  expect({ status: response.status, body: await response.json() }).toMatchObject({
+    status: 404,
+    body: { error: { message: "no eligible candidates for routing policy" } },
+  });
   expect(logCtx.routeDecision).toBeDefined();
   expect(logCtx.routeDecision!.selected.reason).toBe("no-eligible-candidate");
   expect(logCtx.routeDecision!.candidates).toHaveLength(1);

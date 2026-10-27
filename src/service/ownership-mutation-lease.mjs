@@ -72,15 +72,17 @@ function readOwner(path) {
     if (entries.length !== 1) return null;
     const ownerPath = join(path, entries[0]);
     // lstat rejects a symlinked owner record; dev/ino rejects a swap before open.
-    const lexical = lstatSync(ownerPath);
-    if (!lexical.isFile() || lexical.size > 4096) return null;
+    const lexical = lstatSync(ownerPath, { bigint: true });
+    if (!lexical.isFile() || lexical.size > 4096n) return null;
     // O_NOFOLLOW/O_NONBLOCK are undefined on Windows (?? 0); on POSIX a raced-in FIFO cannot block the open.
     const fd = openSync(ownerPath, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0) | (fsConstants.O_NONBLOCK ?? 0));
     let owner;
     let record;
     try {
       owner = fstatSync(fd);
-      if (!owner.isFile() || owner.size > 4096 || owner.dev !== lexical.dev || owner.ino !== lexical.ino) return null;
+      // bigint: Windows file indexes exceed 2^53 and would compare inexactly as numbers.
+      const ownerId = fstatSync(fd, { bigint: true });
+      if (!owner.isFile() || owner.size > 4096 || ownerId.dev !== lexical.dev || ownerId.ino !== lexical.ino) return null;
       record = JSON.parse(readFileSync(fd, "utf8"));
     } finally {
       closeSync(fd);

@@ -29,7 +29,9 @@ export type BoundedFileRefusal =
   /** Larger than the caller's limit, measured on the open descriptor. */
   | "too-large"
   /** Identity or size moved between the open and the last byte: the read is not trustworthy. */
-  | "changed-while-reading";
+  | "changed-while-reading"
+  /** The filesystem reports file index 0, so a swap between the stat and the open cannot be detected. */
+  | "untrusted-identity";
 
 export type BoundedFileRead =
   | { kind: "absent" }
@@ -78,9 +80,10 @@ export function readBoundedRegularFile(path: string, maxBytes: number): BoundedF
   try {
     const before = fstatSync(fd, { bigint: true });
     if (!before.isFile()) return { kind: "refused", reason: "not-a-regular-file" };
-    if (!sameIdentity(before, lexicalBefore) || !hasTrustedIdentity(before) || !hasTrustedIdentity(lexicalBefore)) {
-      return { kind: "refused", reason: "changed-while-reading" };
+    if (!hasTrustedIdentity(before) || !hasTrustedIdentity(lexicalBefore)) {
+      return { kind: "refused", reason: "untrusted-identity" };
     }
+    if (!sameIdentity(before, lexicalBefore)) return { kind: "refused", reason: "changed-while-reading" };
     if (before.size > BigInt(maxBytes)) return { kind: "refused", reason: "too-large" };
 
     const buffer = Buffer.allocUnsafe(Number(before.size));
@@ -96,6 +99,8 @@ export function readBoundedRegularFile(path: string, maxBytes: number): BoundedF
     if (readSync(fd, extra, 0, 1, offset) !== 0) return { kind: "refused", reason: "too-large" };
 
     const after = fstatSync(fd, { bigint: true });
+    // The caller gets a number-typed stat; take it from the same descriptor and hold it to `after`.
+    const returnedStat = fstatSync(fd);
     let lexicalAfter: BigIntStats;
     try {
       lexicalAfter = lstatSync(path, { bigint: true });
@@ -110,10 +115,12 @@ export function readBoundedRegularFile(path: string, maxBytes: number): BoundedF
       || lexicalBefore.mode !== before.mode || lexicalBefore.uid !== before.uid
       || lexicalAfter.isSymbolicLink() || !lexicalAfter.isFile()
       || !sameIdentity(lexicalAfter, after) || !hasTrustedIdentity(lexicalAfter)
-      || lexicalAfter.mode !== after.mode || lexicalAfter.uid !== after.uid) {
+      || lexicalAfter.mode !== after.mode || lexicalAfter.uid !== after.uid
+      || BigInt(returnedStat.mode) !== after.mode || BigInt(returnedStat.size) !== after.size
+      || BigInt(returnedStat.uid) !== after.uid) {
       return { kind: "refused", reason: lexicalAfter.isSymbolicLink() || !lexicalAfter.isFile() ? "not-a-regular-file" : "changed-while-reading" };
     }
-    return { kind: "present", bytes: buffer, content: buffer.toString("utf8"), stat: fstatSync(fd) };
+    return { kind: "present", bytes: buffer, content: buffer.toString("utf8"), stat: returnedStat };
   } catch (error) {
     // A byte-range lock taken after the open (EBUSY/EACCES on Windows) lands here, not on the
     // open; keep its code so callers can still treat it as transient.
@@ -141,8 +148,10 @@ function sameIdentity(
   return left.dev === right.dev && left.ino === right.ino;
 }
 
+// Only the file index has to be nonzero: some volumes report serial number 0 for dev, and
+// identity is still compared on both fields.
 function hasTrustedIdentity(stat: { dev: bigint; ino: bigint }): boolean {
-  return stat.dev !== 0n && stat.ino !== 0n;
+  return stat.ino !== 0n;
 }
 
 export function readBoundedRegularFileSync(path: string, limit: number): Buffer {

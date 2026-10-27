@@ -114,6 +114,8 @@ function readShimStateFile(path: string, maxBytes: number): { bytes: Buffer; con
           return { warning: `Codex shim state exceeds the 1 MiB startup limit at ${path}; auto-restore skipped.` };
         case "changed-while-reading":
           return { warning: `Codex shim state changed while being read at ${path}; auto-restore skipped.` };
+        case "untrusted-identity":
+          return { warning: `Codex shim state is on a filesystem that reports file index 0 at ${path}; auto-restore skipped.` };
         case "unreadable":
           return { warning: `Codex shim state could not be inspected at ${path}.` };
       }

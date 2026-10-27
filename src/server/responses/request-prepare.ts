@@ -569,6 +569,7 @@ export async function prepareResponsesRequest(
       });
     }
     logCtx.errorCode ??= "responses_request_prepare_failed";
+    console.warn(`[opencodex] request could not be prepared: ${sanitizeLogMetadataString(err instanceof Error ? err.message : String(err))}`);
     return formatErrorResponse(400, "invalid_request_error", "request could not be prepared");
   }
   options.onRequestBodyRead?.();

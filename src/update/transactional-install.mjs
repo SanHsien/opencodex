@@ -209,13 +209,14 @@ function readOwnedStageMarker(dir, pkgName) {
     if (!dirStat.isDirectory() || dirStat.isSymbolicLink()) return null;
     const markerPath = join(dir, UPDATE_OWNER_MARKER);
     // lstat rejects a symlinked marker; dev/ino rejects a swap before open.
-    const lexical = lstatSync(markerPath);
+    const lexical = lstatSync(markerPath, { bigint: true });
     if (!lexical.isFile()) return null;
     // O_NOFOLLOW/O_NONBLOCK are undefined on Windows (?? 0); on POSIX a raced-in FIFO cannot block the open.
     const fd = openSync(markerPath, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0) | (fsConstants.O_NONBLOCK ?? 0));
     let marker;
     try {
-      const stat = fstatSync(fd);
+      // bigint: Windows file indexes exceed 2^53 and would compare inexactly as numbers.
+      const stat = fstatSync(fd, { bigint: true });
       if (!stat.isFile() || stat.dev !== lexical.dev || stat.ino !== lexical.ino) return null;
       marker = JSON.parse(readFileSync(fd, "utf8"));
     } finally {

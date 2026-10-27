@@ -194,6 +194,7 @@ function tokenBackupRefusalReason(reason: BoundedFileRefusal): string {
     case "not-a-regular-file": return "service token backup is not a regular file";
     case "too-large": return "service token backup exceeds the size limit";
     case "changed-while-reading": return "service token backup changed while it was being read";
+    case "untrusted-identity": return "service token backup is on a filesystem that reports file index 0";
     case "unreadable": return "service token backup could not be inspected";
   }
 }

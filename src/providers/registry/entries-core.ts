@@ -251,7 +251,8 @@ export const PROVIDER_REGISTRY_CORE: readonly ProviderRegistryEntry[] = [
     // (it is the current catalog, so its default ordering wins), then the ids
     // only the old devin entry carried. Degraded-mode seed only either way —
     // `liveModels` discovers the account's real roster.
-    models: ["swe-2", "swe-1-7", "gpt-5-6-sol", "gpt-6-astra", "gpt-6-1-sol", "gpt-6-sol", "gpt-6-luna", "claude-opus-5-5", "claude-opus-5", "claude-fable-5-1", "claude-sonnet-5-5", "claude-haiku-5-5", "claude-sonnet-5", "glm-5-3", "kimi-k3", "gemini-3-8-flash", "grok-4-6", "grok-4-7", "swe-1-7-lightning", "gpt-5-6-luna", "gpt-5-6-terra", "claude-opus-4-8", "glm-5-2", "kimi-k2-7", "grok-4-5"],
+    // 261027 preemptive: GPT-6.1 Terra (same degraded seed policy as GPT-6.1 Sol).
+    models: ["swe-2", "swe-1-7", "gpt-5-6-sol", "gpt-6-astra", "gpt-6-1-sol", "gpt-6-1-terra", "gpt-6-sol", "gpt-6-luna", "claude-opus-5-5", "claude-opus-5", "claude-fable-5-1", "claude-sonnet-5-5", "claude-haiku-5-5", "claude-sonnet-5", "glm-5-3", "kimi-k3", "gemini-3-8-flash", "grok-4-6", "grok-4-7", "swe-1-7-lightning", "gpt-5-6-luna", "gpt-5-6-terra", "claude-opus-4-8", "glm-5-2", "kimi-k2-7", "grok-4-5"],
     liveModels: true,
     defaultModel: "swe-2",
     modelContextWindows: DEVIN_MODEL_CONTEXT_WINDOWS,
@@ -757,16 +758,18 @@ export const PROVIDER_REGISTRY_CORE: readonly ProviderRegistryEntry[] = [
       ...OPENAI_DAYBREAK_REASONING_EFFORTS,
       "gpt-6-astra": ["low", "medium", "high", "xhigh", "max"],
       ...Object.fromEntries(OPENAI_GPT6_MODELS.map(id => [id, ["low", "medium", "high", "xhigh", "max"]])),
+      // OpenAI API model page (2026-10-27): Terra also accepts none; Sol does not.
+      "gpt-6.1-terra": ["none", "low", "medium", "high", "xhigh", "max"],
     },
     virtualModels: OPENAI_API_GPT56_VIRTUAL_MODELS,
   },
   /* [Decision Log]
-  - 목적과 의도: Reach Meta's Muse Spark models directly on Meta's own Model API, instead of only through the Command Code and OpenCode Zen resellers already in this registry.
-  - 기존 구현 및 제약 조건: Meta publishes both POST /v1/responses and POST /v1/chat/completions at https://api.meta.ai/v1, and no API key was issued for this change — every value here comes from the published spec (devlog/_plan/260903_muse_spark_plan_oauth/001).
-  - 검토한 주요 대안: register as openai-chat; use provider id "meta"; enable live discovery; wire the Muse Code subscription credential as OAuth.
-  - 선택한 방식: an openai-responses key provider under the id "meta-model", with a static two-model roster and no OAuth.
-  - 다른 대안 대신 이 방식을 선택한 이유: Meta calls Responses "the recommended default for new work ... OpenAI-compatible and exposes the full feature set", carrying reasoning replay and native input_image that Chat would forfeit. The id is "meta-model" because "meta" would capture the LIVE Command Code selector meta/muse-spark-1.3 at router.ts's provider-prefix branch, and would derive META_API_KEY — the Muse Code CLI's variable, not this API's MODEL_API_KEY.
-  - 장점, 단점 및 영향: users reach Muse Spark without a reseller; discovery stays off until an authenticated /v1/models payload is actually observed, so an unseen roster (Meta also serves image and voice families here) cannot leak into the picker.
+  - Purpose and intent: Reach Meta's Muse Spark models directly on Meta's own Model API, instead of only through the Command Code and OpenCode Zen resellers already in this registry.
+  - Existing implementation and constraints: Meta publishes both POST /v1/responses and POST /v1/chat/completions at https://api.meta.ai/v1, and no API key was issued for this change — every value here comes from the published spec (devlog/_plan/260903_muse_spark_plan_oauth/001).
+  - Main alternatives considered: register as openai-chat; use provider id "meta"; enable live discovery; wire the Muse Code subscription credential as OAuth.
+  - Chosen approach: an openai-responses key provider under the id "meta-model", with a static two-model roster and no OAuth.
+  - Why this over the alternatives: Meta calls Responses "the recommended default for new work ... OpenAI-compatible and exposes the full feature set", carrying reasoning replay and native input_image that Chat would forfeit. The id is "meta-model" because "meta" would capture the LIVE Command Code selector meta/muse-spark-1.3 at router.ts's provider-prefix branch, and would derive META_API_KEY — the Muse Code CLI's variable, not this API's MODEL_API_KEY.
+  - Pros, cons and impact: users reach Muse Spark without a reseller; discovery stays off until an authenticated /v1/models payload is actually observed, so an unseen roster (Meta also serves image and voice families here) cannot leak into the picker.
   */
   {
     id: "meta-model",
@@ -802,12 +805,12 @@ export const PROVIDER_REGISTRY_CORE: readonly ProviderRegistryEntry[] = [
     note: "Pay-as-you-go Meta Model API. Get a key at https://dev.meta.ai (Meta calls it MODEL_API_KEY; export it here as META_MODEL_API_KEY) — a Meta developer account needs a payment method before it can serve requests, and every call is metered per token. A Muse Code subscription does NOT work here: Meta scopes that credential to the Muse Code CLI and bills any other key pay-as-you-go (dev.meta.ai/docs/muse-code/subscriptions). The Contributor tier (muse-spark-1.3-contributor) is cheap because Meta trains on your prompts — about 92% off input, 95% off output, 99% off cached input; do not send confidential material through it. Muse Wonder (muse-wonder-1.0, preview) is Standard mode only on this API ($4 input / $20 output per 1M tokens, no Contributor tier) and accepts reasoning effort up to max; the Spark rows stop at xhigh. Muse Spark is also reachable through resellers: command-code carries both tiers, opencode-go serves only muse-spark-1.3-contributor.",
   },
   /* [Decision Log]
-  - 목적과 의도: Let an operator who already signed the Muse Code CLI in reach Muse Spark with that credential, instead of provisioning a second key.
-  - 기존 구현 및 제약 조건: The CLI stores a pointer at ~/.config/muse/auth.json and the secret in the macOS Keychain (ai.meta.dev.credentials/meta). Measured: the OAuth access_token 401s on /v1/models while the sibling api_key returns 200, so the usable artifact is a static key, not a refreshable token.
-  - 검토한 주요 대안: spawn `muse login` and poll; reimplement Meta's device grant; treat it as a second key preset; ship nothing.
-  - 선택한 방식: an OAuth provider that imports the existing credential on macOS and accepts a pasted key elsewhere, validates either once, and never spawns or reimplements anything.
-  - 다른 대안 대신 이 방식을 선택한 이유: `muse login` has no non-interactive mode, so a spawned child could outlive cancellation, and polling for the pointer file is satisfied instantly by the one already on disk — reimporting the OLD account on a force-login. Reimplementing the grant would mean guessing a client id the vendor does not publish.
-  - 장점, 단점 및 영향: no new credential to provision, and the id is distinct from meta-model so neither pool contaminates the other. Meta scopes this credential to its own CLI, so the provider carries a HIGH_RISK ToS warning, a CLI-side warning before any read, and a note that says plainly what is unsupported.
+  - Purpose and intent: Let an operator who already signed the Muse Code CLI in reach Muse Spark with that credential, instead of provisioning a second key.
+  - Existing implementation and constraints: The CLI stores a pointer at ~/.config/muse/auth.json and the secret in the macOS Keychain (ai.meta.dev.credentials/meta). Measured: the OAuth access_token 401s on /v1/models while the sibling api_key returns 200, so the usable artifact is a static key, not a refreshable token.
+  - Main alternatives considered: spawn `muse login` and poll; reimplement Meta's device grant; treat it as a second key preset; ship nothing.
+  - Chosen approach: an OAuth provider that imports the existing credential on macOS and accepts a pasted key elsewhere, validates either once, and never spawns or reimplements anything.
+  - Why this over the alternatives: `muse login` has no non-interactive mode, so a spawned child could outlive cancellation, and polling for the pointer file is satisfied instantly by the one already on disk — reimporting the OLD account on a force-login. Reimplementing the grant would mean guessing a client id the vendor does not publish.
+  - Pros, cons and impact: no new credential to provision, and the id is distinct from meta-model so neither pool contaminates the other. Meta scopes this credential to its own CLI, so the provider carries a HIGH_RISK ToS warning, a CLI-side warning before any read, and a note that says plainly what is unsupported.
   */
   {
     id: "meta-muse",
@@ -880,12 +883,12 @@ export const PROVIDER_REGISTRY_CORE: readonly ProviderRegistryEntry[] = [
     // Use explicit replay history and the existing stateless Responses policy.
     statelessResponses: true,
     /* [Decision Log]
-    - 목적과 의도: Route the exact models OpenCode Go documents on the Responses endpoint — GPT 5.6 Luna, Grok 4.6/4.7, and Muse Spark Contributor (#2617; opencode.ai/docs/go).
-    - 기존 구현 및 제약 조건: The provider is mixed-wire but its provider-wide `openai-chat` adapter sent Luna to `/chat/completions`; explicit user `modelAdapters` entries must remain authoritative.
-    - 검토한 주요 대안: Change the whole provider to Responses; infer the wire from model-family names; add one registry-only exact-model default.
-    - 선택한 방식: Declare only the named models as `openai-responses` through the existing registry default mechanism; the map stays an exact-model allowlist rather than a family or provider-wide rule.
-    - 다른 대안 대신 이 방식을 선택한 이유: OpenCode Go documents sibling models on Chat or Anthropic endpoints, and an exact registry default preserves both those routes and explicit opt-out precedence.
-    - 장점, 단점 및 영향: Each listed model reaches `/responses` from every inbound surface without changing siblings; a future upstream endpoint change requires an evidence-backed registry update.
+    - Purpose and intent: Route the exact models OpenCode Go documents on the Responses endpoint — GPT 5.6 Luna, Grok 4.6/4.7, and Muse Spark Contributor (#2617; opencode.ai/docs/go).
+    - Existing implementation and constraints: The provider is mixed-wire but its provider-wide `openai-chat` adapter sent Luna to `/chat/completions`; explicit user `modelAdapters` entries must remain authoritative.
+    - Main alternatives considered: Change the whole provider to Responses; infer the wire from model-family names; add one registry-only exact-model default.
+    - Chosen approach: Declare only the named models as `openai-responses` through the existing registry default mechanism; the map stays an exact-model allowlist rather than a family or provider-wide rule.
+    - Why this over the alternatives: OpenCode Go documents sibling models on Chat or Anthropic endpoints, and an exact registry default preserves both those routes and explicit opt-out precedence.
+    - Pros, cons and impact: Each listed model reaches `/responses` from every inbound surface without changing siblings; a future upstream endpoint change requires an evidence-backed registry update.
     */
     modelWireDefaults: OPENCODE_GO_RESPONSES_DEFAULTS,
     modelContextWindows: {
@@ -1098,6 +1101,7 @@ export const PROVIDER_REGISTRY_CORE: readonly ProviderRegistryEntry[] = [
       "openai/gpt-6-luna": true,
       // Listed 2026-09-29 as an OpenAI-backed route like GPT-6 Sol.
       "openai/gpt-6.1-sol": true,
+      "openai/gpt-6.1-terra": true,
     },
     // Deliberately no OpenRouter route pin: it bills the endpoint actually used and reports the
     // actual service_tier. B0 confirmation therefore owns downgrade safety. Forcing `only` plus
@@ -1256,17 +1260,18 @@ export const PROVIDER_REGISTRY_CORE: readonly ProviderRegistryEntry[] = [
     // the list only as compatibility aliases so existing saved configs and requests
     // keep validating and routing (they previously mapped to v4-flash; devlog
     // _fin/260710_provider_hardening/002_research_cn.md). The current offerings are
-    // V4.1-Flash — defaultModel and the model-specific wiring below use its live id.
+    // V4.1-Flash and V4 Pro; Flash remains the default.
     // Keep the legacy vision-preview alias; see DEEPSEEK_VISION_PREVIEW_MODEL.
     models: ["deepseek-chat", "deepseek-reasoner", ...DEEPSEEK_NATIVE_THINKING_MODELS, DEEPSEEK_VISION_PREVIEW_MODEL],
-    // V4.1-Flash is the current first-party offering; `deepseek-v4-flash` now routes there
+    // V4.1-Flash is the first-party default; `deepseek-v4-flash` now routes there
     // as a compatibility alias, so a new install should ask for the live id by name.
     defaultModel: "deepseek-flash",
     // Official DeepSeek Codex setup (codex-deepseek-setup.sh) advertises 1,048,576
     // for both V4 models; the older 1,000,000 figure was a rounded approximation.
-    modelContextWindows: { "deepseek-flash": 1_048_576, "deepseek-v4-flash": 1_048_576, [DEEPSEEK_VISION_PREVIEW_MODEL]: 1_048_576 },
+    modelContextWindows: { "deepseek-flash": 1_048_576, "deepseek-v4-flash": 1_048_576, "deepseek-v4-pro": 1_048_576, [DEEPSEEK_VISION_PREVIEW_MODEL]: 1_048_576 },
     modelInputModalities: {
       "deepseek-flash": ["text", "image"],
+      "deepseek-v4-pro": ["text"],
       [DEEPSEEK_VISION_PREVIEW_MODEL]: ["text", "image"],
     },
     // DeepSeek documents both V4 models as native Responses API models adapted for Codex
@@ -1281,6 +1286,7 @@ export const PROVIDER_REGISTRY_CORE: readonly ProviderRegistryEntry[] = [
       // translating them into Responses would add a hop onto our newest upstream path
       // for no gain.
       "deepseek-v4-flash": { wire: "openai-responses", inbound: ["responses"] },
+      "deepseek-v4-pro": { wire: "openai-responses", inbound: ["responses"] },
       // Same Responses contract as the V4 ids it succeeds; without this row the new
       // default would fall back to the provider-wide Chat wire.
       "deepseek-flash": { wire: "openai-responses", inbound: ["responses"] },
@@ -1298,7 +1304,7 @@ export const PROVIDER_REGISTRY_CORE: readonly ProviderRegistryEntry[] = [
     // devlog/_fin/260807_deepseek_responses_streaming/000_plan.md.
     // Current official streams normally carry a real terminal; retain a narrow grace
     // repair for the historical shape that closes after a complete graph without one.
-    modelResponsesTerminalRepair: { "deepseek-flash": { graceMs: 5_000 }, "deepseek-v4-flash": { graceMs: 5_000 } },
+    modelResponsesTerminalRepair: { "deepseek-flash": { graceMs: 5_000 }, "deepseek-v4-flash": { graceMs: 5_000 }, "deepseek-v4-pro": { graceMs: 5_000 } },
     // DeepSeek's Responses route emits bare UUID item ids, which leave Codex
     // clients stuck on an uncommitted turn (#938). Client-facing only — raw
     // continuation snapshots keep the upstream ids.
@@ -1330,23 +1336,19 @@ export const PROVIDER_REGISTRY_CORE: readonly ProviderRegistryEntry[] = [
     // empty result or re-issue the same call.
     annotateEmptyToolOutputs: true,
     /* [Decision Log]
-    - 목적: DeepSeek V4 thinking mode multi-turn/tool-call requests must replay prior assistant reasoning_content.
-    - 대안 분석: Globally preserve reasoning_content for all OpenAI-compatible models; preserve it for legacy deepseek-reasoner too; mark only V4 thinking models in registry metadata.
-    - 선택 근거: DeepSeek V4 thinking mode requires history replay, while older DeepSeek reasoner has different compatibility rules. A model-scoped registry flag fixes built-in and stale saved configs without broad provider regressions.
+    - Purpose: DeepSeek V4 thinking mode multi-turn/tool-call requests must replay prior assistant reasoning_content.
+    - Alternatives analysis: Globally preserve reasoning_content for all OpenAI-compatible models; preserve it for legacy deepseek-reasoner too; mark only V4 thinking models in registry metadata.
+    - Rationale: DeepSeek V4 thinking mode requires history replay, while older DeepSeek reasoner has different compatibility rules. A model-scoped registry flag fixes built-in and stale saved configs without broad provider regressions.
     */
     modelReasoningEfforts: Object.fromEntries(DEEPSEEK_NATIVE_THINKING_MODELS.map(id => [id, deepseekThinkingEffortsFor(id)])),
     modelReasoningEffortMap: Object.fromEntries(DEEPSEEK_NATIVE_THINKING_MODELS.map(id => [id, deepseekReasoningMapFor(id)])),
     modelSupportsReasoningSummaries: Object.fromEntries(DEEPSEEK_NATIVE_THINKING_MODELS.map(id => [id, true])),
-    // deepseek-v4-pro is absent from the live sets on purpose (retired upstream, requests
-    // route to V4.1-Flash — see model-seeds.ts), but it stays SELECTABLE in configs that
-    // already carry it, and what serves it is a thinking-mode model. A saved config with
-    // the alias selected would otherwise serialize a bare continuation the upstream 400s
-    // on (#5421). The preserve list governs replay, not advertisement.
-    preserveReasoningContentModels: [...DEEPSEEK_NATIVE_THINKING_MODELS, "deepseek-v4-pro"],
+    // Native thinking models retain assistant reasoning on tool-call continuations (#5421).
+    preserveReasoningContentModels: DEEPSEEK_NATIVE_THINKING_MODELS,
     // #4436: first-party deepseek-flash accepts native images on Chat and Responses.
     // Keep unprobed compatibility aliases on the #88 sidecar path. This must be fixed
     // here: router enrichment unions this list with saved config, so config cannot remove it.
-    noVisionModels: ["deepseek-chat", "deepseek-reasoner", "deepseek-v4-flash"],
+    noVisionModels: ["deepseek-chat", "deepseek-reasoner", "deepseek-v4-flash", "deepseek-v4-pro"],
   },
   // llama-3.3-70b was deprecated by Cerebras on 2026-02-16. Evidence: devlog/_plan/260710_provider_hardening/003_research_aggregators.md.
   { id: "cerebras", label: "Cerebras", baseUrl: "https://api.cerebras.ai/v1", adapter: "openai-chat", authKind: "key", dashboardUrl: "https://cloud.cerebras.ai/platform/apikeys", defaultModel: "gpt-oss-120b" },

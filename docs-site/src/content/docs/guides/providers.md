@@ -52,6 +52,8 @@ reset is expected to recover as `+N% pool capacity`. **Incomplete coverage** mea
 accounts could not safely contribute to the estimate, for example because their plan or quota is
 unknown, their reading is stale, or the account is paused or needs reauthentication.
 
+Business Premium seats reported as `self_serve_business_prolite` count as five Standard-seat units in this estimate. This display weight does not select accounts or create a five-hour window when the upstream reports only weekly usage. The calibration follows the [official Business usage limits](https://help.openai.com/en/articles/12003714-chatgpt-business-models-and-limits), checked 2026-10-20; unknown plans continue to count at the baseline with the unknown-plan count disclosed.
+
 A **partial window coverage** warning means some included accounts reported one quota window but
 not another. The overview keeps those windows separate and marks each affected window incomplete
 instead of treating the missing reading as usage for that window.
@@ -316,7 +318,7 @@ ocx logout <provider>
 | --- | --- | --- | --- |
 | `xai` | `openai-chat` | `https://cli-chat-proxy.grok.com/v1` | OAuth uses the separate Grok CLI subscription gateway. The API-key override uses `https://api.x.ai/v1` and may inject Priority Processing. Live-first Grok catalog; `grok-4.5` is the fallback default. |
 | `anthropic` | `anthropic` | `https://api.anthropic.com` | Claude models; live model list fetched from `/v1/models`. |
-| `kimi` | `openai-chat` | `https://api.kimi.com/coding/v1` | Kimi Code Plan coding models. Defaults to the stable `kimi-for-coding` alias (currently K2.8 Preview): 1M-token context window, adjustable `low`/`high`/`max` thinking (default `max`), text + image input. Retired `kimi-k2.x` selections are migrated to the alias on upgrade. |
+| `kimi` | `openai-chat` | `https://api.kimi.com/coding/v1` | Kimi Code Plan coding models. Defaults to the stable `kimi-for-coding` alias (currently K2.8 Preview): 1M-token context window, adjustable `low`/`high`/`max` thinking (default `max`), text + image input. `k3.1-pro` and `k3.1-pro-highspeed` (K3.1 Pro) are also listed: 1M-token context, thinking-only on the same ladder (default `max`). Retired `kimi-k2.x` selections are migrated to the alias on upgrade. |
 | `kimi-responses` | `openai-responses` | `https://api.kimi.com/coding/v1` | Same Kimi account login (reuses the `kimi` OAuth credential) over the OpenAI Responses wire. Same model roster and capabilities as `kimi`; thinking content stays encrypted server-side, tool calls and results stay visible. |
 | `nous` | `openai-chat` | `https://inference-api.nousresearch.com/v1` | Nous Research subscription gateway (same backend Hermes Agent uses). Device-grant login against `portal.nousresearch.com`; the access token is the per-request inference JWT. Mixed paid + `:free` model catalog (`tencent/hy3:free`, `stepfun/step-3.7-flash:free`, ...) discovered live from the signed-in account. Refresh tokens are single-use and rotated on every refresh. |
 | `kiro` | `kiro` | `https://runtime.us-east-1.kiro.dev` | The dashboard Login and Add account buttons offer Builder ID, Google, GitHub device login, or Kiro CLI. Native device login adds an account without signing `kiro-cli` out. The Kiro CLI choice imports or starts a CLI session; its Add account workflow temporarily switches the CLI account and restores it on cancellation or failure. |
@@ -388,14 +390,27 @@ to avoid its `assistant must not be empty` rejection. Nonempty text, whitespace,
 reasoning and tool calls/results are retained; stored client history is not rewritten.
 An empty message referenced by an `item_reference` in the same input is retained rather than leaving a dangling reference.
 
-Kimi Coding usage prices for `k3`, `k3[1m]`, and `k3-256k` are **API-reference estimates** across
-`kimi`, `kimi-code`, and `kimi-responses`, using the published default 5-minute cache-write rate.
-They do not reproduce Code Plan billing or quota: K3's 1M variant consumes about twice the quota
-of `k3-256k`. `kimi-for-coding` now points to K2.8 Preview, so its former K2.7 price is no longer
+Kimi Coding usage prices for `k3`, `k3[1m]`, `k3-256k`, `k3.1-pro`, and `k3.1-pro-highspeed` are
+**API-reference estimates** across `kimi`, `kimi-code`, and `kimi-responses`, using the published
+default 5-minute cache-write rate (the `moonshot` API preset prices the same models as `kimi-k3`,
+`kimi-k3.1-pro`, and `kimi-k3.1-pro-highspeed`). They do not reproduce Code Plan billing or quota:
+K3's 1M variant consumes about twice the quota of `k3-256k`, and K3.1 Pro Highspeed about twice
+that of `k3.1-pro`. `kimi-for-coding` now points to K2.8 Preview, so its former K2.7 price is no longer
 used; its estimate remains unavailable unless the operator supplies `modelCosts`. Unknown-price
 routing policies and cost caps that exclude unknown estimates can therefore exclude this alias.
 See [Kimi's model configuration](https://www.kimi.com/code/docs/en/kimi-code/models.html) and
 [API pricing](https://platform.kimi.ai/docs/pricing/chat).
+
+The `moonshot` (Kimi API) preset lists `kimi-k3.1-pro` and `kimi-k3.1-pro-highspeed` next to
+`kimi-k3` and the K2 ids. Both have a 1M-token context window and text + image input, and always
+think: the picker offers `low` / `high` / `max` (default `max`), Codex `medium` is sent as `high`
+and `xhigh` as `max`, and an explicit `none` leaves `reasoning_effort` out so the upstream default
+applies. Fixed sampling parameters (`temperature`, `top_p`, penalties) are not sent. A saved
+`moonshot` model list that is still the previous built-in list gains both ids at startup when it
+points at the International or China endpoint; an edited list or a Custom URL is left as it is.
+The preset default stays `kimi-k2.7-code`. Moonshot closes the K2 series to new accounts on
+2026-10-31 and plans to retire it by the end of December 2026; see the
+[Kimi API model list](https://platform.kimi.ai/docs/models).
 
 A custom `openai-chat` provider can opt in when its upstream documents support for
 `prompt_cache_key`:
@@ -660,6 +675,12 @@ selectors, then retry. Signing in from a machine with no existing `kiro-cli` ses
 The native dashboard choices are add-only and do not sign out `kiro-cli`. A device dialog shows the code and verification destination. Only recognized Kiro or Builder ID hosts are opened as links; an unexpected destination is shown as copyable text for review. Closing the dialog sends cancellation and leaves a bounded background status check to reconcile a commit already in progress. A stalled status response is retried; exhausting the flow deadline produces the neutral ended outcome rather than claiming success. Google and GitHub approval completes when Kiro reports `authorized` (or the legacy `approved` status) with valid tokens and a profile ARN.
 The account list marks Kiro accounts excluded from automatic selection with a reason, when available.
 
+### DeepSeek API
+
+The `deepseek` API-key provider includes `deepseek-flash`, its `deepseek-v4-flash` alias, and `deepseek-v4-pro`. DeepSeek [withdrew the Pro retirement plan](https://api-docs.deepseek.com/updates/) and continues serving it; opencodex retains Pro in the catalog with a 1,048,576-token context window, text-only input, and `low`/`high`/`max` reasoning effort. Responses requests use its native Responses endpoint; Chat Completions requests retain the Chat wire. Flash remains the default. Third-party providers have independent model availability.
+
+On upgrade, startup adds Pro to a saved model list only when it exactly matches the previous built-in DeepSeek seed and still uses the official endpoint and adapter. Customized lists, including empty lists, remain unchanged; live discovery need not be enabled for this repair.
+
 ### DeepSeek Account (DSH)
 
 `dsh-account` is an experimental, import-first account provider designed to reuse the authenticated account credentials of an installed DeepSeek Harness (DSH) Desktop application.
@@ -673,7 +694,7 @@ The account list marks Kiro accounts excluded from automatic selection with a re
 
 ## 3. API-key catalog
 
-opencodex ships 105 built-in presets: 84 key-based, 17 OAuth, three local, and one default
+opencodex ships 106 built-in presets: 85 key-based, 17 OAuth, three local, and one default
 ChatGPT-forward preset. The dashboard's **Add provider** picker opens a key provider's dashboard,
 validates the key, and stores it; validation is provider-specific. Notable entries:
 
@@ -765,6 +786,7 @@ region-pinned EU routes, is at [opper.ai/models](https://opper.ai/models). Opper
 | Opper | `https://api.opper.ai/v3/compat` |
 | TokenLab | `https://api.tokenlab.sh/v1` |
 | Modelflare | `https://modelflare.dev/v1` |
+| AI Stupid Level | `https://aistupidlevel.info/v1` |
 | OpenGateway | `https://apis.opengateway.ai/v1` |
 | GitLab Duo | `https://cloud.gitlab.com/ai/v1/proxy/openai/v1` |
 | Cloudflare AI Gateway | `https://gateway.ai.cloudflare.com/v1/{account-id}/{gateway}/anthropic` |
@@ -828,7 +850,7 @@ Each model then uses the request format TokenLab declares for it
 
 | Models | Codex (Responses clients) | Chat clients | Claude Code (Anthropic clients) |
 | --- | --- | --- | --- |
-| `gpt-6-astra`, `gpt-6.1-sol`, `gpt-6-sol`, `gpt-6-luna`, `grok-4.7`, `deepseek-v4.1-flash`, `deepseek-v4-pro`, `kimi-k3`, `glm-5.3` | [Responses](https://tokenlab.sh/docs/en/api-reference/responses/create-response) | Chat Completions | Chat Completions |
+| `gpt-6-astra`, `gpt-6.1-sol`, `gpt-6.1-terra`, `gpt-6-sol`, `gpt-6-luna`, `grok-4.7`, `deepseek-v4.1-flash`, `deepseek-v4-pro`, `kimi-k3`, `glm-5.3` | [Responses](https://tokenlab.sh/docs/en/api-reference/responses/create-response) | Chat Completions | Chat Completions |
 | `claude-*` | [Messages](https://tokenlab.sh/docs/en/api-reference/messages/create-message) | Messages | Messages |
 | Every other model, including `gemini-3.8-flash` | Chat Completions | Chat Completions | Chat Completions |
 
@@ -849,15 +871,42 @@ picker and marks it as a sponsor, and nothing else about routing or defaults cha
 **Modelflare** is an OpenAI-compatible relay at `https://modelflare.dev/v1`. Select **Modelflare**
 in `ocx init` or the dashboard's **Add provider** picker, or run `ocx provider add modelflare`, and
 give it your key directly or as the reference `${MODELFLARE_API_KEY}` so the key stays in your
-environment. The preset uses Chat Completions and seeds four models that
+environment. The preset uses Chat Completions. The following existing models
 were verified with chat, streaming and tool calls: `glm-5.3-flash` (the default),
-`claude-sonnet-5-5`, `gpt-6.1-sol` and `deepseek-v4-flash`. You can add other Chat-compatible
+`claude-sonnet-5-5`, `gpt-6.1-sol` and `deepseek-v4-flash`.
+`gpt-6.1-terra` is a preemptive seed mirroring Sol; it has not been inference-verified here.
+You can add other Chat-compatible
 Modelflare models as custom models. Image and video models use separate Modelflare endpoints and
 do not work through this Chat preset. An ordinary Modelflare key is bound to one routing group and
 can call only that group's models, so use a Smart key for the full seeded set, or pass
 `--default-model` with a model your key's group serves.
 `deepseek-v4.1-flash` is listed upstream but currently answers 503, so the preset leaves it out.
 Upstream latency varies from a few seconds to about 30 seconds, with occasional transient 503s.
+
+**AI Stupid Level** is a Smart Router at `https://aistupidlevel.info/v1`, operated by S.C. Studio
+Platforms S.R.L. Create a router key at [aistupidlevel.info/router/keys](https://aistupidlevel.info/router/keys)
+and add your own OpenAI, Anthropic, Google, DeepSeek, Kimi or GLM keys to the same account. Then select
+**AI Stupid Level** in `ocx init` or the dashboard's **Add provider** picker, or run
+`ocx provider add aistupidlevel`, and give it the router key directly or as the reference
+`${AISTUPIDLEVEL_API_KEY}`. The router calls each model with your own provider key, so the provider
+bills you directly and AI Stupid Level adds no markup ([terms](https://aistupidlevel.info/terms#router)).
+The preset uses Chat Completions for every client, Claude Code included, and discovers models from the
+authenticated `GET /v1/models`. Its seeded models are the
+[routing modes](https://aistupidlevel.info/router/docs#strategies): `auto-coding` (the default) sends
+each request to the model with the best measured score on AI Stupid Level's coding benchmark,
+`auto-tooling` and `auto-reasoning` do the same for tool use and reasoning, and `auto-value-coding` or
+`auto-fastest-quality` pick the best-value or fastest model within 5 points of the best. A real model id
+from the live list, such as `aistupidlevel/claude-opus-5-5`, pins one model, and the `X-AISM-Model`
+response header names the model that answered. Routing modes declare a 262,144-token window and 64,000
+output tokens, which hold for any model the router picks. The router accepts text only, so for a
+routing mode or pinned model at the preset destination the proxy hands images to the vision sidecar instead of sending them. Its Anthropic
+Messages endpoint is a passthrough to Anthropic without routing, so the preset does not use it.
+
+The provider editor also accepts an optional `inputModalities` fallback: a nonempty array containing
+`text`, `image`, `audio`, or `video`. Exact per-model declarations take precedence. Invalid values
+are rejected on save; a malformed value in a hand-edited config loads as `["text"]` with a warning.
+The preset's text-only fallback is applied at runtime, including when saved under another provider
+name at the same URL and Chat adapter. It does not follow a custom URL or another adapter.
 
 The MiniMax and MiniMax (CN) provider cards can also show Coding Plan quota when the configured
 key has an active plan. The dashboard reads the plan's 5-hour window and, when present, weekly
@@ -870,17 +919,15 @@ attempt fails, while transient failures keep it. An unreadable or oversized body
 further attempts. Dollar credits show the included allowance only, excluding purchased credits,
 so an exhausted allowance stops routing to Ollama Cloud only when no purchased credit remains.
 
-`MiniMax-M3.1-Flash-Preview` (1M context) is listed on both MiniMax presets. MiniMax serves it
-only to Token Plan subscription keys and MiniMax Code for now, so a pay-as-you-go API key gets an
-error for it. Thinking is always on: the effort picker offers `low` through `max` and defaults to
-`max`, and there is no way to turn thinking off. MiniMax has not published a per-token price
-for the preview; usage is drawn from your
-[Token Plan quota](https://platform.minimax.io/docs/guides/pricing-token-plan), so OpenCodex
-shows no estimated cost for it. MiniMax's `/models` endpoint does not list
-the preview yet, so OpenCodex keeps it in the catalog from the preset. An install whose saved
-MiniMax model list is still the previous default receives it on the next start; a list you edited
-is left as it is; register the preview by hand with
-`ocx models add minimax MiniMax-M3.1-Flash-Preview --context-window 1000000`.
+`MiniMax-M3.1-Flash` (1M context, up to 524,288 output tokens) is the default model on both MiniMax
+presets. MiniMax released it on 2026-10-19 and retired the `MiniMax-M3.1-Flash-Preview` id, so a
+saved configuration that still names the preview is renamed to `MiniMax-M3.1-Flash` on the next
+start. Thinking is always on: the effort picker offers `low` through `max` and defaults to `max`,
+and there is no way to turn thinking off. MiniMax's `/models` endpoint does not list Flash, so
+OpenCodex keeps it in the catalog from the preset. An install whose saved MiniMax model list is
+still the previous default receives it on the next start; a list you edited is left as it is;
+register it by hand with
+`ocx models add minimax MiniMax-M3.1-Flash --context-window 1000000`.
 
 **OpenCode Go** routes `gemini-4-argon-contributor` through its Gemini API, including
 streaming and tool-result continuations. The existing `opencode-go` preset keeps its
@@ -949,6 +996,13 @@ Most use the `openai-chat` adapter with a bearer key; Anthropic-compatible prese
 preset, `xiaomi-mimo`, and a token-plan preset, `mimo`. All three default to MiMo V2.6 (`mimo-v2.6-pro`,
 or `mimo-v2.6-flash` on `xiaomi-mimo`). Xiaomi retires `mimo-v2.5` and `mimo-v2.5-pro` on 2026-10-21
 with no redirect, so switch a saved V2.5 default before then; opencodex does not rewrite it for you.
+
+**Reasoning capabilities.** Model metadata describes three independent capabilities: `supportsReasoning`, `supportsThinkingToggle`, and `supportsReasoningEffort`. An omitted value is unknown; `false` is an explicit declaration. `defaultThinkingEnabled` records the default switch state, while `reasoningEfforts` lists actual strength choices. Per-model declarations live in the provider's `modelCapabilities` map; reasoning axes merge over registry defaults using case-insensitive model IDs, with operator values taking precedence. `/v1/models` exposes the corresponding `supports_reasoning`, `supports_thinking_toggle`, `supports_reasoning_effort`, and `default_thinking_enabled` fields under `capabilities`, without inventing an effort list for fixed-strength models.
+
+Legacy configurations with an explicit empty effort list and no reasoning capability declarations retain `capabilities.supports_reasoning: false` in `/v1/models` discovery. An explicit `supportsReasoning: true` or `supportsThinkingToggle: true` still advertises thinking when the effort list is empty.
+
+Public MiMo V2.6 is one instance: its three models support reasoning and an on/off switch, but no adjustable intensity; thinking defaults to enabled. The wire adapter sends `thinking.type: enabled/disabled`. OCX's Responses ingress also accepts `reasoning.enabled` independently of `reasoning.effort`. For clients that only offer effort enums, Codex catalogs and OpenCode/Kilo exports represent this switch as `none/high`; those values are client compatibility aliases, not MiMo strength levels. Client-owned labels may still say “High.” Fixed reasoning models without a switch get no fabricated control. Xiaomi's [deep-thinking guide](https://mimo.mi.com/docs/en-US/quick-start/usage-guide/other/deep-thinking) describes the public MiMo switch; free, token-plan, third-party routes and older MiMo models keep their existing declarations.
+
 Volcengine Coding Plan and Agent Plan use their native Responses endpoints through `openai-responses`.
 During validated Ark Coding Plan tool continuations, replaying the returned Responses `reasoning` item
 answered `400 InvalidParameter`, so the Coding Plan preset drops replayed reasoning items before
@@ -1103,6 +1157,10 @@ ladder, and `meta-model/muse-wonder-1.0` (Muse Wonder, preview) with `minimal` t
 Muse Wonder is Standard mode only on the Model API: it has no Contributor tier and costs
 $4 per 1M input and $20 per 1M output tokens. Muse Wonder Full is available only inside Muse
 Code subscriptions, so it is not seeded.
+On startup, an untouched saved two-Spark model list gains Muse Wonder when `meta-model` uses
+`https://api.meta.ai/v1` or has no saved endpoint override. Custom gateway destinations and
+hand-edited model lists stay unchanged. Existing per-model context-window overrides and output
+limits are preserved; Wonder's context window is filled only into an existing window map.
 Discovery stays off until an authenticated roster is verified, because Meta serves image and
 voice models on the same host.
 
@@ -1324,9 +1382,11 @@ OpenCodex provides official adapter support for Qoder through the `qoder` (Globa
 - **Authentication:** Create a PAT in the account integrations page
   ([Global](https://qoder.com/account/integrations), [CN](https://qoder.cn/account/integrations)) and paste it as the provider's API key. The stored key reaches the CLI only as `QODER_PERSONAL_ACCESS_TOKEN` (Global) or `QODERCN_PERSONAL_ACCESS_TOKEN` (CN) in a scoped child environment.
 - **Region Isolation:** Each preset accepts only its canonical destination (`https://qoder.com` or `https://qoder.cn`) and resolves its own executable. Credentials, model cache, usage, and health are independent; neither region falls back to the other. An older custom provider named `qoder` with a different destination keeps its existing adapter and URL.
+- **Windows executables:** Each preset launches its CLI's native executable (`qoder.exe` or `qodercli.exe` for Global, `qodercn.exe` or `qoderclicn.exe` for CN) when one is on PATH. Within one PATH folder the `.exe` wins over a same-name `.cmd`, and a later candidate name such as `qoderclicn.exe` anywhere on PATH wins over `qodercn.cmd`; an earlier PATH folder that holds only `qodercn.cmd` still shadows a later folder's `qodercn.exe`. Qoder turns pass empty `--tools` and `--setting-sources` values to keep the CLI's built-in tools and local settings out, and a dispatcher that forwards through PowerShell drops those empty values. When only such a dispatcher is found, the turn fails before the CLI starts with `cli_dispatcher_drops_empty_args`; add the folder holding the native executable to PATH (the official CN installer places it in `%USERPROFILE%\.qoder-cn\bin\qoderclicn`) and retry. A dispatcher that passes arguments straight through, such as an npm shim, keeps working.
 - **Model Discovery:** `qoder --list-models` is the authoritative entitlement roster for the current PAT. The cache is bound to an irreversible fingerprint of the token, so switching accounts never reuses another account's roster. If discovery fails, the provider degrades to a stale cache and then the documented static seed.
 - **Token usage:** Qoder CLI reports zero token counts unless its usage switch is on, so each preset turns it on in its scoped CLI child environment: `QODER_EXPOSE_TOKEN_USAGE=true` for Global and `QODERCN_EXPOSE_TOKEN_USAGE=true` for CN, which reads only its own prefix.
 - **Tool Ownership:** The CLI runs single-turn `stream-json` with `--tools ""`, `--strict-mcp-config`, setting sources disabled, and session persistence disabled, so Codex keeps exclusive tool ownership. Client-declared tools are exposed through an isolated request-scoped MCP server.
+- **Output guard:** If the CLI echoes OpenCodex tool-call/result replay envelopes into assistant text, the turn fails with `vendor_scaffold_detected` (502) instead of returning the envelope as a successful answer, and neither reasoning nor tool calls following the envelope are forwarded. Reasoning starts a fresh replay-text block, so earlier prose or code fences cannot hide an envelope in later text. If the CLI's turn already ended with its own error, that error is reported instead, still without the envelope. The proxy does not retry that failure automatically. Ordinary prose and closed fenced examples follow the shared envelope recognizer; an unverified overflowing fenced example is refused. Assistant text preserves Unicode characters split across CLI frames; unpaired surrogates are replaced with U+FFFD.
 - **Image Input:** Qoder Global accepts image input through the Qoder CLI. OpenCodex forwards supported image inputs that reach the Global adapter to the CLI without maintaining a per-model vision capability allowlist there. Image compatibility and any model-specific preprocessing or routing are handled by Qoder. OpenCodex does not use the static discovery fallback roster to classify per-model vision capability. Qoder CN keeps its existing sidecar classification, and any residual raw-image request that reaches the CN adapter is rejected as `unsupported_input_modality`. OpenCodex serializes history before the current turn, but Qoder does not persist sessions, so prior images are replayed on later turns. In observed multi-turn image conversations, replayed images can become unreliably associated or effectively ordered relative to the historical text they originally accompanied.
 - **PAT recovery:** For both Qoder presets, a multi-key API-key pool can switch to another PAT on a supported authentication rejection or account-level quota exhaustion, but only before response content or an event that makes replay unsafe. Recovery requires Qoder-specific classification and respects credential-hop and send budgets; an HTTP 401/429 or quota message alone is not permission to replay. Single-key configurations do not rotate. Sharing the CLI runner does not enable this API-key recovery for CodeBuddy or self-authenticated Claude CLI.
 - **Quota:** No public quota API is used, so totals and reset times are unavailable. Codes 110 (account daily limit) and 118 (personal Credits exhaustion) report `insufficient_quota` and permit consideration of PAT recovery. Other supported quota codes also report `insufficient_quota` but do not authorize it. Numeric error codes take precedence: an unrecognized numeric code does not fall back to quota or authentication text. Without a numeric code, only the supported account-daily message beginning “You've reached your daily usage limit for Chat”, with no team/model/shared qualifier, grants quota recovery; generic credit-limit text does not. Only quota failures eligible for PAT recovery enter key cooldown handling. When such a failure has no reset time, the failed key uses the existing default cooldown; nonrecoverable quota classifications do not create a cooldown through this path, and no next-day reset is inferred.
@@ -1526,6 +1586,9 @@ visible even while live catalogs lag:
 | Codex login (Pool or Direct) | `gpt-5.6-*` | 922,000 |
 | OpenAI (API key) | `openai-apikey/gpt-5.6-*` plus `*-pro` | 922,000 (922,000 max input) |
 | OpenRouter | `openrouter/openai/gpt-5.6-sol`, `openrouter/openai/gpt-5.6-terra`, `openrouter/openai/gpt-5.6-luna` | 922,000 |
+| Codex | `gpt-6.1-terra` | 500,000 / 872,000 |
+| OpenAI API | `openai-apikey/gpt-6.1-terra` | 1,050,000 (128,000 max output) |
+| OpenRouter | `openrouter/openai/gpt-6.1-terra` | 1,050,000 |
 | Cursor | `cursor/gpt-5.6-sol`, `cursor/gpt-5.6-terra`, `cursor/gpt-5.6-luna` | 1,000,000 |
 
 The native GPT-5.6 entries preserve the pinned upstream reasoning ladders (for example, Luna has
@@ -1572,7 +1635,7 @@ seconds per call, including pacing and body reads. These are OpenCodex safeguard
 GitHub limits; oversized catalogs, slow negotiation or a truncated intent excerpt can affect compatibility.
 
 For named selections, Copilot fronts a mixed-wire catalog: the following models (`gpt-5.3-codex`, `gpt-5.4`,
-`gpt-5.4-mini`, `gpt-5.5`, `gpt-5.6-luna`, `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-6-astra`, `grok-4.5`, `grok-4.6`, `mai-code-1.1-flash`, `mai-code-1-flash-picker`) reject
+`gpt-5.4-mini`, `gpt-5.5`, `gpt-5.6-luna`, `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-6.1-sol`, `gpt-6.1-terra`, `gpt-6-astra`, `grok-4.5`, `grok-4.6`, `mai-code-1.1-flash`, `mai-code-1-flash-picker`) reject
 `/chat/completions` for agent traffic, so opencodex routes those models over the
 Responses API by built-in default while every other Copilot model stays on chat
 completions. The precedence is: hard wire pin → your explicit

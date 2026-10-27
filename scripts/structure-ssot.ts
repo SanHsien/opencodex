@@ -374,7 +374,7 @@ export function runStructureChecks(repoRoot: string): string[] {
     const body = withoutFences(raw);
     const isRecord = rel.startsWith("decisions/");
     for (const line of body.split("\n")) {
-      if (/\[decision log\]/i.test(line) || /^-\s*목적과 의도\s*:/.test(line.trim())) {
+      if (/\[decision log\]/i.test(line) || /^-\s*(?:목적과 의도|Purpose and intent)\s*:/.test(line.trim())) {
         if (!isRecord) fail("structure/" + rel + " carries inline decision-log reasoning; move it to decisions/ and link the record");
       }
     }

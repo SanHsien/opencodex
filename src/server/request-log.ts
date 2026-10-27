@@ -1192,14 +1192,14 @@ export function httpStatusForRequestLogTerminal(
   }
   /**
    * [Decision Log]
-   * - 목적과 의도: Keep request logs aligned with the successful HTTP/SSE contract.
-   * - 기존 구현 및 제약 조건: All incomplete terminals were recorded as 502 even when the
+   * - Purpose and intent: Keep request logs aligned with the successful HTTP/SSE contract.
+   * - Existing implementation and constraints: All incomplete terminals were recorded as 502 even when the
    *   client-requested output limit was reached normally.
-   * - 검토한 주요 대안: Treat every incomplete as success, or infer the reason from display text.
-   * - 선택한 방식: Only structured max_output_tokens incompletes map to 200.
-   * - 다른 대안 대신 이 방식을 선택한 이유: Stall, EOF, and unknown incompletes must remain
+   * - Main alternatives considered: Treat every incomplete as success, or infer the reason from display text.
+   * - Chosen approach: Only structured max_output_tokens incompletes map to 200.
+   * - Why this over the alternatives: Stall, EOF, and unknown incompletes must remain
    *   visible failures, and display text is not a stable classification contract.
-   * - 장점, 단점 및 영향: Logs stop reporting false upstream errors while retaining the
+   * - Pros, cons and impact: Logs stop reporting false upstream errors while retaining the
    *   incomplete terminal detail; native callers without a structured reason keep old behavior.
    */
   if (status === "incomplete" && logCtx?.terminalIncompleteReason === "max_output_tokens") {

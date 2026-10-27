@@ -37,6 +37,7 @@ preserving a stale one would block every later migration.
 
 ## Model and wire identity
 
+Account-list rows retain each registered `slotId` and `slotKind`; optional `upstreamAccountKey` is a versioned HMAC of the ChatGPT account ID and user claim under the local administrator token. Native identity comes from the owned observation without passive credential reads; missing or conflicting claims omit the key, the native key needs one token that claims both the matching account and the user (an `auth.json` `account_id` alone, or account and user claims split across the ID and access tokens, omit it), Pool rows need the access token's matching account claim, and token rotation changes it. No raw identity or credential is serialized.
 The optional [native reasoning retention policy](../transports/native-reasoning-retention.md#runtime-boundary) can permit reasoning ciphertext forwarding across a known model or account change on the same canonical ChatGPT destination. It does not change account selection, entitlement, cache isolation, continuation-id ownership or uploaded-file retention; cross-account acceptance is not guaranteed.
 
 Native Spark membership and its model-specific request/tool exceptions are removed; the shared
@@ -67,11 +68,11 @@ Native Spark membership and its model-specific request/tool exceptions are remov
   a request goes upstream as `gpt-6-astra-minor`.
 
 - The flagship roster that lists unconditionally is `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`,
-  `gpt-6-astra`, `gpt-6-sol`, `gpt-6-luna` and `gpt-6.1-sol` (Sol and Luna added 2026-09-23 from a
+  `gpt-6-astra`, `gpt-6-sol`, `gpt-6-luna`, `gpt-6.1-sol` and `gpt-6.1-terra` (Sol and Luna added 2026-09-23 from a
   live roster probe; https://openai.com/index/introducing-gpt-6-sol-and-luna/; 6.1 Sol added
-  2026-09-30 from openai/codex models.json). None of them is gated, and all seven are native-main
+  2026-09-30 and 6.1 Terra on 2026-10-27 from openai/codex models.json). None is gated, and all are native-main
   drain sentinels. The confirmed-denial ordering below is still scoped to the first four
-  (`ENTITLEMENT_PREFERRED_NATIVE_OPENAI_MODELS`); the GPT-6 Sol rows and Luna do not feed it yet.
+  (`ENTITLEMENT_PREFERRED_NATIVE_OPENAI_MODELS`); the GPT-6 and GPT-6.1 rows do not feed it yet.
 
 - The always-visible flagships (`gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna`, `gpt-6-astra`)
   use the same rosters with the opposite polarity, and are never gated on them. Only a CONFIRMED
@@ -250,9 +251,8 @@ restored from the Accounts picker or Codex Auth through gated recovery: missing 
 from the canonical preset, disabled canonical rows are re-enabled without replacing saved mode or
 model settings, and noncanonical `openai` rows never receive that recovery path.
 
-`GET /api/codex-auth/accounts?refresh=1` treats missing main credentials, HTTP 401, and allowlisted
-terminal 403 codes as `needsReauth`; generic permission failures remain non-terminal, and a
-successful main usage refresh clears the runtime mark.
+Account listing and explicit refresh return stored pool accounts without creating a missing native `CODEX_HOME`; an unchecked main observation leaves credential/reauth state unchanged. When the native home is accessible, `GET /api/codex-auth/accounts?refresh=1` treats missing main credentials, HTTP 401 responses with a known terminal code, unrecognized HTTP 401 responses when the access token is not verifiably live, and allowlisted terminal 403 responses as `needsReauth`; successful refresh clears the runtime mark.
+Generic quota permission failures remain non-terminal; missing-home fallback requires proven absence, so non-directory homes, dangling links, and parent directories that cannot be traversed still fail closed for both default and explicit home paths. Native-profile context resolution validates OpenCodex storage before the native home, so unsafe storage fails closed even when that home is absent; credential operations retain their strict claim requirements.
 
 `src/codex/chatgpt-refresh-failure.ts` classifies token-endpoint failures for both stored-pool
 and native-main refresh. Exact structured terminal codes apply only to authentication-error
@@ -536,7 +536,7 @@ No requests means no new polling. For this reason only, stale observation proof 
 quota-cache freshness after the existing attempt backoff. Main refresh keeps its owned lease and
 passive intent: cache bypass does not clear an inference reauthentication mark. Other prime reasons
 retain their existing cache rules except the independently scheduled [pool credit renewal](pool-credit-renewal.md). The split config schema degrades malformed optional values to
-false. Exact-account and Direct routes are unchanged.
+false. Priority failback leaves exact-account and Direct routes unchanged; explicitly bound Direct stored accounts remain eligible for the separate credit-renewal sweep.
 
 ## Main-account policy observations
 

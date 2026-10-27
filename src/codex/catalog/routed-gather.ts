@@ -1,7 +1,7 @@
 import { canInferVendorContext } from "./vendor-context";
 import { effectiveProviderAlias, effectiveProviderAliasDecision } from "../../providers/default-aliases";
 import { initialModelSelectionPending } from "../../providers/initial-model-selection";
-import { supportsConfiguredUltraFast } from "./configured-tiers";
+import { supportsConfiguredFlex, supportsConfiguredUltraFast } from "./configured-tiers";
 import { execFileSync } from "node:child_process";
 import { createHash, createHmac, randomBytes } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, realpathSync } from "node:fs";
@@ -102,7 +102,7 @@ import type {
   CatalogTrustedOpenAiApiPolicySnapshot,
 } from "../convergence-types";
 import type { CatalogGatherProviderAuthOutcome, CatalogGatherProviderModelOutcome, GatherFlightCapture, ModelsAuthResolverFactory } from "./gather-capture";
-import { applyProviderConfigHints, configuredAutoCompactTokenLimit, configuredMaxInputTokens, configuredModelDisplayName, configuredReasoningSummarySupport, modelInputModalities, routedMaxOutputTokens, withVisionSidecarInput } from "./model-hints";
+import { applyProviderConfigHints, configuredAutoCompactTokenLimit, configuredMaxInputTokens, configuredModelDisplayName, configuredReasoningSummarySupport, copyReasoningHintSource, modelInputModalities, routedMaxOutputTokens, withVisionSidecarInput } from "./model-hints";
 import { resolveComboCatalogMember } from "./combo-member";
 import { captureGatherFlight, captureTrustedOpenAiApiPolicy, gatherFlightKey, keyedGatherBytesIdentity, withCanonicalOpenAiForwardAuthDefault } from "./gather-capture";
 import { fetchProviderModelsWithAuth, observedModelsAuthResolver, refreshingModelsAuthResolver } from "./provider-models";
@@ -364,6 +364,7 @@ async function gatherRoutedModelsUncached(
       const supported = serviceTierSupportFromPolicy(policy);
       if (supported !== undefined) model.supportsServiceTier = supported;
       model.supportsUltraFastTier = supportsConfiguredUltraFast(policy);
+      model.supportsFlexTier = supportsConfiguredFlex(policy);
       if (supported === true && policy.fastTierDescription !== undefined) model.fastTierDescription = policy.fastTierDescription;
     }
   }
@@ -389,24 +390,25 @@ async function gatherRoutedModelsUncached(
     .filter(shouldExposeRoutedModel);
   const memberByKey = new Map(all.map(model => [`${model.provider}/${model.id}`, model]));
   // [Decision Log]
-  // - 목적과 의도: 콤보 타겟에 native OpenAI(Codex login) 모델이 포함될 때 카탈로그에서
-  //   누락되는 버그(issue #268)를 수정. "openai" provider는 forward-auth(Codex login
-  //   passthrough)이므로 fetchProviderModels가 항상 []를 반환하고, native slugs는
-  //   별도 정적 경로(nativeOpenAiSlugs)로만 노출됨. 따라서 memberByKey에
-  //   openai/<slug> 키가 존재하지 않아 콤보가 조용히 drop됨.
-  // - 기존 구현 및 제약 조건: memberByKey는 routed provider /models fetch 결과로만 구성.
-  // - 검토한 주요 대안: (A) native slugs를 all 배열에 직접 push — /v1/models와 온디스크
-  //   카탈로그에서 native 모델이 중복 노출되는 부작용 발생. (B) memberByKey에만 synthetic
-  //   CatalogModel을 주입 — 콤보 멤버 해석에만 사용하고 all에는 추가하지 않으므로 기존
-  //   노출 경로에 영향 없음.
-  // - 선택한 방식: (B) — synthetic entries를 memberByKey에만 주입.
-  // - 다른 대안 대신 이 방식을 선택한 이유: 기존 native 모델 노출 경로(/v1/models, 온디스크
-  //   카탈로그 sync, management API)를 전혀 변경하지 않고 콤보 resolution만 수선하기 때문.
-  // - 장점, 단점 및 영향: 장점 — 최소 수정, 기존 경로 무변경. 단점 — synthetic entries의
-  //   capability 데이터가 static/upstream snapshot 기반이므로, 사용자가 커스텀 config
-  //   힌트(modelContextWindows 등)로 native 모델의 context window를 오버라이드한 경우
-  //   반영되지 않음. 하지만 nativeOpenAiContextWindow가 이미 config 오버라이드를
-  //   우선시하므로 실제 충돌 가능성은 낮음.
+  // - Purpose and intent: fix the bug (issue #268) where native OpenAI (Codex login) models went
+  //   missing from the catalog when a combo target included them. The "openai" provider is
+  //   forward-auth (Codex login passthrough), so fetchProviderModels always returns [] and the
+  //   native slugs are exposed only through a separate static path (nativeOpenAiSlugs).
+  //   memberByKey therefore had no openai/<slug> key and the combo was silently dropped.
+  // - Existing implementation and constraints: memberByKey is built only from the routed
+  //   providers' /models fetch results.
+  // - Main alternatives considered: (A) push the native slugs straight into the all array, which
+  //   exposes native models twice in /v1/models and the on-disk catalog. (B) inject synthetic
+  //   CatalogModel entries into memberByKey only, used for combo member resolution and not added
+  //   to all, so the existing exposure paths are unaffected.
+  // - Chosen approach: (B), inject the synthetic entries into memberByKey only.
+  // - Why this over the alternatives: it repairs combo resolution without changing the existing
+  //   native model exposure paths (/v1/models, on-disk catalog sync, management API).
+  // - Pros, cons and impact: Pro, a minimal change that leaves existing paths untouched. Con, the
+  //   synthetic entries' capability data comes from the static/upstream snapshot, so a user who
+  //   overrides a native model's context window through custom config hints (modelContextWindows
+  //   and the like) will not see it reflected here. nativeOpenAiContextWindow already prefers the
+  //   config override, so a real conflict is unlikely.
   if (!hasComboTargets(config)) {
     // Skip the native slug injection entirely when no combos are configured — avoids
     // calling nativeOpenAiSlugs() (which reads the live Codex catalog from disk) for
@@ -451,18 +453,18 @@ async function gatherRoutedModelsUncached(
     }
   }
   // [Decision Log]
-  // - 목적과 의도: combo derivation must see the same explicit custom-model capabilities that the
+  // - Purpose and intent: combo derivation must see the same explicit custom-model capabilities that the
   //   final Models inventory publishes. Previously customModels were materialized only after this
   //   map had already derived every combo, so one row could say image while its combo said text.
-  // - 기존 구현 및 제약 조건: provider/discovery rows remain the inheritance source, and native
+  // - Existing implementation and constraints: provider/discovery rows remain the inheritance source, and native
   //   OpenAI synthesis must run first so a sparse custom row cannot hide native hard limits.
-  // - 검토한 주요 대안: move the full custom-row materializer ahead of combos, or overlay only the
+  // - Main alternatives considered: move the full custom-row materializer ahead of combos, or overlay only the
   //   explicit custom fields onto this private derivation map after provider/native inheritance.
-  // - 선택한 방식: use the scoped post-inheritance overlay; the existing final materializer stays
+  // - Chosen approach: use the scoped post-inheritance overlay; the existing final materializer stays
   //   the single owner of public custom-row construction and deduplication.
-  // - 다른 대안 대신 이 방식을 선택한 이유: moving the large materializer would reorder public
+  // - Why this over the alternatives: moving the large materializer would reorder public
   //   catalog production and warning behavior, while this map is already private to combo input.
-  // - 장점, 단점 및 영향: custom context/modality/reasoning/tool-mode declarations now constrain
+  // - Pros, cons and impact: custom context/modality/reasoning/tool-mode declarations now constrain
   //   their combos without widening unrelated rows; omitted fields retain provider/native limits.
   for (const custom of config.customModels ?? []) {
     const key = `${custom.provider}/${custom.modelId}`;
@@ -661,6 +663,7 @@ async function gatherRoutedModelsUncached(
       ...(cm.defaultReasoningEffort ? { defaultReasoningEffort: cm.defaultReasoningEffort } : {}),
       ...(typeof supportsServiceTier === "boolean" ? { supportsServiceTier } : {}),
       supportsUltraFastTier: supportsConfiguredUltraFast(fastPolicy),
+      supportsFlexTier: supportsConfiguredFlex(fastPolicy),
       ...(supportsServiceTier === true && fastPolicy?.fastTierDescription !== undefined
         ? { fastTierDescription: fastPolicy.fastTierDescription }
         : {}),
@@ -818,8 +821,8 @@ async function gatherRoutedModelsUncached(
         ? config.combos?.[model.id]?.targets ?? []
         : [{ provider: model.provider }];
       const inactive = quotaInactiveReason(config, targets);
-      const named = displayName && !model.displayName ? { ...model, displayName } : model;
-      return inactive ? { ...named, quotaInactiveReason: inactive } : named;
+      const named = displayName && !model.displayName ? copyReasoningHintSource(model, { ...model, displayName }) : model;
+      return inactive ? copyReasoningHintSource(named, { ...named, quotaInactiveReason: inactive }) : named;
     }),
     comboOmissions: localOmissions,
     providerAuthOutcomes: localProviderAuthOutcomes,
@@ -966,7 +969,7 @@ export function augmentRoutedModelsWithMetadata(
           : undefined;
         const liveWindow = typeof existing.contextWindow === "number" && existing.contextWindow > 0;
         if (liveWindow || publishedWindow === undefined) continue;
-        const seeded: CatalogModel = { ...existing, contextWindow: publishedWindow };
+        const seeded = copyReasoningHintSource(existing, { ...existing, contextWindow: publishedWindow });
         out[existingIndex] = providers?.[provider]
           ? applyProviderConfigHints(
             provider,
@@ -990,21 +993,18 @@ export function augmentRoutedModelsWithMetadata(
         ...(typeof meta.maxTokens === "number" && meta.maxTokens > 0 ? { maxOutputTokens: meta.maxTokens } : {}),
         ...(Array.isArray(meta.input) && meta.input.length > 0 ? { inputModalities: [...meta.input] } : {}),
       };
-      out.push({
-        ...model,
-        ...(providers?.[provider]
-          ? applyProviderConfigHints(
-            provider,
-            providers[provider],
-            model,
-            contextCap,
-            metadataModelIdCaseFoldByProvider?.get(provider),
-            undefined,
-            metadataConfigDirByProvider?.get(provider),
-            includeVisionSidecar,
-          )
-          : {}),
-      });
+      out.push(providers?.[provider]
+        ? applyProviderConfigHints(
+          provider,
+          providers[provider],
+          model,
+          contextCap,
+          metadataModelIdCaseFoldByProvider?.get(provider),
+          undefined,
+          metadataConfigDirByProvider?.get(provider),
+          includeVisionSidecar,
+        )
+        : model);
     }
   }
   return out;

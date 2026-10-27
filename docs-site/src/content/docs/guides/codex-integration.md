@@ -407,6 +407,10 @@ Root keys such as `openai_base_url`, `model_provider`, and `model_catalog_json` 
 first `[table]` header. The injector guarantees that placement, removes its own stale/duplicate
 copies, and never overwrites a user-owned root `openai_base_url`; if one exists, sync updates the
 catalog but reports that routing was not injected.
+
+Sync and restore also leave a root `model_context_window` in place, since OpenCodex never writes
+that key. Codex uses it instead of each model's catalog window, capped at that model's maximum
+window, so delete it yourself if you want each model to report its own window.
 :::
 
 ## Shared model catalog
@@ -1273,6 +1277,8 @@ opencodex removes the old five-hour reading from both request admission and acco
 An allowed response with primary and secondary windows can omit the optional tertiary window.
 This recovery uses your included plan allowance and does not require enabling **Use credits**.
 Partial or invalid usage data retains the previous block until recovery is confirmed.
+
+Stored accounts with **Use credits after limit** enabled renew their credit evidence on the existing background cycle once an included usage window is exhausted and the credit observation is at least three minutes old. In **Direct** mode this also covers stored accounts explicitly bound in `codexAccountNamespaces`, such as a sub-account selector. You can keep Direct mode and separate main/sub identities; this does not enable Pool routing or refresh unbound accounts. Paused and reauthentication-required accounts are skipped. Metadata reads do not validate pending accounts or send model requests. Failed reads retain backoff and requests still need fresh spendable credits; ordinary response usage headers do not renew the credit balance timestamp.
 
 ### Cancelling main-account device reauthentication
 

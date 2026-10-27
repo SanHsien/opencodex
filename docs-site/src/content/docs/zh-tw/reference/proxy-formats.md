@@ -14,6 +14,33 @@ provider events → internal adapter events → client dialect
 
 Responses 表示是橋接的中心。原生相容的路由可跳過部分轉譯並 passthrough 請求，但認證、路由、許可控制與回應安全仍在代理邊界發生。在[設定](/zh-tw/reference/configuration/)中設定監聽器與許可金鑰；當一個公開模型 id 應在多個目標間選擇時使用[組合](/zh-tw/guides/combos/)。
 
+## Required tools on buffered native combo routes
+
+A combo checks buffered native `openai-responses` JSON results when `tool_choice` is `required`
+or selects a named function/custom tool. A completed result without the required call becomes
+HTTP 502 with `error.code: "required_tool_contract_unsatisfied"`. The combo may try another eligible
+target before delivering the response, subject to its existing fallback policy and send budget.
+If no eligible target succeeds, the client receives the typed error instead of a false completion.
+A hosted call for a declared capability can satisfy `required`; a mismatched hosted call returns
+HTTP 400 with the same error code and `x-should-retry: false`, since the hosted action may already
+have executed. No fallback occurs in that case. Usage remains recorded.
+Auto/none choices, incomplete results and unknown tool contracts keep their existing behavior.
+This guard covers buffered native combo children. Streaming required-tool enforcement and direct
+native routes are separate scopes; visible output is never replayed. Translated Chat routes have
+their own guard, described next.
+
+## Required tools on translated Chat routes
+
+A translated OpenAI Chat response must contain a complete selected client tool call when
+`tool_choice` is required, names a tool, or uses a required allowed-tool selection. If the upstream
+finishes normally without one, the turn fails with `required_tool_not_called` and preserves usage.
+Already streamed text stays visible; the proxy does not replay the request or switch targets after
+that output. A streamed Responses reply ends with `response.failed`; an admitted buffered Responses
+envelope has `status: "failed"` even when its HTTP status is 200. Check the envelope status.
+Auto/none choices and truncated outcomes keep their existing behavior. This guard covers translated
+Chat client-tool catalogs; catalogs containing proxy-executed sidecars, native passthrough and other
+adapters retain their existing completion rules.
+
 ## MiMo bare tool-call recovery
 
 On translated OpenAI Chat routes, `mimo-v2` and dotted `mimo-v2.*` model IDs can recover a

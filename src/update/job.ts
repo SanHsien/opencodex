@@ -43,6 +43,7 @@ import type { UpdateCheckDeps } from "./check-types";
 export type { UpdateCheckDeps } from "./check-types";
 import type { PnpmGlobalOwner } from "./pnpm-global-install.mjs";
 import { isNewer } from "./notify";
+import { FORK_RELEASES_URL, FORK_SELF_UPDATE_HINT, forkSelfUpdateBlocked } from "./fork-source.mjs";
 import { isRealBunBinary } from "../lib/bun-binary-validator.mjs";
 import { handoffWindowsTrayForUpdate, planWindowsTrayUpdate } from "./tray-update-plan.mjs";
 import { GUI_UPDATE_FAILURE_NEXT_STEP } from "./update-failure-guidance.mjs";
@@ -53,9 +54,11 @@ import {
 } from "./npm-cache-preflight.mjs";
 import { guiUpdateWorkerCommand } from "./worker-launch";
 import { withoutSiblingMarker } from "../codex/sibling-start";
+import { spawnBindProbe, strictBindProbeScript } from "./bind-probe";
+import { withoutUpdateTeardownHandover, withUpdateTeardownHandover } from "./teardown-handover";
 import type { WorkerLaunchContext } from "./worker-launch";
 
-const RELEASE_NOTES_URL = "https://github.com/lidge-jun/opencodex/releases/latest";
+const RELEASE_NOTES_URL = FORK_RELEASES_URL;
 const UPDATE_JOB_FILENAME = "update-job.json";
 const UPDATE_TIMEOUT_MS = 180_000;
 const RESTART_TIMEOUT_MS = 60_000;
@@ -138,34 +141,6 @@ function nodeBin(): string {
 
 function usesNodeLauncher(installer: Installer): boolean {
   return installer === "npm" || installer === "pnpm";
-}
-
-/**
- * Strict bind script: exit 0 only after listen+close. Any listen error (including
- * Windows ghost-TCB failures under Bun) is busy — matches published `ocx start`
- * probes that treat every listen error as unavailable.
- */
-function strictBindProbeScript(port: number, hostname: string): string {
-  return [
-    "const net=require('net');",
-    "const s=net.createServer();",
-    "s.once('error',()=>process.exit(2));",
-    `s.listen(${Math.trunc(port)},${JSON.stringify(hostname)},()=>s.close(()=>process.exit(0)));`,
-    "setTimeout(()=>process.exit(3),2500);",
-  ].join("");
-}
-
-function spawnBindProbe(bin: string, script: string): boolean {
-  try {
-    const r = spawnSync(bin, ["-e", script], {
-      windowsHide: true,
-      timeout: 4000,
-      stdio: "ignore",
-    });
-    return r.status === 0;
-  } catch {
-    return false;
-  }
 }
 
 /**
@@ -615,6 +590,7 @@ export function startUpdateJob(
   restart: boolean,
   deps: Partial<StartUpdateJobDeps> = {},
 ): UpdateJobState {
+  if (forkSelfUpdateBlocked()) throw new UpdateJobError(FORK_SELF_UPDATE_HINT, 409, "fork_self_update_disabled");
   const resolvedDeps = { ...defaultStartUpdateJobDeps, ...deps };
   const running = readUpdateJob();
   if (running?.status === "running" || running?.status === "restarting") {
@@ -700,12 +676,14 @@ function runLoggedCommand(
   bin: string,
   args: string[],
   timeout: number,
+  env?: NodeJS.ProcessEnv,
 ): { status: number | null; signal: NodeJS.Signals | null; timedOut: boolean } {
   job = updateJob(job, {}, `$ ${formatCommand(bin, args)}`);
   const result = spawnSync(bin, args, {
     encoding: "utf8",
     timeout,
     windowsHide: true,
+    ...(env ? { env } : {}),
   });
   const stdout = typeof result.stdout === "string" ? result.stdout.trim() : "";
   const stderr = typeof result.stderr === "string" ? result.stderr.trim() : "";
@@ -1541,12 +1519,12 @@ async function confirmRestartedProxy(
   io: RestartIo = {},
 ): Promise<boolean> {
   /* [Decision Log]
-  - 목적과 의도: GUI update job이 detached restart 요청만 보고 성공 처리하지 않도록, 실제 프록시 복귀 여부를 확인한다.
-  - 기존 구현 및 제약 조건: update-job.json은 spawn/service reinstall 직후 `succeeded`로 끝났고, Windows npm/Bun 교체 실패처럼 몇 초 후 죽는 재시작을 잡지 못했다.
-  - 검토한 주요 대안: (1) 포트 점유만 확인 — 외부 프로세스/죽기 직전 프로세스를 성공으로 오인할 수 있다. (2) 무기한 /healthz 폴링 — UX가 느려지고 worker 종료 시점이 불명확하다. (3) 짧은 healthy 등장 + 안정성 창 확인 — 실제 복귀를 확인하면서도 대기 시간을 제한할 수 있다.
-  - 선택한 방식: identity-aware /healthz probe가 일정 시간 안에 나타나고, 추가 안정성 창 동안 유지되는지 확인한다.
-  - 다른 대안 대신 이 방식을 선택한 이유: GUI는 "업데이트가 설치됐지만 재시작은 실패"를 분리해 알려줘야 하며, 이 방식이 가장 적은 오탐으로 그 경계를 만든다.
-  - 장점, 단점 및 영향: 장점은 silent restart failure가 update-job 상태로 드러난다는 점이다. 단점은 설정상 성공 판정 창이 30초 도착 + 15초 안정성으로 늘어나고 경계 probe 지연이 추가될 수 있다는 점이며, 대신 실제 복귀를 더 정확히 반영한다.
+  - Purpose and intent: keep the GUI update job from reporting success on a detached restart request alone; confirm that the proxy actually came back.
+  - Existing implementation and constraints: update-job.json ended as `succeeded` right after the spawn / service reinstall, and could not catch a restart that dies a few seconds later (for example a failed Windows npm/Bun replacement).
+  - Main alternatives considered: (1) check only that the port is occupied: an external process or one about to die could be mistaken for success. (2) poll /healthz indefinitely: slow UX and no clear point at which the worker ends. (3) require a short healthy appearance plus a stability window: confirms a real return while bounding the wait.
+  - Chosen approach: confirm that an identity-aware /healthz probe appears within a set time and then stays healthy through an extra stability window.
+  - Why this over the alternatives: the GUI has to report "the update was installed but the restart failed" separately, and this approach draws that boundary with the fewest false positives.
+  - Pros, cons and impact: a silent restart failure now shows up in the update-job state. The cost is that the success window grows to 30 seconds to arrive plus 15 seconds of stability, and boundary probe latency may add to it, in exchange for reflecting the actual return more accurately.
   */
   const result = await awaitRestartedProxyHealthy(job, captured, io);
   if (result.ok) return true;
@@ -1812,6 +1790,7 @@ export interface GuiUpdateWorkerIo {
     bin: string,
     args: string[],
     timeout: number,
+    env?: NodeJS.ProcessEnv,
   ) => { status: number | null; signal: NodeJS.Signals | null };
 }
 
@@ -1929,11 +1908,15 @@ export async function runGuiUpdateWorker(
     }
 
     /* [Decision Log]
-    - 목적: GUI 요청 처리 프로세스가 자신이 실행 중인 패키지를 직접 덮어쓰지 않도록 업데이트를 별도 worker에서 수행한다.
-    - 대안 분석: (1) 서버에서 runUpdate 직접 호출: process.exit/stdio/실행 파일 교체 위험. (2) GUI에서 CLI 명령 안내만 제공: 자동 업데이트 UX 부족. (3) 숨은 worker가 Node launcher/Bun 전역 명령을 실행: 상태 추적과 안전한 재시작이 가능.
-    - 선택 근거: 현재 CLI의 package-manager self-update 우회를 재사용하면서도 GUI 서버 요청 생명주기와 설치 작업을 분리할 수 있어 가장 안정적이다.
+    - Purpose: run the update in a separate worker so the process serving GUI requests never overwrites the package it is running from.
+    - Alternatives analysis: (1) call runUpdate directly from the server: risks process.exit, stdio and replacing the running executable. (2) only show the CLI command in the GUI: weak automatic-update UX. (3) a hidden worker runs the Node launcher / Bun global command: allows state tracking and a safe restart.
+    - Rationale: it reuses the current CLI's package-manager self-update workaround while separating the install job from the GUI server request lifecycle, which makes it the most stable option.
     */
-    const result = (io.runCommandFn ?? runLoggedCommand)(job, cmd.bin, cmd.args, UPDATE_TIMEOUT_MS);
+    // #7423: this job restarts the proxy itself, so the update's stop hands Codex routing
+    // and the routed catalog to the replacement instead of restoring native Codex for the
+    // seconds in between. Without a restart the stop restores, even under an inherited marker.
+    const updateEnv = restart ? withUpdateTeardownHandover(process.env) : withoutUpdateTeardownHandover(process.env);
+    const result = (io.runCommandFn ?? runLoggedCommand)(job, cmd.bin, cmd.args, UPDATE_TIMEOUT_MS, updateEnv);
     if (result.status !== 0) {
       if (check.installer === "pnpm") {
         const verifiedLauncher = pnpmOwner

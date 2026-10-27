@@ -39,6 +39,12 @@ import {
   TEST_RUN_LOCK_PATH_ENV,
   TEST_RUN_LOCK_TOKEN_ENV,
 } from "../scripts/test-run-lock";
+import { forkUpdatePolicy } from "../src/update/fork-source.mjs";
+
+// Fork: production blocks registry self-update (see src/update/fork-source.mjs). The suite keeps
+// exercising the upstream update machinery, so it opens the gate in-process only; the shipped
+// default is pinned by tests/update/fork-update-policy.test.ts.
+forkUpdatePolicy.selfUpdateAllowed = true;
 
 // Under `bun run test` the wrapper already handed us a sandbox (and OCX_REAL_HOME so the
 // guard could still see the true home). Isolating again is harmless and deliberate: the

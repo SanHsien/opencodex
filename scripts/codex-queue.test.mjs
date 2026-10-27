@@ -172,7 +172,7 @@ for (const shell of shells) {
       assert.deepEqual(records(f)[0].args, ['queue', `--thread=${name}`, '--message=continue']);
     });
     it('preserves quotes, Unicode, multiline text, metacharacters and trailing backslashes', () => {
-      const f = fixture(); const message = '- "한글"\n$(do-not-execute) & | ; %PATH% `quote` \\path\\';
+      const f = fixture(); const message = '- "漢字"\n$(do-not-execute) & | ; %PATH% `quote` \\path\\';
       assert.equal(run(f, { thread: threadA, message }).status, 0);
       assert.equal(records(f)[0].args[2], `--message=${message}`);
     });

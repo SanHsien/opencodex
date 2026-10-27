@@ -42,6 +42,7 @@ import { packageVersion } from "../lib/package-version";
 import { isStandaloneModuleUrl } from "../lib/standalone";
 import { selfLaunchArgv } from "../lib/self-launch-argv";
 import { PNPM_READ_CWD, withPnpmCommandCwd, pnpmReadEnvironment } from "./pnpm-read-policy.mjs";
+import { FORK_RELEASES_URL, FORK_SELF_UPDATE_HINT, forkSelfUpdateBlocked } from "./fork-source.mjs";
 import {
   freshServingPid, hasRestartableServiceManager, readParentPid, readServiceManagerPid, restartServiceManagerJob,
   supervisionVerdict, unsettledManagerWarning, unsupervisedRuntimeWarning,
@@ -65,7 +66,7 @@ export const PKG = "@bitkyc08/opencodex";
 const HERE = dirname(fileURLToPath(import.meta.url)); // .../opencodex/src/update
 
 export type Installer = DetectedInstall | "standalone";
-export const STANDALONE_UPDATE_HINT = "Update via OpenCodex Desktop (Check for Updates…) or reinstall the standalone binary from GitHub Releases.";
+export const STANDALONE_UPDATE_HINT = `Download the newer OpenCodex Desktop build from ${FORK_RELEASES_URL} and reinstall (this fork has no in-app updater).`;
 export type Channel = "latest" | "preview";
 export type InstallOwnership = PackageInstallOwnership | { installer: "standalone" };
 export type { MiseInstallOwner };
@@ -297,6 +298,7 @@ export function latestVersion(
   owner?: PnpmGlobalOwner,
   spawn: typeof spawnSync = spawnSync,
 ): string | null {
+  if (forkSelfUpdateBlocked()) return null; // fork: the registry only carries the upstream build
   const resolvedOwner = installer === "pnpm" ? selectedPnpmOwner(owner) : undefined;
   if (installer === "pnpm" && !resolvedOwner) return null;
   const manager = registrySpawnTarget(installer, ["view", `${PKG}@${tag}`, "version"], resolvedOwner);
@@ -316,6 +318,7 @@ export function latestVersion(
 
 /** The global-install command opencodex would run to update on this channel. */
 export function updateCommand(installer: Installer, tag: Channel, resolvedVersion?: string | null): { bin: string; args: string[] } {
+  if (forkSelfUpdateBlocked()) throw new Error(FORK_SELF_UPDATE_HINT);
   if (installer === "standalone") throw new Error(STANDALONE_UPDATE_HINT);
   if (installer === "mise") {
     throw new Error("mise-owned installations must be upgraded through mise");
@@ -420,6 +423,12 @@ export async function runUpdate(): Promise<void> {
   const current = currentVersion();
   const tag = updateTag(current);
   console.log(`opencodex v${current} (installed via ${installer}, tag ${tag})`);
+
+  if (forkSelfUpdateBlocked()) {
+    console.error(FORK_SELF_UPDATE_HINT);
+    process.exitCode = 1;
+    return;
+  }
 
   if (installer === "mise") {
     const command = miseUpdateCommand(ownership);

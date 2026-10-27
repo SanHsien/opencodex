@@ -102,14 +102,15 @@ const RULES: readonly Rule[] = [
     pattern: /\b(?:ignore|disregard|forget|override)\s+(?:all\s+|any\s+)?(?:the\s+)?(?:previous|prior|above|earlier|system)\s+(?:instructions?|prompts?|rules?)\b/gi,
   },
   {
-    // The same identity clash as "identity", in Korean: this fork's users write
-    // layers in Korean at least as often as in English, and "당신은 클로드" is
-    // the same accident as "you are claude". Reuses the English message.
+    // The same identity clash as "identity", in Korean. Functional matcher: it detects Korean
+    // text that users paste into prompt layers (this is NOT UI copy, so it stays Korean even
+    // though the fork ships only en / zh-TW); "you are Claude" in Korean is the same accident
+    // as the English rule above. Reuses the English message.
     rule: "identity-ko",
     level: "warn",
     messageKey: "codexSet.lint.identity",
     // ASCII tokens want \b so "claudette" does not match; Hangul cannot take \b
-    // because every syllable is a non-word char, so "클로드입니다" never sees a
+    // because every syllable is a non-word char, so a Korean noun plus copula never sees a
     // boundary. The alternation keeps both.
     pattern: /(?:(?:당신은|너는)\s*(?:claude|grok|gemini|chatgpt|gpt)\b)|(?:(?:당신은|너는)\s*(?:클로드|그록|제미나이|챗gpt))/gi,
   },

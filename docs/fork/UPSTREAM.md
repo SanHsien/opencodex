@@ -1062,3 +1062,12 @@ GUI 方面，`gui/src/i18n/zh-TW.ts` 與 fork 改過的 `gui/tests/{i18n-locales
 - 檢查器修正：PR 清單上限 200 → 1000，且被截斷時回「未檢查」（原本會少列 206 筆）。
 - 排程 CI：無 `dev` 的 fork 改測 main head。
 - 下一次：`git fetch upstream main --tags && bun tools/check-upstream-updates.ts --strict`；`v2.93.0` 出版時一併重看 `#7527`／`#7659`。
+
+## 2026-10-27：stable 整合 v2.93.0（`v2.92.0..v2.93.0`）
+
+`v2.93.0`（`88aaa754566d119b6b8fc898f8fb47602387d82e`）整合，重放 `git diff v2.92.0 main` 的 fork overlay（刪除清單與 3-way patch 分開套）；逐項判定見 [`DECISIONS.md`](DECISIONS.md) 同日條目。要點：
+
+- 上游 103 個 commit、694 個檔案；overlay 398 個刪除全數套用（另剃除上游重新帶回的 `docs-site/.../tr/` 10 頁），272 個新增／修改以 3-way patch 套用，12 個衝突檔手動解。
+- 水位：`integrated_tag = v2.93.0`、`integrated_through`／`reviewed_through = 88aaa754…`、`reviewed_date = 2026-10-27`；`reviewed_pr_through = 7713`、`reviewed_issue_through = 7716` 維持（本輪沒有新增 PR／issue 審查）。
+- `#7527`、`#7659` 隨版進來（2026-10-25 條目的觸發條件已成立）。
+- 同日另有兩項 fork 修正隨同一次提交：更新路徑只認 fork releases、韓文剃除，見 [`DECISIONS.md`](DECISIONS.md)「更新路徑只認 fork releases」條目。

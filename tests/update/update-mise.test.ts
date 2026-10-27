@@ -353,7 +353,7 @@ describe("mise update refusal", () => {
             canUpdate: false,
             reason: "externally_managed",
             command: "mise upgrade ocx-local",
-            releaseNotesUrl: "https://github.com/lidge-jun/opencodex/releases/latest",
+            releaseNotesUrl: "https://github.com/SanHsien/opencodex/releases/latest",
           }),
           spawnWorkerFn: () => {
             spawned = true;

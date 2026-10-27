@@ -153,11 +153,9 @@ This integration retains Pi’s loopback-only export policy and stores no real A
 
 Qoder IDE / qodercli supports export and managed configuration through the Dashboard and CLI:
 
-```bash
-ocx export --client qoder --json
-ocx integration client enable --client qoder
-ocx integration client disable --client qoder
-```
+    ocx export --client qoder --json
+    ocx integration client enable --client qoder
+    ocx integration client disable --client qoder
 
 Qoder uses `settings.json` in `QODER_CONFIG_DIR` when that variable is set, and
 `~/.qoder/settings.json` otherwise; a relative `QODER_CONFIG_DIR` is refused. Enable merges `providers.opencodex` and
@@ -169,6 +167,229 @@ The generated API key is a non-secret placeholder: Qoder integration requires lo
 access and refuses an authenticated non-loopback bind. When the dedicated unauthenticated
 loopback listener is enabled, exports point Qoder at that listener. `ocx sync` and catalog
 changes refresh an already enabled Qoder integration like the other managed clients.
+
+Generated catalogs include only enabled models from each provider selection. This applies to both
+downloads and managed integrations, including Pi and Aside. The management model list still shows
+the full roster so you can enable additional models.
+
+`ocx uninstall` disables recorded integrations, including all owned Aside profiles, before deleting
+OpenCodex's recovery state. Unreadable ownership, missing profile registration or a conflicting edit
+stops that deletion. Cleanup is sequential: earlier successful disables are not undone when a later
+one fails. If compensation also fails, a client file may be left in an intermediate state. Inspect
+the reported client files and retained recovery snapshots before retrying; retained state does not
+mean every client was restored or left unchanged.
+
+For Gajae built-in presets, keep the routing choice in `~/.gjc/agent/config.yml`:
+
+    modelProfile:
+      proxyProvider: opencodex
+      proxyMode: always
+
+Keep your chosen `modelProfile.default` to apply it when plain `gjc` starts. The managed integration owns only `providers.opencodex` in `models.yml`; refreshing or disabling that provider does not rewrite your preset choice. Refresh the integration after changing the exported model selection.
+
+GJC models with a supported reasoning-effort ladder export `reasoning: true`, `thinking.levels`, and `compat.supportsReasoningEffort`, so GJC can offer an effort choice. Native Codex models receive their standard ladder even when the catalog omits it. Models without a known ladder omit these fields; `none` and `ultra` are not offered because `none` sends no effort and `ultra` folds to `max` on the wire. Refresh the integration to update these model options.
+
+The managed OpenCode integration owns two fragments: `provider.opencodex` (opencode V1) and
+`providers.opencodex` (opencode V2). Both carry the same declared per-model reasoning choices and
+defaults — the legacy block spells a model's default in its options and its choices as a variant
+map, the V2 block uses the model's settings and a native variant array — so both are written and
+kept in sync; they name the same provider and model ids, and opencode V2 merges them into one
+provider entry. Apply, Refresh, Disable, and Restore act on both fragments, and your other
+providers, agents, keybinds, and MCP entries stay untouched.
+
+Both fragments are built from the effective canonical model metadata — as are the Kilo export and
+the `ocx opencode` launcher. An explicit custom override always wins, and a ladder you cleared to
+empty stays empty; a reasoning ladder or default is never invented for a model that declares none.
+An authoritative context limit is carried with an output budget beside it: a known output value —
+explicit or from catalog metadata — wins, otherwise the schema-required 32000 fallback clamped to
+the context, and without an authoritative context the whole limit block is omitted. Capabilities,
+effort ladders, defaults, and an optional input limit appear only when known; the V2 block's
+native capabilities object requires a known tools value, so when tool support is unknown it is
+omitted entirely rather than written partially, and the legacy modality declarations stand.
+"No ladder invented" still writes the controls, never choices: the V2 block always carries an
+explicit variant array — empty when nothing is declared, because omitting it would make OpenCode
+synthesize low/medium/high — and a model with known fixed reasoning but no adjustable ladder gets
+disabled-only suppression instead of an effort: the legacy OpenCode block and Kilo both disable
+every rung id the client would otherwise generate. Neither adds a selectable effort. The
+selectable variants override the per-model
+default — `none` included, offered only when the model's own declared ladder contains it. Whatever
+the client selects, the proxy's pinned upstream reasoning policy still governs the request that
+leaves it.
+
+Managed DSH support has a compatibility floor of **DSH 0.1.0-rc.6**. DSH 0.1.7+ reads provider
+routes from `[id=llm-pi-ai].config.providers.opencodex` in the Desktop profile patch,
+`$DSH_HOME/profiles/desktop/cordis.patch.yml`, which DSH hot reloads. OpenCodex writes that row when the Desktop profile and its patch exist. If
+`$DSH_HOME/profiles/desktop/package.json` exists but `cordis.patch.yml` is missing, Apply refuses:
+create `cordis.patch.yml` containing `[]` (the empty patch DSH writes for a new profile), then
+enable the integration again. Only when there is no Desktop profile does OpenCodex use
+`llm-pi-ai.providers.opencodex` in `$DSH_HOME/settings.yaml`. OpenCodex owns only that provider
+fragment: Apply and Refresh replace it, Disable removes it, and Restore puts back a recorded
+snapshot. These operations do not change the user's default model or the native
+`deepseek-official` provider.
+The managed DSH integration is currently loopback-only and never writes a real credential.
+
+MiniMax Code follows `MINIMAX_DATA_DIR`, then `MAVIS_DATA_DIR`, before falling
+back to `~/.minimax`. Its managed block owns only `custom_provider.opencodex`.
+It does not change `defaultModel`, the selected MiniMax credential source, or
+the user's MiniMax login. Choose a `custom_provider:opencodex/<provider/model>`
+entry in MCode after connecting it. Refreshing the integration also refreshes
+authoritative per-model context windows and reasoning-effort choices; unknown
+capabilities are omitted, and MCode's session-owned current effort is preserved.
+
+Prime Agent follows `PRIME_AGENT_CODING_AGENT_DIR` before falling back to
+`~/.prime/agent`; a relative value is refused so the proxy and the agent cannot
+disagree about which file is meant. Its managed block owns only
+`providers.opencodex`, so other providers and any `modelOverrides` you have set
+stay untouched. Prime Agent reads `models.json` when a session starts, so start
+a new session after connecting it.
+
+Aside keeps a separate model catalog for each registered profile, including local profiles. OpenCodex lists
+all registered profiles, including local profiles, and can synchronize them together or control
+one profile at a time. Switching an integration never changes Aside's active account. A prior
+Aside connection enables all profiles by default; individual exclusions survive later syncs.
+
+One caveat specific to Aside: the running app rewrites `models.json` itself, so
+fully quit and reopen Aside after applying, the same way Claude Desktop needs a
+restart. Aside's block is loopback-only and never carries a real credential.
+
+The managed Raycast integration supports **macOS and Windows**. Custom Providers
+is a **Raycast Pro** feature: on a free plan the file is still written, but
+`ocx integration client status --client raycast` and the **Connect** page report
+a warning, because Raycast will not read it. On macOS or Windows, open Raycast →
+Settings → AI → **Reveal Providers Config** once so the `ai` folder exists.
+On these supported platforms, opencodex uses that folder as its install signal
+and reports the client as not installed until it exists. Linux is unsupported,
+even if the folder exists.
+
+The status field `aiDirPresent` reports only whether `~/.config/raycast/ai` exists,
+independently of whether the Raycast app is installed or the platform is supported.
+It does not prove that Raycast is installed or usable. The CLI prints `plan` on a
+separate line and adds the macOS/Windows setup instruction when `aiDirPresent` is
+false; `--json` preserves the raw status, including the nested `raycast` block.
+Raycast reads `~/.config/raycast/ai/providers.yaml` on macOS and Windows alike and
+does not honor `XDG_CONFIG_HOME`, so that path is not relocatable.
+
+The managed block is one element, `id: opencodex`, in the file's `providers`
+sequence: `name: OpenCodex`, `base_url: http://<host>:<port>/v1`, and every
+routed model with its `abilities` — the exporter sets `tools` and `system_message` to
+`true` as a client-export convention, `vision` follows the catalog's input modalities, `reasoning_effort`
+is set when the model has an effort ladder, and `temperature` is turned off for
+reasoning models. Other providers in the file are preserved, and disable removes
+only the OpenCodex element. Raycast picks up the change as soon as the file is
+saved, no restart needed; the models appear in Raycast's model picker grouped
+under **OpenCodex**. Raycast supports optional `api_keys`, but OpenCodex intentionally
+omits them and refuses non-loopback or admission-authenticated targets; this integration
+cannot supply OpenCodex's required admission header.
+
+The macOS private preference is only an advisory Pro hint; Windows never reads it and
+reports the plan as unknown. Plan detection does not authorize or block a write.
+The export metadata has no authoritative tool-support flag, so `tools: true` does not
+prove every routed model supports tools. Vision and effort flags follow catalog metadata;
+turning temperature off for an effort ladder is conservative export behavior.
+Provider values are preserved; YAML formatting and comments are not guaranteed to survive.
+The format is documented at
+[manual.raycast.com/ai/custom-providers](https://manual.raycast.com/ai/custom-providers).
+
+Raycast CLI exports and dashboard downloads use the running server's destination and
+admission policy, including a configured unauthenticated loopback listener. `ocx ensure`
+does not refresh Raycast from its saved configuration snapshot: that can differ from the
+running server. Server startup and explicit sync remain the catalog refresh paths.
+
+
+Cursor has a tab but is not one of these switches. Regular Cursor calls custom endpoints from
+its own backend, so a loopback proxy is unreachable without a public tunnel, and Cursor's
+separate Private Inference build is configured inside Cursor. The **Cursor** tab is read-only:
+it detects which build is installed, shows the Base URL and API Key to paste into Cursor, and
+reports the last request Cursor made to the proxy. See
+[Cursor Private Inference](/zh-tw/guides/cursor-private-inference/).
+
+Paths honor each client's own environment override where it has one. For OMP,
+`OMP_PROFILE` wins over `PI_PROFILE` by presence, even when explicitly empty. A named profile
+uses `PI_CONFIG_DIR` as a directory name relative to the user's home and ignores `PI_CODING_AGENT_DIR`; without a named profile,
+`PI_CODING_AGENT_DIR` wins. OMP supports provider-level headers, but this initial integration
+is deliberately loopback-only; remote `x-opencodex-api-key` wiring is deferred. Relocated
+`HERMES_HOME`, `KIMI_CODE_HOME`, and `XDG_CONFIG_HOME` paths are likewise followed rather than
+guessed at. The table lists each client's default.
+
+For native OpenAI models, the generated OMP block selects its model-level Responses API, preserving
+image input and reasoning-effort controls. Routed models retain the provider's Chat Completions
+dialect so their existing adapters remain compatible.
+
+OpenClaw has several, and they do different jobs. `OPENCLAW_CONFIG_PATH` selects the
+file; `OPENCLAW_STATE_DIR`, `OPENCLAW_PROFILE` and `OPENCLAW_HOME` select the state
+directory, which is also what detection looks at — so a profile or relocated home
+still reads as installed, while a config-path override moves only the file. If you
+are still on the older `.clawdbot` layout, that is found too: the modern directory
+wins when it exists, and the legacy one is used when it is the only one there.
+
+These must be **absolute paths** or start with `~`. A relative one is refused rather
+than resolved, because it would mean whatever directory each process happened to
+start in — and that path is stored with the backup, so it has to name the same file
+tomorrow as it did today.
+
+opencodex reads these from its own environment. If your gateway runs with a profile
+or a relocated home, start opencodex with the same variables set, or it will
+correctly follow a different installation.
+
+### Qoder CN and WorkBuddy editions
+
+In **Connect**, enable **Qoder CN**, **WorkBuddy (CN)** or **WorkBuddy AI**, then choose
+an OpenCodex model in the client's custom-model picker. The proxy must stay running.
+The first enable saves a snapshot; disable removes only the generated contribution,
+and Undo restores the snapshot. Existing models and unrelated settings remain intact.
+These are separate connections from Global Qoder and from each other.
+
+The same operations are available through the CLI (replace `workbuddy` with
+`workbuddy-ai` or `qoder-cn` for the other editions):
+
+```bash
+ocx integration client enable --client workbuddy
+ocx export --client workbuddy --json
+ocx integration client disable --client workbuddy
+```
+
+Qoder CN honors `QODERCN_CONFIG_DIR`. Both WorkBuddy editions honor their native
+`WORKBUDDY_CONFIG_DIR`, then `CODEBUDDY_CONFIG_DIR`; unset overrides keep the regional
+roots in the table. Overrides must be absolute, `~`, or start with `~/` or `~\`. WorkBuddy's legacy
+array configuration and its object-form `models` list are both supported. If an existing
+`availableModels` restriction excludes OpenCodex models, remove that restriction in
+WorkBuddy before enabling. Project-level settings can override user-level models.
+
+Connections require an unauthenticated loopback listener; no upstream credentials are
+copied into these clients. WorkBuddy receives the full Chat Completions URL and the
+capabilities declared by the OpenCodex catalog. Restart the client or start a new session
+if its model picker has not reloaded yet. Configuration/lifecycle tests do not establish
+end-to-end compatibility with every upstream model or every client release.
+
+Doubao Desktop and Devin currently have no verified arbitrary-provider configuration
+contract in this integration. They have no enable switch; adding a local JSON file alone
+would not make their model pickers consume it.
+
+Qoder IDE / qodercli supports export and managed configuration through the Dashboard and CLI:
+
+```bash
+ocx export --client qoder --json
+ocx integration client enable --client qoder
+ocx integration client disable --client qoder
+```
+
+Qoder uses `settings.json` in `QODER_CONFIG_DIR` when that variable is set, and
+`~/.qoder/settings.json` otherwise; a relative `QODER_CONFIG_DIR` is refused. Enable merges only `providers.opencodex`, preserving other providers, custom models,
+and settings. Models appear once in the provider catalog; duplicating them in
+`modelConfigs.customModels` causes Qoder to reject the provider. Refreshing an older managed
+integration removes its recorded duplicate rows; user-edited rows remain conflicts. Disable removes the recorded OpenCodex entries; restore uses the existing
+snapshot workflow. The provider's default model is the first model in the sorted export.
+If `modelConfigs.customModels` already holds an `opencodex` row for an exported model that
+OpenCodex did not write, enable, refresh, overwrite and disable report a conflict and leave the
+file unchanged; remove or rename that row in Qoder's settings, then try again. Rows for other
+providers or for models outside the export are left alone.
+Provider models use their catalog `contextWindow`, falling back to 128000 input tokens.
+Restart Qoder after refreshing an existing integration to reload the provider registry.
+The generated API key is a non-secret placeholder: Qoder integration requires loopback
+access and refuses an authenticated non-loopback bind. When the dedicated unauthenticated
+loopback listener is enabled, exports point Qoder at that listener. `ocx sync` and catalog
+changes refresh an already enabled Qoder integration like the other managed clients.
+Model IDs containing `,` or `]` (for example `kimi/k3[1m]`) are exported like any other model.
 
 Generated catalogs include only enabled models from each provider selection. This applies to both
 downloads and managed integrations, including Pi and Aside. The management model list still shows
@@ -367,6 +588,28 @@ correctly follow a different installation.
 所有權記錄相符，Apply 就能接納它。這是上述衝突規則的唯一例外：其他編輯、不同的標頭名稱，
 或沒有相符所有權記錄的區塊，仍需要衝突處理。無關的 YAML 設定與註解不受影響，既有的快照與
 Restore 流程同樣適用於這次升級。
+
+## Hermes profiles
+
+Hermes keeps a separate home for each bot profile. The default profile uses
+`~/.hermes/config.yaml` (`%LOCALAPPDATA%\hermes\config.yaml` on Windows, or `$HERMES_HOME/config.yaml`),
+and each named profile created with `hermes profile create <name>` uses
+`<Hermes home>/profiles/<name>/config.yaml`. See Hermes'
+[profiles guide](https://hermes-agent.nousresearch.com/docs/user-guide/profiles).
+
+When named profiles exist, **Connect → Hermes** lists every profile with its own status. Select a
+profile to apply, disable, replace, or restore OpenCodex for that profile alone; each profile keeps its
+own backups and rollback history, and the other profiles stay unchanged. Every profile keeps its own
+`model.default` and other providers: OpenCodex adds only `providers.opencodex`. With no named profiles,
+the page works as before and changes the default profile.
+
+The management API selects a profile with `profile=<name>` on `/api/client-integrations/hermes` and with
+`client=hermes&profile=<name>` on the preview, journal, and restore endpoints;
+`GET /api/client-integrations/hermes/profiles` lists the profiles. A directory under `profiles/` counts
+only when Hermes would list it: a valid name, a Hermes identity file such as `config.yaml` or `SOUL.md`,
+and no deletion marker. A profile reached through a symbolic link or junction is not offered. If
+`HERMES_HOME` later points at a different Hermes home, a profile with the same name there is refused
+until you disconnect the original one, so OpenCodex never loses track of a file it changed.
 
 ## 預覽並確認變更
 

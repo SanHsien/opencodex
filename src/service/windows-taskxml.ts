@@ -436,14 +436,14 @@ const CODE_PAGE_SUBSTITUTIONS = /^[?\uFFFD]*$/;
  *
  * `runFile` already reads the query as bytes, so this is not a spawn-decoding bug: the
  * conversion happens inside `schtasks` before the bytes exist. A profile named outside
- * the active code page — `C:\\Users\\김병준\\...` — comes back as `C:\\Users\\???\\...`, so an
+ * the active code page — `C:\\Users\\<name outside the code page>\\...` — comes back as `C:\\Users\\???\\...`, so an
  * exact comparison rejected a registration this process had just created correctly and
  * `ocx service install` rolled it back (#3064).
  *
  * The tolerance is deliberately narrow. Each unrepresentable RUN in the expected value
  * may match only a run of substitution characters — never arbitrary text, and never a
  * path separator. A wildcard as wide as `[^\\\\/]*` would leave a fully non-ASCII segment with
- * no anchors at all, so `C:\\Users\\김병준\\x.vbs` would match `C:\\Users\\Admin\\x.vbs` and this
+ * no anchors at all, so `C:\\Users\\<name outside the code page>\\x.vbs` would match `C:\\Users\\Admin\\x.vbs` and this
  * process would adopt, repair, or delete another account's task. Accepting a foreign
  * live task is a worse failure than the rollback this fixes.
  */

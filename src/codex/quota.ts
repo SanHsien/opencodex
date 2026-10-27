@@ -25,6 +25,8 @@ const QUOTA_CACHE_FILENAME = "codex-quota-cache.json";
 /** Keep last-known bars across restarts; WHAM still refreshes on TTL in live/prime paths. */
 const QUOTA_DISK_MAX_AGE_MS = 6 * 60 * 60_000;
 const QUOTA_PERSIST_DEBOUNCE_MS = 250;
+/** Match the reset ledger's maximum deferral under sustained quota observations. */
+const QUOTA_PERSIST_MAX_DEFERRAL_MS = 1_000;
 
 type QuotaDiskFile = {
   version: 1;
@@ -39,6 +41,7 @@ type MainPolicyQuotaObservation = Omit<StoredAccountQuota, "updatedAt"> & { shor
 let mainPolicyQuota: MainPolicyQuota | null = null;
 let diskHydrated = false;
 let persistTimer: ReturnType<typeof setTimeout> | null = null;
+let persistStartedAt: number | null = null;
 
 const MONTHLY_WINDOW_MIN_SECONDS = 28 * 24 * 60 * 60;
 /**
@@ -386,8 +389,11 @@ function mergeAccountQuota(
   const creditsOnly = snapshotHasCredits(quota) && !snapshotHasUsage(quota);
   // An explicit empty/invalid credits summary retracts the old balance. Partial headers
   // retain the original observation clock instead of extending its spending authority.
-  if (quota.credits !== undefined) next.credits = quota.credits;
-  else if (existing?.credits !== undefined) next.credits = existing.credits;
+  const creditSource = quota.credits !== undefined ? quota : existing;
+  if (creditSource?.credits !== undefined) next.credits = creditSource.credits;
+  if (creditSource?.credits === null && creditSource.creditObservationUnavailable === true) {
+    next.creditObservationUnavailable = true;
+  }
 
   if (creditsOnly) {
     if (existing?.weeklyPercent !== undefined) next.weeklyPercent = existing.weeklyPercent;
@@ -677,6 +683,8 @@ export function updateAccountQuota(
     ...(existing?.customWindows !== undefined ? { customWindows: existing.customWindows } : {}),
     ...(existing?.resetCredits !== undefined ? { resetCredits: existing.resetCredits } : {}),
     ...(existing?.credits !== undefined ? { credits: existing.credits } : {}),
+    ...(existing?.credits === null && existing.creditObservationUnavailable === true
+      ? { creditObservationUnavailable: true as const } : {}),
     updatedAt: Date.now(),
   };
   assignCarriedShort(quota, existing, quota.updatedAt);
@@ -736,7 +744,10 @@ function readMainPolicyQuota(value: unknown): MainPolicyQuota | null {
   }
   if (quota.monthlyPercent !== undefined && raw.monthlyIsPrimaryWindow === true) quota.monthlyIsPrimaryWindow = true;
   // Retain the independent credit timestamp on restart; it still expires at its original deadline.
-  if (raw.credits === null) quota.credits = null;
+  if (raw.credits === null) {
+    quota.credits = null;
+    if (raw.creditObservationUnavailable === true) quota.creditObservationUnavailable = true;
+  }
   else if (raw.credits && typeof raw.credits === "object" && !Array.isArray(raw.credits)) {
     const stored = raw.credits as Record<string, unknown>;
     if (typeof stored.observedAt === "number" && Number.isFinite(stored.observedAt) && stored.observedAt >= 0) {
@@ -778,9 +789,14 @@ function hydrateAccountQuotasFromDisk(): void {
 }
 
 function schedulePersistAccountQuotas(): void {
+  const now = performance.now();
+  persistStartedAt ??= now;
+  const delay = Math.max(0, Math.min(QUOTA_PERSIST_DEBOUNCE_MS,
+    QUOTA_PERSIST_MAX_DEFERRAL_MS - (now - persistStartedAt)));
   if (persistTimer) clearTimeout(persistTimer);
   persistTimer = setTimeout(() => {
     persistTimer = null;
+    persistStartedAt = null;
     try {
       const quotas: Record<string, StoredAccountQuota> = {};
       for (const [accountId, quota] of accountQuota.entries()) {
@@ -796,7 +812,7 @@ function schedulePersistAccountQuotas(): void {
     } catch {
       // Best-effort persistence only.
     }
-  }, QUOTA_PERSIST_DEBOUNCE_MS);
+  }, delay);
 }
 
 export function getAccountQuota(accountId: string): StoredAccountQuota | null {
@@ -861,6 +877,7 @@ export function clearAccountQuota(accountId?: string): void {
     clearTimeout(persistTimer);
     persistTimer = null;
   }
+  persistStartedAt = null;
   try {
     const path = join(getConfigDir(), QUOTA_CACHE_FILENAME);
     if (existsSync(path)) unlinkSync(path);
@@ -967,6 +984,9 @@ export function parseUsageQuota(data: WhamUsageResponse): Omit<StoredAccountQuot
       };
     }
   } else if (data.rate_limit?.allowed === false || creditsAllowed === false) quota.credits = null;
+  // A missing/malformed summary retracts spending authority, but is re-observable.
+  // Explicit spending vetoes and legacy unmarked null retain conservative retry advice.
+  if (quota.credits === null && creditsAllowed !== false) quota.creditObservationUnavailable = true;
   if (!data.rate_limit) return snapshotHasCredits(quota) ? quota : null;
   const thirtyDayOnly = codexQuotaWindowForPlan(data.plan_type) === "monthly";
   const primaryWindow = data.rate_limit.primary_window;
@@ -981,12 +1001,12 @@ export function parseUsageQuota(data: WhamUsageResponse): Omit<StoredAccountQuot
   const primaryIsMonthly = isExplicitMonthlyWindow(primaryWindow);
 
   // [Decision Log]
-  // - 목적과 의도: distinguish weekly and roughly monthly WHAM primary windows without plan-name guesses.
-  // - 기존 구현 및 제약 조건: primary meant weekly, and older responses omit limit_window_seconds.
-  // - 검토한 주요 대안: exact-duration matching, plan-specific mapping, and a duration lower bound.
-  // - 선택한 방식: only an explicit primary duration of at least 28 days changes it to monthly.
-  // - 다른 대안 대신 이 방식을 선택한 이유: it accepts calendar-month variance and preserves legacy payloads.
-  // - 장점, 단점 및 영향: Team monthly quotas classify correctly; unknown durations remain weekly by design.
+  // - Purpose and intent: distinguish weekly and roughly monthly WHAM primary windows without plan-name guesses.
+  // - Existing implementation and constraints: primary meant weekly, and older responses omit limit_window_seconds.
+  // - Main alternatives considered: exact-duration matching, plan-specific mapping, and a duration lower bound.
+  // - Chosen approach: only an explicit primary duration of at least 28 days changes it to monthly.
+  // - Why this over the alternatives: it accepts calendar-month variance and preserves legacy payloads.
+  // - Pros, cons and impact: Team monthly quotas classify correctly; unknown durations remain weekly by design.
   // #1791: a primary window that declares a sub-day duration is a burst window, not the
   // weekly one. Skip it so the secondary (the real 7-day window) is what lands in
   // `weeklyPercent`; without this the 5-hour bar was reported as weekly and the actual

@@ -159,8 +159,6 @@ leaves, so the `config.toml` route is overridden in the app. Use `ocx access tes
 through the proxy (`ocx claude`), or any direct `/v1` client until the window resets. See
 [Routed models during Codex reserve mode](/zh-tw/guides/codex-integration/#codex-保留模式下的路由模型).
 
-## 目前穩定模型涵蓋範圍
-
 Codex's model picker expects Codex-shaped catalog entries. opencodex builds routed entries by cloning
 a native Codex model template, then replacing the routed model identity:
 
@@ -173,6 +171,27 @@ visibility = "list"
 The clone keeps strict-parser fields such as reasoning levels, shell type, API support flags, and
 base instructions. opencodex then removes native-only capabilities that the route cannot honor,
 including OpenAI service-tier metadata.
+
+## 目前穩定模型涵蓋範圍
+
+原生回退列表包含 `gpt-5.5` 以及 GPT-5.6 Sol/Terra/Luna。對於 GPT-5.5 系列，opencodex 會
+保留已安裝 Codex 目錄中資訊更完整的即時條目，僅在條目缺失時才合成。內建的上游快照只用於
+GPT-5.6，以便提供每個模型真實的身份和後設資料，而不是套用舊模板近似生成。
+
+| 路由 | 選擇器 id 與目錄後設資料 |
+| --- | --- |
+| Codex 登入（停用帳號限定列） | 裸原生 id，例如 `gpt-5.6-sol`、`gpt-5.6-terra`、`gpt-5.6-luna`；透過 `codexAccountMode` 選擇 Pool 或 Direct。GPT-5.6 列使用 922,000 token 的目錄視窗。 `gpt-6.1-terra`：預設上下文 500,000 / 長上下文 872,000。 |
+| Codex 登入（啟用帳號限定列且有合格選擇器） | 每個合格選擇器與受支援的原生模型各有一列 `<selector>/<native-openai-model>`；每列只使用其對應帳號，且裸原生列會從選擇器中隱藏。原生後設資料與 context 視窗保持不變。 |
+| OpenAI（API key） | 帶命名空間的模型包括 `gpt-5.5`、`gpt-5.6`、Sol/Terra/Luna、`*-pro` 虛擬 id 與 Daybreak 別名（上下文 1,050,000；最大輸入 922,000）。`openai-apikey/gpt-6.1-terra` 的上下文為 1,050,000，最大輸出為 128,000。 |
+| OpenRouter | `openrouter/openai/gpt-5.6-sol`、`openrouter/openai/gpt-5.6-terra`、`openrouter/openai/gpt-5.6-luna`（922,000） |
+| OpenRouter | `openrouter/openai/gpt-6.1-terra` (1,050,000) |
+| Cursor | 靜態回退目錄包含 `cursor/gpt-5.6-sol`、`cursor/gpt-5.6-terra`、`cursor/gpt-5.6-luna`（1,000,000），以及 Grok 4.5/4.6/4.7 的一般與 Fast 項目（500,000）。4.6 和 4.7 還提供 `xhigh`；帳號的即時發現結果決定最終顯示哪些模型。 |
+| xAI | 以即時發現結果為準。回退目錄包含 `xai/grok-4.6` 與 `xai/grok-4.7`，預設模型仍為 `xai/grok-4.5`；三者的 context window 均為 500,000。Grok 4.6 與 4.7 提供 `low` / `medium` / `high` / `xhigh`（上游預設值為 `high`），Grok 4.5 最高為 `high`。 |
+
+固定的 GPT-5.6 條目會保留精確的上游 reasoning 階梯。Sol 和 Terra 從 `low` 到 `ultra`，Luna
+最高到 `max`。Sol 預設使用 `low`，Terra 和 Luna 預設使用 `medium`。`ultra` 是用戶端側的
+“最大 reasoning + 主動委派”選項，到達後端時會轉換為 `max`。模型出現在選擇器中只表示目錄已經
+準備好；關聯的帳號或 API key 仍需具備該模型的實際權限。
 
 ## 原生與路由模型開關
 
@@ -254,6 +273,45 @@ decision controls both catalog metadata and runtime injection, so the fast optio
 advertised where it cannot be honored. An `openai-chat` destination can authorize every otherwise
 eligible model with `chatServiceTier: true`, or authorize only exact models with
 `modelSupportsServiceTier`; Responses routes do not need that extra Chat wire authorization.
+
+### Selecting Flex in Codex
+
+For a routed provider and model verified to accept `service_tier: "flex"`, explicitly
+declare Flex support alongside the existing Fast wire. Merge these fields into the
+**existing** `providers.nanogpt` entry (do not replace its URL or credentials):
+
+```json
+{
+  "modelSupportsServiceTier": { "openai/gpt-6-luna": true },
+  "fastWire": {
+    "kind": "service-tier",
+    "canonicalToWire": { "priority": "priority", "flex": "flex" },
+    "foreignCallerTiers": "verbatim"
+  }
+}
+```
+
+With an eligible `openai-responses` route, the Luna row advertises Standard,
+Fast and Flex in Codex's speed selector. For an `openai-chat` route, also set
+`chatServiceTier: true` **only if** the upstream Chat Completions endpoint supports
+caller-provided service tiers. The `fastWire` mapping is **provider-wide**:
+other service-tier-eligible routed models in the same `providers.nanogpt`
+entry can also advertise Flex when the catalog publishes them as ordinary routed
+rows, even when they are not listed in `modelSupportsServiceTier`. That map is not
+an allowlist excluding other eligible models. Combo-namespace and native-alias
+rows are **not** published with Flex. Verify Flex support for **every** eligible
+ordinary routed model;
+if only Luna supports Flex, configure it in a separate provider entry with
+no other Fast-eligible models. Do not infer Flex support from Fast alone.
+
+Keep OpenCodex's global Fast mode on **Auto** (`fastMode` unset), as forcing
+Fast or Default overrides the caller's Flex choice. After `ocx sync`, refresh the
+Codex model list. Select **Flex** from the speed selector, or use
+`/model <routed-id> --speed=flex` in Codex CLI. This is a **selectable tier**,
+not a per-model forced default: switching models does not force Flex automatically.
+The tier is forwarded as `service_tier: "flex"` and can still be declined by
+the upstream; availability, cost and latency depend on the provider. Neither
+the menu nor a request alone proves which tier was billed.
 
 ### Selecting Ultra Fast in Codex Desktop
 

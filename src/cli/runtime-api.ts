@@ -2,12 +2,12 @@
  * Shared management-plane client for headless CLI commands.
  *
  * [Decision Log]
- * - 목적과 의도: GUI가 사용하는 관리 기능을 CLI에서도 같은 검증과 저장 경로로 제공한다.
- * - 기존 구현 및 제약 조건: 관리 API에 이미 도메인 검증과 live-config 갱신이 있으나 CLI마다 fetch를 복제했다.
- * - 검토한 주요 대안: config.json 직접 수정, 각 CLI 모듈별 fetch 구현, 공용 관리 API client.
- * - 선택한 방식: identity-checked live proxy를 찾은 뒤 공용 client로 관리 API를 호출한다.
- * - 다른 대안 대신 이 방식을 선택한 이유: GUI/CLI의 검증 규칙이 갈라지지 않고 fallback port도 안전하게 찾는다.
- * - 장점, 단점 및 영향: 동작 일관성이 높아지는 대신 live 관리 명령은 실행 중인 proxy가 필요하다.
+ * - Purpose and intent: give the CLI the same validation and storage path as the management features the GUI uses.
+ * - Existing implementation and constraints: the management API already has domain validation and live-config refresh, but each CLI module duplicated its own fetch.
+ * - Main alternatives considered: edit config.json directly, a fetch implementation per CLI module, or one shared management API client.
+ * - Chosen approach: locate an identity-checked live proxy, then call the management API through the shared client.
+ * - Why this over the alternatives: GUI and CLI validation rules cannot drift apart, and the fallback port is found safely.
+ * - Pros, cons and impact: consistent behavior, at the cost that live management commands need a running proxy.
  */
 import { findLiveProxy, probeHostname, type LivenessIo, type LiveProxy } from "../server/proxy-liveness";
 import { runningProxyUpdateHeaders } from "../oauth/login-cli";

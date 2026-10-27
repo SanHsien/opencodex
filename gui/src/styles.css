@@ -201,9 +201,9 @@ code { font-family: var(--font-code); font-size: var(--text-label); }
 h1, h2, h3, h4 { margin: 0; font-weight: var(--weight-semibold); letter-spacing: 0; line-height: var(--leading-tight); }
 
 /* [Decision Log]
-- 목적: 화면마다 임의로 지정된 폰트 크기와 굵기를 역할 기반 타이포그래피로 통일한다.
-- 대안 분석: 태그 선택자만 사용하면 문맥별 역할이 불명확하고, 페이지별 인라인 값은 중복되며, 역할 유틸리티는 UI 의미와 토큰을 직접 연결한다.
-- 선택 근거: 8단계 타입 스케일과 4단계 굵기를 공통화하면 한글/영문/숫자 화면이 같은 위계로 렌더링되고 새 화면도 동일 규칙을 재사용할 수 있다.
+- Purpose: unify the ad-hoc per-screen font sizes and weights into role-based typography.
+- Alternatives: tag selectors alone leave per-context roles unclear, per-page inline values duplicate each other, while role utilities tie UI meaning directly to tokens.
+- Rationale: sharing one 8-step type scale and 4 weights makes CJK, Latin and numeric screens render with the same hierarchy, and new screens can reuse the same rules.
 */
 .text-micro { font-size: var(--text-micro) !important; line-height: var(--leading-ui); }
 .text-caption { font-size: var(--text-caption) !important; line-height: var(--leading-ui); }
@@ -283,9 +283,9 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
 }
 
 /* [Decision Log]
-- 목적: 인접한 사이드바 메뉴의 hover/active 배경이 한 덩어리처럼 보이지 않게 한다.
-- 대안 분석: 항목 margin은 클릭 영역 바깥 정렬이 복잡해지고, 구분선은 시각적 잡음이 크며, nav flex gap은 항목 구조를 유지한 채 일정한 간격을 만든다.
-- 선택 근거: 기존 sidebar-foot의 flex gap 패턴과 동일하고 메뉴별 예외 없이 작은 간격을 일관되게 적용할 수 있다.
+- Purpose: keep the hover/active backgrounds of adjacent sidebar entries from merging into one block.
+- Alternatives: per-item margin complicates alignment outside the click area, dividers add visual noise, while a nav flex gap keeps the item structure and yields an even spacing.
+- Rationale: it matches the existing sidebar-foot flex-gap pattern and applies the small gap consistently without per-menu exceptions.
 */
 .sidebar nav {
   display: flex;
@@ -474,7 +474,7 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
   no `.combos-workspace-shell` (Combos.tsx returns a bare skeleton or an error notice), yet
   `main-inner--combos` is applied on tab selection alone — so with no workspace to fill, the
   lone subtitle/notice/retry stretched edge to edge (padding:0, max-width:none, flex column)
-  while every sibling Models tab stayed boxed. That is the "콤보만 영역이 이상해짐" report.
+  while every sibling Models tab stayed boxed. That is the "only the Combos area looks off" report.
 
   When no workspace shell is present, drop the full-bleed and box the page like the other
   tabs: reset the container, its chrome inset, and the fill panel back to normal flow.
@@ -1282,9 +1282,9 @@ select.input { appearance: none; }
 .switch.on .knob {
   transform: translateX(14px);
   /* [Decision Log]
-  - 목적: 다크 모드의 활성 트랙과 핸들이 모두 밝게 뭉개지는 문제를 없앤다.
-  - 대안 분석: 테두리만 강화하면 상태 구분이 약하고, 화면별 색상 지정은 중복되며, 공통 토글 토큰은 모든 스위치에 같은 대비 규칙을 적용한다.
-  - 선택 근거: 활성 트랙은 다크 모드 성공 색상, 핸들은 어두운 색으로 분리해 상태와 위치를 동시에 읽기 쉽다.
+  - Purpose: stop the active track and the knob from both washing out to a bright blob in dark mode.
+  - Alternatives: strengthening only the border leaves the state hard to tell apart, per-screen colours duplicate each other, while a shared toggle token applies the same contrast rule to every switch.
+  - Rationale: the active track takes the dark-mode success colour and the knob a dark colour, so state and position read at a glance.
   */
   background: var(--toggle-dot-color);
   box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.12);

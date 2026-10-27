@@ -1433,7 +1433,7 @@ test("Claude Desktop PUT retains but cannot move an unavailable route", async ()
       body: JSON.stringify({ profile: edited }),
     });
     expect(put.status).toBe(400);
-    expect((await put.json() as { error: string }).error).toContain("사용할 수 없는 모델");
+    expect((await put.json() as { error: string }).error).toContain("currently unavailable");
     expect(loadConfig().claudeCode?.desktopProfile?.assignments["missing/old-model"]?.family).toBe("opus");
   } finally {
     await server.stop(true);
@@ -1466,7 +1466,7 @@ test("Claude Desktop PUT allows deleting an unavailable route, but rejects modif
       body: JSON.stringify({ profile: modifyEdit }),
     });
     expect(putModify.status).toBe(400);
-    expect((await putModify.json() as { error: string }).error).toContain("현재 사용할 수 없는 모델은 옮길 수 없습니다: missing/old-model");
+    expect((await putModify.json() as { error: string }).error).toContain("Cannot move a model that is currently unavailable: missing/old-model");
     expect(loadConfig().claudeCode?.desktopProfile?.assignments["missing/old-model"]?.alias).toBe("claude-opus-4-8-20260101");
 
     // Deleting an existing unavailable assignment succeeds with 200.
@@ -1495,7 +1495,7 @@ test("Claude Desktop PUT allows deleting an unavailable route, but rejects modif
       body: JSON.stringify({ profile: addEdit }),
     });
     expect(putAdd.status).toBe(400);
-    expect((await putAdd.json() as { error: string }).error).toContain("현재 사용할 수 없는 모델은 추가할 수 없습니다: missing/new-model");
+    expect((await putAdd.json() as { error: string }).error).toContain("Cannot add a model that is currently unavailable: missing/new-model");
   } finally {
     await server.stop(true);
   }

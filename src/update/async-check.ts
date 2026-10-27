@@ -1,5 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { unprivilegedOwnershipMutationEnvironment } from "../service/ownership-mutation-lease.mjs";
+import { forkSelfUpdateBlocked } from "./fork-source.mjs";
 import { PKG, registrySpawnTarget, type Channel, type Installer } from "./index";
 import type { PnpmGlobalOwner } from "./pnpm-global-install.mjs";
 import { PNPM_READ_CWD, pnpmReadEnvironment } from "./pnpm-read-policy.mjs";
@@ -51,6 +52,7 @@ export async function latestVersionAsync(
   installer: Installer,
   deps: AsyncLookupDeps = defaultDeps,
 ): Promise<string | null> {
+  if (forkSelfUpdateBlocked()) return null; // fork: the registry only carries the upstream build
   if (installer === "source" || installer === "standalone" || installer === "mise") return null;
   let owner: PnpmGlobalOwner | null | undefined;
   try { owner = installer === "pnpm" ? await deps.ownerFn() : undefined; }

@@ -2,26 +2,26 @@
  * Per-account model denials observed from an authenticated upstream refusal.
  *
  * [Decision Log]
- * - 목적과 의도: Keep the one piece of account-specific model evidence that is never stale --
+ * - Purpose and intent: Keep the one piece of account-specific model evidence that is never stale --
  *   the upstream's own refusal -- instead of discarding it after a single retry.
- * - 기존 구현 및 제약 조건: `cachedDeniedCodexAccountIdsForModel` reads authenticated `/models`
+ * - Existing implementation and constraints: `cachedDeniedCodexAccountIdsForModel` reads authenticated `/models`
  *   rosters, and those entries expire five minutes after they are fetched
  *   (`MODEL_ROSTER_TTL_MS`). Nothing on the flagship request path refills them, because
  *   `resolveCodexModelEntitlements` is awaited only for `ACCOUNT_GATED_NATIVE_OPENAI_MODELS`,
  *   which no longer holds the flagships. So the denial set is usually absent, the #4797
  *   ordering rules become the identity function, and the pool picks on quota alone (#4906).
- * - 검토한 주요 대안: Fetch a roster on the flagship request path, lengthen the roster TTL, or
+ * - Main alternatives considered: Fetch a roster on the flagship request path, lengthen the roster TTL, or
  *   infer availability from the account's plan name.
- * - 선택한 방식: Record the exact upstream unsupported-model refusal per (account, model) and
+ * - Chosen approach: Record the exact upstream unsupported-model refusal per (account, model) and
  *   let selection read it alongside the roster.
- * - 다른 대안 대신 이 방식을 선택한 이유: A roster fetch on the request path puts an
+ * - Why this over the alternatives: A roster fetch on the request path puts an
  *   authenticated upstream call in front of the most commonly requested models in the product,
  *   which is what the cache-only contract exists to prevent. A longer TTL keeps a shard's
  *   stale absence around for longer without adding any evidence. A plan name proves nothing
  *   about a grant -- `available_in_plans` for `gpt-6-astra` lists `free` while free accounts
  *   are refused -- and #3022 is what happened the last time availability was inferred rather
  *   than observed.
- * - 장점, 단점 및 영향: A refusal is spent once and then remembered, so the pool stops
+ * - Pros, cons and impact: A refusal is spent once and then remembered, so the pool stops
  *   re-sending a model to the account that just refused it. The evidence is confirmed rather
  *   than inferred, it is still only an ordering preference, and it is overridden by any
  *   positive roster grant for the same pair.

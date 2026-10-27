@@ -309,6 +309,48 @@ upstream status but never consumes or resumes a grant.
 
 當命令在 Codex 應用程式內部執行時，重啟會交給分離的 helper，此工作階段會隨應用程式一起結束。
 
+**指定來源的同步。** `ocx sync --expect-link <linkId>`（Remote Link Child）與 `ocx sync --expect-hub-key <apiKeyId>`（hub 用戶端）只有在本機仍連線到該連結或使用該金鑰時才會同步。否則不會變更任何內容，也不會同步本機供應商，指令以結束碼 5 結束，stderr 最後一行為 `{"phase":"child_link_mismatch"|"hub_client_mismatch","reason":...}`。格式錯誤或重複的旗標以結束碼 2 結束。詳情請見[英文參考](/zh-tw/reference/cli/lifecycle/#sync-only-from-the-expected-home---expect-link-and---expect-hub-key)。
+
+#### Sync only from the expected Home: `--expect-link` and `--expect-hub-key`
+
+```bash
+ocx sync --expect-link <linkId> [--restart-codex]
+ocx sync --expect-hub-key <apiKeyId> [--restart-codex]
+```
+
+A script that reads `ocx connect status --json` and then runs `ocx sync` cannot tell whether the
+machine was disconnected or relinked to another Home in between; a plain `ocx sync` would then
+sync the local providers or the other Home's catalog. Passing the identity you read closes that
+gap. `--expect-link` takes the `link.linkId` of a Remote Link Child and `--expect-hub-key` the
+`apiKeyId` of a hub client. The check runs under the same lock that chooses the sync path, and
+every later write is bound to the connection that passed it.
+
+When the identity holds, the command is exactly the connected sync above. Otherwise it changes
+nothing (not even the automatic Codex shim repair other commands run first), never syncs the local
+providers, exits **5**, and prints a human line followed by one JSON line as the last line on stderr:
+
+```json
+{"phase":"child_link_mismatch","reason":"other_link"}
+```
+
+`phase` is `child_link_mismatch` for `--expect-link` and `hub_client_mismatch` for
+`--expect-hub-key`.
+
+| `reason` | Machine state |
+| --- | --- |
+| `disconnected` | Not connected to any Home or hub |
+| `invalid_state` | The client configuration or a connect marker cannot be read |
+| `disconnect_pending` | A disconnect has started and not finished |
+| `pending_operation` | A key rotation, a connect, or another sync is in progress (including one that holds the locks this check needs) |
+| `hub_client` | `--expect-link` on a hub client |
+| `link_client` | `--expect-hub-key` on a Remote Link Child |
+| `other_link` / `other_key` | Connected, but to a different link or with a different key |
+
+A missing or malformed value, a repeated flag, or both flags together exit 2 before any state is
+read. A connection that changes after the check, while the catalog is being fetched, still fails
+as a plain connected sync does (exit 1, nothing written). Versions without these flags ignore
+them, so check `ocx --version` first.
+
 ### `ocx sync-cache [--restart-codex] [--restart-app-server-only]`
 
 使 Codex 的本機模型選擇器快取失效，使其從現用的 opencodex 目錄重建。與 `ocx sync` 相同的過時 `app-server` 警告與可選重啟旗標適用。

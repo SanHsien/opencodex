@@ -412,7 +412,7 @@ export default function UsageCompanionPanel({
         const stepKeys = INSTALL_STEP_KEYS[installOs];
         const steps = (
           <ol className="usage-companion-install-steps">
-            <li>{t(stepKeys[0])} <a className="btn btn-ghost btn-sm" href="https://github.com/lidge-jun/opencodex/releases/latest" target="_blank" rel="noreferrer">{t("common.github")}</a></li>
+            <li>{t(stepKeys[0])} <a className="btn btn-ghost btn-sm" href="https://github.com/SanHsien/opencodex/releases/latest" target="_blank" rel="noreferrer">{t("common.github")}</a></li>
             <li>{t(stepKeys[1])}</li>
             <li>{t(stepKeys[2])}</li>
           </ol>

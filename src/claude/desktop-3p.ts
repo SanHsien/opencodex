@@ -74,9 +74,9 @@ export function parseDesktop3pModeArgs(flags: string[]): { mode: Desktop3pConfig
     ["--discovery-only", "discovery"],
   ]);
   const unknown = flags.filter(a => !known.has(a));
-  if (unknown.length > 0) return { error: `알 수 없는 옵션: ${unknown.join(" ")} (지원: --static, --hybrid, --discovery-only)` };
+  if (unknown.length > 0) return { error: `Unknown option: ${unknown.join(" ")} (supported: --static, --hybrid, --discovery-only)` };
   const picked = [...new Set(flags.map(a => known.get(a)!))];
-  if (picked.length > 1) return { error: "모드 옵션은 하나만 쓸 수 있습니다 (--static | --hybrid | --discovery-only)." };
+  if (picked.length > 1) return { error: "Only one mode option may be used (--static | --hybrid | --discovery-only)." };
   return { mode: picked[0] ?? "static" };
 }
 

@@ -32,11 +32,33 @@ ocx status
 
 ## 完成更新
 
-1. 關閉任何可能仍在執行 OpenCodex 檔案的東西：Codex app、啟動過 `ocx` 或 `bunx` 的終端機，
-   以及 OpenCodex tray。在 Windows 上，正在執行的 `bun.exe` 或 `bunx.exe` 會鎖住它的檔案。
-2. 在終端機中重新執行一次 `ocx update`。
-3. 若仍以相同方式失敗，請先停止代理，再手動安裝。先停止很重要：在執行中的代理上安裝，
-   會讓它在重啟前拒絕請求。
+### If npm staging times out
+
+On Windows, the npm-backed `ocx update` staging install has a three-minute budget. A timeout reports
+`ETIMEDOUT` with that budget. On Windows, the updater terminates the installer's entire
+process tree and confirms its exit before removing the stage and recovering the previous
+service. It does not continue extracting into a deleted stage after recovery starts.
+
+If installer exit cannot be confirmed, the update fails and keeps the staging folder and
+its ownership marker. Confirm that no installer or OpenCodex process runs from that folder
+before removing it. A retained folder does not prevent another update attempt.
+
+Check your registry connection if the install repeatedly exceeds the budget, then retry
+`ocx update`. Increasing the budget is not needed to clean up a timed-out install safely.
+
+This process-tree exit guarantee applies to Windows npm updates. POSIX retains its existing
+timeout handling; complete-tree timeout cleanup remains open there.
+
+### Retry or reinstall
+
+1. Close anything that may still run OpenCodex files: the Codex app, terminals that started
+   `ocx` or `bunx`, and the OpenCodex tray. A running `bun.exe` or `bunx.exe` keeps its files
+   locked on Windows.
+2. Run `ocx update` again from a terminal.
+3. If it fails the same way, run `ocx status` and let any in-progress recovery finish. If the
+   updater restarted the proxy, stop it through its owner (`ocx stop`, its service, or the desktop
+   app) and confirm it has stopped. Reinstall with the same package manager that owns the install;
+   for an npm install managed by the OpenCodex service:
 
    ```bash
    ocx stop
@@ -44,8 +66,8 @@ ocx status
    ocx service restart
    ```
 
-   若未安裝背景服務，請用 `ocx start` 取代 `ocx service restart`。若你使用 preview
-   渠道，請把 `latest`換成 `preview`。
+   Restart through the owning service or desktop app after installation completes; use `ocx start`
+   when unmanaged. Replace `latest` with `preview` if you follow the preview channel.
 
 ## 殘留資料夾
 

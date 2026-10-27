@@ -134,7 +134,7 @@ export interface OcxClaudeCodeConfig {
   maxContextTokens?: number;
   /**
    * Opt-in CLAUDE_CODE_ALWAYS_ENABLE_EFFORT=1 injection. Default OFF: opus-shaped
-   * aliases already carry output_config.effort on the wire (devlog 136 실측), and
+   * aliases already carry output_config.effort on the wire (measured, devlog 136), and
    * forcing effort on every request can leak reasoning params to non-reasoning routes.
    */
   alwaysEnableEffort?: boolean;
@@ -234,9 +234,9 @@ export interface OcxClaudeCodeConfig {
   /** Optional roster-style model forced on subagents at the next routed Claude Code launch. */
   subagentModelForce?: string;
   /** Claude-originated web-search override. Unset fields inherit the global sidecar settings. */
-  webSearchSidecar?: { backend?: "openai" | "anthropic" | "xai" | "gemini" | "exa"; model?: string; anthropicInstance?: AnthropicInstanceId };
+  webSearchSidecar?: { enabled?: boolean; backend?: "openai" | "anthropic" | "xai" | "gemini" | "exa"; model?: string; anthropicInstance?: AnthropicInstanceId };
   /** Claude-originated vision override. Unset fields inherit the global sidecar settings. */
-  visionSidecar?: { backend?: "openai" | "anthropic" | "routed"; model?: string; anthropicInstance?: AnthropicInstanceId };
+  visionSidecar?: { enabled?: boolean; backend?: "openai" | "anthropic" | "routed"; model?: string; anthropicInstance?: AnthropicInstanceId };
   /** Persisted Claude Desktop four-family routing profile. */
   desktopProfile?: OcxClaudeDesktopProfile;
   /**
@@ -294,19 +294,19 @@ export interface StorageCleanupPolicy {
   nextRun?: number;
 }
 
-/** 사용자가 대시보드에서 직접 추가한 커스텀 모델 정의. */
+/** A custom model definition the user added directly in the dashboard. */
 export interface OcxCustomModel {
-  /** 고유 ID (crypto.randomUUID()) */
+  /** Unique ID (crypto.randomUUID()) */
   id: string;
-  /** 프로바이더 키 (기존 providers[name]) */
+  /** Provider key (an existing providers[name]) */
   provider: string;
   /** Native provider model id; slashes are allowed and encoded for Codex as provider/<hyphenated-id>. */
   modelId: string;
-  /** 인간 가독 표시명 (선택, 슬래시 불가) */
+  /** Human-readable display name (optional, no slashes) */
   displayName?: string;
-  /** 컨텍스트 윈도우 (토큰) */
+  /** Context window (tokens) */
   contextWindow?: number;
-  /** 입력 모달리티 (선택, 기본 ["text"]) */
+  /** Input modalities (optional, defaults to ["text"]) */
   inputModalities?: string[];
   /**
    * Reasoning ladder (Codex labels) this custom row explicitly advertises. An empty array
@@ -321,7 +321,7 @@ export interface OcxCustomModel {
    * "shell" leaves tool_mode unset so Codex declares top-level shell tools (exec_command).
    */
   codexToolMode?: "code_mode_only" | "shell";
-  /** 추가 시각 (ISO 8601) */
+  /** Time added (ISO 8601) */
   addedAt?: string;
 }
 
@@ -852,7 +852,7 @@ export interface OcxConfig {
    * the bare row plus every generated selector row and omit that model family from raw discovery.
    */
   disabledModels?: string[];
-  /** 사용자가 대시보드에서 직접 추가한 커스텀 모델 목록. */
+  /** Custom models the user added directly in the dashboard. */
   customModels?: OcxCustomModel[];
   /**
    * Internal, versioned evidence for reconciling custom-model deletions with
@@ -1435,6 +1435,12 @@ export interface OcxComboConfig {
   cooldownMs?: number;
   /** Maximum wait for an eligible target cooldown to expire before failing closed. Default 0; range 0..600000, per selection attempt. */
   waitForCooldownMs?: number;
+  /** Opt-in retry pass when all otherwise eligible targets are cooling. Disabled by default. */
+  cooldownReprobe?: {
+    enabled: boolean;
+    /** Minimum interval between recovery passes, in milliseconds. Default 300000; range 1000..86400000. */
+    intervalMs?: number;
+  };
   /**
    * `before-last-resort` defers targets marked `lastResort` while a normal
    * target is merely cooling and that cooldown can be waited out inside

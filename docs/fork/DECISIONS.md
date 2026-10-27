@@ -629,3 +629,49 @@ commit，均 defer 至 stable promotion。open platform `#4200`（remote-hub doc
 **決定（三）platform issue**：`#7207`（防毒誤判 bun，上游已確認 MSI 摘要相同、尚無結論）、`#7425`（見上）、`#7515`／`#7716`（上游 Windows CI 測試清理與 Bun 1.4.4 逾時）。本 fork 的 push CI 不跑 Windows shard，皆為資訊；不採取行動。**觸發**：`#7207` 若上游結論為 Bun 1.4.4 本身被誤判，重新評估 `fork-release-windows.yml` 是否改鎖 Bun 版本。
 
 **決定（四）排程 CI**：上游 `ci.yml` 的夜間排程會 `gh api repos/…/commits/dev`，本 fork 沒有 `dev`，2026-10-24 的第一次排程在 `changes` 工作失敗（26 秒、全部後續工作 skipped、`ci` 斷言紅）。改為：解析不到 `dev` 且倉庫是 `SanHsien/opencodex` 時改測 `GITHUB_SHA`（main head），並在日誌留 `::notice::`；其他倉庫行為不變（仍然 error）。**理由**：這條排程是上游「Windows shard 與 macOS control 的夜間保險」，改測 main 比停用更符合本 fork 要的覆蓋；如夜間結果持續紅且與本 fork 無關，再改為停用該排程。
+
+## 2026-10-27：整合 v2.93.0；安全邊界逐檔判定（一律「上游已有等價保護就採上游」）
+
+**決定**：整版採用 `v2.93.0`（`88aaa754566d119b6b8fc898f8fb47602387d82e`，與 `upstream/main` 同一點），103 個 commit、694 個檔案。方法同前：由 tag 長出暫存 worktree，重放 `git diff v2.92.0 main` 的 fork overlay（398 個刪除先套用，272 個新增／修改以 3-way patch 套用），單一 parent 接 `main`，不 merge、不建 ancestry bridge。上游 `#7527`（Windows `.cmd` shim 空參數）與 `#7659`（`ocx sync` 保留使用者編輯的 `config.toml`）隨版進來，2026-10-25 條目的兩個觸發條件成立。
+
+**衝突 12 個，手動解**：
+- `.github/workflows/enforce-pr-target.yml`：上游新增 `attribution-approved` 標籤；fork 的 `github.repository == 'lidge-jun/opencodex'` guard 多包一層括號，兩者並存。
+- `scripts/test-run-lock.ts` 與 `tests/ci-workflows/test-runner.test.ts`：整檔採上游（見下），fork 的 Windows `bun:ffi` 版本與對應 5 個測試丟棄；上游新增的測試保留，補回 `utimesSync` import。
+- `tests/server/api-catalog-route.test.ts`：上游新增 `spyOn`（MiMo 測試）與 fork 新增 `existsSync`（temp 清理斷言），import 取聯集。
+- `gui/tests/i18n-locales.test.ts`：上游新增 Turkish／Portuguese 斷言，fork 無這兩個語系，整段丟棄。
+- `scripts/test-layout/layout.json`、`tests/fixtures/test-layout-expected.json`：兩側各新增的測試檔名取聯集。
+- zh-tw 文件 5 頁：以 fork 側為底，補上游新增內容（`providers.md` 的 OpenGateway 段、`ocx account list` 無原生 Codex 目錄段、`codex-app-models.md` 的穩定模型涵蓋章節與 `gpt-6.1-terra`、`sub-agent-surface.md` 的 `gpt-6.1-terra`）；fork 側 `codex-app-models.md` 原本把「目前穩定模型涵蓋範圍」標題放在錯的位置、整張表遺失，順手還原。
+- 上游重新帶回的 `docs-site/src/content/docs/tr/`（10 頁）依語系政策剃除。
+
+**安全邊界（每項一行；上游已有等價保護時採上游）**：
+- `scripts/test-run-lock.ts`（PID 重用）：上游 `#7508` 已有跨平台的 process-start identity（Windows、Linux `/proc` 開機 id＋ticks、macOS），涵蓋 fork 以 `GetProcessTimes` 做的保護且更完整；**採上游，丟 fork 版**。
+- `src/bridge/errors.ts`：fork 的 `clientSafeErrorMessage`（錯誤 envelope 不洩漏本機 stack frame）與上游新增的 `model_not_in_plan`／required-tool 程式碼互不重疊；**兩者並存**。
+- `src/client/connect.ts`：fork 的 `readBoundedRegularFile`（單次 open 再驗描述子）上游沒有對應；**保留 fork**，上游新增部分一併保留。
+- `src/codex/catalog/provider-models.ts`：fork 的 Vertex host 精確比對與 log 清洗與上游改動不同段；**兩者並存**。
+- `src/server/responses/codex-ws-exchange.ts`：fork 的 relay 失敗訊息 redact＋單行＋截斷，上游沒有對應；**保留 fork**，上游新增部分一併保留。
+- `src/service/ownership-mutation-lease.mjs`：上游新增 lease generation（舊 handle 不能釋放新租約），與 fork 的 fd 驗證讀 owner 紀錄是不同的洞；**兩者並存**。
+- `src/update/transactional-install.mjs`：上游新增 npm process-tree exit 確認（未確認就不刪 staging），與 fork 的 fd 驗證讀 marker 不同洞；**兩者並存**。
+- `desktop/src-tauri/tauri.conf.json`：上游版本號改 2.93.0，`createUpdaterArtifacts: false`、`plugins.updater.endpoints: []` 維持；桌面更新仍停用。
+
+**版本**：`package.json`、`desktop/src-tauri/Cargo.toml`／`Cargo.lock`、`tauri.conf.json` 皆為 `2.93.0`（MSI 的四段數字版本由 `fork-release-windows.yml` 從 tag 推出，不用改）。發版 tag 為 `v2.93.0`，推送時用 `git push origin <main SHA>:refs/tags/v2.93.0`（本機 `v2.93.0` 是上游的 tag）。
+
+## 2026-10-27：更新路徑只認 fork releases；韓文從產品碼剃除；兩個防回歸檢查
+
+**現象**：維護者的機器被靜默換回官方 `2.92.0`（fork 修正全失）。查到 fork 內仍有幾條路通往上游：`src/update/job.ts`、`src/update/notify.ts` 的 release notes 連結與 `gui/src/pages/usage-companion-panel.tsx` 的下載連結都指向 `lidge-jun/opencodex` 的 `releases/latest`；更根本的是 `ocx update`、dashboard 更新工作、啟動時的版本查詢都走 npm registry 的 `@bitkyc08/opencodex`——本 fork 不發 npm 套件，registry 只會回上游版本，裝下去就是上游建置。
+
+**決定（更新）**：
+- 新增 `src/update/fork-source.mjs`：`FORK_RELEASES_URL = https://github.com/SanHsien/opencodex/releases/latest`，並以 `forkUpdatePolicy.selfUpdateAllowed`（預設 `false`）一個閘門封住所有 registry 路徑。被封住的入口：`latestVersion`／`latestVersionAsync`（回 `null`，不再宣稱有新版）、`updateCommand`（丟錯）、`runUpdate`（印指向 fork releases 的訊息、exit 1）、`startUpdateJob`（丟 `fork_self_update_disabled`）、Node launcher 的 `ocx update`（mise 分支之後、npm／pnpm 自更新之前）。
+- release notes 連結（`job.ts`、`notify.ts`）與 GUI 下載連結改指 `SanHsien/opencodex`；standalone 的提示改成「到 fork releases 下載新版重裝」。
+- 桌面 Tauri updater 維持停用（`endpoints: []`、`createUpdaterArtifacts: false`）；`update.html` 早已指向 fork。
+- 為什麼不做「查 fork releases 再通知」：fork 的唯一發行物是未簽章 MSI，沒有安全的 in-app 安裝路徑，通知了也只能叫人手動下載；而上游的更新機制整套（stop proxy → 替換套件 → 重啟）一旦指向非 npm 來源就沒有驗證（integrity、staging）可依靠。維護者本人就是發版者，不需要輪詢自己。
+- 測試：`tests/preload.ts` 只在測試行程內把閘門打開，讓上游更新機制的既有測試照跑；出貨預設由 `tests/update/fork-update-policy.test.ts` 釘住。
+- **防回歸**（`tests/ci-workflows/fork-hygiene.test.ts`，`dev_check.ps1` 會跑）：`src/update`、launcher、桌面 updater 設定與 UI 出現 `lidge-jun/opencodex` 即失敗；`src`、`gui/src`、`bin`、`desktop/*` 出現上游 releases／`api.github.com/repos/lidge-jun` 即失敗；`tauri.conf.json` 的 updater 設定與閘門預設值也被斷言。
+
+**決定（韓文）**：`src/`、`gui/src/`、`scripts/`、`desktop/`、`bin/` 掃到 33 檔 226 行 Hangul，逐行分類：
+- 給人看的輸出改英文（`src/cli/claude-desktop.ts`、`claude.ts`、`src/claude/desktop-3p.ts`、`management/agent-settings-routes.ts` 的 CLI 訊息與 API 錯誤，對應測試一併更新）。`gui/src/i18n/log-guard-*-labels.ts`、`routing-compatibility-labels.ts` 的非保留語系區塊（含 ko）整段剃除，`format-tokens.ts` 去掉 ko 單位。
+- 註解改英文（decision-log 標籤與內文、`types/config.ts` JSDoc、`styles.css`）；`scripts/structure-ssot.ts` 的 decision-log 偵測同時認英文標籤。
+- 功能性比對保留並加英文註解：Cursor 工具敘述偵測（`tool-guidance.ts`、`envelope-echo.ts`）、prompt-lint 的韓文身分規則、`structure-ssot.ts` 偵測上游 ADR 的韓文標籤。逐行 allowlist 在 `tools/fork-hygiene-guards.ts`，規則寫在 `FORK.md`。
+- 測試 fixture 中的 Hangul（`scripts/codex-queue.test.mjs`、`native_tray.rs` 單元測試）換成繁中字串，語意不變。
+- **不處理**：`docs-site/`（`Header.astro`、`Landing.astro`、`frontier-i18n.ts` 等的位置式多語 `t(en, ko, zh, …)` 表）。fork 只發布 en／zh-tw，這些韓文是不會被顯示的死資料，剃除要改寫整串位置參數、每次同步都衝突；`deploy-docs` 在 fork 也不執行。`structure/` 與 `devlog/` 是上游開發者文件，不在檢查範圍。
+
+**同步後測試修補（2026-10-27）**：`docs-zh-tw-parity` 抓到上游 v2.93.0 在 8 個英文頁新增的段落（codex-app-models、combos、integrations、providers、lifecycle、codex-retry-diagnostics、proxy-formats、update-failed）zh-tw 沒有，依慣例以英文原文補進對應位置（連結改 `/zh-tw/`）；`update-failed` 舊的步驟清單被上游改放進新的「Retry or reinstall」小節，刪掉 zh-tw 舊清單以免重複；`integrations` 的兩個舊程式碼區塊改縮排（不改內容）以維持 fence 數對得上。`docs-gpt61-terra` 要求的 `modelAdapters?` 列補上 Copilot 的 `gpt-6.1-*` 說明。`.github/workflows/ci.yml` 因 fork 的排程 CI 改動比上游多 7 行、超過 2000 行，登記到 `tests/fixtures/file-size-baseline.json`（2003）。`release-version-line` 在本機會因為本機的 `v2.93.0` tag 是上游的而失敗；fork 在這個 commit 上打 `v2.93.0` 後即通過（CI 的 fork 倉庫沒有上游 tag）。

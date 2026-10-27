@@ -209,21 +209,25 @@ function repairEventPayload(
 
 /**
  * [Decision Log]
- * - 목적과 의도: 일부 openai-responses 호환 게이트웨이가 재사용/누락하는 message·reasoning item id를
- *   downstream SSE에서만 선택적으로 보정해 Codex Desktop 카드 상관관계를 안정화한다.
- * - 기존 구현 및 제약 조건: 기본 passthrough는 바이트 단위 그대로 relay되고, local replay 상태는 raw
- *   upstream 응답을 기억한다. function_call id / call_id는 upstream 의미가 있으므로 절대 바꾸면 안 된다.
- * - 검토한 주요 대안: 모든 passthrough SSE를 항상 재작성하기, raw inspect 분기까지 함께 재작성하기,
- *   function_call 포함 전체 item id를 정규화하기.
- * - 선택한 방식: provider-local opt-in 설정이 있을 때만 client-facing SSE 분기에 한정해 exact
- *   message/reasoning placeholder id와 missing terminal id를 item type + output_index 기준으로 보정하고,
- *   event-level item_id는 명시적인 message/reasoning lifecycle allowlist에서만 바꾼다.
- * - 다른 대안 대신 이 방식을 선택한 이유: disabled-by-default byte-for-byte passthrough를 유지하면서,
- *   previous_response_id replay는 raw upstream snapshot을 계속 사용해 synthetic id가 upstream으로
- *   역류하지 않게 막을 수 있다.
- * - 장점, 단점 및 영향: 기본 경로는 변하지 않는다. malformed stream이 output_index를 다른 item
- *   type에 재사용해도 function_call id/call_id는 보존된다. opt-in 게이트웨이는 sequential streams에서도
- *   고유한 canonical id를 얻지만, 보정이 필요한 경우에만 JS stream 재작성 비용을 지불한다.
+ * - Purpose and intent: some openai-responses compatible gateways reuse or omit message and
+ *   reasoning item ids; repair them selectively, in the downstream SSE only, so Codex Desktop
+ *   card correlation stays stable.
+ * - Existing implementation and constraints: the default passthrough is relayed byte for byte and
+ *   local replay state remembers the raw upstream response. function_call id / call_id carry
+ *   upstream meaning and must never be changed.
+ * - Main alternatives considered: always rewrite every passthrough SSE, also rewrite the raw
+ *   inspect branch, or normalize all item ids including function_call.
+ * - Chosen approach: only when a provider-local opt-in is set, and only on the client-facing SSE
+ *   branch, repair exact message/reasoning placeholder ids and missing terminal ids keyed by item
+ *   type + output_index; event-level item_id is changed only for an explicit message/reasoning
+ *   lifecycle allowlist.
+ * - Why this over the alternatives: it keeps the disabled-by-default byte-for-byte passthrough,
+ *   and previous_response_id replay keeps using the raw upstream snapshot so synthetic ids never
+ *   flow back upstream.
+ * - Pros, cons and impact: the default path is unchanged. Even if a malformed stream reuses an
+ *   output_index for another item type, function_call id/call_id are preserved. An opted-in
+ *   gateway gets unique canonical ids even on sequential streams, and pays the JS stream
+ *   rewrite cost only when a repair is needed.
  */
 /** Stateful payload rewrite for composition with other client-facing SSE transforms. */
 export function createResponsesItemIdPayloadRewrite(

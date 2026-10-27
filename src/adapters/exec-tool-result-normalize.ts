@@ -258,7 +258,7 @@ export function isCodexExecBridgeTool(toolName?: string, toolNamespace?: string)
     lower === "exec"
     || lower === "exec_command"
     || lower === "shell_command"
-    // Codex CLI/desktop native tool names: the multi-round "이전 출력이 비어 있어 처음부터"
+    // Codex CLI/desktop native tool names: the multi-round Korean "the previous output is empty, start over"
     // restart loop reproduced via codex exec because `shell` was not in this set
     // (devlog 260826 gap-8 QA round 2).
     || lower === "shell"

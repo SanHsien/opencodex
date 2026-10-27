@@ -16,7 +16,7 @@ description: 全域控制 Codex 在所有模型上生成和管理子代理的方
 | 模式 | Codex 取得什麼 | 適合誰選擇 |
 | --- | --- | --- |
 | **v1**（預設） | 經典的具名稱空間 `spawn_agent`、`send_input`、`resume_agent` 與 `close_agent` 工具。spawn 可以直接選擇另一個模型。 | 任何跨供應商委託的人，特別是原生轉路由的子代理。這是全新安裝出廠時所使用的模式。 |
-| **base** | 上游模型 pin：GPT-5.6 Sol/Terra 使用 v2，Luna 使用 v1，未 pin 的模型遵循 Codex 的 `multi_agent_v2` 功能旗標。 | 想要使用 Codex 逐模型 pin，且父模型與子模型位於同一側供應商邊界的維運方。請注意其 pin 會把 Sol 與 Terra 放在 v2。 |
+| **base** | 上游模型 pin：GPT-5.6 Sol/Terra 與 gpt-6.1-terra 使用 v2，Luna 使用 v1，未 pin 的模型遵循 Codex 的 `multi_agent_v2` 功能旗標。 | 想要使用 Codex 逐模型 pin，且父模型與子模型位於同一側供應商邊界的維運方。請注意其 pin 會把 Sol 與 Terra 放在 v2。 |
 | **v2** | 扁平的 `spawn_agent`、`send_message`、`followup_task`、`interrupt_agent` 與代理清單工具，支援並行工作階段。 | 想要較新的並行工作流程、且理解模型繼承與下方加密任務限制的使用者。 |
 
 在 **v2** 上，選用的**讓 ChatGPT 保持 v1**開關（`keepNativeChatGptOnV1`）會讓 Sol/Terra 留在 v1

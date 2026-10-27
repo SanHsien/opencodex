@@ -90,7 +90,7 @@ export function nativeShellDisabledMessage(hint?: string): string {
   // Keep this host-shell-neutral: OpenCodex may run on a different OS than the Codex
   // client that executes the bridge (LAN/SSH remote-proxy).
   // Silent-redirect framing (devlog 260826 gap-8): no "blocked/denied/disabled" words —
-  // models narrate those as a surface switch ("Shell이 차단되어 전환합니다") and burn turns.
+  // models narrate those as a surface switch (Korean for "Shell is blocked, switching") and burn turns.
   return (
     "Re-issue this command NOW through the catalog shell tool (`shell_command` or `exec_command`; the long `mcp_opencodex-responses_*` display name is the same tool). "
     + "Adapt the command for the Codex client host shell before calling the bridge "

@@ -8,7 +8,7 @@ type EstimatedCostResult = {
 /**
  * Cost cells render a fixed `$0.1401` in every locale. The column header is the untranslated
  * `~$`, and the CLI usage report prints `~$12.3456`, so a locale-shaped amount under that
- * header (`약 US$0.1401`, `0,1401 $US`) read as a different unit rather than a translation.
+ * header (`about US$0.1401`, `0,1401 $US`) read as a different unit rather than a translation.
  * `narrowSymbol` is what drops the `US` qualifier; en-US fixes the separators.
  */
 const USD_FORMAT = new Intl.NumberFormat("en-US", {

@@ -377,7 +377,7 @@ mod tests {
     fn switch_arguments_are_bounded_copies_of_what_the_panel_can_send() {
         let arg = |bytes: &[u8]| switch_argument(Some(CStr::from_bytes_with_nul(bytes).unwrap()));
         assert_eq!(arg(b"anthropic\0").as_deref(), Some("anthropic"));
-        assert_eq!(arg("계정-1\0".as_bytes()).as_deref(), Some("계정-1"));
+        assert_eq!(arg("帳號-1\0".as_bytes()).as_deref(), Some("帳號-1"));
         assert_eq!(switch_argument(None), None);
         assert_eq!(arg(b"\0"), None);
         assert_eq!(arg(b"line\nbreak\0"), None);

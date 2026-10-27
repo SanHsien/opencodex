@@ -265,7 +265,7 @@ describe("GUI update execution decisions", () => {
         updateAvailable: true,
         canUpdate: true,
         command: privateOutput,
-        releaseNotesUrl: "https://github.com/lidge-jun/opencodex/releases/latest",
+        releaseNotesUrl: "https://github.com/SanHsien/opencodex/releases/latest",
       }),
       spawnWorkerFn: () => { throw new Error(privateOutput); },
     })).toThrow("Could not start update worker");
@@ -325,7 +325,7 @@ describe("GUI update execution decisions", () => {
         updateAvailable: true,
         canUpdate: true,
         command: privateOutput,
-        releaseNotesUrl: "https://github.com/lidge-jun/opencodex/releases/latest",
+        releaseNotesUrl: "https://github.com/SanHsien/opencodex/releases/latest",
       }),
       spawnWorkerFn: () => { throw new Error(privateOutput); },
     })).toThrow("Could not start update worker");
@@ -373,7 +373,7 @@ describe("GUI update execution decisions", () => {
         updateAvailable: true,
         canUpdate: true,
         command: "npm i -g opencodex@latest",
-        releaseNotesUrl: "https://github.com/lidge-jun/opencodex/releases/latest",
+        releaseNotesUrl: "https://github.com/SanHsien/opencodex/releases/latest",
       }),
       integrityFn: () => ({ ok: true as const, integrity: "sha512-testfixturevalue000000000" }),
       cachePreflightFn: () => { preflightRan = true; return { ok: false, reason: "cache_entry_foreign_owner" }; },
@@ -404,7 +404,7 @@ describe("GUI update execution decisions", () => {
         updateAvailable: true,
         canUpdate: true,
         command: oneLine,
-        releaseNotesUrl: "https://github.com/lidge-jun/opencodex/releases/latest",
+        releaseNotesUrl: "https://github.com/SanHsien/opencodex/releases/latest",
       }),
       spawnWorkerFn: () => { throw new Error(oneLine); },
     })).toThrow("Could not start update worker");
@@ -427,7 +427,7 @@ describe("GUI update execution decisions", () => {
         updateAvailable: true,
         canUpdate: true,
         command: "npm install -g opencodex@2.7.41",
-        releaseNotesUrl: "https://github.com/lidge-jun/opencodex/releases/latest",
+        releaseNotesUrl: "https://github.com/SanHsien/opencodex/releases/latest",
       }),
       spawnWorkerFn: () => { throw new Error("spawn denied for Jane Doe"); },
     })).toThrow("Could not start update worker");
@@ -454,7 +454,7 @@ describe("GUI update execution decisions", () => {
         updateAvailable: true,
         canUpdate: true,
         command: "npm install -g opencodex@2.7.41",
-        releaseNotesUrl: "https://github.com/lidge-jun/opencodex/releases/latest",
+        releaseNotesUrl: "https://github.com/SanHsien/opencodex/releases/latest",
       }),
       spawnWorkerFn: () => { throw renamed; },
     })).toThrow("Could not start update worker");
@@ -560,7 +560,7 @@ describe("GUI update execution decisions", () => {
       checkForUpdateFn: () => ({
         currentVersion: "2.7.40", latestVersion: "2.7.41", channel: "latest", installer: "npm",
         updateAvailable: true, canUpdate: true, command: "npm install -g opencodex@2.7.41",
-        releaseNotesUrl: "https://github.com/lidge-jun/opencodex/releases/latest",
+        releaseNotesUrl: "https://github.com/SanHsien/opencodex/releases/latest",
       }),
       spawnWorkerFn: () => { throw hostile; },
     })).toThrow("Could not start update worker");
@@ -594,7 +594,7 @@ describe("GUI update execution decisions", () => {
         updateAvailable: true,
         canUpdate: true,
         command: "node /old/bin/ocx.mjs update --tag latest",
-        releaseNotesUrl: "https://github.com/lidge-jun/opencodex/releases/latest",
+        releaseNotesUrl: "https://github.com/SanHsien/opencodex/releases/latest",
       }),
       resolvePnpmOwnerFn: () => ({
         ok: true as const,
@@ -1710,7 +1710,7 @@ describe("GUI update execution decisions", () => {
       installer: "npm",
       restart: true,
       command: "node /pkg/bin/ocx.mjs update --tag latest",
-      releaseNotesUrl: "https://github.com/lidge-jun/opencodex/releases/latest",
+      releaseNotesUrl: "https://github.com/SanHsien/opencodex/releases/latest",
       log: [],
     };
     writeFileSync(updateJobPath(), `${JSON.stringify(job)}\n`);
@@ -1746,7 +1746,7 @@ describe("GUI update execution decisions", () => {
       installer: "bun",
       restart: true,
       command: "bun add -g @bitkyc08/opencodex@2.7.41",
-      releaseNotesUrl: "https://github.com/lidge-jun/opencodex/releases/latest",
+      releaseNotesUrl: "https://github.com/SanHsien/opencodex/releases/latest",
       log: [],
       pid: 777,
     };
@@ -1764,7 +1764,7 @@ describe("GUI update execution decisions", () => {
         updateAvailable: true,
         canUpdate: true,
         command: "bun add -g @bitkyc08/opencodex@2.7.41",
-        releaseNotesUrl: "https://github.com/lidge-jun/opencodex/releases/latest",
+        releaseNotesUrl: "https://github.com/SanHsien/opencodex/releases/latest",
       }),
       spawnWorkerFn: () => ({
         pid: 888,
@@ -1789,7 +1789,7 @@ describe("GUI update execution decisions", () => {
         updateAvailable: true,
         canUpdate: true,
         command: "bun add -g @bitkyc08/opencodex@2.7.41",
-        releaseNotesUrl: "https://github.com/lidge-jun/opencodex/releases/latest",
+        releaseNotesUrl: "https://github.com/SanHsien/opencodex/releases/latest",
       }),
       spawnWorkerFn: () => { throw new Error("spawn denied"); },
     })).toThrow("Could not start update worker");
@@ -1852,7 +1852,7 @@ describe("immutable update target (WP160)", () => {
     const cacheGateAt = source.indexOf("const cachePreflight = (io.cachePreflightFn ?? runNpmCachePreflight)();");
     const trayStopAt = source.indexOf("handoffWindowsTrayForUpdate(tray");
     const failAt = source.indexOf('updateJob(job, { status: "failed", error: integrity.reason });');
-    const spawnAt = source.indexOf("const result = (io.runCommandFn ?? runLoggedCommand)(job, cmd.bin, cmd.args, UPDATE_TIMEOUT_MS);");
+    const spawnAt = source.indexOf("const result = (io.runCommandFn ?? runLoggedCommand)(job, cmd.bin, cmd.args, UPDATE_TIMEOUT_MS, updateEnv);");
     expect(gateAt).toBeGreaterThan(-1);
     expect(cacheGateAt).toBeGreaterThan(-1);
     expect(trayStopAt).toBeGreaterThan(-1);
@@ -1956,7 +1956,7 @@ test("startUpdateJob uses injected prechecked result without a second registry c
     currentVersion: "2.7.40", latestVersion: "2.7.41", channel: "latest" as const,
     installer: "bun" as const, updateAvailable: true, canUpdate: true,
     command: "bun add -g @bitkyc08/opencodex@2.7.41",
-    releaseNotesUrl: "https://github.com/lidge-jun/opencodex/releases/latest",
+    releaseNotesUrl: "https://github.com/SanHsien/opencodex/releases/latest",
   };
   const job = startUpdateJob("latest", false, {
     checkForUpdateFn: channel => { checks++; expect(channel).toBe("latest"); return prechecked; },

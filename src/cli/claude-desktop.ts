@@ -1,7 +1,7 @@
 import { recordCommittedDesktopGateway } from "../claude/desktop-gateway-state";
 import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { getConfigDir } from "../config/paths";
+import { getConfigDir, withConfigDirHardeningSettled } from "../config/paths";
 import { loadConfig, mutatePersistedConfig, withConfigMutationLockSync } from "../config";
 import { claudeDesktopIntegrationEnabledNow, setIntegrationEnabled } from "../codex/desired-state";
 import { readClientConnectionState, assertClientConnectionUnchanged, assertNoClientDisconnectPending, type ClientConnectionState } from "../client/state";
@@ -19,12 +19,12 @@ import {
 } from "../claude/desktop-profile";
 import { inspectDesktop3pConfigLibrary, removeDesktop3pStandardPivot, writeDesktop3pConfig, type Desktop3pConfigMode, parseDesktop3pModeArgs } from "../claude/desktop-3p";
 import {
-  applyDesktopFirstParty,
+  applyDesktopFirstParty, withFirstPartySecretsSettled,
   captureDesktopFirstPartyRollback,
   isClaudeDesktopMode,
   observeClaudeDesktopMode,
   recordClaudeDesktopMode,
-  removeDesktopFirstParty,
+  removeDesktopFirstParty, removeDesktopFirstPartySettled,
   resolveClaudeDesktopMode,
   resolveClaudeDesktopApplyMode,
   type ClaudeDesktopModeObservation,
@@ -99,6 +99,7 @@ type DesktopApplyResult = {
   warning?: string;
   picker?: DesktopPickerStatus;
   delegated?: boolean;
+  diagnostic?: import("../claude/desktop-first-party").InterceptSecretDiagnostic;
 };
 
 type PickerRouteResponse = {
@@ -155,7 +156,7 @@ async function trustPickerLocally(
 ): Promise<{ ok: true; callerAddedTrust: boolean; caPath: string; sha1: string } | { ok: false; reason: string }> {
   try {
     const configDir = getConfigDir();
-    const paths = pickerTrustPaths(deps, configDir);
+    const paths = await withConfigDirHardeningSettled(configDir, () => pickerTrustPaths(deps, configDir));
     if (!acceptsPickerAuthority(paths.certPem)) return { ok: false, reason: "ca_unverified" };
     if (!deps.ensurePickerCaImpl) {
       // The bytes in ca.pem are only safe to trust when they match the authority the running
@@ -329,17 +330,17 @@ const DESKTOP_APPLY_FLAGS = ["--first-party", "--gateway", "--static", "--hybrid
  * the error counts them and lists the options that do exist instead.
  */
 function unknownApplyArgsError(count: number): string {
-  return `알 수 없는 인자 ${count}개 (값은 표시하지 않습니다). 사용 가능한 옵션: ${DESKTOP_APPLY_FLAGS.join(" ")}`;
+  return `${count} unknown argument(s) (values are not shown). Available options: ${DESKTOP_APPLY_FLAGS.join(" ")}`;
 }
 
 /** A rejected route is not echoed: whatever sits in that position may be a misplaced credential. */
-const UNAVAILABLE_ROUTE = "현재 사용할 수 없는 모델입니다. 사용 가능한 모델은 ocx claude desktop show로 확인하세요.";
+const UNAVAILABLE_ROUTE = "That model is not currently available. Run `ocx claude desktop show` to see the available models.";
 
 /** Profile files are user-chosen paths; a failure reports the operation and error code only. */
 function profileFileError(operation: "export" | "import", error: unknown): Error {
   const code = (error as NodeJS.ErrnoException | undefined)?.code;
   const reason = typeof code === "string" && /^E[A-Z]+$/.test(code) ? code : error instanceof SyntaxError ? "invalid JSON" : "failed";
-  return new Error(`Claude Desktop 프로필 ${operation === "export" ? "내보내기" : "가져오기"} 실패: ${reason}`);
+  return new Error(`Claude Desktop profile ${operation} failed: ${reason}`);
 }
 
 export function parseDesktopApplyArgs(
@@ -426,14 +427,14 @@ async function applyFirstPartyDesktop(
   // Establish the replacement before deleting the working gateway. A refused
   // cleanup restores only our managed env keys, preserving unrelated settings.
   const rollback = captureDesktopFirstPartyRollback(config);
-  const applied = applyDesktopFirstParty(config);
-  if (!applied.ok) return { ok: false, path: applied.path, reason: applied.reason };
+  const applied = await withFirstPartySecretsSettled(getConfigDir(), () => applyDesktopFirstParty(config));
+  if (!applied.ok) return { ok: false, path: applied.path, reason: applied.reason, ...(applied.diagnostic ? { diagnostic: applied.diagnostic } : {}) };
   const appliedFingerprint = config.claudeCode?.desktopProfile?.appliedFingerprint ?? null;
   const library = inspectDesktop3pConfigLibrary({ appliedFingerprint });
   if (library.kind === "gateway_ours" || library.kind === "gateway_drifted") {
     const removed = removeDesktop3pStandardPivot({ appliedFingerprint, replaceWhileEnabled: true });
     if (!removed.ok) {
-      const restored = removed.changed || !applied.changed || rollback();
+      const restored = removed.changed || !applied.changed || await withConfigDirHardeningSettled(getConfigDir(), rollback);
       const modeSaved = !removed.changed || saveDesktopMode("first-party", deps);
       const warning = [restored ? "" : "first-party settings rollback did not complete",
         modeSaved ? "" : "first-party is active but its mode marker was not saved"].filter(Boolean).join("; ");
@@ -462,7 +463,7 @@ export async function applyDesktop(
   const modeSaved = saveDesktopMode("gateway", deps);
   const warning = [result.warning, modeSaved ? "" : "desktop mode marker was not saved"].filter(Boolean).join(" ");
   // The gateway mode is committed before retiring first-party settings.
-  const removed = removeDesktopFirstParty(loadConfig());
+  const removed = await removeDesktopFirstPartySettled(loadConfig);
   if (!removed.ok) return { ok: false, path: removed.path, reason: "first_party_settings_unreadable",
     warning: ["gateway applied; first-party cleanup remains incomplete", warning].filter(Boolean).join(" ") };
   if (removed.retainedFor === "cli") {
@@ -719,7 +720,7 @@ export async function handleClaudeDesktopCommand(argv: string[], deps: ApplyProf
     try {
       const result = await applyDesktop(undefined, target, deps);
       if (!result.ok) {
-        console.error(`설정 적용 실패: ${result.reason ?? "unknown error"}`);
+        console.error(`Failed to apply settings: ${result.reason ?? "unknown error"}`);
         if (result.warning) console.warn(result.warning);
         if (result.reason?.startsWith("gateway_")) {
           console.error("The gateway profile could not be removed safely, so first-party mode was not applied. Turn the integration off (dashboard toggle) and retry, or keep gateway with `ocx claude desktop apply --gateway`.");
@@ -733,12 +734,12 @@ export async function handleClaudeDesktopCommand(argv: string[], deps: ApplyProf
         return 1;
       }
       if (target.kind === "first-party") {
-        console.log(`Claude Desktop first-party 설정을 적용했습니다: ${result.path}`);
-        console.log("Desktop 앱 설정은 그대로이며, Code 탭의 Claude Code만 로컬 프록시를 거칩니다.");
+        console.log(`Applied Claude Desktop first-party settings: ${result.path}`);
+        console.log("The Desktop app settings are unchanged; only Claude Code in the Code tab goes through the local proxy.");
         console.warn(`⚠️  ${FIRST_PARTY_ACCOUNT_RISK.message}`);
         printPickerStatus(result.picker, false);
       } else {
-        console.log(`Claude Desktop gateway 설정을 적용했습니다: ${result.path}`);
+        console.log(`Applied Claude Desktop gateway settings: ${result.path}`);
         for (const line of gatewayModeExplanation({
           requestedExplicitly: applyFlags.some(flag => flag !== "--first-party"),
           config: preApplyConfig,
@@ -749,7 +750,7 @@ export async function handleClaudeDesktopCommand(argv: string[], deps: ApplyProf
       // The write landed; only the bookkeeping marker did not. Saying nothing
       // would leave the saved-vs-applied display wrong with no explanation.
       if (result.warning) console.warn(`⚠️  ${result.warning}`);
-      console.log("Claude Desktop을 완전히 종료한 뒤 다시 열어 주세요.");
+      console.log("Fully quit Claude Desktop, then reopen it.");
       return 0;
     } catch (error) {
       console.error(error instanceof Error ? error.message : String(error));
@@ -804,13 +805,13 @@ export async function handleClaudeDesktopCommand(argv: string[], deps: ApplyProf
       });
       const bindings = result.modelBindings ?? {};
       console.log(command === "bind"
-        ? `Code 탭 피커의 ${pickerId}를 ${route}로 연결했습니다. 다음 요청부터 적용됩니다.`
-        : `${pickerId} 연결을 해제했습니다.`);
+        ? `Bound ${pickerId} in the Code tab picker to ${route}. Applies from the next request.`
+        : `Unbound ${pickerId}.`);
       const ids = Object.keys(bindings).sort();
-      if (ids.length === 0) console.log("현재 연결된 피커 모델이 없습니다.");
+      if (ids.length === 0) console.log("No picker models are currently bound.");
       for (const id of ids) console.log(`  ${id} -> ${bindings[id]}`);
       if (resolveClaudeDesktopMode(config, observeClaudeDesktopMode(config)) === "gateway") {
-        console.warn("⚠️  Desktop이 gateway 모드입니다. 바인딩은 first-party 모드(ocx claude desktop apply --first-party)의 Code 탭과 claude CLI에만 적용됩니다.");
+        console.warn("⚠️  Desktop is in gateway mode. Bindings apply only to the Code tab in first-party mode (ocx claude desktop apply --first-party) and to the claude CLI.");
       }
       return 0;
     }
@@ -836,7 +837,7 @@ export async function handleClaudeDesktopCommand(argv: string[], deps: ApplyProf
       if (!state.models.some(model => model.route === route && model.available)) throw new Error(UNAVAILABLE_ROUTE);
       const profile = moveDesktopRoute(state.profile, route, familyRaw, flags.includes("--default"));
       saveLocalDesktopProfile(profile, config.claudeCode?.desktopProfile, connection, deps);
-      console.log(`${route} 모델을 ${familyRaw} 그룹으로 옮겼습니다.`);
+      console.log(`Moved ${route} to the ${familyRaw} group.`);
       return 0;
     }
     if (command === "default") {
@@ -846,7 +847,7 @@ export async function handleClaudeDesktopCommand(argv: string[], deps: ApplyProf
       if (route && !state.models.some(model => model.route === route && model.available)) throw new Error(UNAVAILABLE_ROUTE);
       const profile = setDesktopFamilyDefault(state.profile, familyRaw, route);
       saveLocalDesktopProfile(profile, config.claudeCode?.desktopProfile, connection, deps);
-      console.log(`${familyRaw} 기본 모델을 ${route ?? "없음"}으로 지정했습니다.`);
+      console.log(`Set the ${familyRaw} default model to ${route ?? "none"}.`);
       return 0;
     }
     if (command === "export") {
@@ -877,10 +878,10 @@ export async function handleClaudeDesktopCommand(argv: string[], deps: ApplyProf
       if (flags.includes("--apply")) {
         // A routing profile is a gateway-mode artifact: importing with --apply installs it there.
         const result = await applyDesktop(reconciled, { kind: "gateway", mode: "static" }, deps);
-        if (!result.ok) { console.error(`프로필은 저장했지만 Desktop 적용에 실패했습니다: ${result.reason ?? "unknown error"}`); return 1; }
+        if (!result.ok) { console.error(`The profile was saved, but applying it to Desktop failed: ${result.reason ?? "unknown error"}`); return 1; }
         if (result.warning) console.warn(`⚠️  ${result.warning}`);
       }
-      console.log("Claude Desktop 프로필을 가져왔습니다.");
+      console.log("Imported the Claude Desktop profile.");
       return 0;
     }
     printDesktopHelp();

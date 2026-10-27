@@ -16,10 +16,12 @@ import {
   updateTag,
 } from "./index";
 
+import { FORK_RELEASES_URL } from "./fork-source.mjs";
+
 const VERSION_FILENAME = "version.json";
 export const REFRESH_INTERVAL_MS = 20 * 60 * 60 * 1000; // 20h, matching codex-rs
 export const CACHE_MAX_AGE_MS = 40 * 60 * 60 * 1000;
-const RELEASE_NOTES_URL = "https://github.com/lidge-jun/opencodex/releases/latest";
+const RELEASE_NOTES_URL = FORK_RELEASES_URL;
 
 export interface VersionCache {
   latest_version: string;

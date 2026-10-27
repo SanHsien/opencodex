@@ -301,10 +301,12 @@ export type RoutingCommentaryDecision =
   | { kind: "flush" }
   | { kind: "hallucination" };
 
-// The Korean alternative is deliberately asymmetric: it has a left boundary and no right one.
+// Functional matcher for Korean model output (kept in Korean on purpose; not UI copy). The
+// Korean alternative is deliberately asymmetric: it has a left boundary and no right one.
 // Korean attaches particles directly to the noun, so the real sentences this detector exists to
-// catch read "네이티브 셸이 차단되어..." and "네이티브 셸과 Read가...". A mirrored
-// (?![\p{L}\p{M}\p{N}_]) lookahead would see the 이/과 particle as a letter and stop matching
+// catch are Korean "native shell is blocked ..." and "native shell and Read ..." sentences, where
+// the subject / conjunction particle is glued to the noun. A mirrored
+// (?![\p{L}\p{M}\p{N}_]) lookahead would see that particle as a letter and stop matching
 // every one of them, which is why the negative cases below only probe the left side. Adding the
 // right boundary looks like an obvious fix and disables the check; do not.
 const ROUTING_NATIVE_TOOL_NAME = /\b(shell|read|grep|list|bash)\b|(?<![\p{L}\p{M}\p{N}_])네이티브\s*(?:셸|쉘)/giu;

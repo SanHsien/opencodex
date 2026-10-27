@@ -151,7 +151,7 @@ function composeGatedClientVersionFloor(
 
 // Reads every pinned row (codex-rs snapshot plus roster-captured rows), so a gated slug whose row
 // arrives through roster-pinned-models.json still contributes its floor. None does today:
-// gpt-6-sol/luna and gpt-6.1-sol are ungated, and gpt-6-astra-minor has no row and no measured minimum.
+// GPT-6 Sol/Luna and GPT-6.1 Sol/Terra are ungated; Astra Minor has no row or measured minimum.
 export const GATED_MODEL_CLIENT_VERSION_FLOOR: string = composeGatedClientVersionFloor(
   pinnedNativeModelRows(),
 );
@@ -1286,17 +1286,17 @@ export function getCodexModelEntitlementStatus(
  * Fetch the authenticated model roster for every locally usable Codex account.
  *
  * [Decision Log]
- * - 목적과 의도: Account-gated native models must be advertised and selected only for accounts
+ * - Purpose and intent: Account-gated native models must be advertised and selected only for accounts
  *   whose own authenticated upstream catalog confirms the model.
- * - 기존 구현 및 제약 조건: The injected Codex catalog is static, while Pool may contain
+ * - Existing implementation and constraints: The injected Codex catalog is static, while Pool may contain
  *   accounts with different entitlements. A global allowlist therefore exposed unusable rows.
- * - 검토한 주요 대안: Infer access from plan labels, learn only after a failed prompt, or rewrite
+ * - Main alternatives considered: Infer access from plan labels, learn only after a failed prompt, or rewrite
  *   Daybreak to its current physical model.
- * - 선택한 방식: Cache bounded authenticated `/models` rosters per credential generation and
+ * - Chosen approach: Cache bounded authenticated `/models` rosters per credential generation and
  *   fail closed for unconfirmed accounts.
- * - 다른 대안 대신 이 방식을 선택한 이유: Plan names do not prove grants, post-failure
+ * - Why this over the alternatives: Plan names do not prove grants, post-failure
  *   learning spends a real turn, and model rewriting changes the requested product identity.
- * - 장점, 단점 및 영향: Catalog and routing share exact account evidence. Cold gated requests
+ * - Pros, cons and impact: Catalog and routing share exact account evidence. Cold gated requests
  *   pay one bounded discovery call per account; discovery failure temporarily hides the gated row.
  */
 export async function resolveCodexModelEntitlements(

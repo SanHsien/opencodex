@@ -213,7 +213,7 @@ test.each(["empty", "failed"])("connected CLI handles %s snapshot without claimi
     expect(loadConfig().claudeCode?.desktopProfile).toBeUndefined();
     const output = error.mock.calls.flat().join(" ");
     expect(output).toContain(outcome === "empty" ? "desktop_unavailable" : "desktop_snapshot_unsupported");
-    expect(output).not.toContain("프로필은 저장");
+    expect(output).not.toContain("The profile was saved");
     expect(output).not.toContain("remote-marker");
     expect(output).not.toContain("ocx_desktop_fixture_token");
   } finally { error.mockRestore(); }

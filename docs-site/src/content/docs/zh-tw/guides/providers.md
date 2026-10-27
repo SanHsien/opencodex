@@ -110,8 +110,9 @@ preset 通常同時省略 `authMode` 與 `apiKey`。
 
 [`retryOn429`](/zh-tw/reference/configuration/) 的 same-key 429 replay 只適用於 API-key provider
 （`authMode: "key"`）。OAuth、forward 與 local preset 都被排除：它們的 credential 絕不能在同一 token
-上重播，而 local runtime 也沒有 remote key 可保留。此功能為 opt-in；未設定時關閉，物件存在時預設
-啟用，除非明確設為 `enabled: false`。
+上重播，而 local runtime 也沒有 remote key 可保留。除了文件記載的特定目的地預設值之外，此功能為 opt-in。標準 Mistral Chat 會在既有的整個請求傳送額度內使用耐心的重試策略（6 次 replay，10 秒備援間隔）。明確的 `retryOn429` 設定（包括 `enabled: false`）優先。Mistral preset 也會預設轉送提供的 prompt cache key；`promptCacheKey: false` 可停用轉送。快取親和性能提高重用機會，但不保證快取命中，也不會移除 token 吞吐量限制。
+
+Mistral 的 Studio 與 Vibe key 共用同一個 API-key provider。key 類型與方案額度請見 [Mistral 的 API key 文件](https://docs.mistral.ai/admin/identity-access/api-keys)；proxy 不會從 key 推斷訂閱等級。對所有模型，上游明確給出的 `Retry-After` 期限會在同一 credential 與模型的呼叫之間共用。沒有重試時間的 429，在有效的每分鐘計數器顯示容量已耗盡，或被拒查詢的實測成本超過剩餘 token 但仍在公告的完整額度內時，可能啟動保守的 60 秒復原等待。這是本地復原策略，並非對伺服器重設時間的精確預測。正常流量從不預測下一次查詢的快取或成本。等待後會執行一次復原探測；成功即恢復一般流量。缺少、格式錯誤、零授權、月額度已耗盡或超過完整額度的依據，不會憑空推斷重設，也不會壓縮歷史。`requestPacing: { "enabled": false }` 或 `retryOn429: { "respectRetryAfter": false }` 可停用共用節流。對於同一 key 的 replay，若 Mistral 的重試時間超過 `retryOn429.maxIntervalMs`，proxy 會回傳 429 與重試提示，而不會提早 replay。啟用 round-robin key 選擇時，排隊中的請求會重新檢查 key 冷卻並為替代 key 取得節流容量；輸出前的 key 拒絕可在該請求既有的送出上限內改用健康的 key 復原。context window 與各模型的壓縮偏好維持獨立。
 
 ### Anthropic API-key credit exhaustion
 
@@ -465,6 +466,12 @@ database 並移除目前的 WAL、SHM 與 journal sidecar，再發布先前的 s
 `kiro-cli` data path 修復或移除不可讀 database、取消這些 import selector 後重試。沒有既有
 `kiro-cli` session 的新機器登入不受影響。
 
+### DeepSeek API
+
+The `deepseek` API-key provider includes `deepseek-flash`, its `deepseek-v4-flash` alias, and `deepseek-v4-pro`. DeepSeek [withdrew the Pro retirement plan](https://api-docs.deepseek.com/updates/) and continues serving it; opencodex retains Pro in the catalog with a 1,048,576-token context window, text-only input, and `low`/`high`/`max` reasoning effort. Responses requests use its native Responses endpoint; Chat Completions requests retain the Chat wire. Flash remains the default. Third-party providers have independent model availability.
+
+On upgrade, startup adds Pro to a saved model list only when it exactly matches the previous built-in DeepSeek seed and still uses the official endpoint and adapter. Customized lists, including empty lists, remain unchanged; live discovery need not be enabled for this repair.
+
 ### DeepSeek Account (DSH)
 
 `dsh-account` is an experimental, import-first account provider designed to reuse the authenticated account credentials of an installed DeepSeek Harness (DSH) Desktop application.
@@ -478,7 +485,7 @@ database 並移除目前的 WAL、SHM 與 journal sidecar，再發布先前的 s
 
 ## 3. API 金鑰目錄
 
-opencodex 內建 105 個 preset：84 個 key-based、17 個 OAuth、3 個 local，以及 1 個預設 ChatGPT-forward
+opencodex 內建 106 個 preset：85 個 key-based、17 個 OAuth、3 個 local，以及 1 個預設 ChatGPT-forward
 preset。儀表板的 **Add provider** picker 會開啟 key provider 的 dashboard、驗證金鑰並儲存；驗證方式
 依 provider 而異。主要條目如下。
 
@@ -569,6 +576,13 @@ Sionic 提供的 `deepseek/deepseek-v4.1-flash-ultrafast` 與
 [OpenGateway 控制台](https://opengateway.ai/api-keys)建立金鑰，再執行
 `ocx provider add opengateway` 或在控制台選擇 **OpenGateway**。Chat 請求使用設定的
 Bearer 金鑰；公開模型清單無法驗證金鑰有效性。
+在 Responses 協定中，OpenGateway 拒絕 replay 原生自訂工具呼叫，因此 preset 會在傳送前將程式碼模式的 `exec` 等 Codex 自訂工具轉換為函式工具。
+工具結果內容陣列以文字傳送，圖片保留在配對的工具結果群組之後。不支援的結果部分（包括拒絕與不透明內容）會在傳送前以明確的用戶端輸入錯誤拒絕。
+圖片細節 `original` 對應為閘道接受的 `high`；圖片位元組維持不變。
+原生 Responses 路由也會在將純文字空完成以成功回傳之前先檢查。
+輸出預算耗盡時回傳帶 `max_output_tokens` 的 `incomplete`；proxy 不會提高請求的預算。仍有預算且可安全 replay 的空完成，可在既有傳送上限內重試一次。明確設定 `emptyCompletionRetry: false` 或 `OCX_EMPTY_COMPLETION_RETRY=0` 可停用此重試。出現文字、拒絕、工具活動或未知串流事件時不會 replay，並保留原始串流。此保護不會改變其他 provider 及其重試預設值。
+Replay 需要明確的 `store: false`、完整輸入且僅含用戶端執行的工具；宣告了 `web_search` 等託管工具時，即使未觀察到工具事件也不會自動 replay。
+
 **OpenCode Go** 的路由需要穩定的 session identifier。OpenCodex 會從 Codex thread／session header 推導
 它的 Go session header；當沒有 Codex header 時，則改用 client 的 `x-opencode-session` header。這適用於
 直接的 Chat Completions 請求，以及橋接到 Responses 的請求。即使是帶 `ocx_` 前綴的 inbound 值，也會被
@@ -1061,6 +1075,9 @@ GPT-5.6 Sol/Terra/Luna 會預置在 provider fallback list 中，因此即使即
 | Codex 登入（Pool 或 Direct） | `gpt-5.6-*` | 922,000 |
 | OpenAI (API key) | `openai-apikey/gpt-5.6-*` 加 `*-pro` | 922,000（922,000 max input） |
 | OpenRouter | `openrouter/openai/gpt-5.6-sol`、`openrouter/openai/gpt-5.6-terra`、`openrouter/openai/gpt-5.6-luna` | 922,000 |
+| Codex | `gpt-6.1-terra` | 500,000 / 872,000 |
+| OpenAI API | `openai-apikey/gpt-6.1-terra` | 1,050,000 (128,000 max output) |
+| OpenRouter | `openrouter/openai/gpt-6.1-terra` | 1,050,000 |
 | Cursor | `cursor/gpt-5.6-sol`、`cursor/gpt-5.6-terra`、`cursor/gpt-5.6-luna` | 1,000,000 |
 
 原生 GPT-5.6 條目保留固定的上游 reasoning ladder，例如 Luna 有 `max` 但沒有 `ultra`。路由條目使用各
@@ -1083,7 +1100,7 @@ fallback。
 key／subscription-token gateway。**Cloudflare AI Gateway** 需要在 URL 填入 account 與 gateway id。
 
 Copilot 的 catalog 混合多種 wire：模型（`gpt-5.3-codex`、`gpt-5.4`、`gpt-5.4-mini`、
-`gpt-5.5`、`gpt-5.6-luna`、`gpt-5.6-sol`、`gpt-5.6-terra`、`gpt-6-astra`, `grok-4.5`, `grok-4.6`, `mai-code-1.1-flash`, `mai-code-1-flash-picker`）會拒絕 agent traffic 的
+`gpt-5.5`、`gpt-5.6-luna`、`gpt-5.6-sol`、`gpt-5.6-terra`、 `gpt-6.1-sol`、 `gpt-6.1-terra`、 `gpt-6-astra`, `grok-4.5`, `grok-4.6`, `mai-code-1.1-flash`, `mai-code-1-flash-picker`）會拒絕 agent traffic 的
 `/chat/completions`，因此 opencodex 會依內建預設把這些模型路由到 Responses API；其他 Copilot 模型
 仍使用 chat completions。優先順序為：hard wire pin → 你明確設定的
 [`modelAdapters`](/zh-tw/reference/configuration/providers/) → registry default → provider-wide adapter。

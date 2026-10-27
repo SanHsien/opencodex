@@ -32,7 +32,7 @@ import { DEFAULT_CATALOG_PATH } from "../codex/paths";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { aliasForNative, aliasForRoute, legacyAliasForNative, legacyAliasForRoute } from "../claude/alias";
-import { desktop3pAlias, isRealDesktop3pModelId, resolveDesktop3pAlias } from "../claude/desktop-3p";
+import { desktop3pAlias, isRealDesktop3pModelId, legacyDesktop3pAlias, resolveDesktop3pAlias } from "../claude/desktop-3p";
 import { desktopProfileWireAlias, legacyDesktopProfileWireAlias } from "../claude/desktop-profile";
 import { inspectDesktopFirstParty } from "../claude/desktop-first-party";
 import { isClaudeInterceptProxyUrl, type ClaudeInterceptSettingsState } from "../claude/intercept/settings";
@@ -349,7 +349,7 @@ export function buildClaudeEnv(
       || isOwnAdmissionToken(finalAuthToken)
     );
   if (resolved.origin === "auto-unknown") {
-    console.error("⚠ Claude 인증을 확인하지 못했습니다 — 구독 방식으로 진행합니다. GUI에서 인증 모드를 직접 지정하면 이 판단을 덮어쓸 수 있습니다.");
+    console.error("⚠ Could not verify Claude authentication — continuing as a subscription. Set the auth mode in the GUI to override this.");
   }
   // NOTE: do NOT set _CLAUDE_CODE_ASSUME_FIRST_PARTY_BASE_URL here. While it enables
   // Design/Remote Control, it DISABLES gateway model discovery (Claude Code's eligibility
@@ -459,7 +459,7 @@ export async function fetchClaudeCodeState(config: OcxConfig, port: number, time
       ...(typeof body.enabled === "boolean" ? { enabled: body.enabled } : {}),
     };
   } catch {
-    console.error("⚠ 모델 컨텍스트 정보를 불러오지 못했습니다 — 1M 자동 표시는 이번 실행에서 생략됩니다.");
+    console.error("⚠ Could not load model context info — the automatic 1M display is skipped for this run.");
     return { contextWindows: {} };
   }
 }
@@ -633,7 +633,8 @@ export function nativeClaudeModelIds(config: OcxConfig): string[] {
       const alias = assignments[route]!.alias;
       const slash = route.indexOf("/");
       return [alias, desktopProfileWireAlias(alias), legacyDesktopProfileWireAlias(alias),
-        desktop3pAlias(route.slice(0, slash), route.slice(slash + 1))];
+        desktop3pAlias(route.slice(0, slash), route.slice(slash + 1)),
+        legacyDesktop3pAlias(route.slice(0, slash), route.slice(slash + 1))];
     }));
   // The configured default is a genuine declaration too: the catalog seeds it for static
   // providers, so it must be recognized here even without a server registry.

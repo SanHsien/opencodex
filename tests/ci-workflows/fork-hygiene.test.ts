@@ -1,9 +1,20 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { checkDocument, iterDocuments } from "../../tools/check-links";
+import {
+  findHangulViolations,
+  findUpstreamUpdateRefs,
+  HANGUL_ALLOWLIST,
+  HANGUL_ROOTS,
+  listTextFiles,
+  readTextOrUndefined,
+  UPDATE_PATH_ROOTS,
+  UPSTREAM_RELEASE_REF,
+  UPSTREAM_REPO,
+} from "../../tools/fork-hygiene-guards";
 import {
   loadBaseline,
   renderIssueSection,
@@ -320,5 +331,79 @@ describe("upstream checker", () => {
     const baseline = loadBaseline();
     expect(decisions).toContain(baseline.reviewed_date);
     expect(upstream).toContain(baseline.reviewed_through);
+  });
+});
+
+describe("fork Hangul hygiene", () => {
+  const read = (file: string) => readTextOrUndefined(ROOT, file);
+
+  test("product code outside the allowlist contains no Hangul", () => {
+    const files = listTextFiles(ROOT, HANGUL_ROOTS);
+    expect(files.length).toBeGreaterThan(1000);
+    expect(findHangulViolations(files, read)).toEqual([]);
+  });
+
+  test("the guard fails on a Korean UI string and on a stale allowlist line", () => {
+    const sample = new Map([
+      ["src/cli/sample.ts", 'console.log("설정을 적용했습니다");'],
+      ["src/adapters/cursor/envelope-echo.ts", "// nothing Korean left"],
+    ]);
+    const problems = findHangulViolations([...sample.keys()], file => sample.get(file));
+    expect(problems.some(p => p.startsWith("src/cli/sample.ts:1:"))).toBe(true);
+    expect(problems.some(p => p.includes("stale allowlist line"))).toBe(true);
+  });
+
+  test("every allowlisted file keeps a reason and FORK.md documents the rule", async () => {
+    for (const entry of HANGUL_ALLOWLIST) {
+      expect(entry.reason.length).toBeGreaterThan(20);
+      expect(existsSync(join(ROOT, entry.file))).toBe(true);
+    }
+    const fork = await Bun.file(join(ROOT, "FORK.md")).text();
+    expect(fork).toContain("tools/fork-hygiene-guards.ts");
+    expect(fork).toContain("Hangul");
+  });
+});
+
+describe("fork update paths never reach upstream", () => {
+  const read = (file: string) => readTextOrUndefined(ROOT, file);
+  const expandFiles = () => {
+    const out: string[] = [];
+    for (const entry of UPDATE_PATH_ROOTS) {
+      const full = join(ROOT, entry);
+      if (!existsSync(full)) continue;
+      if (statSync(full).isFile()) out.push(entry);
+      else out.push(...listTextFiles(ROOT, [entry]));
+    }
+    return out;
+  };
+
+  test("runtime update surfaces (src/update, launcher, desktop updater) name no upstream repo", () => {
+    const files = expandFiles();
+    expect(files.length).toBeGreaterThan(20);
+    expect(findUpstreamUpdateRefs(files, read, UPSTREAM_REPO)).toEqual([]);
+  });
+
+  test("no product code links or calls upstream releases", () => {
+    const files = listTextFiles(ROOT, ["src", "gui/src", "bin", "desktop/ui", "desktop/src-tauri/src", "desktop/scripts"]);
+    expect(findUpstreamUpdateRefs(files, read, UPSTREAM_RELEASE_REF)).toEqual([]);
+  });
+
+  test("the guard fails on an upstream releases link", () => {
+    const sample = new Map([
+      ["src/update/x.ts", 'const URL = "https://github.com/lidge-jun/opencodex/releases/latest";'],
+      ["gui/src/y.tsx", '<a href="https://api.github.com/repos/lidge-jun/opencodex/releases/latest" />'],
+    ]);
+    expect(findUpstreamUpdateRefs([...sample.keys()], f => sample.get(f), UPSTREAM_REPO)).toHaveLength(2);
+    expect(findUpstreamUpdateRefs([...sample.keys()], f => sample.get(f), UPSTREAM_RELEASE_REF)).toHaveLength(2);
+  });
+
+  test("the desktop updater stays disabled and the fork policy gate ships closed", async () => {
+    const conf = JSON.parse(await Bun.file(join(ROOT, "desktop/src-tauri/tauri.conf.json")).text());
+    expect(conf.plugins.updater.endpoints).toEqual([]);
+    expect(conf.bundle.createUpdaterArtifacts).toBe(false);
+    const source = await Bun.file(join(ROOT, "src/update/fork-source.mjs")).text();
+    expect(source).toContain("selfUpdateAllowed: false");
+    expect(source).toContain("https://github.com/${FORK_REPO}/releases/latest");
+    expect(source).toContain('FORK_REPO = "SanHsien/opencodex"');
   });
 });

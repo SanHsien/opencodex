@@ -114,16 +114,16 @@ export function removeRemoteWorkspaceIsolation(path: string): void {
 
 /**
  * [Decision Log]
- * - 목적과 의도: Make Hub-owned Codex, Claude Code, and Pi processes start and stop identically
+ * - Purpose and intent: Make Hub-owned Codex, Claude Code, and Pi processes start and stop identically
  *   across Linux, macOS, and Windows without leaving npm-shim descendants behind.
- * - 기존 구현 및 제약 조건: Unix can spawn executable scripts directly. Windows npm exposes
+ * - Existing implementation and constraints: Unix can spawn executable scripts directly. Windows npm exposes
  *   `.cmd` files that Bun cannot safely launch shell-less, and killing cmd.exe alone can orphan Node.
- * - 검토한 주요 대안: `shell: true`, three runtime-specific wrappers, direct `.cmd` spawn, or the
+ * - Main alternatives considered: `shell: true`, three runtime-specific wrappers, direct `.cmd` spawn, or the
  *   repository's existing escaped ComSpec invocation plus trusted System32 taskkill.
- * - 선택한 방식: Share one launcher and one owned-process stop helper across all three runtimes.
- * - 다른 대안 대신 이 방식을 선택한 이유: It preserves exact argv boundaries, avoids a PATH-
+ * - Chosen approach: Share one launcher and one owned-process stop helper across all three runtimes.
+ * - Why this over the alternatives: It preserves exact argv boundaries, avoids a PATH-
  *   resolved shell/taskkill hijack, and matches already-tested OpenCodex Windows behavior.
- * - 장점, 단점 및 영향: Windows npm installs work and stop cleanly. Windows stop is necessarily
+ * - Pros, cons and impact: Windows npm installs work and stop cleanly. Windows stop is necessarily
  *   forceful because its normal process kill is already forceful; Unix gets a graceful SIGTERM
  *   window and then a bounded SIGKILL fallback so an ignoring child cannot outlive the session.
  */

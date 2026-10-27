@@ -219,7 +219,7 @@ describe("structure/ SSOT", () => {
   });
 
   test("inline decision-log reasoning that crept back into a doc body", () => {
-    for (const line of ["[Decision Log]", "**[decision log]**", "- 목적과 의도: 무언가"]) {
+    for (const line of ["[Decision Log]", "**[decision log]**", "- 목적과 의도: 무언가", "- Purpose and intent: something"]) {
       const root = scaffold();
       const body = readFileSync(join(root, "structure/overview.md"), "utf8");
       write(root, "structure/overview.md", body + "\n" + line + "\n");

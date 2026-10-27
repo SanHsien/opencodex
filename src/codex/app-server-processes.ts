@@ -1042,20 +1042,20 @@ export function collectCodexAppServerCatalogState(
  * Request-path catalog state collector.
  *
  * [Decision Log]
- * - 목적과 의도: keep Windows CIM discovery from blocking Bun's event loop while v2 guidance is built.
- * - 기존 구현 및 제약 조건: CLI/service operations still need the synchronous, fail-closed collector; the request path needs only advisory state.
- * - 검토한 주요 대안: remove stale-catalog guidance, move all process work to workers, or add a Windows-only async boundary.
- * - 선택한 방식: retain the synchronous API and use async PowerShell plus an identity-scoped in-flight refresh, short cache, and invalidation generation only for Windows requests.
- * - 다른 대안 대신 이 방식을 선택한 이유: it fixes unrelated `/healthz` starvation without widening the process-matching or restart contract.
- * - 장점, 단점 및 영향: concurrent turns share one CIM walk, invalidated pre-write results cannot repopulate the cache, and the event loop stays responsive; a cold v2 turn can still await the bounded advisory probe.
+ * - Purpose and intent: keep Windows CIM discovery from blocking Bun's event loop while v2 guidance is built.
+ * - Existing implementation and constraints: CLI/service operations still need the synchronous, fail-closed collector; the request path needs only advisory state.
+ * - Main alternatives considered: remove stale-catalog guidance, move all process work to workers, or add a Windows-only async boundary.
+ * - Chosen approach: retain the synchronous API and use async PowerShell plus an identity-scoped in-flight refresh, short cache, and invalidation generation only for Windows requests.
+ * - Why this over the alternatives: it fixes unrelated `/healthz` starvation without widening the process-matching or restart contract.
+ * - Pros, cons and impact: concurrent turns share one CIM walk, invalidated pre-write results cannot repopulate the cache, and the event loop stays responsive; a cold v2 turn can still await the bounded advisory probe.
  *
  * [Decision Log · #2499]
- * - 목적과 의도: a cold probe outlives its own 5s TTL on Windows (~435ms per candidate process for `Invoke-CimMethod GetOwner`), so the cache expires before it can serve and the miss lands on a turn.
- * - 기존 구현 및 제약 조건: the reading is advisory, and only `fresh` authorizes positive guidance (`src/server/responses/collaboration.ts`); `unknown` is a failure to observe rather than an observation.
- * - 검토한 주요 대안: drop the per-process GetOwner fan-out (issue suggestion 1), or widen the TTL past the probe duration (suggestion 3).
- * - 선택한 방식: serve an expired reading immediately when its generation still matches, bounded by `CATALOG_STATE_MAX_STALE_MS`, never for `unknown`, and refresh behind it; a failed refresh no longer evicts the reading it was refreshing.
- * - 다른 대안 대신 이 방식을 선택한 이유: the fan-out change alters what "could not verify the owner" means for the current-user scoping contract and needs its own ground-truth comparison; a wider TTL still pays the probe on every human-paced turn.
- * - 장점, 단점 및 영향: after the first probe the request path never waits; a server that stopped between readings can be described as `fresh` for up to the stale bound; a catalog write still invalidates immediately through the generation, and the cold path is unchanged.
+ * - Purpose and intent: a cold probe outlives its own 5s TTL on Windows (~435ms per candidate process for `Invoke-CimMethod GetOwner`), so the cache expires before it can serve and the miss lands on a turn.
+ * - Existing implementation and constraints: the reading is advisory, and only `fresh` authorizes positive guidance (`src/server/responses/collaboration.ts`); `unknown` is a failure to observe rather than an observation.
+ * - Main alternatives considered: drop the per-process GetOwner fan-out (issue suggestion 1), or widen the TTL past the probe duration (suggestion 3).
+ * - Chosen approach: serve an expired reading immediately when its generation still matches, bounded by `CATALOG_STATE_MAX_STALE_MS`, never for `unknown`, and refresh behind it; a failed refresh no longer evicts the reading it was refreshing.
+ * - Why this over the alternatives: the fan-out change alters what "could not verify the owner" means for the current-user scoping contract and needs its own ground-truth comparison; a wider TTL still pays the probe on every human-paced turn.
+ * - Pros, cons and impact: after the first probe the request path never waits; a server that stopped between readings can be described as `fresh` for up to the stale bound; a catalog write still invalidates immediately through the generation, and the cold path is unchanged.
  */
 export async function collectCodexAppServerCatalogStateForRequest(
   io: CodexAppServerProcessIo = {},

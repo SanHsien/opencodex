@@ -29,7 +29,7 @@ describe("standalone update checks", () => {
       latestVersion: null, reason: "standalone_install",
     });
     expect(result.command).toContain("OpenCodex Desktop");
-    expect(result.command).toContain("Check for Updates");
+    expect(result.command).toContain("https://github.com/SanHsien/opencodex/releases/latest");
     expect(result.command).not.toContain("git pull");
     expect(latestVersion).not.toHaveBeenCalled();
   });

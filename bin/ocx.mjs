@@ -14,6 +14,7 @@ import { planDesktopCliHandoff, runDesktopCliHandoff } from "../src/lib/desktop-
 import { desktopCliRecordPath } from "../src/lib/desktop-cli-record.mjs";
 import { STOP_HISTORY_INCOMPLETE_EXIT_CODE } from "../src/update/stop-contract.mjs";
 import { probeProxyLiveness } from "../src/update/proxy-liveness-probe.mjs";
+import { FORK_SELF_UPDATE_HINT, forkSelfUpdateBlocked } from "../src/update/fork-source.mjs";
 import { decidePostStopUpdate } from "../src/update/stop-decision.mjs";
 import {
   inspectPackageRuntimeLiveness,
@@ -40,6 +41,7 @@ import { isRealBunBinary } from "../src/lib/bun-binary-validator.mjs";
 import { scopeTranspilerCacheToRuntime } from "../src/lib/bun-transpiler-cache-scope.mjs";
 import { findDesktopCli, findPathBun } from "../src/lib/bun-path-runtime.mjs";
 import { npmInvocation } from "../src/update/npm-invocation.mjs";
+import { runNpmInstall } from "../src/update/npm-install.mjs";
 import { pnpmInvocationForPath, resolvePnpmCommands } from "../src/update/pnpm-invocation.mjs";
 import { detectInstallOwnershipFromPath } from "../src/update/install-detection.mjs";
 import {
@@ -56,7 +58,7 @@ import {
   runNpmCachePreflight,
 } from "../src/update/npm-cache-preflight.mjs";
 import { handoffWindowsTrayForUpdate, planWindowsTrayUpdate } from "../src/update/tray-update-plan.mjs";
-import { bootRestoreProbe, launcherUsableAfterNpmUpdate, transactionalNpmUpdate } from "../src/update/transactional-install.mjs";
+import { bootRestoreProbe, launcherUsableAfterNpmUpdate, transactionalNpmUpdate as transactionalNpmUpdateSync, transactionalNpmUpdateAsync } from "../src/update/transactional-install.mjs";
 import { manualUpdateFailureGuidance, npmUpdateFailureGuidance } from "../src/update/update-failure-guidance.mjs";
 import {
   captureCodexCliTransportEnv,
@@ -213,7 +215,7 @@ function runningPnpmShimPath() {
   return resolve(invoked);
 }
 
-function runPackageManagerSelfUpdate(manager) {
+async function runPackageManagerSelfUpdate(manager) {
   const current = currentPackageVersion();
   const tag = updateTag(current);
   let owner;
@@ -850,7 +852,8 @@ function runPackageManagerSelfUpdate(manager) {
     try {
       if (manager === "npm") {
         const packageDir = resolve(here, "..");
-        const tx = transactionalNpmUpdate({
+        const transactionalNpmUpdate = process.platform === "win32" ? transactionalNpmUpdateAsync : transactionalNpmUpdateSync;
+        const tx = await transactionalNpmUpdate({
           packageDir,
           pkgName: PKG,
           targetVersion: latest || undefined,
@@ -858,6 +861,9 @@ function runPackageManagerSelfUpdate(manager) {
           cachePath: npmCachePath,
           runNpm: (args) => {
             const invocation = npmInvocation(args);
+            if (process.platform === "win32") return runNpmInstall(invocation, {
+              env: unprivilegedOwnershipMutationEnvironment(invocation?.options?.env ?? process.env),
+            });
             if (!invocation) return { status: 1 };
             return spawnSync(invocation.file, invocation.args, {
               ...invocation.options,
@@ -1134,9 +1140,15 @@ if (process.argv[2] === "update" && installMethod === "mise") {
   process.exit(1);
 }
 
+// Fork policy (after the mise branch, which only prints a hint and exits): no registry self-update (the registry only carries the upstream build).
+if (process.argv[2] === "update" && forkSelfUpdateBlocked()) {
+  console.error(`opencodex: ${FORK_SELF_UPDATE_HINT}`);
+  process.exit(1);
+}
+
 if (process.argv[2] === "update" && isNodeModulesInstall() && !isBunGlobalInstall()) {
-  if (installMethod === "npm") runNpmSelfUpdate();
-  if (installMethod === "pnpm") runPnpmSelfUpdate();
+  if (installMethod === "npm") await runNpmSelfUpdate();
+  if (installMethod === "pnpm") await runPnpmSelfUpdate();
 }
 
 // #1849 boot probe: a prior update that lost power (or double-faulted) mid-swap leaves a

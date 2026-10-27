@@ -405,7 +405,9 @@ describe("fork update paths never reach upstream", () => {
     expect(conf.plugins.updater.endpoints).toEqual([]);
     expect(conf.bundle.createUpdaterArtifacts).toBe(false);
     const source = await Bun.file(join(ROOT, "src/update/fork-source.mjs")).text();
-    expect(source).toContain("selfUpdateAllowed: false");
+    // The only opener is test-only: NODE_ENV=test AND the suite's env var (behaviour pinned in
+    // tests/update/fork-update-policy.test.ts).
+    expect(source).toContain('selfUpdateAllowed: process.env.NODE_ENV === "test" && process.env[FORK_TEST_REGISTRY_UPDATE_ENV] === "1"');
     expect(source).toContain("https://github.com/${FORK_REPO}/releases/latest");
     expect(source).toContain('FORK_REPO = "SanHsien/opencodex"');
   });

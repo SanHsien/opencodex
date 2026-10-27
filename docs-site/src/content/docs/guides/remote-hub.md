@@ -1,6 +1,6 @@
 ---
 title: Remote Hub Deployment
-description: Run a one-port opencodex hub on Linux, macOS, or Docker with a loopback companion listener, a self-provisioned data token, ocx hub invite, a loopback-only management ingress, Tailscale Serve, and headless OAuth.
+description: Run a one-port opencodex hub with a loopback companion listener, a self-provisioned data token, ocx hub invite, a loopback-only management ingress, Tailscale Serve, and headless OAuth.
 ---
 
 For SSH machine links, see [Remote Link](/guides/remote-link/).
@@ -263,8 +263,7 @@ change across restarts while already-running app-servers kept the previous `base
 **Restart the proxy after changing this field.** The sockets are bound once at startup and the local
 client files are written from the resolved value, so a running hub keeps its old answer. On a ported
 hub that is the difference between `ocx claude` reaching the listener and getting a `404` from it. On
-a background service the verb is `ocx service restart`, which always restarts — see
-[macOS service operations](#macos-service-operations). `ocx restart` is a different verb: it bounces
+a background service the verb is `ocx service restart`, which always restarts. `ocx restart` is a different verb: it bounces
 the proxy process you started yourself, not the service the manager supervises.
 
 ### The hub's own local clients
@@ -492,52 +491,6 @@ attested local route `ocx gui pair` uses, so it needs no admin token and nothing
 into your shell. Everything in [Roles and direct data flow](#roles-and-direct-data-flow) about
 rotation, revocation and disconnect applies unchanged to a machine that joined this way.
 
-## macOS service operations
-
-`ocx service install` and `ocx service repair` are safe to re-run against a live hub. A repair
-renders the plist first and compares it: when the rendered bytes equal the bytes on disk, the token
-file is unchanged, and `launchctl print` reports the job loaded from that plist, the repair re-asserts
-`0600`, refreshes its install state, prints `service is already loaded from the current plist;
-nothing to do.` and returns — launchd is never touched. Earlier builds evicted a healthy job
-unconditionally, which made a diagnostic command an outage.
-
-**`ocx service restart` is the verb that always restarts.** It is no longer an alias of `repair`. It
-runs the same refresh, and when that reloaded nothing — the healthy, unchanged case above — it
-restarts the already-loaded job in place with `launchctl kickstart -k`, re-reads `launchctl print` to
-confirm the job survived, and prints one line:
-
-```bash
-ocx service restart
-# ℹ️  service restarted (launchctl kickstart -k gui/501/com.opencodex.proxy).
-```
-
-That is what to run after changing `unauthenticatedLoopbackListener`, `hostname` or `port`. The
-kickstart opens no eviction window, so it is not the outage the old unconditional repair was.
-
-A bare `ocx service` still selects `repair`, not `restart`: it is an idempotent "make it current",
-not a request to bounce a healthy hub. Use `ocx service repair` for the case it is actually for — a
-job loaded from an older plist, or not loaded at all — and expect it to keep doing nothing on a
-healthy one.
-
-`launchctl kickstart -k gui/$(id -u)/com.opencodex.proxy` by hand, or `ocx service stop` followed by
-`ocx service start`, both still work and the error path names the first one as a fallback. Neither is
-the recommended route any more.
-
-Linux and Windows never had this gap: `ocx service restart` there ends in `systemctl --user restart`
-and a stop-then-start of the scheduled task respectively, whichever verb asked.
-
-`ocx service status` distinguishes four launchd states, and the last one is the one people misread:
-
-| Summary | Meaning |
-| --- | --- |
-| `installed and loaded` | A domain answers and runs the command this plist bakes. Nominal. |
-| `installed and loaded from an OLDER plist` | The job is running, from a definition that no longer matches. This is what `ocx service repair` is for. |
-| `installed, not loaded` | Every domain answered "absent", which is proof the job is gone. Repair re-registers it. |
-| `installed; launchd state could not be verified` | `launchctl` could not be asked — for example from a context that cannot reach the `gui/<uid>` domain. This is **not** evidence the hub is down: nothing recommends a repair, and an unanswerable probe never marks a running proxy as dead. |
-
-A probe that could not run used to be reported as "not loaded", which told operators to repair a
-serving hub and let the updater start a competing proxy on the service's own port.
-
 ## Headless OAuth
 
 Disable browser launch on the hub:
@@ -556,174 +509,6 @@ ocx config set oauthOpenBrowser false
 Never put the OAuth code in shell argv, logs, issue text, screenshots, or deployment evidence. The
 manual-code route keeps its existing unknown-provider, no-active-flow, invalid-code, and 4096-byte
 input checks.
-
-## Docker Compose
-
-opencodex does not publish an official container image. The repository does maintain a source-build
-[`Dockerfile`](https://github.com/lidge-jun/opencodex/blob/main/Dockerfile),
-[`compose.yaml`](https://github.com/lidge-jun/opencodex/blob/main/compose.yaml), and a narrow
-`.dockerignore`. The build pins the multi-platform Bun 1.4.4 image index by digest, runs the proxy as
-the non-root `bun` user, keeps the root filesystem read-only, drops Linux capabilities, and publishes
-only the data listener on the host's `127.0.0.1:10100` by default. The foreground process uses
-`OCX_SERVICE=1`, so stopping or recreating the container preserves routed Codex state instead
-of restoring a native desktop configuration. Docker supplies supervision; no OS service manager
-is installed in the image. Use Compose to restart/recreate the container; this does not extend
-support to every dashboard restart path.
-
-The image seeds a first-run `hub` configuration that binds the container listener to `0.0.0.0`.
-Before the first normal start, stream a freshly generated data-plane token into the bootstrap helper.
-The helper accepts at most one 4096-byte line, never prints the token, refuses to replace an existing
-token, and persists it as the canonical owner-only `service-api-token` in the `ocx-state` volume.
-
-The deployment persists two separate homes: `ocx-state` at `/home/bun/.opencodex` for
-OpenCodex configuration, provider credentials and usage, and `codex-state` at
-`/home/bun/.codex` for Codex state and `opencodex-catalog.json`. The image and Compose
-explicitly set `CODEX_HOME=/home/bun/.codex`, so this catalog path remains writable
-with `read_only: true` and survives container recreation. The image creates both
-directories for the non-root `bun` user with mode `0700`; existing volume
-ownership and permissions are not migrated automatically.
-
-Do not combine `CODEX_HOME` and `OPENCODEX_HOME`: both products use an `auth.json`
-filename with different formats. This packaging change adds persistence, not a
-catalog generator. Materialize or import a valid catalog into
-`/home/bun/.codex/opencodex-catalog.json` before the catalog acceptance check below;
-without one, `catalog_not_found` remains the expected response.
-
-Upgrading preserves the existing `ocx-state` volume and adds `codex-state`; no files
-are migrated automatically. If a previous workaround placed a catalog directly
-under `/home/bun/.opencodex`, back it up and deliberately copy only the catalog to
-the new Codex home, preserving owner-only access. Do not copy either product's
-`auth.json` over the other. Deployments with a custom `CODEX_HOME` should retain
-their explicit environment and writable volume mapping until migration is complete.
-When overriding `CODEX_HOME`, mount that exact directory writable and persist the
-default catalog at `${CODEX_HOME}/opencodex-catalog.json`. If `model_catalog_json`
-explicitly selects another file, that resolved path must also be persisted.
-
-Keep the Compose project name stable during upgrades so the same named volumes are reused.
-Mounts with existing foreign ownership, read-only mounts, and mounts using `volume-nocopy`
-are not repaired by the image's directory setup. Persist separately selected catalog or SQLite
-paths separately; an OS credential store is not backed up by these two volumes.
-
-When running without Compose, explicitly supply both named mounts. Dockerfile `VOLUME`
-declarations alone create anonymous volumes that a later `docker run` does not automatically
-reuse. These mount options use standalone example names; to reuse Compose data, substitute
-its actual project-prefixed volume names:
-
-```sh
---mount type=volume,src=ocx-state,dst=/home/bun/.opencodex \
---mount type=volume,src=codex-state,dst=/home/bun/.codex
-```
-
-The host needs Git and Docker Compose for a local clone, or only Docker Compose for a remote Git
-context. Bun and a manual preparation step are not required. The build-only
-manifest stage derives the canonical inventory from the selected Git snapshot, writes the untracked
-`src/generated/compatibility-version.json`, and verifies every recorded SHA-256 against the read-only
-build context before source `COPY` instructions can dereference a symlink. The copied runtime files
-are verified again inside the image. Git metadata is admitted only for that bind mount; no `COPY`
-places `.git` in an image layer, and the Git executable remains confined to the manifest stage.
-
-"Git metadata" here means two files. The canonical inventory comes from `git ls-files`, which reads
-the index and never opens an object or a ref, so the build context admits only `.git/index` and
-`.git/HEAD` — about 1 MB, rather than the repository's full object store. The manifest stage copies
-them into a scratch Git directory it owns and supplies the empty `objects/` and `refs/` directories
-Git's repository check requires. A context with neither a manifest nor a Git index fails the build
-with a message naming both supported inputs; it never falls back to a placeholder.
-
-An existing host-generated manifest remains compatible: the build verifies and uses it instead of
-silently replacing it. Missing or mismatched files, extra source files absent from the manifest, and
-symlinks (including parent directories) fail the build. The inventory requires `package.json`,
-`bun.lock`, and `scripts/model-metadata.source.json`; the generated manifest itself is the only source
-file exempt from the inventory. Do not commit or hand-edit it.
-
-```bash
-git clone https://github.com/lidge-jun/opencodex.git
-cd opencodex
-docker compose build
-openssl rand -hex 32 | docker compose run --rm -T hub bun run docker/bootstrap-token.ts
-docker compose up -d
-```
-
-For a remote Git context, set the BuildKit built-in argument that retains Git metadata. For example,
-replace the service's build block with:
-
-```yaml
-services:
-  hub:
-    pull_policy: build
-    build:
-      context: https://github.com/lidge-jun/opencodex.git#main
-      dockerfile: Dockerfile
-      target: runtime
-      args:
-        BUILDKIT_CONTEXT_KEEP_GIT_DIR: "1"
-```
-
-Set an alternate host port without changing the container's fixed `10100` listener:
-
-```bash
-OPENCODEX_PORT=10190 docker compose up -d
-```
-
-Remote access is an explicit opt-in. Set `OPENCODEX_BIND_ADDRESS` to the host's LAN or Tailscale
-IP, or use `0.0.0.0` to publish on **all** host interfaces:
-
-```bash
-OPENCODEX_BIND_ADDRESS=0.0.0.0 docker compose up -d
-```
-
-Use a firewall and an authenticated TLS/tailnet frontend before exposing the port. The bind
-override changes only the host publication; the container listener remains `0.0.0.0:10100`.
-Keep the same bind override on subsequent Compose invocations that recreate the hub. To update
-an existing deployment, run `docker compose build` and recreate the hub with `docker compose up -d`;
-do not repeat the one-time token initialization.
-
-Configure providers with the dashboard through an operator-owned management frontend, or with
-one-shot CLI commands that share the state volume. The commands below show the existing Remote Hub
-settings; replace the example origin and identity before enabling them:
-
-```bash
-docker compose run --rm hub bun run src/cli/index.ts config set hub.managementPublicOrigin '"https://hub-name.tailnet-name.ts.net"'
-docker compose run --rm hub bun run src/cli/index.ts config set hub.managementIngress '{"enabled":true,"port":10101}'
-docker compose run --rm hub bun run src/cli/index.ts config set remoteGui.allowedTailscaleUsers '["operator@example.com"]'
-docker compose restart hub
-```
-
-These nested sets work because the image seeds a first-run `hub` configuration, so the object
-already exists. On a fresh standalone install it does not, and the same lines fail until you create
-it — see [Linux systemd or macOS launchd](#linux-systemd-or-macos-launchd) above.
-
-The container listener binds `0.0.0.0`, so it is already reachable on the container's own loopback
-address and the companion form of `unauthenticatedLoopbackListener` does not apply there — it is
-refused on a wildcard bind. The token bootstrap below is the container equivalent of the service's
-own provisioning step, and it likewise runs once.
-
-Do not put a token in `ARG`, `ENV`, `COPY`, Compose YAML, image history, or command arguments. Do not
-mount the Docker socket, the host's home or Codex home, SSH agent, or provider-key files. A management
-ingress bound to `127.0.0.1:10101` inside the container is reachable only by a TLS/tailnet frontend
-in the same network namespace; never publish `10101` as a shortcut.
-
-After the container is healthy, run a separate readiness promotion check:
-
-```bash
-docker compose exec hub bun -e \
-  "const r=await fetch('http://127.0.0.1:10100/readyz');console.log(r.status,await r.text());if(!r.ok)process.exit(1)"
-
-docker compose exec hub bun -e \
-  "const t=(await Bun.file('/home/bun/.opencodex/service-api-token').text()).trim();const r=await fetch('http://127.0.0.1:10100/v1/catalog',{headers:{'x-opencodex-api-key':t}});console.log(r.status);if(!r.ok)process.exit(1)"
-```
-
-Then send one real authenticated routed response with a configured model. If the secret is absent or
-unreadable, a non-loopback hub must not be accepted as ready. Never treat liveness alone as proof.
-
-`docker compose down` removes the container and network but retains both named volumes. Treat
-`docker compose down --volumes` as destructive: it deletes configuration, OAuth credentials, usage
-history, the data-plane token, and persisted Codex state together.
-
-Cross-platform CI builds the source image and checks startup, data-plane token admission, and
-container recreation using an isolated Compose project with throwaway credentials. It verifies that
-both named volumes and a synthetic catalog survive replacement. This check does not validate a
-real provider account, OAuth callback, custom mount migration, or every CPU architecture; perform
-the authenticated routed-response check above for your deployment.
 
 ## Rollback
 
@@ -776,13 +561,7 @@ For a service rollback, stop the branch service and repair the prior release aga
   listener and restart the proxy (`ocx service restart` on a service install).
 - **`ocx claude` on the hub gets `404` from the listener:** the proxy is still the process that
   started before the listener's wires existed, or before the port changed. Restart it with
-  `ocx service restart` — see [macOS service operations](#macos-service-operations).
-- **`ocx service repair` printed `nothing to do` and the process did not bounce (macOS):** expected.
-  A repair of a healthy job is deliberately a no-op. When you wanted a new process, run
-  `ocx service restart`, which kickstarts the loaded job in place and reports
-  `service restarted (launchctl kickstart -k …)`. Only if that fails is
-  `launchctl kickstart -k gui/$(id -u)/com.opencodex.proxy` the manual fallback — the failure
-  message names it.
+  `ocx service restart`.
 - **`ocx service install` refuses `OPENCODEX_API_AUTH_TOKEN`:** that value is a management admin
   token. `unset OPENCODEX_API_AUTH_TOKEN` and rerun; the service provisions its own data-plane
   token. See [The data-plane token provisions itself](#the-data-plane-token-provisions-itself).

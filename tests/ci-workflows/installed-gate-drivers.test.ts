@@ -472,7 +472,7 @@ describe("installed-artifact gate workflow", () => {
 
   test("every platform job targets a self-hosted gate runner with a bounded timeout", () => {
     const gateJobs = Object.entries(jobs).filter(([name]) => name !== "report");
-    expect(gateJobs.map(([name]) => name)).toEqual(["macos", "windows", "linux"]);
+    expect(gateJobs.map(([name]) => name)).toEqual(["windows"]);
     for (const [, job] of gateJobs) {
       const runsOn = Array.isArray(job["runs-on"]) ? job["runs-on"] : [job["runs-on"]];
       expect(runsOn).toContain("self-hosted");
@@ -512,7 +512,6 @@ describe("installed-artifact gate workflow", () => {
     const inputNames = Object.keys(dispatch?.inputs ?? {});
     expect(inputNames).toContain("consent-hook");
     expect(inputNames).toContain("tray-quit-hook");
-    expect(inputNames).toContain("elevate-accept-hook");
     for (const name of inputNames) {
       expect(name).not.toMatch(/command$/);
     }
@@ -545,8 +544,8 @@ describe("installed-artifact gate workflow", () => {
     }
   });
 
-  test("linux runs both update formats through the gate", () => {
-    const linux = jobs.linux as { strategy?: { matrix?: { format?: string[] } } } | undefined;
-    expect(linux?.strategy?.matrix?.format).toEqual(["deb", "appimage"]);
+  test("this fork keeps the Windows job only", () => {
+    expect(jobs.linux).toBeUndefined();
+    expect(jobs.macos).toBeUndefined();
   });
 });

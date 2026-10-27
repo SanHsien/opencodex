@@ -135,3 +135,140 @@ export function findUpstreamUpdateRefs(files: string[], read: (file: string) => 
   }
   return problems;
 }
+
+
+// 3. Windows-only at file level (docs/fork/DECISIONS.md, 2026-10-28). Everything below existed only
+//    for macOS or Linux and was deleted from this fork. An upstream sync must not bring it back:
+//    the sync replays the deletion list first, and this guard fails the build if a path, a CI job,
+//    or a non-Windows runner label returns. In-file POSIX/darwin branches of shared modules are
+//    deliberately NOT guarded; only whole files, jobs and runner labels are.
+
+/** Directories removed whole. A directory counts as back when any file exists under it. */
+export const REMOVED_DIRECTORIES = [
+  "app", // macOS WidgetKit / MenuBarCore / NativeTray (Swift)
+  "docker", // container bootstrap helpers
+];
+
+/** Files removed whole (macOS/Linux scripts, packaging, tests that only ran there). */
+export const REMOVED_FILES = [
+  ".dockerignore",
+  "Dockerfile",
+  "compose.yaml",
+  "desktop/scripts/appimage-patchelf.py",
+  "desktop/scripts/build-widget.sh",
+  "desktop/scripts/linux-packaged-e2e.ts",
+  "desktop/scripts/verify-linux-sidecar.sh",
+  "desktop/scripts/verify-macos-runtime.sh",
+  "docs-site/src/content/docs/guides/macos-menu-bar.md",
+  "docs-site/src/content/docs/zh-tw/guides/macos-menu-bar.md",
+  "scripts/OCX-RUN.md",
+  "scripts/bun-gc-relief-eval.ts",
+  "scripts/ci/docker-smoke.ts",
+  "scripts/ci/sample-macos-stall.sh",
+  "scripts/ci/select-test-lane.sh",
+  "scripts/darwin-eager-abort-stress-child.ts",
+  "scripts/darwin-eager-abort-stress.ts",
+  "scripts/install.sh",
+  "scripts/macos-rss-retention-harness-child.ts",
+  "scripts/macos-rss-retention-harness.ts",
+  "scripts/macos-rss-retention-sampler.ts",
+  "scripts/macos-rss-retention-single-reader-child.ts",
+  "scripts/ocx-restart.sh",
+  "scripts/ocx-run",
+  "structure/decisions/ADR-0081-container-deployment-recipe.md",
+  "structure/decisions/ADR-5493-linux-packaged-shell-acceptance.md",
+  "tests/ci-workflows/assert-mergeable-review.test.ts",
+  "tests/ci-workflows/ci-crash-disposition.test.ts",
+  "tests/ci-workflows/ci-scope-reduction.test.ts",
+  "tests/ci-workflows/ci-test-lane.test.ts",
+  "tests/ci-workflows/linux-desktop-packaged-ci.test.ts",
+  "tests/ci-workflows/linux-desktop-packaged-e2e.test.ts",
+  "tests/ci-workflows/macos-serial-lanes.test.ts",
+  "tests/ci-workflows/test-runner-spawnsync-finalizer.test.ts",
+  "tests/ci-workflows/zz-ci-api-usage-isolation.test.ts",
+  "tests/ci-workflows/zz-ci-storage-policy-isolation.test.ts",
+  "tests/cli/cli-client-start-owner-e2e.test.ts",
+  "tests/cli/ocx-launcher-fixture-trust.test.ts",
+  "tests/clients/desktop-widget-entry.test.ts",
+  "tests/clients/link-ssh-argv-discovery.test.ts",
+  "tests/clients/remote-workspace-linux-confinement.test.ts",
+  "tests/codex-integration/codex-shim-ensure-failure.test.ts",
+  "tests/codex-integration/codex-shim-migration.test.ts",
+  "tests/codex-integration/codex-shim-overlay-candidates.test.ts",
+  "tests/codex-integration/codex-shim-overlay-readiness.test.ts",
+  "tests/codex-integration/codex-shim-overlay-transaction.test.ts",
+  "tests/codex-integration/codex-shim-overlay.test.ts",
+  "tests/codex-integration/messaging-local-send.test.ts",
+  "tests/codex-integration/messaging-remote-enrollment-gaps.test.ts",
+  "tests/codex-integration/messaging-remote-gaps.test.ts",
+  "tests/codex-integration/messaging-remote-interop.test.ts",
+  "tests/codex-integration/messaging-remote-native.test.ts",
+  "tests/codex-integration/messaging-remote-replies.test.ts",
+  "tests/codex-integration/messaging-remote-scratch.test.ts",
+  "tests/codex-integration/messaging-remote-send.test.ts",
+  "tests/fixtures/macos-stall-observer.sh",
+  "tests/fixtures/spawnsync-finalizer-drift-child.ts",
+  "tests/service/container-bootstrap.test.ts",
+  "tests/service/service-desktop-startup-linux.test.ts",
+];
+
+/** Jobs removed from workflows that stay. A returning job of the same name is a regression. */
+export const REMOVED_CI_JOBS: Record<string, string[]> = {
+  "ci.yml": [
+    "test", "storage-policy", "api-usage", "platform-macos", "macos-control", "docker-smoke",
+    "npm-global-smoke", "widget", "desktop-shell",
+  ],
+  "service-lifecycle.yml": ["linux-systemd", "macos-launchd"],
+  "desktop-installed-gate.yml": ["macos", "linux"],
+};
+
+/**
+ * Runner labels this fork never uses. release.yml is the one exception: it is the upstream-only
+ * publication pipeline (every job is guarded to lidge-jun/opencodex), kept byte-identical to
+ * upstream so syncs replay cleanly. See docs/fork/UPSTREAM.md.
+ */
+export const NON_WINDOWS_RUNNER_LABEL = /\b(?:macos-[\w.]+|opencodex-gate-(?:macos|linux))\b/i;
+export const NON_WINDOWS_RUNNER_EXEMPT_WORKFLOWS = new Set(["release.yml"]);
+
+export function findRemovedPaths(
+  exists: (path: string) => boolean,
+  listDirectory: (path: string) => string[] = () => [],
+): string[] {
+  const problems: string[] = [];
+  for (const file of REMOVED_FILES) {
+    if (exists(file)) problems.push(`${file}: removed macOS/Linux-only file is back`);
+  }
+  for (const directory of REMOVED_DIRECTORIES) {
+    if (!exists(directory)) continue;
+    const files = listDirectory(directory);
+    problems.push(`${directory}/: removed macOS/Linux-only directory is back${files.length ? ` (${files.slice(0, 3).join(", ")}${files.length > 3 ? ", ..." : ""})` : ""}`);
+  }
+  return problems;
+}
+
+/** `jobsOf` returns the job ids of a workflow file, or undefined when the file does not exist. */
+export function findRemovedCiJobs(jobsOf: (workflow: string) => string[] | undefined): string[] {
+  const problems: string[] = [];
+  for (const [workflow, removed] of Object.entries(REMOVED_CI_JOBS)) {
+    const jobs = jobsOf(workflow);
+    if (!jobs) continue;
+    for (const job of removed) {
+      if (jobs.includes(job)) problems.push(`.github/workflows/${workflow}: removed macOS/Linux-only job \`${job}\` is back`);
+    }
+  }
+  return problems;
+}
+
+/** `workflows` maps a workflow file name to its text. Comment lines are ignored. */
+export function findNonWindowsRunners(workflows: Map<string, string>): string[] {
+  const problems: string[] = [];
+  for (const [name, text] of workflows) {
+    if (NON_WINDOWS_RUNNER_EXEMPT_WORKFLOWS.has(name)) continue;
+    text.split("\n").forEach((line, index) => {
+      if (line.trimStart().startsWith("#")) return;
+      const match = line.match(NON_WINDOWS_RUNNER_LABEL);
+      if (match) problems.push(`.github/workflows/${name}:${index + 1}: non-Windows runner label \`${match[0]}\``);
+    });
+  }
+  return problems;
+}

@@ -1071,3 +1071,14 @@ GUI 方面，`gui/src/i18n/zh-TW.ts` 與 fork 改過的 `gui/tests/{i18n-locales
 - 水位：`integrated_tag = v2.93.0`、`integrated_through`／`reviewed_through = 88aaa754…`、`reviewed_date = 2026-10-27`；`reviewed_pr_through = 7713`、`reviewed_issue_through = 7716` 維持（本輪沒有新增 PR／issue 審查）。
 - `#7527`、`#7659` 隨版進來（2026-10-25 條目的觸發條件已成立）。
 - 同日另有兩項 fork 修正隨同一次提交：更新路徑只認 fork releases、韓文剃除，見 [`DECISIONS.md`](DECISIONS.md)「更新路徑只認 fork releases」條目。
+
+
+## 2026-10-28：Windows-only 刪除清單（下次同步照這份處理）
+
+本 fork 從這一天起只支援 Windows，macOS／Linux 專屬檔案與 CI 以檔案層級移除（理由見 [`DECISIONS.md`](DECISIONS.md) 同日條目）。下次同步的做法：
+
+1. **先套刪除清單**：清單的唯一來源是 `tools/fork-hygiene-guards.ts` 的 `REMOVED_DIRECTORIES`（`app`、`docker`）與 `REMOVED_FILES`。重放 `git diff <integrated_tag> main` 時這些刪除會自動帶上；上游若在新 tag 改動了這些檔案，刪除優先，不要為了讓 patch 乾淨而還原。
+2. **新增的 macOS／Linux 專屬檔案**：上游新 tag 若又加了同類檔案（launchd／systemd 打包、`.sh` 安裝器、Swift、Docker、只在非 Windows 跑的測試、只服務它們的 docs 頁），照同一規則刪除並補進 `REMOVED_FILES`；被共用 source 靜態 import 的 launchd／systemd／darwin／linux 模組不要刪。
+3. **會與上游衝突的檔案內編輯**（3-way patch 時手動解，原則是取上游為底、重新套掉 macOS／Linux 部分）：`.github/workflows/ci.yml`（移除 `test`、`storage-policy`、`api-usage`、`platform-macos`、`macos-control`、`docker-smoke`、`npm-global-smoke`、`widget`、`desktop-shell` 與其 filter／aggregate gate 條目；`keyring-smoke` 只跑 Windows）、`service-lifecycle.yml`、`desktop-installed-gate.yml`、`codex-queue-helpers.yml`、`catalog-async-contracts.yml`、`package.json`／`desktop/package.json` 的 script 條目、`docs-site/astro.config.mjs` 側欄、`remote-hub` 兩頁、`structure/` 的數個章節、以及 `tests/ci-workflows/` 內被改過的測試（`ci-scope-gaps`、`ci-review-lanes`、`ci-workflows`、`ci-structure-gate`、`installed-gate-drivers`、`install-scripts`、`release-desktop-scripts`、`keyring-smoke`、`docs-*`、`cold-spawn-warmup`）。
+4. **`release.yml` 原樣照上游**：它是官方 repo 專用線，不改；其中 macOS／Linux 腿和已刪腳本（`build-widget.sh`、`verify-*`、`appimage-patchelf.py`）的引用在 fork 是死碼。`fork-hygiene` 的非 Windows runner 標籤檢查對它例外。
+5. **同步後驗證**：`bun test tests/ci-workflows/fork-hygiene.test.ts` 會在任何被刪路徑、被刪 job 或 `macos-*`／`opencodex-gate-(macos|linux)` runner 標籤回來時失敗；再跑 `bun run structure:check`、`tests/test-layout*.test.ts`，並從 `scripts/test-layout/*.json`、`tests/fixtures/test-layout-expected.json`、`scripts/ci/test-durations*.tsv` 移除新被刪測試的條目。

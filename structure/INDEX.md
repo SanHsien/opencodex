@@ -155,7 +155,6 @@ A source area can be described by more than one doc, because these docs are orga
 | Source path | Described by |
 | --- | --- |
 | `.github/` | [`ops/docs-and-release.md`](ops/docs-and-release.md) |
-| `app/` | [`overview.md`](overview.md)<br>[`companion.md`](companion.md) |
 | `bin/` | [`runtime.md`](runtime.md)<br>[`ops/docs-and-release.md`](ops/docs-and-release.md) |
 | `bin/ocx.mjs` | [`ops/desktop-supervision.md`](ops/desktop-supervision.md) |
 | `desktop/` | [`desktop-shell.md`](desktop-shell.md)<br>[`companion.md`](companion.md) |

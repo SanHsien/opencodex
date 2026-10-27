@@ -220,16 +220,10 @@ submission, not processing, and may wait for a busy turn to finish.
 
 Offline contracts live in `tests/codex-integration/messaging-remote-contract.test.ts`,
 `tests/codex-integration/messaging-remote-store.test.ts`,
-`tests/codex-integration/messaging-remote-enrollment.test.ts`,
-`tests/codex-integration/messaging-remote-send.test.ts` and
+`tests/codex-integration/messaging-remote-enrollment.test.ts` and
 `tests/codex-integration/messaging-remote-lifecycle.test.ts`.
 Helper settlement and persistent/transient capacity contracts live in
 `tests/codex-integration/messaging-remote-process.test.ts`.
-Opt-in `tests/codex-integration/messaging-remote-interop.test.ts` qualifies a
-disposable loopback sshd with generated keys, isolated homes and strict native
-fixtures. `tests/codex-integration/messaging-remote-native.test.ts` qualifies an
-explicit native artifact with a credential-free home and synthetic model provider.
-These are distinct receipts, not claims about production hosts or model compliance.
-Linux evidence does not attest macOS interoperability; Windows remote transport
-is unsupported. Mesh, dashboard, cached discovery, isolation, cross-harness
+Upstream's POSIX-only interop and native-artifact qualification tests are not
+carried by this Windows-only fork; Windows remote transport is unsupported. Mesh, dashboard, cached discovery, isolation, cross-harness
 messaging, managed skills, prompt policy and idle watches remain outside this slice.

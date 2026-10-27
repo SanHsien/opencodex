@@ -1,9 +1,9 @@
 /**
  * Every hard-coded link to the public docs has to land on a page the site actually builds.
  *
- * https://opencodex.me/guides/macos-menu-bar/ was reported as a 404 from outside the project. The
+ * https://opencodex.me/guides/web-dashboard/ was reported as a 404 from outside the project. The
  * live cause was a cancelled deploy, but the same review found a guide linking to
- * /opencodex/guides/macos-menu-bar/ - the old GitHub Pages project path - which 404s on the custom
+ * /opencodex/guides/web-dashboard/ - the old GitHub Pages project path - which 404s on the custom
  * domain no matter how often the site is deployed.
  *
  * Two layers guard this, because CI reaches the sources through different jobs:
@@ -136,9 +136,9 @@ describe("docs link targets", () => {
     // Fork policy (FORK.md) ships only English and Traditional Chinese, per
     // docs-site/astro.config.mjs's locale list; upstream's other six locales do not exist here.
     expect(LOCALES).toEqual(expect.arrayContaining(["zh-tw"]));
-    expect(resolvesOnSite(sitePathOf("https://opencodex.me/guides/macos-menu-bar/"))).toBe(true);
+    expect(resolvesOnSite(sitePathOf("https://opencodex.me/guides/web-dashboard/"))).toBe(true);
     expect(resolvesOnSite(sitePathOf("https://opencodex.me/zh-tw/troubleshooting/update-failed/"))).toBe(true);
-    expect(resolvesOnSite(sitePathOf("https://opencodex.me/opencodex/guides/macos-menu-bar/"))).toBe(false);
+    expect(resolvesOnSite(sitePathOf("https://opencodex.me/opencodex/guides/web-dashboard/"))).toBe(false);
     expect(resolvesOnSite(sitePathOf("https://opencodex.me/Guides/Providers/"))).toBe(false);
     expect(resolvesOnSite(sitePathOf("https://lidge-jun.github.io/opencodex/guides/cursor-private-inference/"))).toBe(true);
     expect(resolvesOnSite("/favicon.png")).toBe(true);
@@ -147,7 +147,7 @@ describe("docs link targets", () => {
   test("the build check resolves links the way the site serves them", async () => {
     const { internalTarget } = await loadIntegration();
     const server = "https://opencodex.me/reference/configuration/server/";
-    expect(internalTarget("/guides/macos-menu-bar/", server)).toEqual({ path: "/guides/macos-menu-bar/", fragment: "" });
+    expect(internalTarget("/guides/web-dashboard/", server)).toEqual({ path: "/guides/web-dashboard/", fragment: "" });
     expect(internalTarget("../../guides/codex-integration.md#steering", server)).toEqual({
       path: "/reference/guides/codex-integration.md",
       fragment: "steering",
@@ -170,21 +170,21 @@ describe("docs link targets", () => {
 
   test("the build check reports missing pages and fragments, exempting only the 404 page locale picker", async () => {
     const { checkInternalLinks } = await loadIntegration();
-    const files = new Set(["/guides/macos-menu-bar/index.html", "/guides/desktop-app/index.html", "/404.html", "/favicon.png"]);
+    const files = new Set(["/guides/web-dashboard/index.html", "/guides/desktop-app/index.html", "/404.html", "/favicon.png"]);
     const pages = new Map<string, PageScan>([
-      ["/guides/macos-menu-bar/index.html", { ids: new Set(["widget"]), links: [] }],
+      ["/guides/web-dashboard/index.html", { ids: new Set(["widget"]), links: [] }],
       [
         "/guides/desktop-app/index.html",
         {
           ids: new Set(["install"]),
           links: [
-            "/guides/macos-menu-bar/",
-            "/guides/macos-menu-bar",
-            "/guides/macos-menu-bar/#widget",
+            "/guides/web-dashboard/",
+            "/guides/web-dashboard",
+            "/guides/web-dashboard/#widget",
             "#install",
             "/favicon.png",
-            "/opencodex/guides/macos-menu-bar/",
-            "/guides/macos-menu-bar/#missing",
+            "/opencodex/guides/web-dashboard/",
+            "/guides/web-dashboard/#missing",
             "#missing",
           ],
         },
@@ -194,8 +194,8 @@ describe("docs link targets", () => {
     const { checked, broken } = checkInternalLinks(files, pages);
     expect(checked).toBe(10);
     expect(broken).toEqual([
-      { page: "/guides/desktop-app/index.html", href: "/opencodex/guides/macos-menu-bar/", reason: "missing-page" },
-      { page: "/guides/desktop-app/index.html", href: "/guides/macos-menu-bar/#missing", reason: "missing-fragment" },
+      { page: "/guides/desktop-app/index.html", href: "/opencodex/guides/web-dashboard/", reason: "missing-page" },
+      { page: "/guides/desktop-app/index.html", href: "/guides/web-dashboard/#missing", reason: "missing-fragment" },
       { page: "/guides/desktop-app/index.html", href: "#missing", reason: "missing-fragment" },
       { page: "/404.html", href: "/guides/removed/", reason: "missing-page" },
     ]);

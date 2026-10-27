@@ -1,20 +1,14 @@
-> This is the [SanHsien/opencodex](https://github.com/SanHsien/opencodex) maintenance fork. Product behavior follows the most recently synced upstream stable release (see [`tools/upstream_baseline.json`](tools/upstream_baseline.json) and [`docs/fork/UPSTREAM.md`](docs/fork/UPSTREAM.md)); see [FORK.md](FORK.md) for maintenance policy.
+> **This repository is [SanHsien/opencodex](https://github.com/SanHsien/opencodex): a Windows-only maintenance fork of [lidge-jun/opencodex](https://github.com/lidge-jun/opencodex)** (MIT License; the copyright of the original author lidge-jun and the upstream contributors is retained). Product behavior follows the most recently synced upstream stable release (see [`tools/upstream_baseline.json`](tools/upstream_baseline.json) and [`docs/fork/UPSTREAM.md`](docs/fork/UPSTREAM.md)). macOS- and Linux-only content has been removed; see [FORK.md](FORK.md) for the maintenance policy and the upstream sync method. This project is not affiliated with or endorsed by OpenAI or Anthropic.
 
 <h3 align="center">make codex open!</h3>
-<p align="center"><b>Universal provider proxy for OpenAI Codex, Claude Code, Claude Desktop &amp; Grok Build</b><br>
-Two commands, and every one of them runs any LLM you point it at.</p>
+<p align="center"><b>Universal provider proxy for OpenAI Codex, Claude Code, Claude Desktop &amp; Grok Build (Windows)</b><br>
+Install one MSI, and every one of them runs any LLM you point it at.</p>
 
 <p align="center">
-  <a href="https://x.com/claudeebum"><img src="https://img.shields.io/badge/%40claudeebum-000000?logo=x&logoColor=white" alt="Follow @claudeebum on X"></a>
-  <a href="https://www.npmjs.com/package/@bitkyc08/opencodex"><img src="https://img.shields.io/npm/v/@bitkyc08/opencodex?color=cb3837&label=npm&logo=npm" alt="npm version"></a>
-  <a href="https://github.com/lidge-jun/opencodex/blob/main/LICENSE"><img src="https://img.shields.io/npm/l/@bitkyc08/opencodex?color=blue" alt="license"></a>
-  <img src="https://img.shields.io/node/v/@bitkyc08/opencodex?logo=node.js&label=node" alt="node version">
+  <a href="https://github.com/SanHsien/opencodex/releases/latest"><img src="https://img.shields.io/github/v/release/SanHsien/opencodex?label=release&logo=github" alt="Latest release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT license"></a>
+  <img src="https://img.shields.io/badge/platform-Windows%20x64-0078D4?logo=windows&logoColor=white" alt="Windows x64">
 </p>
-
-```bash
-npm install -g @bitkyc08/opencodex
-ocx start        # proxy + dashboard on localhost:10100
-```
 
 <table>
 <tr>
@@ -38,7 +32,7 @@ Pick a provider and go — same workflow, different brain.
 
 </td>
 <td width="50%">
-  <img src="https://raw.githubusercontent.com/lidge-jun/opencodex/main/assets/demo.gif" alt="opencodex demo — running a task in the Codex app on a routed non-OpenAI model" width="100%">
+  <img src="assets/demo.gif" alt="opencodex demo — running a task in the Codex app on a routed non-OpenAI model" width="100%">
 </td>
 </tr>
 <tr>
@@ -50,7 +44,7 @@ Opus answers, then hands the task to a GPT-5.6 Sol subagent.
 
 </td>
 <td width="50%">
-  <img src="https://raw.githubusercontent.com/lidge-jun/opencodex/main/assets/claude-desktop-subagent.gif" alt="Claude Desktop answering as Claude Opus 4.8, then dispatching a GPT-5.6 Sol subagent through opencodex" width="100%">
+  <img src="assets/claude-desktop-subagent.gif" alt="Claude Desktop answering as Claude Opus 4.8, then dispatching a GPT-5.6 Sol subagent through opencodex" width="100%">
 </td>
 </tr>
 <tr>
@@ -62,7 +56,7 @@ Sol drives the session and calls a Kimi K3 subagent.
 
 </td>
 <td width="50%">
-  <img src="https://raw.githubusercontent.com/lidge-jun/opencodex/main/assets/grok-build-subagent.gif" alt="Grok Build running GPT-5.6 Sol through opencodex and calling a Kimi K3 subagent" width="100%">
+  <img src="assets/grok-build-subagent.gif" alt="Grok Build running GPT-5.6 Sol through opencodex and calling a Kimi K3 subagent" width="100%">
 </td>
 </tr>
 </table>
@@ -78,72 +72,31 @@ Desktop, and Grok Build. It can also manage a **ChatGPT account pool** for Codex
 refresh their quotas in the dashboard, and let new sessions auto-route to the lowest-usage healthy
 account while existing threads stay pinned to the account that started them.
 
+## Install (Windows)
+
+> **Agents installing or running opencodex:** read
+> [`AGENTS_INSTALL.md`](./AGENTS_INSTALL.md). An interactive `ocx start` may ask once whether to
+> star this repository — that is the user's decision, never an agent's. The CLI suppresses the
+> prompt for agent-driven runs and the API refuses them with `403 agent_consent_required`.
+
+1. Download `OpenCodex-<version>-windows-x64.msi` (with its `.sha256`) from **[this fork's latest release](https://github.com/SanHsien/opencodex/releases/latest)**.
+2. Run the MSI. The MSI built by this fork is **unsigned**, so SmartScreen warns once: choose **More info → Run anyway**.
+3. Open the OpenCodex desktop app, then open a new PowerShell window — the desktop app puts `ocx` on your user `Path`. Confirm with `ocx status`.
+
+Windows x64 only, running natively: no WSL, and no separate Node or Bun install.
+
+**This fork publishes no npm package**, so there is no `npm`/`pnpm`/`bun` global install. `ocx update`, the dashboard update job and the version lookup are disabled and point to the [releases page](https://github.com/SanHsien/opencodex/releases/latest); to upgrade, download the newer MSI and install it over the old one.
+
 ## Quick start
 
-### For humans
-
-```bash
-npm install -g @bitkyc08/opencodex   # Node 18+; the Bun runtime is bundled automatically
-ocx start                            # or `ocx service` to run it in the background
-```
-
-### Docker Compose
-
-The repository ships a digest-pinned, non-root Compose build. With Git and Bun installed on the
-host, generate the canonical compatibility manifest before every image build, then initialize
-the data-plane token once through stdin and start the hub:
-
-```bash
-git clone https://github.com/lidge-jun/opencodex.git
-cd opencodex
-bun scripts/generate-compatibility-version.ts
-docker compose build
-openssl rand -hex 32 | docker compose run --rm -T hub bun run docker/bootstrap-token.ts
-docker compose up -d
-curl --fail --silent http://127.0.0.1:10100/healthz
-curl --fail --silent http://127.0.0.1:10100/readyz
-```
-
-The default host binding is `127.0.0.1:10100`. Remote exposure requires explicit
-`OPENCODEX_BIND_ADDRESS=<LAN-or-Tailscale-IP> docker compose up -d`; `0.0.0.0` opts into
-all host interfaces. Restrict access with a firewall and an authenticated TLS/tailnet frontend.
-The generated JSON stays untracked; it is copied into the image without including `.git`.
-Regenerate it after source changes, and do not change the source between generation and build.
-The build rejects stale manifests, missing or mismatched files, extra source files, and symlinks.
-It checks every recorded SHA-256 against the build context and copied runtime files, including
-`package.json`, `bun.lock`, and the specifically included `scripts/model-metadata.source.json`.
-
-The token and mutable state stay in the `ocx-state` named volume; no credential is placed in the
-image, Compose file, environment, or shell arguments. See the
-[Remote Hub deployment guide](https://opencodex.me/guides/remote-hub/#docker-compose) for provider
-setup, authenticated acceptance checks, remote management, and rollback.
-
-<details>
-<summary>Install from source (latest dev)</summary>
-
-**macOS / Linux:**
-
-```bash
-curl -fsSL https://bun.sh/install | bash
-git clone https://github.com/lidge-jun/opencodex.git
-cd opencodex && ~/.bun/bin/bun install
-~/.bun/bin/bun run src/cli/index.ts start
-```
-
-**Windows (PowerShell):**
-
 ```powershell
-irm bun.sh/install.ps1 | iex
-git clone https://github.com/lidge-jun/opencodex.git
-cd opencodex; bun install
-bun run src/cli/index.ts start
+ocx init      # interactive setup: writes %USERPROFILE%\.opencodex\config.json and wires Codex
+ocx start     # proxy + dashboard on http://localhost:10100 (or `ocx service` to run it in the background)
 ```
 
-Source install runs the latest `dev` branch. Memory ownership
-patches, runtime GC improvements, and unreleased fixes are available here before
-they reach the npm package.
-
-</details>
+`ocx init` never starts the proxy; start it first (or after — either order works, but headless
+commands like `ocx provider add` and `ocx combo set` talk to the **live** proxy and exit nonzero
+when it is unreachable). `ocx status` / `ocx doctor` / `ocx health` report the running state.
 
 Open **http://localhost:10100** and configure everything in the web dashboard — add providers
 (40+ built-ins, or any OpenAI-compatible endpoint), pick models, manage accounts. `ocx gui`
@@ -156,35 +109,6 @@ mobile-connected sessions do not jump accounts mid-conversation — but quota re
 account exclusion, affinity expiry, or 401/403 and 429 recovery can rebind them. Give the accounts a
 selection order when one of them — usually your Codex Desktop login — should only be reached for
 once the others are drained.
-
-### For agents
-
-```bash
-npm install -g @bitkyc08/opencodex
-ocx start     # or `ocx service`
-ocx init      # interactive setup: writes ~/.opencodex/config.json and wires Codex
-```
-
-`ocx init` never starts the proxy; start it first (or after — either order works, but headless
-commands like `ocx provider add` and `ocx combo set` talk to the **live** proxy and exit nonzero
-when it is unreachable). `ocx status` / `ocx doctor` / `ocx health` report the running state.
-
-> **Agents installing or running opencodex:** read
-> [`AGENTS_INSTALL.md`](./AGENTS_INSTALL.md). An interactive `ocx start` may ask once whether to
-> star this repository — that is the user's decision, never an agent's. The CLI suppresses the
-> prompt for agent-driven runs and the API refuses them with `403 agent_consent_required`.
-
-## Supported platforms
-
-| OS | Status | Service manager |
-|---|---|---|
-| macOS (arm64 / x64) | Fully supported | launchd |
-| Linux (x64 / arm64) | Fully supported | systemd (user unit) |
-| Windows (x64) | Fully supported | Task Scheduler (hidden) / opt-in native service (`--native`, WinSW) |
-
-Requires [Node](https://nodejs.org) 18+. The Bun runtime is bundled on `npm install` — no separate
-Bun install needed, no WSL needed on Windows. If npm blocked the bundled runtime's install scripts,
-see the [installation docs](https://opencodex.me/getting-started/installation/).
 
 ## Highlights
 
@@ -242,6 +166,24 @@ eviction counters, and watchdog samples.
 
 </details>
 
+## Adding a provider
+
+The easiest way is the web dashboard:
+
+```powershell
+ocx gui
+```
+
+Click **Add Provider**, pick one of the 40+ built-in providers (or enter a custom OpenAI-compatible
+endpoint), paste the API key (Anthropic, xAI and Kimi can also sign in with OAuth), and the models are
+discovered automatically from the provider's `/v1/models`. A new provider works immediately, with no
+restart. You can also use `ocx init`, `ocx provider add <name>`, or edit
+`%USERPROFILE%\.opencodex\config.json`.
+
+With a Google AI Pro subscription, the monthly US$10 Gen AI credit can be used as a Gemini API key:
+[Google AI Pro monthly US$10 credit: claiming and configuring](docs/guides/google-ai-pro-credits.md)
+(the guide is written in Traditional Chinese).
+
 ## Model routing
 
 Target any configured provider and model with the `provider/model` syntax:
@@ -266,11 +208,11 @@ Qwen Cloud, SiliconFlow, and more. Full list: `ocx init` or the
 
 ## CLI
 
-```bash
+```powershell
 ocx init                       # interactive setup (writes config, wires Codex, offers the shim)
 ocx start [--port 10100]       # start the proxy in the foreground
 ocx stop                       # stop + restore native Codex
-ocx service [install|repair|restart|start|stop|status|uninstall|remove]  # background service
+ocx service [install|repair|restart|start|stop|status|uninstall|remove]  # background service (Windows Task Scheduler)
 ocx codex-shim install         # start the proxy on demand whenever `codex` launches
 ocx health [--json]            # check immediate proxy liveness
 ocx ready [--json] [--wait [--timeout <seconds>]]  # check post-sync readiness
@@ -280,8 +222,10 @@ ocx provider <...>             # manage providers (list/add/edit/test/remove)
 ocx account <...>              # manage ChatGPT accounts & API-key pools
 ocx combo <...>                # manage failover / round-robin combos
 ocx v2 <...>                   # multi-agent v1/v2 surface controls
-ocx update [--tag preview]     # update opencodex
 ```
+
+`ocx update` is disabled in this fork (it publishes no npm package); install a newer MSI from the
+[releases page](https://github.com/SanHsien/opencodex/releases/latest) instead.
 
 Unpinned starts may pick another free port if the preferred one is busy; an explicit `--port`
 never hops. Full reference: [CLI docs](https://opencodex.me/reference/cli/).
@@ -315,10 +259,13 @@ daemon. Remove them with `ocx service uninstall` / `ocx codex-shim uninstall`.
 
 ### Uninstall
 
-```bash
+```powershell
 ocx uninstall                  # stop, remove service/shim, restore native Codex, clean up state
-npm uninstall -g @bitkyc08/opencodex
 ```
+
+Then remove OpenCodex from **Settings → Apps → Installed apps** (this uninstalls the MSI). To avoid a
+stale entry on your user `Path`, turn off or remove the terminal command first in the desktop app's
+**Terminal command** settings.
 
 ## Remote access
 
@@ -326,6 +273,11 @@ By default opencodex binds to `127.0.0.1` and needs no extra authentication. Bin
 loopback (`"hostname": "0.0.0.0"`) **requires** a bearer token — the proxy refuses to start
 without `OPENCODEX_API_AUTH_TOKEN`, and every client request must carry it as
 `x-opencodex-api-key`. Details: [configuration reference](https://opencodex.me/reference/configuration/).
+
+```powershell
+$env:OPENCODEX_API_AUTH_TOKEN = "your-secret-token"
+ocx start
+```
 
 ## Documentation
 
@@ -341,16 +293,20 @@ not a public issue.
 
 ## Development
 
-Source development requires the `bun` CLI on your `PATH`. The published npm package bundles its own
-Bun runtime for installed `ocx` commands; package scripts may also resolve Bun through that bundled dependency.
+Source development requires the `bun` CLI on your `PATH`. The published npm package bundles its own Bun runtime for installed `ocx` commands; package scripts may also resolve Bun through that bundled dependency.
 
-```bash
-git clone https://github.com/lidge-jun/opencodex.git
+This fork publishes no npm package. All commands below run in native Windows PowerShell:
+
+```powershell
+git clone https://github.com/SanHsien/opencodex.git
 cd opencodex
-bun install
+bun install --frozen-lockfile
 bun run typecheck
 bun run test
+pwsh -NoProfile -File tools\dev_check.ps1   # fork pre-commit check
 ```
+
+The fork's branch rules, the upstream sync method and the checklists live in [FORK.md](./FORK.md).
 
 See **[Contributing](./CONTRIBUTING.md)**.
 

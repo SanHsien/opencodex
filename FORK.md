@@ -25,7 +25,8 @@
 | `.github/workflows/fork-maintenance.yml` | fork 文件與連結檢查 |
 | `.github/workflows/upstream-check.yml` | 每週對 `upstream/main` 做未審查 commit 檢查 |
 | 上游 `release.yml` / `deploy-docs.yml` / issue·PR 治理 workflow | 加上只在官方 `lidge-jun/opencodex` 執行的 guard |
-| 上游 `ci.yml` | **保留並在本 fork 跑**，這是產品回歸 |
+| 上游 `ci.yml` | **保留並在本 fork 跑**，這是產品回歸；macOS 與 Linux 專屬 job（Ubuntu 測試分片、macOS 分片／control／widget、docker、npm-global、Linux 桌面打包）已移除，完整測試只留 Windows 九分片（排程與手動 dispatch） |
+| Windows-only 檔案層級移除 | 2026-10-28 起只支援 Windows：`app/`、`docker/`、`Dockerfile`／`compose.yaml`、macOS／Linux 打包與安裝腳本、只在非 Windows 跑的測試與 docs 頁整檔刪除（清單：`tools/fork-hygiene-guards.ts` 的 `REMOVED_DIRECTORIES`／`REMOVED_FILES`／`REMOVED_CI_JOBS`）。**檔案內的平台分支一律保留**（`process.platform === "win32" ? … : …`、POSIX 程式路徑、混合測試檔的 `skipIf`），因為同步靠整檔刪除重放、檔案內編輯會每次衝突。`release.yml` 原樣保留（官方 repo 專用）。`tests/ci-workflows/fork-hygiene.test.ts` 在被刪路徑／job／非 Windows runner 標籤回來時失敗；同步時的處理見 [`docs/fork/UPSTREAM.md`](docs/fork/UPSTREAM.md) 的「Windows-only 刪除清單」，理由見 [`docs/fork/DECISIONS.md`](docs/fork/DECISIONS.md) |
 | `.github/workflows/fork-release-windows.yml` | 只在 `SanHsien/opencodex` 執行：tag（`v*`）或手動觸發，建置未簽章 Windows MSI 並附到本 fork 的 GitHub release；不使用上游簽章／updater 祕鑰 |
 | 桌面自動更新 | `tauri.conf.json` 的 `createUpdaterArtifacts` 為 false、`plugins.updater.endpoints` 為空，不會檢查上游 release |
 | 更新路徑 | 本 fork 沒有 npm 套件，registry 只會回上游版本，所以 `ocx update`、dashboard 更新工作、版本查詢全部關閉（`src/update/fork-source.mjs`，預設 `selfUpdateAllowed: false`）；release notes 與下載連結一律指向 `SanHsien/opencodex` releases。`tests/ci-workflows/fork-hygiene.test.ts` 擋 `src/update`、launcher、桌面 updater 出現 `lidge-jun/opencodex`，以及任何產品碼連到上游 releases |
@@ -83,14 +84,7 @@ bun run typecheck
 bun run test
 ```
 
-只想當使用者跑 proxy、不開發時：
-
-```powershell
-npm install -g @bitkyc08/opencodex
-ocx start
-```
-
-然後打開 http://localhost:10100 設定 provider 與 ChatGPT 帳號池。
+只想當使用者跑 proxy、不開發時：到 [本 fork 的 releases](https://github.com/SanHsien/opencodex/releases/latest) 安裝 Windows MSI（本 fork 不發 npm 套件，`ocx update` 已關閉），然後打開 http://localhost:10100 設定 provider 與 ChatGPT 帳號池。
 
 ## 相鄰的維護中 repo
 

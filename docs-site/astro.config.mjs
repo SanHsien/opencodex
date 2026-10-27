@@ -93,7 +93,6 @@ export default defineConfig({
             { label: "Codex App Model Picker", translations: { "zh-TW": "Codex App 模型選擇器" }, slug: "guides/codex-app-models" },
             { label: "Codex Prompt Layers", translations: { "zh-TW": "Codex 提示詞層" }, slug: "guides/codex-prompt" },
             { label: "Native Context Compatibility", translations: { "zh-TW": "原生脈絡相容性" }, slug: "guides/codex-native-context" },
-            { label: "macOS Menu Bar App", translations: { "zh-TW": "macOS 選單列 App" }, slug: "guides/macos-menu-bar" },
             { label: "Desktop App", translations: { "zh-TW": "桌面 App" }, slug: "guides/desktop-app" },
             { label: "Model Ordering", translations: { "zh-TW": "模型排序" }, slug: "guides/model-ordering" },
             { label: "Combos", translations: { "zh-TW": "組合" }, slug: "guides/combos" },

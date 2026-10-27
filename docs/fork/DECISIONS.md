@@ -675,3 +675,26 @@ commit，均 defer 至 stable promotion。open platform `#4200`（remote-hub doc
 - **不處理**：`docs-site/`（`Header.astro`、`Landing.astro`、`frontier-i18n.ts` 等的位置式多語 `t(en, ko, zh, …)` 表）。fork 只發布 en／zh-tw，這些韓文是不會被顯示的死資料，剃除要改寫整串位置參數、每次同步都衝突；`deploy-docs` 在 fork 也不執行。`structure/` 與 `devlog/` 是上游開發者文件，不在檢查範圍。
 
 **同步後測試修補（2026-10-27）**：`docs-zh-tw-parity` 抓到上游 v2.93.0 在 8 個英文頁新增的段落（codex-app-models、combos、integrations、providers、lifecycle、codex-retry-diagnostics、proxy-formats、update-failed）zh-tw 沒有，依慣例以英文原文補進對應位置（連結改 `/zh-tw/`）；`update-failed` 舊的步驟清單被上游改放進新的「Retry or reinstall」小節，刪掉 zh-tw 舊清單以免重複；`integrations` 的兩個舊程式碼區塊改縮排（不改內容）以維持 fence 數對得上。`docs-gpt61-terra` 要求的 `modelAdapters?` 列補上 Copilot 的 `gpt-6.1-*` 說明。`.github/workflows/ci.yml` 因 fork 的排程 CI 改動比上游多 7 行、超過 2000 行，登記到 `tests/fixtures/file-size-baseline.json`（2003）。`release-version-line` 在本機會因為本機的 `v2.93.0` tag 是上游的而失敗；fork 在這個 commit 上打 `v2.93.0` 後即通過（CI 的 fork 倉庫沒有上游 tag）。
+
+
+## 2026-10-28：fork 只支援 Windows——檔案層級移除 macOS／Linux 專屬內容
+
+**決定**：維護者只用 Windows，要一個乾淨的 repo。以「檔案層級」移除只為 macOS 或 Linux 存在的東西：整個目錄、打包與安裝腳本、CI job 與 workflow job、只在那些平台跑的測試、對應的 docs 頁面與段落。**不處理檔案內的平台分支**——共用模組裡的 `process.platform === "win32" ? … : …`、POSIX 程式路徑、混合測試檔裡的 `skipIf(process.platform === "win32")` 全部保留。
+
+**為什麼只動檔案層級**：fork 同步上游的方法是把 `git diff <integrated_tag> main` 重放到每個新上游 tag：先套刪除清單，再 3-way patch（見 `FORK.md`、`UPSTREAM.md`）。整檔刪除會自動重放，和剔除非英文／繁中語系的做法完全一樣；檔案內的編輯則在每次上游動到同一檔時都會衝突。所以共用 source 不為了拿掉非 Windows 分支而改動，`src/service/launchd.ts`、`systemd.ts`、`src/codex/desktop-app/darwin.ts`／`linux.ts` 等被共用模組靜態 import 的檔案全部留下。
+
+**刪除範圍**（共 105 個檔案（含 `app/`、`docker/` 兩個目錄）；完整清單即 `tools/fork-hygiene-guards.ts` 的 `REMOVED_DIRECTORIES`／`REMOVED_FILES`）
+- 目錄：`app/`（macOS WidgetKit／MenuBarCore／NativeTray）、`docker/`。
+- 根目錄：`Dockerfile`、`compose.yaml`、`.dockerignore`。
+- 腳本：`scripts/install.sh`、`ocx-restart.sh`、`ocx-run`＋`OCX-RUN.md`、`darwin-eager-abort-stress*.ts`、`macos-rss-retention-*.ts`、`bun-gc-relief-eval.ts`、`scripts/ci/docker-smoke.ts`、`sample-macos-stall.sh`、`select-test-lane.sh`；`desktop/scripts/` 的 `build-widget.sh`、`verify-macos-runtime.sh`、`verify-linux-sidecar.sh`、`appimage-patchelf.py`、`linux-packaged-e2e.ts`。
+- 測試：全部測試在 win32 都被跳過的檔案（`codex-shim-overlay*`、`messaging-remote-*`、`service-desktop-startup-linux` 等）、只測上述被刪檔案的測試（`container-bootstrap`、`desktop-widget-entry`、`macos-serial-lanes`、`ci-scope-reduction` 等）。混合檔案不動。
+- 文件：`macos-menu-bar` 頁（英文＋zh-tw）、`remote-hub` 的 Docker Compose 與 macOS 服務操作兩節、`structure/` 的 Linux 打包與 widget 章節、兩份 ADR（容器部署、Linux packaged shell）。
+- CI：`ci.yml` 移除 `test`（Ubuntu 四分片）、`storage-policy`、`api-usage`、`platform-macos`、`macos-control`、`docker-smoke`、`npm-global-smoke`、`widget`、`desktop-shell`；`keyring-smoke` 改成只跑 Windows；`setup-action`／`remote-helper` 拿掉 macOS 腿；`service-lifecycle.yml` 移除 `linux-systemd`、`macos-launchd`；`desktop-installed-gate.yml` 移除 `macos`、`linux`；`codex-queue-helpers.yml`、`catalog-async-contracts.yml` 拿掉 macOS 腿。保留的 gate 都是平台中立的：`gates`、`test changed`、`docs-site-build`、`structure-gate`、`privacy-gate`，以及 `platform-windows` 九分片完整測試（排程與手動 dispatch）、`fork-release-windows.yml`。
+
+**刻意保留**
+- `release.yml`、`scripts/release.ts` 與其 helper：上游專用發版線（每個 job 有官方 repo guard，fork 不執行）。改它每次同步都衝突，且它的 asset 清單是資料驅動；其中 macOS／Linux 腿與已刪腳本的引用在 fork 是死碼，同步時照上游原樣。
+- 所有被共用 source 靜態 import 的 launchd／systemd／darwin／linux 模組與它們不被 win32 跳過的測試；`desktop/src-tauri/Entitlements.plist`（`tauri.conf.json` 引用）、`scripts/codex-queue.sh`（其測試跑 bash 與 pwsh 兩種 shell）、`native/remote-workspace-helper` 的 macOS sandbox。
+
+**防回歸**：`tools/fork-hygiene-guards.ts` 加 `REMOVED_DIRECTORIES`／`REMOVED_FILES`／`REMOVED_CI_JOBS` 與非 Windows runner 標籤檢查（`release.yml` 例外），`tests/ci-workflows/fork-hygiene.test.ts` 在被刪路徑、被刪 job 或 `macos-*`／`opencodex-gate-(macos|linux)` 標籤回來時失敗；已用重新加入的樣本驗證為紅、還原後為綠。
+
+**代價與注意**：Ubuntu 測試腿移除後，PR 只剩 `test changed`，完整套件只在 Windows 的排程與手動 dispatch 跑；`ci.yml` 與數個測試檔的檔案內編輯在同步時會與上游衝突，需手動解（見 `UPSTREAM.md` 的「Windows-only 刪除清單」）。

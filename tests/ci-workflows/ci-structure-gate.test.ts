@@ -46,7 +46,7 @@ test("a change under structure/ selects a job that runs the structure gate", () 
 test("a prose edit still does not start the cross-platform matrix", () => {
   // This is the tradeoff the narrow job buys, and it is worth pinning: widening
   // the `ci` filter would also close #5001, and would also start nine Windows
-  // shards and two macOS shards for a check that takes seconds. A future edit
+  // shards for a check that takes seconds. A future edit
   // that takes that route fails here and gets read by a human.
   expect(filters.ci).not.toContain("structure/**");
   expect(filters.ci).not.toContain("structure/");
@@ -67,23 +67,16 @@ test("the aggregate gate expects the job instead of ignoring it", () => {
   // job missing from `expected_for` reads as `undeclared`, not as skipped.
   const gate = workflow.jobs?.ci;
   expect(Array.isArray(gate?.needs) ? gate?.needs : []).toContain("structure-gate");
-  expect(Array.isArray(gate?.needs) ? gate?.needs : []).toContain("widget");
   const script = (gate?.steps ?? []).map(step => step.run ?? "").join("\n");
   expect(script).toContain("structure-gate) echo \"$structure\" ;;");
-  expect(script).toContain("GATED_JOBS=\"$GATED_JOBS structure-gate widget\"");
-  // widget is gated through the native arm rather than the ci-scoped one now,
-  // so match it as a pattern inside expected_for instead of pinning which arm
-  // it shares or where it sits in the grouping.
-  expect(script).toMatch(/case "\$1" in[\s\S]*?\bwidget\b[\s\S]*?esac/);
+  expect(script).toContain("GATED_JOBS=\"$GATED_JOBS structure-gate\"");
   expect(script).toContain("CHANGES_STRUCTURE");
 });
 
-test("app changes reach the macOS widget job after merge", () => {
-  expect(filters.ci).toContain("app/**");
+test("desktop changes reach the ci scope and the push trigger", () => {
   expect(filters.ci).toContain("desktop/**");
-  // The widget runs on macOS, so pull requests skip it and the push into dev runs it.
-  expect(workflow.on?.push?.paths ?? []).toContain("app/**");
-  const widget = workflow.jobs?.widget;
-  expect(widget?.if).toBe("github.event_name != 'pull_request'");
-  expect(Array.isArray(widget?.needs) ? widget?.needs : []).toContain("changes");
+  expect(workflow.on?.push?.paths ?? []).toContain("desktop/**");
+  // This Windows-only fork carries no macOS widget: the app/ tree and its job are gone.
+  expect(filters.ci).not.toContain("app/**");
+  expect(workflow.jobs?.widget).toBeUndefined();
 });

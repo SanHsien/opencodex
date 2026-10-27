@@ -36,29 +36,6 @@ const scriptOf = (job: Job): string => (job.steps ?? []).map(step => step.run ??
 const ACTION_PATH = ".github/actions/setup-project-bun/action.yml";
 const HELPER_PATH = "native/remote-workspace-helper/src/main.rs";
 
-describe("Docker build and runtime input scope", () => {
-  test("selects runtime sources and every GUI build input", () => {
-    for (const path of [
-      "src/config.ts", "src/config/paths.ts", "src/server/index.ts", "src/service.ts",
-      "gui/src/App.tsx", "gui/src/style.css", "gui/public/icon.svg", "gui/index.html",
-      "gui/vite.config.ts", "gui/tsconfig.json", "gui/tsconfig.app.json", "gui/tsconfig.node.json",
-      "gui/package.json", "gui/bun.lock",
-    ]) {
-      expect(`${path}:ci=${matches(filters.ci, path)}`).toBe(`${path}:ci=true`);
-      expect(`${path}:docker=${matches(filters.docker, path)}`).toBe(`${path}:docker=true`);
-    }
-  });
-
-  test("does not select Docker for tests or documentation alone", () => {
-    for (const path of [
-      "tests/server/server-live.test.ts", "gui/tests/claude-code-save.test.ts",
-      "gui/README.md", "docs-site/src/content/docs/index.mdx", "structure/runtime.md",
-    ]) {
-      expect(`${path}:docker=${matches(filters.docker, path)}`).toBe(`${path}:docker=false`);
-    }
-  });
-});
-
 describe("an edit to the setup action alone", () => {
   test("selects a job that runs the action and checks what it installed", () => {
     const selected = jobsSelectedBy(filtersMatching(ACTION_PATH))
@@ -66,9 +43,9 @@ describe("an edit to the setup action alone", () => {
     expect(selected.map(([name]) => name)).toEqual(["setup-action"]);
     const [, job] = selected[0]!;
     expect(scriptOf(job)).toContain("bun --version");
-    // Pull requests run the ubuntu leg only; windows and macos run after merge.
+    // Pull requests run the ubuntu leg only; windows runs after merge (this fork keeps no macOS leg).
     expect(job.strategy?.matrix?.os).toBe(
-      "${{ fromJSON(github.event_name == 'pull_request' && '[\"ubuntu-latest\"]' || '[\"ubuntu-latest\",\"windows-latest\",\"macos-latest\"]') }}",
+      "${{ fromJSON(github.event_name == 'pull_request' && '[\"ubuntu-latest\"]' || '[\"ubuntu-latest\",\"windows-latest\"]') }}",
     );
   });
 
@@ -115,8 +92,7 @@ describe("CI Bun roles", () => {
     const testing = [...workflowJobs].flatMap(([file, fileJobs]) => Object.entries(fileJobs)
       .filter(([, job]) => job.steps?.some(runsBunTests)).map(([name]) => `${file}/${name}`));
     expect(testing).toEqual(expect.arrayContaining([
-      "ci.yml/api-usage", "ci.yml/gates", "ci.yml/macos-control", "ci.yml/platform-macos",
-      "ci.yml/platform-windows", "ci.yml/storage-policy", "ci.yml/test",
+      "ci.yml/gates", "ci.yml/platform-windows", "ci.yml/test-changed",
       "dev-version-bump.yml/open-bump-pr",
     ]));
   });
@@ -145,10 +121,10 @@ describe("CI Bun roles", () => {
 
   test("release, packaged runtime and sidecar jobs use the default runtime action", () => {
     const runtimeJobs: Record<string, string[]> = {
-      "ci.yml": ["desktop-shell", "widget", "docker-smoke", "keyring-smoke"],
+      "ci.yml": ["keyring-smoke"],
       "release.yml": ["preflight", "package-standalone", "package-desktop", "verify-release", "publish", "attach-release"],
-      "service-lifecycle.yml": ["linux-systemd", "macos-launchd", "windows-schtasks"],
-      "desktop-installed-gate.yml": ["macos", "windows", "linux"],
+      "service-lifecycle.yml": ["windows-schtasks"],
+      "desktop-installed-gate.yml": ["windows"],
     };
     for (const [file, names] of Object.entries(runtimeJobs)) {
       for (const name of names) {
@@ -233,10 +209,9 @@ describe("an edit to the remote-workspace helper alone", () => {
 });
 
 describe("the narrow checks stay narrow", () => {
-  test("neither path starts the full suite or the native macOS jobs", () => {
+  test("neither path starts the full suite", () => {
     for (const path of [ACTION_PATH, HELPER_PATH]) {
       expect(`${path}:ci=${matches(filters.ci, path)}`).toBe(`${path}:ci=false`);
-      expect(`${path}:native=${matches(filters.native, path)}`).toBe(`${path}:native=false`);
     }
   });
 

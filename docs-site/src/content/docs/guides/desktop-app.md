@@ -268,12 +268,6 @@ project's signed updater public key before installation. On macOS, in-app update
 The release manifest is generated only when the updater key secret is configured and then
 requires all four platforms to be signed.
 
-## Widget
-
-The macOS app includes the OpenCodex WidgetKit extension. See the
-[macOS Menu Bar App guide](/guides/macos-menu-bar/) for widget setup and the
-local snapshot details.
-
 ## Uninstall
 
 Before uninstalling a supported Desktop installation, open **Terminal command** in the

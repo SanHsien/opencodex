@@ -1,16 +1,22 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { checkDocument, iterDocuments } from "../../tools/check-links";
 import {
   findHangulViolations,
+  findNonWindowsRunners,
+  findRemovedCiJobs,
+  findRemovedPaths,
   findUpstreamUpdateRefs,
   HANGUL_ALLOWLIST,
   HANGUL_ROOTS,
   listTextFiles,
   readTextOrUndefined,
+  REMOVED_CI_JOBS,
+  REMOVED_DIRECTORIES,
+  REMOVED_FILES,
   UPDATE_PATH_ROOTS,
   UPSTREAM_RELEASE_REF,
   UPSTREAM_REPO,
@@ -410,5 +416,63 @@ describe("fork update paths never reach upstream", () => {
     expect(source).toContain('selfUpdateAllowed: process.env.NODE_ENV === "test" && process.env[FORK_TEST_REGISTRY_UPDATE_ENV] === "1"');
     expect(source).toContain("https://github.com/${FORK_REPO}/releases/latest");
     expect(source).toContain('FORK_REPO = "SanHsien/opencodex"');
+  });
+});
+
+/**
+ * Windows-only at file level (docs/fork/DECISIONS.md, 2026-10-28). The macOS/Linux-only files,
+ * directories and CI jobs were deleted whole so that an upstream sync replays the deletion list
+ * and nothing returns. In-file platform branches of shared modules are intentionally untouched.
+ */
+describe("removed macOS/Linux-only files and CI stay removed", () => {
+  const workflowsDir = join(ROOT, ".github", "workflows");
+  const CR = String.fromCharCode(13);
+  const workflowTexts = () => new Map(
+    readdirSync(workflowsDir).filter(name => name.endsWith(".yml"))
+      .map(name => [name, readFileSync(join(workflowsDir, name), "utf8").replaceAll(CR, "")] as const),
+  );
+
+  test("none of the removed paths exists in the tree", () => {
+    const problems = findRemovedPaths(path => existsSync(join(ROOT, path)), directory => listTextFiles(ROOT, [directory]));
+    expect(problems).toEqual([]);
+    expect(REMOVED_FILES.length).toBeGreaterThan(50);
+    expect(REMOVED_DIRECTORIES).toEqual(["app", "docker"]);
+  });
+
+  test("none of the removed CI jobs is back in a workflow that stays", () => {
+    const jobsOf = (workflow: string) => {
+      const file = join(workflowsDir, workflow);
+      if (!existsSync(file)) return undefined;
+      const parsed = Bun.YAML.parse(readFileSync(file, "utf8")) as { jobs?: Record<string, unknown> };
+      return Object.keys(parsed.jobs ?? {});
+    };
+    expect(findRemovedCiJobs(jobsOf)).toEqual([]);
+    expect(Object.keys(REMOVED_CI_JOBS).length).toBeGreaterThan(0);
+  });
+
+  test("no workflow except upstream-only release.yml names a macOS or Linux gate runner", () => {
+    expect(findNonWindowsRunners(workflowTexts())).toEqual([]);
+  });
+
+  test("the guards fail on a deliberately re-added sample", () => {
+    const present = new Set(["scripts/install.sh", "app", "Dockerfile"]);
+    const paths = findRemovedPaths(path => present.has(path), () => ["app/Package.swift"]);
+    expect(paths).toHaveLength(3);
+    expect(paths.join(NEWLINE)).toContain("scripts/install.sh: removed macOS/Linux-only file is back");
+    expect(paths.join(NEWLINE)).toContain("app/: removed macOS/Linux-only directory is back");
+
+    const jobs = findRemovedCiJobs(workflow => workflow === "ci.yml" ? ["gates", "platform-macos", "docker-smoke"] : undefined);
+    expect(jobs).toHaveLength(2);
+    expect(jobs.join(NEWLINE)).toContain("`platform-macos`");
+
+    const lines = (...rows: string[]) => rows.join(NEWLINE) + NEWLINE;
+    const runners = findNonWindowsRunners(new Map([
+      ["ci.yml", lines("jobs:", "  x:", "    # runs-on: macos-latest is only a comment", "    runs-on: macos-latest")],
+      ["desktop-installed-gate.yml", lines("    runs-on: [self-hosted, opencodex-gate-linux]")],
+      ["release.yml", lines("    runs-on: macos-latest")],
+    ]));
+    expect(runners).toHaveLength(2);
+    expect(runners.join(NEWLINE)).toContain("ci.yml:4");
+    expect(runners.join(NEWLINE)).toContain("opencodex-gate-linux");
   });
 });

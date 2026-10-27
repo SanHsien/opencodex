@@ -100,22 +100,17 @@ describe("CI review lanes", () => {
     // decides whether the costly jobs run. Pin the entire list on both paths,
     // including every script and workflow used by repository automation.
     const ciPaths = [
-      ".dockerignore",
       ".gitattributes",
       ".github/ISSUE_TEMPLATE/**",
       ".github/scripts/**",
       ".github/workflows/**",
       ".npmignore",
-      "Dockerfile",
       "LICENSE",
       "README.md",
-      "app/**",
       "assets/**",
       "bin/**",
       "bun.lock",
-      "compose.yaml",
       "desktop/**",
-      "docker/**",
       "gui/**",
       "package.json",
       "readme/**",
@@ -164,116 +159,74 @@ describe("CI review lanes", () => {
     expect(scopeIndex).toBeGreaterThan(filterIndex);
 
     const scopedCondition = "github.event_name != 'pull_request' || needs.changes.outputs.ci == 'true'";
-    // platform-macos is native-gated and pinned to the native condition above,
-    // so it must not be read against this ci-only condition.
-    for (const jobName of ["storage-policy", "gates"]) {
+    for (const jobName of ["gates"]) {
       const job = ci.jobs?.[jobName] as { needs?: string; if?: string } | undefined;
       expect(`${jobName}:${job?.needs}`).toBe(`${jobName}:changes`);
       expect(`${jobName}:${job?.if}`).toBe(`${jobName}:${scopedCondition}`);
     }
-    // The pull-request fast lane swaps the four full shards for `test changed`; every
-    // other event keeps the shards, and `fast` is only ever true on a pull request.
-    const shards = ci.jobs?.test as { needs?: string; if?: string } | undefined;
-    expect(shards?.needs).toBe("changes");
-    expect(shards?.if).toBe("github.event_name != 'pull_request' || (needs.changes.outputs.ci == 'true' && needs.changes.outputs.fast != 'true')");
+    // This Windows-only fork carries no Ubuntu suite shards: the pull-request lane is `test changed`
+    // on every pull request in the ci scope, and no other event runs it.
+    expect(ci.jobs?.test).toBeUndefined();
     const changedTests = ci.jobs?.["test-changed"] as { needs?: string; if?: string } | undefined;
     expect(changedTests?.needs).toBe("changes");
-    expect(changedTests?.if).toBe("github.event_name == 'pull_request' && needs.changes.outputs.fast == 'true'");
-    expect((ci.jobs?.changes as { outputs?: Record<string, string> } | undefined)?.outputs?.fast)
-      .toBe("${{ steps.lane.outputs.fast }}");
-    // The two smoke jobs keep the ci scope and, on a pull request only, also need their
-    // own narrow filter. Every other event still requests them unconditionally.
-    for (const [jobName, output] of [["keyring-smoke", "keyring"], ["docker-smoke", "docker"]] as const) {
-      const job = ci.jobs?.[jobName] as { needs?: string; if?: string } | undefined;
-      expect(`${jobName}:${job?.needs}`).toBe(`${jobName}:changes`);
-      expect(`${jobName}:${job?.if}`).toBe(
-        `${jobName}:github.event_name != 'pull_request' || (needs.changes.outputs.ci == 'true' && needs.changes.outputs.${output} == 'true')`,
-      );
-      expect((ci.jobs?.changes as { outputs?: Record<string, string> } | undefined)?.outputs?.[output])
-        .toBe(`\${{ steps.narrow.outputs.${output} }}`);
-    }
-    const macosControlIf = ci.jobs?.["macos-control"] as { needs?: string; if?: string } | undefined;
-    expect(macosControlIf?.needs).toBe("changes");
-    expect(macosControlIf?.if).toBe("github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && (github.event.inputs.lane == '' || github.event.inputs.lane == 'all' || github.event.inputs.lane == 'macos-control')");
+    expect(changedTests?.if).toBe("github.event_name == 'pull_request' && needs.changes.outputs.ci == 'true'");
+    expect((ci.jobs?.changes as { outputs?: Record<string, string> } | undefined)?.outputs?.fast).toBeUndefined();
+    // The keyring smoke is Windows-only, so it never runs on a pull request; every other event requests it.
+    const keyring = ci.jobs?.["keyring-smoke"] as { needs?: string; if?: string; "runs-on"?: string } | undefined;
+    expect(keyring?.needs).toBe("changes");
+    expect(keyring?.if).toBe("github.event_name != 'pull_request'");
+    expect(keyring?.["runs-on"]).toBe("windows-latest");
   });
 
-  test("manual release-gates keeps ordinary jobs and skips only diagnostic suites", async () => {
+  test("manual release-gates keeps ordinary jobs and skips only the Windows suite", async () => {
     const ci = Bun.YAML.parse(await readText(".github/workflows/ci.yml")) as {
       jobs: Record<string, { if?: string; needs?: string | string[] }>;
     };
     // These job conditions use boolean operators and lowercase string comparisons.
     // Evaluate the checked-in expressions, rather than a second implementation of them.
-    const enabled = (job: string, event: string, lane: string, scope = "true", packaging = "true", native = "true", windows = "false", smoke = "true") => {
+    const enabled = (job: string, event: string, lane: string, scope = "true", windows = "false") => {
       const condition = ci.jobs[job]!.if ?? "true";
       const evaluate = new Function("github", "needs", `return (${condition});`);
       return evaluate(
         { event_name: event, event: { inputs: { lane } } },
-        { changes: { outputs: { ci: scope, packaging, native, windows, docker: smoke, keyring: smoke } } },
+        { changes: { outputs: { ci: scope, windows } } },
       );
     };
-    for (const [event, lane, windows, control] of [
-      ["push", "", false, false],
-      ["pull_request", "", false, false],
-      ["push", "release-gates", false, false],
-      ["pull_request", "release-gates", false, false],
-      ["workflow_dispatch", "", true, true],
-      ["workflow_dispatch", "all", true, true],
-      ["workflow_dispatch", "macos-control", false, true],
-      ["workflow_dispatch", "release-gates", false, false],
-      // Diagnostic-only lanes stay off ordinary release-gates; unknown lanes
-      // must not opt into a diagnostic suite when more choices are introduced.
-      ["workflow_dispatch", "future-lane", false, false],
+    for (const [event, lane, windows] of [
+      ["push", "", false],
+      ["pull_request", "", false],
+      ["push", "release-gates", false],
+      ["pull_request", "release-gates", false],
+      ["workflow_dispatch", "", true],
+      ["workflow_dispatch", "all", true],
+      ["workflow_dispatch", "release-gates", false],
+      // Unknown lanes must not opt into a suite when more choices are introduced.
+      ["workflow_dispatch", "future-lane", false],
     ] as const) {
       expect(enabled("select-windows-runner", event, lane)).toBe(true);
       expect(enabled("platform-windows", event, lane)).toBe(windows);
-      expect(enabled("macos-control", event, lane)).toBe(control);
-      for (const job of ["test", "gates", "storage-policy", "api-usage", "keyring-smoke", "docker-smoke"]) {
-        expect(enabled(job, event, lane)).toBe(true);
-        expect(enabled(job, event, lane, "false")).toBe(event !== "pull_request");
-      }
-      // A pull request whose diff misses the smoke filters skips both smoke jobs; any
-      // other event still runs them, which is what keeps them on the release push run.
-      for (const job of ["keyring-smoke", "docker-smoke"]) {
-        expect(enabled(job, event, lane, "true", "true", "true", "false", "false")).toBe(event !== "pull_request");
-      }
-      for (const job of ["test", "gates", "storage-policy", "api-usage"]) {
-        expect(enabled(job, event, lane, "true", "true", "true", "false", "false")).toBe(true);
-      }
-      // Without the fast lane `test changed` never runs; the shards cover every event.
-      expect(enabled("test-changed", event, lane)).toBe(false);
-      // macOS jobs never run on a pull request; they run after merge, on push.
-      for (const job of ["platform-macos", "widget"]) {
-        for (const scope of ["true", "false"]) {
-          for (const native of ["true", "false"]) {
-            expect(enabled(job, event, lane, scope, "true", native)).toBe(event !== "pull_request");
-          }
-        }
-      }
-      // desktop-shell runs on ubuntu, so a native pull request still selects it.
-      for (const job of ["desktop-shell"]) {
-        for (const scope of ["true", "false"]) {
-          for (const native of ["true", "false"]) {
-            expect(enabled(job, event, lane, scope, "true", native))
-              .toBe(event !== "pull_request" || (scope === "true" && native === "true"));
-          }
-        }
-      }
-      expect(enabled("npm-global-smoke", event, lane, "true", "true")).toBe(true);
-      expect(enabled("npm-global-smoke", event, lane, "true", "false")).toBe(false);
+      expect(enabled("gates", event, lane)).toBe(true);
+      expect(enabled("gates", event, lane, "false")).toBe(event !== "pull_request");
+      // Windows-only jobs never run on a pull request; they run after merge, on push.
+      expect(enabled("keyring-smoke", event, lane)).toBe(event !== "pull_request");
+      expect(enabled("keyring-smoke", event, lane, "false")).toBe(event !== "pull_request");
+      // `test changed` is the pull-request lane and nothing else.
+      expect(enabled("test-changed", event, lane)).toBe(event === "pull_request");
+      expect(enabled("test-changed", event, lane, "false")).toBe(false);
     }
     for (const windows of ["true", "false", ""]) {
       // Even a Windows-sensitive pull request runs only the fast Ubuntu subset.
-      expect(enabled("platform-windows", "pull_request", "", "true", "true", "true", windows)).toBe(false);
+      expect(enabled("platform-windows", "pull_request", "", "true", windows)).toBe(false);
     }
-    expect(enabled("platform-windows", "schedule", "", "false", "false", "false")).toBe(true);
-    expect(enabled("macos-control", "schedule", "", "false", "false", "false")).toBe(true);
+    expect(enabled("platform-windows", "schedule", "", "false", "false")).toBe(true);
+    for (const removed of ["test", "storage-policy", "api-usage", "platform-macos", "macos-control", "docker-smoke", "npm-global-smoke", "widget", "desktop-shell"]) {
+      expect(ci.jobs[removed]).toBeUndefined();
+    }
     expect(ci.jobs["select-windows-runner"]!.if).toBeUndefined();
     expect(ci.jobs["platform-windows"]!.needs).toEqual(["changes", "select-windows-runner"]);
     expect(ci.jobs.ci!.if).toBe("always()");
     expect(ci.jobs.ci!.needs).toEqual(expect.arrayContaining([
-      "changes", "select-windows-runner",
-      "test", "platform-macos", "gates", "storage-policy", "api-usage",
-      "keyring-smoke", "docker-smoke", "npm-global-smoke", "platform-windows", "macos-control",
+      "changes", "select-windows-runner", "test-changed", "gates", "keyring-smoke", "platform-windows",
     ]));
   });
 
@@ -297,24 +250,22 @@ describe("CI review lanes", () => {
       (aggregate.needs ?? []).map(job => [job, { result: "success" }]),
     );
     results["platform-windows"] = { result: "skipped" };
-    // Only a fast-lane pull request runs `test changed`; a dispatch keeps the full shards.
+    // Only a pull request runs `test changed`.
     results["test-changed"] = { result: "skipped" };
-    results["macos-control"] = { result: "skipped" };
     results["docs-site-build"] = { result: "skipped" };
     results["structure-gate"] = { result: "skipped" };
     results["privacy-gate"] = { result: "skipped" };
     results["setup-action"] = { result: "skipped" };
     results["remote-helper"] = { result: "skipped" };
-    const run = async (value: typeof results, packaging = "true") => {
+    const run = async (value: typeof results) => {
       const result = await spawnTestChild(["bash", "-c", step!.run!], {
         cwd: repoPath(),
         env: {
           ...process.env, RESULTS: JSON.stringify(value),
           EVENT_NAME: "workflow_dispatch", LANE: "release-gates",
-          CHANGES_CI: "true", CHANGES_NATIVE: "true", CHANGES_PACKAGING: packaging,
+          CHANGES_CI: "true",
           CHANGES_DOCS: "false", CHANGES_STRUCTURE: "false",
           CHANGES_SETUP_ACTION: "false", CHANGES_REMOTE_HELPER: "false",
-          CHANGES_DOCKER: "true", CHANGES_KEYRING: "true",
         },
         deadlineMs: 5_000,
       });
@@ -325,8 +276,8 @@ describe("CI review lanes", () => {
       return result;
     };
     // Each shell invocation owns its deadline instead of sharing one matrix-wide budget.
-    test.each(["success", "skipped"])("accepts packaging %s with diagnostic skips", async packaging => {
-      const result = await run({ ...results, "npm-global-smoke": { result: packaging } }, packaging === "success" ? "true" : "false");
+    test("accepts the release-gates dispatch with the Windows suite skipped", async () => {
+      const result = await run(results);
       expect(result.exitCode).toBe(0);
     }, SPAWN_BUDGET_MS);
     // Execute the checked-in Bash/jq gate, not a duplicate JS allowlist. The
@@ -393,10 +344,10 @@ describe("Windows and nightly CI contracts", () => {
         checkouts += 1;
       }
     }
-    expect(checkouts).toBe(18);
+    expect(checkouts).toBe(9);
   });
 
-  test.skipIf(process.platform === "win32" || !Bun.which("jq"))("aggregate never requests Windows on a pull request and requests both diagnostic jobs nightly", async () => {
+  test.skipIf(process.platform === "win32" || !Bun.which("jq"))("aggregate never requests Windows on a pull request and requests it nightly", async () => {
     const ci = Bun.YAML.parse(await readText(".github/workflows/ci.yml")) as {
       jobs: Record<string, { needs?: string[]; steps?: Array<{ name?: string; shell?: string; env?: Record<string, string>; run?: string }> }>;
     };
@@ -413,30 +364,27 @@ describe("Windows and nightly CI contracts", () => {
     expect(start).toBeGreaterThan(-1);
     expect(last).toBeGreaterThan(first);
     const slice = script.slice(start, last + "RESULTS_EOF".length);
-    for (const [event, lane, windows, expectWindows, expectControl] of [
-      ["schedule", "", undefined, "requested", "requested"],
+    for (const [event, lane, windows, expectWindows] of [
+      ["schedule", "", undefined, "requested"],
       // Pull requests run only the fast Ubuntu subset, even when the change is Windows-sensitive.
-      ["pull_request", "", "true", "not-requested", "not-requested"],
-      ["pull_request", "", "false", "not-requested", "not-requested"],
-      ["pull_request", "", undefined, "not-requested", "not-requested"],
-      ["push", "", "true", "not-requested", "not-requested"],
-      ["workflow_dispatch", "all", "false", "requested", "requested"],
-      ["workflow_dispatch", "release-gates", "true", "not-requested", "not-requested"],
+      ["pull_request", "", "true", "not-requested"],
+      ["pull_request", "", "false", "not-requested"],
+      ["pull_request", "", undefined, "not-requested"],
+      ["push", "", "true", "not-requested"],
+      ["workflow_dispatch", "all", "false", "requested"],
+      ["workflow_dispatch", "release-gates", "true", "not-requested"],
     ] as const) {
       const env: Record<string, string> = {
         PATH: process.env.PATH ?? "/usr/bin:/bin", EVENT_NAME: event, LANE: lane, RESULTS: "{}",
-        CHANGES_CI: "true", CHANGES_NATIVE: "true", CHANGES_PACKAGING: "true",
-        CHANGES_DESKTOP: "false", CHANGES_DOCS: "false", CHANGES_STRUCTURE: "false",
+        CHANGES_CI: "true", CHANGES_DOCS: "false", CHANGES_STRUCTURE: "false",
         CHANGES_SETUP_ACTION: "false", CHANGES_REMOTE_HELPER: "false",
-        CHANGES_DOCKER: "false", CHANGES_KEYRING: "false",
         ...(windows === undefined ? {} : { CHANGES_WINDOWS: windows }),
       };
-      const result = spawnSync("bash", ["-c", `set -u\n${slice}\necho "WIN=$(expected_for platform-windows)"\necho "CTL=$(expected_for macos-control)"`], {
+      const result = spawnSync("bash", ["-c", `set -u\n${slice}\necho "WIN=$(expected_for platform-windows)"`], {
         encoding: "utf8", timeout: 5_000, env,
       });
       expect(result.error).toBeUndefined();
       expect(`${event}/${lane}/${windows}:${result.stdout.match(/^WIN=(.*)$/m)?.[1]}`).toBe(`${event}/${lane}/${windows}:${expectWindows}`);
-      expect(`${event}/${lane}/${windows}:${result.stdout.match(/^CTL=(.*)$/m)?.[1]}`).toBe(`${event}/${lane}/${windows}:${expectControl}`);
     }
   });
 

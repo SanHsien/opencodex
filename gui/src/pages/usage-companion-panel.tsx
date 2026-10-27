@@ -401,7 +401,7 @@ export default function UsageCompanionPanel({
           <h3 className="panel-title">{t("usage.companion.title")}</h3>
           <p className="card-sub">{t("usage.companion.description")}</p>
         </div>
-        <a className="btn btn-ghost btn-sm" href="https://opencodex.me/guides/macos-menu-bar/" target="_blank" rel="noreferrer">{t("usage.companion.installGuide")}</a>
+        <a className="btn btn-ghost btn-sm" href="https://opencodex.me/guides/desktop-app/" target="_blank" rel="noreferrer">{t("usage.companion.installGuide")}</a>
       </div>
       {(() => {
         const lastSeenAt = response?.companion?.lastSeenAt ?? null;

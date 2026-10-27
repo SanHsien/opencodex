@@ -69,27 +69,6 @@ function hasShellCommandHead(run: string | undefined, expected: string): boolean
     .some(line => line === expected || line.startsWith(`${expected} `));
 }
 
-function expectSecureLinuxKeyringBootstrap(workflow: string): void {
-  const smokeStep = workflow
-    .split("- name: OS keyring create/read/delete smoke")[1]
-    ?.split(/\n(?: {6}- name:| {2}[A-Za-z0-9_-]+:)/)[0];
-
-  expect(smokeStep).toBeDefined();
-  expect(smokeStep).toContain('keyring_home="$(mktemp -d)"');
-  expect(smokeStep).toContain('runtime_dir="$(mktemp -d)"');
-  expect(smokeStep).toContain('cleanup() { rm -rf -- "$keyring_home" "$runtime_dir"; }');
-  expect(smokeStep).toContain("trap cleanup EXIT");
-  expect(smokeStep).toContain('chmod 700 "$keyring_home" "$runtime_dir"');
-  expect(smokeStep).toContain(
-    'HOME="$keyring_home" XDG_RUNTIME_DIR="$runtime_dir" dbus-run-session',
-  );
-  expect(smokeStep).toMatch(
-    /od -An -N32 -tx1 \/dev\/urandom \|\s+tr -d "\[:space:\]" \|\s+gnome-keyring-daemon --unlock --components=secrets >\/dev\/null/,
-  );
-  expect(smokeStep).not.toContain("eval ");
-  expect(smokeStep).not.toContain("gnome-keyring-daemon --start");
-}
-
 describe("GitHub Actions hardening", () => {
   test("cross-platform CI keeps bounded jobs and immutable action references", async () => {
     const workflow = await readText(".github/workflows/ci.yml");
@@ -116,41 +95,18 @@ describe("GitHub Actions hardening", () => {
     // in cleanup, so each shard now holds the same 15m a Linux shard holds. A
     // shard that needs longer is wedged, not slow.
     expect(ci.jobs?.["select-windows-runner"]?.["timeout-minutes"]).toBe(2);
-    expect(ci.jobs?.test?.["timeout-minutes"]).toBe(15);
     expect(ci.jobs?.gates?.["timeout-minutes"]).toBe(15);
-    // 20 with three shards, not a longer cap on two: two halves reached their
-    // 20-minute wall with tests still passing (#6978). See the rationale in ci.yml.
-    expect(ci.jobs?.["platform-macos"]?.["timeout-minutes"]).toBe(20);
-    // 75, not 30: the unsharded control measured 50m39s for a complete run and had
-    // therefore never finished inside 30. See the rationale in ci.yml and #4905.
-    expect(ci.jobs?.["macos-control"]?.["timeout-minutes"]).toBe(75);
-    // Higher than the Linux shards on purpose: at 15 the Windows leg cancelled a
-    // shard mid-suite, which reports as neither pass nor fail (#2152).
+    // At 15 the Windows leg cancelled a shard mid-suite, which reports as neither pass
+    // nor fail (#2152).
     expect(ci.jobs?.["platform-windows"]?.["timeout-minutes"]).toBe(30);
     expect(ci.jobs?.["keyring-smoke"]?.["timeout-minutes"]).toBe(8);
-    // Same lesson as the Windows shards above, one job later: at 8 the Windows leg
-    // spent ~7 minutes installing dependencies and was cancelled at the wall before
-    // it could pack and install. A cancellation is neither a pass nor a fail, and it
-    // landed on whichever step happened to be running — four times on the global
-    // install and once on a one-second asset check — which read as a flaky download
-    // rather than a budget one OS cannot meet (#3441).
-    expect(ci.jobs?.["npm-global-smoke"]?.["timeout-minutes"]).toBe(20);
     expect(ci.jobs?.ci?.["timeout-minutes"]).toBe(5);
     expect(ci.permissions).toEqual({ contents: "read" });
 
-    const keyringJob = ci.jobs?.["keyring-smoke"] as {
-      "runs-on"?: string;
-      strategy?: { matrix?: { include?: unknown } };
-    } | undefined;
-    expect(keyringJob?.["runs-on"]).toBe("${{ matrix.runner }}");
-    // The macOS leg must come and go with the native selection, so the include
-    // list is a JSON output of the changes job read through fromJSON instead of
-    // a literal here. Which legs that output carries is pinned in
-    // ci-scope-reduction.test.ts.
-    expect(String(keyringJob?.strategy?.matrix?.include)).toMatch(
-      /fromJSON\(needs\.changes\.outputs\.[A-Za-z][A-Za-z_-]*\)/,
-    );
-    expectSecureLinuxKeyringBootstrap(workflow);
+    // Windows only: this fork keeps no Linux Secret Service or macOS Keychain leg.
+    const keyringJob = ci.jobs?.["keyring-smoke"] as { "runs-on"?: string; strategy?: unknown } | undefined;
+    expect(keyringJob?.["runs-on"]).toBe("windows-latest");
+    expect(keyringJob?.strategy).toBeUndefined();
     // Every job must stay bounded — an unbounded job can hang a queue for hours.
     // Asserted structurally rather than by counting the string: a count passes if
     // a job is added while another loses its bound in the same edit. Iterating the
@@ -167,20 +123,11 @@ describe("GitHub Actions hardening", () => {
     expect(workflow).toContain("./.github/actions/setup-project-bun");
     expect(await readText(".github/actions/setup-project-bun/action.yml"))
       .toContain("oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6");
-    expect(workflow).toContain("actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e");
     expect(workflow).toContain("bun test --isolate tests");
     expect(workflow).not.toMatch(/uses:\s+\S+@(?:v\d+|main|master)\b/);
 
-    // Sharding is only safe while the shards tile the suite exactly. If the
-    // matrix and the divisor drift apart, some files stop running and CI stays
-    // green — the worst failure available here. Pin them to each other.
-    const linuxShards = (ci.jobs?.test as { strategy?: { matrix?: { shard?: number[] } } })
-      ?.strategy?.matrix?.shard ?? [];
-    expect(linuxShards).toEqual([1, 2, 3, 4]);
-    // The Linux shards pass their divisor through TEST_SHARD to the batch runner. Before
-    // Windows sharded differently, this assertion matched the Windows step's --shard
-    // literal by coincidence; pin the Linux env line so it observes the Linux job.
-    expect(workflow).toContain(`TEST_SHARD: \${{ matrix.shard }}/${linuxShards.length}`);
+    // This fork carries no Ubuntu suite shards; the Windows shards below are the only full-suite matrix.
+    expect(ci.jobs?.test).toBeUndefined();
 
     // Every job that runs tests/ must fetch tags, because one of those tests reads
     // them. tests/ci-workflows/release-version-line.test.ts compares package.json against the
@@ -190,13 +137,13 @@ describe("GitHub Actions hardening", () => {
     // how the first cut of that test shipped, so pin the flag rather than trusting a
     // comment. Asserted per job so a future edit cannot drop it from one leg while
     // the other still carries it.
-    for (const jobName of ["test", "platform-macos", "macos-control", "platform-windows"]) {
+    for (const jobName of ["platform-windows"]) {
       const steps = (ci.jobs?.[jobName] as { steps?: Array<{ uses?: string; with?: Record<string, unknown> }> })?.steps ?? [];
       const checkout = steps.find(step => typeof step.uses === "string" && step.uses.includes("actions/checkout"));
       expect(`${jobName}:${String(checkout?.with?.["fetch-tags"])}`).toBe(`${jobName}:true`);
     }
 
-    // Windows shards more finely than Linux. Six shards grew to 13-30 minutes against
+    // Windows shards finely. Six shards grew to 13-30 minutes against
     // the 30-minute wall; nine restores margin while keeping the bound unchanged. The
     // matrix, runner shard spec, job name and aggregate leg count must move together.
     const windowsShards = (ci.jobs?.["platform-windows"] as {
@@ -248,71 +195,10 @@ describe("GitHub Actions hardening", () => {
     // GUI tests mutate process globals (fetch, DOM, timers and React work).
     // Hosted runners exposed order-dependent cross-file leaks when the 138
     // files shared one realm. Pin isolation to the GATES job specifically — a
-    // broad workflow search would pass because macOS already uses --isolate.
+    // broad workflow search would pass because another job already uses --isolate.
     const gatesGuiRun = gatesSteps.find(step => step.name === "GUI tests")?.run ?? "";
     expect(hasExactShellCommand(gatesGuiRun, "cd gui && bun test --isolate tests")).toBe(true);
     expect(hasExactShellCommand(gatesGuiRun, "cd gui && bun test tests")).toBe(false);
-
-    // macOS shards cover every CI-relevant change that can reach the native
-    // surface. They may skip when the shared path filter puts the whole
-    // expensive suite out of scope, or when a PR touches no native path.
-    const macosSteps = (ci.jobs?.["platform-macos"] as { steps?: { name?: string; env?: Record<string, string>; run?: string }[] })?.steps ?? [];
-    // The 60s per-test ceiling is part of the pinned shape: dropping it silently
-    // restores the timing-flake class this lane kept surfacing.
-    const macosTestStep = macosSteps.find(step => step.name === "Test in fresh-process batches");
-    expect(macosTestStep?.env).toMatchObject({
-      TEST_SHARD: "${{ matrix.shard }}/3", BUN_TEST_FILE_SCOPE: "all", BUN_TEST_BATCH_SIZE: "12",
-      BUN_TEST_PARALLEL: "1", BUN_TEST_BATCH_TIMEOUT_SECONDS: "300", OCX_TEST_NO_QUEUE: "1", OCX_TEST_FULL_SUITE: "1",
-    });
-    expect(macosTestStep?.run).toBe('bash scripts/ci/run-bun-test-batches.sh "$TEST_SHARD"');
-    expect(macosSteps.some(step => step.run?.includes("coreutils") && step.run.includes("GITHUB_PATH"))).toBe(true);
-    const macosJob = (ci.jobs?.["platform-macos"] as {
-      name?: string; strategy?: { "fail-fast"?: boolean; matrix?: { shard?: number[] } };
-    });
-    expect(macosJob?.strategy?.["fail-fast"]).toBe(false);
-    expect(macosJob?.strategy?.matrix?.shard).toEqual([1, 2, 3]);
-    // The divisor is written twice; a matrix that grows without both would run a
-    // shard selection that skips or repeats files under a misleading check name.
-    const macosShardCount = macosJob?.strategy?.matrix?.shard?.length;
-    expect(macosJob?.name).toBe(`macos \${{ matrix.shard }}/${macosShardCount}`);
-    expect(macosTestStep?.env?.TEST_SHARD).toBe(`\${{ matrix.shard }}/${macosShardCount}`);
-
-    // Failure disposition belongs to the shared runner; the workflow has no recovery loop.
-    expect(macosTestStep?.run).not.toContain("for attempt in");
-    expect(macosTestStep?.run).not.toContain("while true");
-    expect((ci.jobs?.["platform-macos"] as { needs?: string; if?: string })?.needs).toBe("changes");
-    // Pull requests never run macOS shards; they run after merge, on push to
-    // dev/main/preview. ci-scope-reduction.test.ts evaluates this condition
-    // against the events that select the job.
-    expect((ci.jobs?.["platform-macos"] as { if?: string })?.if).toBe("github.event_name != 'pull_request'");
-
-    // Whole-pool control lives on dispatch so every push does not pay the
-    // unsharded macOS critical path. Keep the unsharded full-membership control and the
-    // 30-minute budget; do not sneak a shard divisor into this job.
-    const macosControlJob = ci.jobs?.["macos-control"] as {
-      name?: string;
-      needs?: string;
-      if?: string;
-      "runs-on"?: string;
-      "timeout-minutes"?: number;
-      strategy?: unknown;
-      steps?: { name?: string; env?: Record<string, string>; run?: string }[];
-    } | undefined;
-    expect(macosControlJob?.name).toBe("macos control");
-    expect(macosControlJob?.needs).toBe("changes");
-    expect(macosControlJob?.if).toBe("github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && (github.event.inputs.lane == '' || github.event.inputs.lane == 'all' || github.event.inputs.lane == 'macos-control')");
-    expect(macosControlJob?.["runs-on"]).toBe("macos-latest");
-    expect(macosControlJob?.strategy).toBeUndefined();
-    const macosControlSteps = macosControlJob?.steps ?? [];
-    const controlTest = macosControlSteps.find(step => step.name === "Test in unsharded fresh-process batches");
-    expect(controlTest?.run).toBe('bash scripts/ci/run-bun-test-batches.sh "$TEST_SHARD"');
-    expect(controlTest?.env).toMatchObject({
-      TEST_SHARD: "1/1", BUN_TEST_FILE_SCOPE: "all", BUN_TEST_BATCH_SIZE: "12",
-      BUN_TEST_PARALLEL: "1", BUN_TEST_BATCH_TIMEOUT_SECONDS: "300",
-      OCX_TEST_NO_QUEUE: "1", OCX_TEST_FULL_SUITE: "1",
-    });
-    expect(macosControlSteps.some(step => step.run?.includes("--shard"))).toBe(false);
-    expect(macosControlSteps.some(step => step.run?.includes("coreutils") && step.run.includes("GITHUB_PATH"))).toBe(true);
 
     // Dispatch and the daily schedule request Windows; pull requests (which run
     // only the fast Ubuntu subset) and pushes do not. Keep branch-ref shortcuts
@@ -325,17 +211,16 @@ describe("GitHub Actions hardening", () => {
     expect(windowsIf).not.toContain("refs/heads/preview");
     expect(windowsIf).not.toContain("refs/heads/dev");
 
-    // A lane=macos-control dispatch must skip Windows so a red Windows burn-down
-    // cannot fail the unsharded macOS control run. A plain dispatch still runs
-    // everything, including Windows, which is what empty-or-all encodes.
+    // release-gates requests no suite; a plain dispatch still runs everything, including
+    // Windows, which is what empty-or-all encodes.
     expect(ci.on?.workflow_dispatch?.inputs?.lane).toEqual({
-      description: "all (default), release-gates, or macos-control",
+      description: "all (default) or release-gates",
       type: "choice",
       default: "all",
-      options: ["all", "release-gates", "macos-control"],
+      options: ["all", "release-gates"],
     });
 
-    // Windows runs the same suite, sharded like the Linux legs, and keeps the
+    // Windows runs the whole suite, sharded, and keeps the
     // self-hosted workspace wipe. Without the wipe a deleted file survives on
     // the runner's disk and the suite passes against a tree that no longer
     // exists in git.
@@ -368,7 +253,7 @@ describe("GitHub Actions hardening", () => {
     // accident, because the same job also ran the GUI build — splitting the suite
     // away from the gates removed that coincidence, and the shards went red on a
     // pull request before this pin existed.
-    for (const jobName of ["test", "platform-macos", "macos-control", "platform-windows"]) {
+    for (const jobName of ["platform-windows"]) {
       const steps = (ci.jobs?.[jobName] as { steps?: { if?: string; run?: string }[] })?.steps ?? [];
       const build = steps.find(step => step.run?.includes("bun run build"));
       expect(`${jobName}:${build === undefined}`).toBe(`${jobName}:false`);
@@ -393,34 +278,6 @@ describe("GitHub Actions hardening", () => {
       .find(step => step.run?.includes("git clean -xffd"));
     expect(wipe?.run).not.toContain("|| true");
     expect(wipe?.run).toContain("git rev-parse --is-inside-work-tree");
-  });
-
-  test("Docker smoke executes the source-build lifecycle and gates its result", async () => {
-    const ci = Bun.YAML.parse(await readText(".github/workflows/ci.yml")) as {
-      jobs?: Record<string, {
-        "runs-on"?: string;
-        "timeout-minutes"?: number;
-        "continue-on-error"?: boolean;
-        needs?: string[];
-        permissions?: Record<string, string>;
-        steps?: Array<{ name?: string; run?: string; if?: string; "continue-on-error"?: boolean }>;
-      }>;
-    };
-    const smoke = ci.jobs?.["docker-smoke"];
-    expect(smoke?.["runs-on"]).toBe("ubuntu-latest");
-    expect(smoke?.["timeout-minutes"]).toBe(20);
-    expect(smoke?.["continue-on-error"]).toBeUndefined();
-    expect(smoke?.permissions).toBeUndefined(); // Inherits workflow contents:read.
-    const execution = smoke?.steps?.find(step =>
-      hasExactShellCommand(step.run, "bun scripts/ci/docker-smoke.ts"));
-    expect(execution).toBeDefined();
-    expect(execution?.if).toBeUndefined();
-    expect(execution?.["continue-on-error"]).toBeUndefined();
-    expect(ci.jobs?.ci?.needs).toContain("docker-smoke");
-    const typecheck = ci.jobs?.gates?.steps?.find(step => step.name === "Typecheck");
-    expect(hasExactShellCommand(typecheck?.run,
-      "bun x tsc --ignoreConfig --noEmit --strict --target ESNext --module ESNext --moduleResolution bundler --types bun-types --skipLibCheck scripts/ci/docker-smoke.ts",
-    )).toBe(true);
   });
 
   test("cross-platform CI keeps the GUI lint and build gates", async () => {
@@ -465,36 +322,10 @@ describe("GitHub Actions hardening", () => {
     expect((ci.jobs?.changes as { permissions?: Record<string, string> })?.permissions)
       .toEqual({ contents: "read", "pull-requests": "read" });
 
-    // Whole-list comparison, not samples. Every entry is an input to the
-    // published tarball; dropping one silently stops packaging verification for
-    // that surface. `src/**` is the load-bearing one: it keeps a source-only PR
-    // running the Windows smoke jobs (keyring, npm-global) now that the full
-    // Windows suite runs only on manual dispatch.
+    // The `packaging` filter and the npm-global smoke were removed with the Linux/macOS jobs:
+    // this fork publishes no npm package, so there is no tarball to verify.
     const filters = String(filterStep?.with?.filters ?? "");
-    const packagingBlock = filters.split(/\n\s*packaging:\s*\n/)[1] ?? "";
-    const packaging = [...packagingBlock.matchAll(/-\s*'([^']+)'/g)].map(match => match[1]).sort();
-    expect(packaging).toEqual([
-      ".npmignore",
-      ".gitattributes",
-      "LICENSE",
-      "README.md",
-      "assets/**",
-      "bin/**",
-      "bun.lock",
-      "gui/**",
-      "package.json",
-      "scripts/prepare-package.ts",
-      "src/**",
-    ].sort());
-
-    // Every packaging pattern that names a real path must also appear in the
-    // shared expensive-CI filter. Otherwise the workflow records a cheap green
-    // aggregate while silently skipping the packaging verification.
-    const ciPatterns = (Bun.YAML.parse(filters) as { ci?: string[] }).ci ?? [];
-    for (const pattern of packaging) {
-      if (pattern === "scripts/prepare-package.ts") continue; // covered by scripts/**
-      expect(`${pattern}:${ciPatterns.includes(pattern)}`).toBe(`${pattern}:true`);
-    }
+    expect(filters).not.toMatch(/\n\s*packaging:\s*\n/);
   });
 
   test("stale needs-info workflow is schedule-only and least-privilege", async () => {
@@ -555,14 +386,12 @@ describe("GitHub Actions hardening", () => {
     expect(workflow).toContain("permissions:\n  contents: read");
     expect(workflow).toContain("group: service-lifecycle-${{ github.ref }}");
     expect(workflow).toContain("cancel-in-progress: true");
-    expect(count(workflow, "timeout-minutes: 10")).toBe(3);
-    expect(count(workflow, "if: ${{ !cancelled() }}")).toBe(3);
+    expect(count(workflow, "timeout-minutes: 10")).toBe(1);
+    expect(count(workflow, "if: ${{ !cancelled() }}")).toBe(1);
     expect(workflow).not.toContain("always()");
     expect(workflow).not.toContain('healthz || echo "healthz not ready yet"');
     expect(workflow).not.toContain("sleep 8");
-    expect(workflow).toContain("systemd service has no positive MainPID before crash test");
     expect(workflow).toContain("Get-ScheduledTask -TaskName opencodex-proxy -ErrorAction SilentlyContinue");
-    expect(workflow).toContain("launchd artifact or proxy survived uninstall");
     expect(workflow).toContain("scheduled task or proxy survived uninstall");
     expect(workflow).not.toMatch(/uses:\s+\S+@(?:v\d+|main|master)\b/);
   });

@@ -193,10 +193,6 @@ App 會讓它啟動的 proxy 持續執行。當該 proxy 自行重新啟動時�
 
 安裝前，更新會使用專案簽署的 updater 公鑰驗證。在 macOS 上，應用程式內更新會下載 `OpenCodex-<version>-macos.app.tar.gz`；DMG 用於首次安裝。只有設定 updater 金鑰祕密時才會產生版本 manifest，屆時四個平台都必須完成簽署。
 
-## Widget
-
-macOS 應用程式包含 OpenCodex WidgetKit 擴充功能。widget 設定及本機快照細節請參閱 [macOS 選單列應用程式指南](/zh-tw/guides/macos-menu-bar/)。
-
 ## 解除安裝
 
 在 macOS 上，將 `OpenCodex.app` 從 Applications 拖到垃圾桶。在 Windows 上，從 **Installed apps** 移除 OpenCodex。在 Debian 系 Linux 上執行：

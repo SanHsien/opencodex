@@ -1,20 +1,14 @@
-> 這是 [SanHsien/opencodex](https://github.com/SanHsien/opencodex) 維護型 fork。產品行為以最近一次同步的上游穩定版為準（見 [`tools/upstream_baseline.json`](tools/upstream_baseline.json) 與 [`docs/fork/UPSTREAM.md`](docs/fork/UPSTREAM.md)）；維護規則見 [FORK.md](FORK.md)。
+> **本 repo 是 [SanHsien/opencodex](https://github.com/SanHsien/opencodex)：只支援 Windows 的維護型 fork，源自 [lidge-jun/opencodex](https://github.com/lidge-jun/opencodex)（MIT License，原作者 lidge-jun 與上游貢獻者的著作權保留）。** 產品行為以最近一次同步的上游穩定版為準（見 [`tools/upstream_baseline.json`](tools/upstream_baseline.json) 與 [`docs/fork/UPSTREAM.md`](docs/fork/UPSTREAM.md)）；macOS 與 Linux 專屬內容已移除，維護規則與同步方法見 [FORK.md](FORK.md)。本專案與 OpenAI、Anthropic 無關，也未獲其背書。
 
 <h3 align="center">make codex open!</h3>
-<p align="center"><b>適用於 OpenAI Codex 與 Claude Code 的通用供應商代理</b><br>
-兩條命令，Codex 和 Claude Code 就能用任何 LLM 跑起來。</p>
+<p align="center"><b>適用於 OpenAI Codex 與 Claude Code 的通用供應商代理（Windows）</b><br>
+安裝一個 MSI，Codex 和 Claude Code 就能用任何 LLM 跑起來。</p>
 
 <p align="center">
-  <a href="https://x.com/claudeebum"><img src="https://img.shields.io/badge/%40claudeebum-000000?logo=x&logoColor=white" alt="在 X 上關注 @claudeebum"></a>
-  <a href="https://www.npmjs.com/package/@bitkyc08/opencodex"><img src="https://img.shields.io/npm/v/@bitkyc08/opencodex?color=cb3837&label=npm&logo=npm" alt="npm version"></a>
-  <a href="https://github.com/lidge-jun/opencodex/blob/main/LICENSE"><img src="https://img.shields.io/npm/l/@bitkyc08/opencodex?color=blue" alt="license"></a>
-  <img src="https://img.shields.io/node/v/@bitkyc08/opencodex?logo=node.js&label=node" alt="node version">
+  <a href="https://github.com/SanHsien/opencodex/releases/latest"><img src="https://img.shields.io/github/v/release/SanHsien/opencodex?label=release&logo=github" alt="最新 release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT license"></a>
+  <img src="https://img.shields.io/badge/platform-Windows%20x64-0078D4?logo=windows&logoColor=white" alt="Windows x64">
 </p>
-
-```bash
-npm install -g @bitkyc08/opencodex
-ocx start        # 代理 + 儀表板: localhost:10100
-```
 
 <p align="center">
   <img src="assets/claude-code-models.gif" alt="透過 opencodex 執行路由模型的 Claude Code —— 狀態列顯示 gpt-5.6-luna-medium 為目前模型" width="820"><br>
@@ -64,57 +58,31 @@ flowchart LR
   cooldown --> quota
 ```
 
-## 支援平台
+## 安裝（Windows）
 
 > **安裝或執行 opencodex 的代理：** 請閱讀
 > [`AGENTS_INSTALL.md`](./AGENTS_INSTALL.md)。互動式 `ocx start` 最多會問一次是否要替此儲存庫加星號；這是使用者的決定，絕非由代理代答。CLI 會略過 agent-driven 執行的提示，API 也會以 `403 agent_consent_required` 拒絕它們。
 
-| 作業系統 | 狀態 | 服務管理 |
-|---|---|---|
-| macOS (arm64 / x64) | 完整支援 | launchd |
-| Linux (x64 / arm64) | 完整支援 | systemd（使用者層級） |
-| Windows (x64) | 完整支援 | Task Scheduler |
+1. 到 **[本 fork 的 releases](https://github.com/SanHsien/opencodex/releases/latest)** 下載 `OpenCodex-<version>-windows-x64.msi`（旁邊有 `.sha256` 可核對）。
+2. 執行 MSI。本 fork 自編的 MSI **未簽署**，SmartScreen 會警告一次，選 **更多資訊 → 仍要執行**。
+3. 開啟 OpenCodex 桌面應用程式，再開一個新的 PowerShell 視窗；桌面版會把 `ocx` 加進使用者 `Path`。用 `ocx status` 確認。
 
-需要 [Node](https://nodejs.org) 18+。Bun 執行環境會在 `npm install` 時自動打包，不必另外安裝。三個平台皆可原生執行（Windows 不需要 WSL）。
+僅支援 Windows x64，原生執行，不需要 WSL，也不需要另外安裝 Node 或 Bun。
+
+**本 fork 不發 npm 套件**，也不提供 `npm`／`pnpm`／`bun` 全域安裝；`ocx update`、儀表板的更新工作與版本查詢已關閉並指向 [releases 頁面](https://github.com/SanHsien/opencodex/releases/latest)。要升級就下載新的 MSI 直接覆蓋安裝。
 
 ## 快速開始
 
-```bash
-# 安裝（自動打包 Bun 執行時 —— 只需 Node 18+）
-# 建議使用自己的 Node（nvm/fnm）—— 避免使用 `sudo npm install -g …`
-npm install -g @bitkyc08/opencodex
-
+```powershell
 # 互動式初始化（寫入設定並注入 Codex）
 ocx init
 
-# 啟動代理
+# 啟動代理（儀表板在 http://localhost:10100）
 ocx start
 
 # 照常使用 Codex —— 請求已由 opencodex 路由
 codex "Write a hello world in Rust"
 ```
-
-<details>
-<summary><b>遇到 "bundled Bun runtime is missing" 錯誤 / npm 攔截了 Bun 安裝腳本？</b></summary>
-
-<br/>
-
-opencodex 把 Bun 執行時作為依賴打包，並透過 Node 啟動器執行，因此你**不必**自己安裝 Bun。如果看到 "bundled Bun runtime is missing" 錯誤，代表安裝時略過了 lifecycle 腳本（包括 npm 透過 `allowScripts` 攔截 bun postinstall 的情況）或 optional 依賴。請允許 bun 安裝腳本後再重裝：
-
-```bash
-npm install -g --allow-scripts=bun @bitkyc08/opencodex   # 不要加 --ignore-scripts、--omit=optional
-
-# 若一開始用 sudo 安裝，請繼續用 sudo：
-sudo npm install -g --allow-scripts=bun @bitkyc08/opencodex
-```
-
-npm 警告給的縮寫指令少了套件名，會把目前目錄重裝進去，
-請務必明確寫上 `@bitkyc08/opencodex`。
-
-如果之前用 sudo 安裝到了 root 字首，上面的 sudo 重灌可以解除該字首的攔截 ——
-但條件允許時建議改用自己的 Node（nvm、fnm 或使用者層級的 npm prefix）。
-
-</details>
 
 ## 亮點
 
@@ -128,14 +96,14 @@ npm 警告給的縮寫指令少了套件名，會把目前目錄重裝進去，
 - **給任意模型超能力。** 非 OpenAI 模型可透過 `gpt-5.4-mini` sidecar（使用你的 ChatGPT 登入）獲得真正的網頁搜尋與圖片理解。
 - **原生生成圖片。** Codex 的獨立 `image_gen` 工具透過 `POST /v1/images/generations` 生成圖片、透過 `POST /v1/images/edits` 編輯圖片；它獨立於 hosted Responses 的 `image_generation` 工具。
 - **看清正在發生什麼。** Web 儀表板展示 provider、OAuth 狀態、模型選擇和即時請求日誌；當上遊回傳時，也會包含 cached/cache-write token 計數 —— 不用再猜請求為何失敗。
-- **背景執行。** 安裝為系統服務（launchd / systemd / Task Scheduler）後開機自啟，無需操心。
+- **背景執行。** 安裝為 Windows 工作排程器服務後登入即啟動，無需操心。
 - **乾淨退出，零殘留。** `ocx stop`（或儀表板的 Stop 按鈕）會關閉代理、停止已安裝的背景服務，並將 Codex 恢復為原始配置。之後 `codex` 就像從沒安裝過 opencodex 一樣工作 —— 無殘留配置，無殭屍程序。
 
 ## 新增供應商
 
 最簡單的做法：用 Web 儀表板。
 
-```bash
+```powershell
 ocx gui
 ```
 
@@ -148,13 +116,15 @@ ocx gui
 
 新 provider 立即可用，無需重新啟動。
 
-也可以用 `ocx init`（互動式 CLI）或直接編輯 `~/.opencodex/config.json` 來新增 provider。
+也可以用 `ocx init`（互動式 CLI）、`ocx provider add <name>`，或直接編輯 `%USERPROFILE%\.opencodex\config.json` 來新增 provider。
+
+有 Google AI Pro 訂閱的話，每月附贈的 10 美元 Gen AI 額度可以直接當 Gemini API 金鑰用：[Google AI Pro 每月 10 美元額度領取與配置指南](docs/guides/google-ai-pro-credits.md)。
 
 ## 模型路由
 
 透過 `provider/model` 格式指定路由模型，在 Codex 中直接使用：
 
-```bash
+```powershell
 # 透過 Anthropic 使用 Claude Opus
 codex -m "anthropic/claude-opus-5" "解釋這個 stack trace"
 
@@ -201,8 +171,8 @@ preview gate 限制；opencodex 只是準備好你的帳號/provider 可存取�
   `gpt-5.6-sol` 等 bare 模型 id 保持不變。
 - `openai-apikey/gpt-5.6-sol` 選擇 API；Codex 登入與 API 憑證之間不會 fallback。
 - 目前 marker 為 `openaiProviderTierVersion: 2`，原配置備份到
-  `~/.opencodex/config.json.pre-openai-tiers-v2.bak`。恢復命令：
-  `cp ~/.opencodex/config.json.pre-openai-tiers-v2.bak ~/.opencodex/config.json`
+  `%USERPROFILE%\.opencodex\config.json.pre-openai-tiers-v2.bak`。恢復命令：
+  `Copy-Item "$env:USERPROFILE\.opencodex\config.json.pre-openai-tiers-v2.bak" "$env:USERPROFILE\.opencodex\config.json" -Force`
 - 舊的 v1 三 供應商設定會自動遷移為單一 `openai` 行。
 - API 層 GPT-5.6 後設資料為 1,050,000 context / 922,000 max input。
   `gpt-5.6-sol-pro`、`terra-pro`、`luna-pro` 保留公開 virtual id，線上請求改寫為 base id 加
@@ -241,7 +211,7 @@ opencodex 保持兩種獨立行為：
 
 ## CLI
 
-```bash
+```powershell
 ocx init                       # 互動式初始化
 ocx start [--port 10100]       # 啟動代理
 ocx stop                       # 停止並恢復原生 Codex 配置
@@ -250,16 +220,17 @@ ocx uninstall                  # 移除 service/shim/config 並恢復原生 Code
 ocx ensure                     # 按需啟動 + 重新整理 Codex config/cache
 ocx sync                       # 重新整理模型列表 + 重新注入 Codex
 ocx status                     # 檢視代理是否在執行
-ocx login <provider>          # OAuth 登入（xai、anthropic、kimi、cursor 等）
+ocx login <provider>           # OAuth 登入（xai、anthropic、kimi、cursor 等）
 ocx logout <provider>          # 移除已儲存的登入
 ocx account <list|current|use> # 檢視/切換帳號與 API-key pool（脫敏；含 refresh/auto-switch/remove/add-key）
 ocx gui                        # 開啟 Web 儀表板
 ocx claude [args...]           # 啟動接入代理的 Claude Code（模型發現已開啟）
 ocx claude desktop             # 儲存並套用 Claude Desktop 四系列配置
 ocx codex-shim install         # 執行 codex 時自動啟動代理
-ocx service [install|start|stop|status|uninstall]   # 安裝/更新/啟動背景服務
-ocx update [--tag preview]     # 更新 opencodex；preview 安裝保持 @preview
+ocx service [install|start|stop|status|uninstall]   # 安裝/更新/啟動背景服務（Windows 工作排程器）
 ```
+
+`ocx update` 在本 fork 已關閉（不發 npm 套件）；升級請到 [releases](https://github.com/SanHsien/opencodex/releases/latest) 下載新的 MSI。
 
 ### Claude Desktop 配置
 
@@ -268,7 +239,7 @@ ocx update [--tag preview]     # 更新 opencodex；preview 安裝保持 @previe
 拖動路由，也可以用滑鼠、觸控或鍵盤操作每一行中可見的移動控制元件。點選 **儲存並套用到 Desktop**
 後，配置會寫入 Claude Desktop。還可以透過 JSON 匯入/匯出來備份配置，或遷移到另一臺機器。
 
-```bash
+```powershell
 ocx claude desktop [apply]                         # 儲存並套用目前設定
 ocx claude desktop show [--json]                   # 檢視路由、系列和預設值
 ocx claude desktop move <route> <family> [--default]
@@ -289,13 +260,13 @@ opencodex 提供兩種自動啟動代理的方式：
 
 | | `ocx service` / `ocx service install` | `ocx codex-shim install` |
 |---|---|---|
-| **方式** | OS 服務管理器（launchd / systemd / schtasks） | 包裝 `codex` 腳本啟動器；不會改動真實 `codex.exe` |
+| **方式** | Windows 工作排程器（schtasks） | 包裝 `codex` 腳本啟動器；不會改動真實 `codex.exe` |
 | **時機** | 登入後會一直執行 | 按需——只在執行 `codex` 時啟動 |
 | **重新啟動** | 崩潰後自動重啟 | 每次執行 `codex` 時啟動一次 |
 | **Codex 更新** | 不受影響 | 已穩定的新啟動器若被取代，會在下一道一般 `ocx` 命令中修復 |
 | **移除** | `ocx service uninstall` | `ocx codex-shim uninstall` |
 
-若要常駐代理，用 **service**（開發環境建議）。輕量按需啟動則用 **shim**。
+若要常駐代理，用 **service**。輕量按需啟動則用 **shim**。
 
 如果外部 Codex 更新覆蓋了已安裝的 shim，下一道一般 `ocx` 命令會備份已穩定的新啟動器並恢復
 shim。仍在變動中的啟動器不會被改動，會在後續命令重試。修復失敗只會警告，不會讓請求的命令
@@ -306,18 +277,18 @@ shim。仍在變動中的啟動器不會被改動，會在後續命令重試。�
 
 ### 解除安裝
 
-移除 npm 套件前，先清掉本機狀態：
+先清掉本機狀態，再從 Windows 移除應用程式：
 
-```bash
+```powershell
 ocx uninstall
-npm uninstall -g @bitkyc08/opencodex
 ```
 
-`ocx uninstall` 會停止代理、移除已安裝的 service、移除 Codex shim、恢復原生 Codex config/catalog/history，並刪除 `~/.opencodex`。
+`ocx uninstall` 會停止代理、移除已安裝的 service、移除 Codex shim、恢復原生 Codex config/catalog/history，並刪除 `%USERPROFILE%\.opencodex`。
+接著到 **設定 → 應用程式 → 已安裝的應用程式** 移除 OpenCodex（即解除安裝 MSI）。若先在桌面應用程式的 **Terminal command** 設定關閉或移除終端機命令設定，可避免使用者 `Path` 留下舊項目。
 
 ## 設定
 
-配置檔案路徑：`~/.opencodex/config.json`。
+配置檔案路徑：`%USERPROFILE%\.opencodex\config.json`。
 
 **雲端供應商範例：**
 
@@ -381,13 +352,13 @@ WebSocket 傳輸預設關閉。只有當你希望 Codex 使用 Responses WebSock
 若你設定 `"hostname": "0.0.0.0"` 把代理暴露到區網，opencodex 會要求 bearer token，同時保護管理
 API（`/api/*`）和資料平面（`/v1/responses`、`/v1/images/generations`、`/v1/images/edits`）：
 
-```bash
-export OPENCODEX_API_AUTH_TOKEN="your-secret-token"
+```powershell
+$env:OPENCODEX_API_AUTH_TOKEN = "your-secret-token"
 ocx start
 ```
 
 綁定到非迴環地址時若缺少該環境變數，代理會拒絕啟動。若為區網存取安裝背景服務，請在 `ocx service install`
-前，於同一 shell 匯出同一個變數，讓服務管理器收得到。客戶端（腳本、遠端機器）每個請求都必須帶 token：
+前，於同一個 PowerShell 設定同一個變數，讓服務管理器收得到。客戶端（腳本、遠端機器）每個請求都必須帶 token：
 
 ```
 x-opencodex-api-key: your-secret-token
@@ -396,13 +367,13 @@ x-opencodex-api-key: your-secret-token
 token 以常數時間比較，避免時序攻擊。
 
 opencodex 會自動 remap Codex 的 resume 歷史，讓舊的 OpenAI 對話與 opencodex 建立的專案執行緒在代理運作期間仍能在
-Codex App 中可見。原始 provider/source 後設資料紀錄在 `~/.opencodex/codex-history-backup.json`。`ocx stop` /
+Codex App 中可見。原始 provider/source 後設資料紀錄在 `%USERPROFILE%\.opencodex\codex-history-backup.json`。`ocx stop` /
 `ocx restore` 會把備份的 OpenAI 列還原到 OpenAI，並把其餘 opencodex 使用者執行緒也 eject 到 OpenAI，讓原生
 Codex 不會去 resume 一個供應商已不在 `config.toml` 的執行緒。
 
 若你測過備份功能出現前的舊開發版（`syncResumeHistory` 已經 remap 了歷史），可執行明確的還原命令：
 
-```bash
+```powershell
 ocx recover-history --legacy-openai
 ```
 
@@ -410,9 +381,9 @@ ocx recover-history --legacy-openai
 
 ## 文件
 
-完整文件——安裝、供應商設定、路由、sidecar、Codex 整合、Codex App 模型選擇器、CLI／設定參考——由 [`docs-site/`](../docs-site) 目錄的 Astro 站點建置，發布於 **[opencodex.me](https://opencodex.me/zh-tw/)**。
+完整文件——安裝、供應商設定、路由、sidecar、Codex 整合、Codex App 模型選擇器、CLI／設定參考——由 [`docs-site/`](./docs-site) 目錄的 Astro 站點建置，發布於 **[opencodex.me](https://opencodex.me/zh-tw/)**。
 
-維護者的 source of truth 在 [`structure/`](../structure)，歷史調查與診斷筆記留在 [`docs/`](../docs)。
+維護者的 source of truth 在 [`structure/`](./structure)，本 fork 的維護文件在 [`docs/fork/`](./docs/fork)。
 
 未公開漏洞請透過 [GitHub 私密漏洞回報](https://github.com/lidge-jun/opencodex/security/advisories/new)
 提交，不要建立公開 issue。這是唯一技術回報管道（沒有 security email）；後續請留在私密回報中，公開
@@ -422,24 +393,23 @@ issue 只能作協調用途且不可包含漏洞細節。收到回報不等於�
 
 從原始碼開發需要在 `PATH` 中有本機 `bun` CLI。已發佈的 npm 套件內附自己的 Bun 執行環境供已安裝的 `ocx` 指令使用；套件 scripts 也可能透過該內附相依解析 Bun。
 
-```bash
-git clone https://github.com/lidge-jun/opencodex.git
+本 fork 不發 npm 套件；以下指令都在 Windows 原生 PowerShell 執行：
+
+```powershell
+git clone https://github.com/SanHsien/opencodex.git
 cd opencodex
-bun install
+bun install --frozen-lockfile
 bun run dev:proxy    # 以開發模式啟動代理 API
 bun run dev:gui      # 在另一個終端機啟動儀表板 dev 伺服器
 bun x tsc --noEmit   # 型別檢查
+pwsh -NoProfile -File tools\dev_check.ps1   # fork 提交前檢查
 ```
 
 `bun run dev` 仍保留為 `bun run dev:proxy` 的別名以相容舊用法。在原始碼 checkout 中，代理 API 暴露 `/healthz`、
 `/v1/responses`、`POST /v1/images/generations`、`POST /v1/images/edits`、`/api/*`；只有在
-`bun run build:gui` 產生 `gui/dist` 後，`GET /` 才會提供打包好的儀表板。開發前端時請另外執行：
+`bun run build:gui` 產生 `gui/dist` 後，`GET /` 才會提供打包好的儀表板。
 
-```bash
-bun run dev:gui
-```
-
-見 **[貢獻指南](https://opencodex.me/zh-tw/contributing/)**。
+fork 的分支規則、與上游同步的方法與檢查清單都在 [FORK.md](FORK.md)。上游貢獻指南見 **[貢獻指南](https://opencodex.me/zh-tw/contributing/)**。
 
 ## 程式碼簽署政策
 

@@ -1,6 +1,6 @@
 ---
 title: Remote Hub 部署
-description: 在 Linux、macOS 或 Docker 上執行單一連接埠的 opencodex hub，涵蓋迴路 companion 監聽器、服務自行發放的資料金鑰、ocx hub invite、僅限迴路的管理入口、Tailscale Serve 與無瀏覽器 OAuth。
+description: 執行單一連接埠的 opencodex hub，涵蓋迴路 companion 監聽器、服務自行發放的資料金鑰、ocx hub invite、僅限迴路的管理入口、Tailscale Serve 與無瀏覽器 OAuth。
 ---
 
 如需 SSH 機器連結，請參閱[遠端連結](/zh-tw/guides/remote-link/)。
@@ -129,7 +129,7 @@ ocx config set unauthenticatedLoopbackListener '{"enabled":true,"port":10104}'
 
 設了 `port` 之後，本機整合會跟著監聽器改寫成 `http://127.0.0.1:10104`。該連接埠必須與 proxy 連接埠不同，而且絕不會由作業系統指派：臨時連接埠會在每次重新啟動後改變，而已經在執行的 app-server 仍會沿用先前的 `base_url`。
 
-**改動這個欄位之後請重新啟動 proxy。** socket 只在啟動時繫結一次，本機用戶端檔案也是依解析後的值寫出，所以執行中的 hub 會維持舊答案。在帶埠的 hub 上，這正是 `ocx claude` 連得到監聽器、還是從它收到 `404` 的差別。使用背景服務時，對應的動詞是 `ocx service restart`，它一定會重新啟動——見「macOS 服務操作」。`ocx restart` 是另一個動詞：它重啟的是你自己啟動的 proxy 程序，而不是由管理器監督的服務。
+**改動這個欄位之後請重新啟動 proxy。** socket 只在啟動時繫結一次，本機用戶端檔案也是依解析後的值寫出，所以執行中的 hub 會維持舊答案。在帶埠的 hub 上，這正是 `ocx claude` 連得到監聽器、還是從它收到 `404` 的差別。使用背景服務時，對應的動詞是 `ocx service restart`，它一定會重新啟動。`ocx restart` 是另一個動詞：它重啟的是你自己啟動的 proxy 程序，而不是由管理器監督的服務。
 
 ### hub 自己的本機用戶端
 
@@ -273,36 +273,6 @@ ocx config set corsAllowOrigins '["http://localhost:10100"]'
 
 `invite` 是既有配對流程之上的便利工具，不是第二套機制。它走的是 `ocx gui pair` 使用的同一條已認證本機路徑，所以不需要 admin token，也不必往 shell 匯出任何東西。「角色與直接資料流」一節中關於輪替、撤銷與中斷連線的所有說明，原封不動適用於以這種方式加入的機器。
 
-## macOS 服務操作
-
-`ocx service install` 與 `ocx service repair` 可以安全地對執行中的 hub 重複執行。repair 會先算出 plist 再比對：當算出的位元組與磁碟上的相同、金鑰檔未變動，而且 `launchctl print` 回報工作正是從該 plist 載入時，repair 會重新宣告 `0600`、刷新安裝狀態、印出 `service is already loaded from the current plist; nothing to do.` 然後返回——完全不會碰 launchd。較早的版本會無條件驅逐健康的工作，讓一個診斷指令變成一次中斷。
-
-**`ocx service restart` 才是一定會重新啟動的動詞。** 它不再是 `repair` 的別名。它會執行同一套刷新，而當刷新沒有重新載入任何東西時（也就是上面那種健康且未變動的情況），它會用 `launchctl kickstart -k` 就地重啟已載入的工作，再讀一次 `launchctl print` 確認工作存活，然後印出一行：
-
-```bash
-ocx service restart
-# ℹ️  service restarted (launchctl kickstart -k gui/501/com.opencodex.proxy).
-```
-
-改動 `unauthenticatedLoopbackListener`、`hostname` 或 `port` 之後要跑的就是它。kickstart 不會開出驅逐視窗，所以它不像舊的無條件 repair 那樣造成中斷。
-
-單獨執行 `ocx service` 仍然選擇 `repair` 而非 `restart`：那是一個冪等的「讓它保持最新」，不是要你去彈跳一個健康的 hub。請把 `ocx service repair` 用在它真正對應的情況——工作從較舊的 plist 載入，或根本沒載入——並且預期它在健康的服務上就是什麼都不做。
-
-手動執行 `launchctl kickstart -k gui/$(id -u)/com.opencodex.proxy`，或是 `ocx service stop` 之後再 `ocx service start`，兩者都仍然可行，錯誤路徑也會把前者列為退路。但兩者都不再是建議路線。
-
-Linux 與 Windows 從來沒有這個落差：在那裡 `ocx service restart` 分別以 `systemctl --user restart` 與排程工作的先停後啟收尾，不論你用哪個動詞。
-
-`ocx service status` 會區分四種 launchd 狀態，而最後一種是最常被誤讀的：
-
-| 摘要 | 意義 |
-| --- | --- |
-| `installed and loaded` | 有網域回應，而且執行的正是這份 plist 所烘焙的指令。正常。 |
-| `installed and loaded from an OLDER plist` | 工作在執行，但來自一份已經不相符的定義。這正是 `ocx service repair` 的用途。 |
-| `installed, not loaded` | 每個網域都回答「不存在」，這證明工作確實不見了。repair 會重新註冊它。 |
-| `installed; launchd state could not be verified` | 無法詢問 `launchctl`——例如從一個連不到 `gui/<uid>` 網域的情境執行。這**不是** hub 停擺的證據：不會有任何建議要你 repair，而一次無法作答的探測絕不會把執行中的 proxy 標記為已死。 |
-
-無法執行的探測過去會被回報成「not loaded」，那會叫維運方去 repair 一個正在服務的 hub，並讓更新程式在服務自己的連接埠上啟動一個互相競爭的 proxy。
-
 ## 無瀏覽器 OAuth
 
 在 hub 上停用瀏覽器開啟：
@@ -317,96 +287,6 @@ ocx config set oauthOpenBrowser false
 4. 輪詢既有的狀態端點直到完成，然後發出一次路由過的模型請求。
 
 絕對不要把 OAuth 授權碼放進 shell argv、日誌、issue 內文、螢幕截圖或部署證據。手動輸入授權碼的路徑仍保有既有的未知供應商、無進行中流程、授權碼無效與 4096 位元組輸入等檢查。
-
-## Docker Compose
-
-opencodex 不發布官方容器映像。儲存庫確實維護了以原始碼建置的 [`Dockerfile`](https://github.com/lidge-jun/opencodex/blob/main/Dockerfile)、[`compose.yaml`](https://github.com/lidge-jun/opencodex/blob/main/compose.yaml) 與一份範圍狹窄的 `.dockerignore`。該建置以 digest 釘住多平台 Bun 1.4.0 映像索引、以非 root 的 `bun` 使用者執行 proxy、維持根檔案系統唯讀、卸除 Linux capabilities，預設只把資料監聽器發布在主機的 `127.0.0.1:10100`。前景程序使用 `OCX_SERVICE=1`，所以停止或重建容器會保留路由過的 Codex 狀態，而不是還原成原生桌面設定。監督由 Docker 提供，映像中不安裝任何作業系統服務管理器。請用 Compose 來重新啟動／重建容器；這並不表示支援延伸到每一條儀表板重啟路徑。
-
-映像會植入首次執行用的 `hub` 設定，把容器監聽器繫結到 `0.0.0.0`。在第一次正常啟動之前，請把一個全新產生的資料平面金鑰串流進 bootstrap 輔助程式。該輔助程式最多接受一行 4096 位元組、絕不印出金鑰、拒絕取代既有金鑰，並把它持久化成 `ocx-state` volume 中那份標準的、僅擁有者可讀的 `service-api-token`。
-
-本機 checkout 需要 Git 與 Docker Compose；遠端 Git context 只需要 Docker Compose。兩種方式都不再需要主機安裝 Bun 或執行手動準備步驟。專用建置階段會從所選 Git 快照產生標準清單，並在複製原始碼前完成驗證。`.git` 只透過唯讀掛載提供給該階段，不會複製到任何映像層。主機上既有的清單通過驗證後仍可繼續使用。主機連接埠預設繫結至 `127.0.0.1`。遠端存取須明確使用 `OPENCODEX_BIND_ADDRESS=<LAN或Tailscale-IP> docker compose up -d`；`0.0.0.0` 會公開所有介面。請使用防火牆與經過身分驗證的 TLS/tailnet 前端保護存取。
-
-不要把 `CODEX_HOME` 與 `OPENCODEX_HOME` 合在一起：兩個產品都使用名為 `auth.json` 的檔名，但格式不同。這次封裝變更增加的是持久化，而不是目錄產生器。請在執行下方的目錄驗收檢查之前，把一份有效的目錄具現化或匯入到 `/home/bun/.codex/opencodex-catalog.json`；沒有它時，`catalog_not_found` 就是預期的回應。
-
-升級會保留既有的 `ocx-state` volume 並新增 `codex-state`；不會自動遷移任何檔案。若先前的權宜做法把目錄直接放在 `/home/bun/.opencodex` 底下，請先備份，然後刻意只把目錄檔複製到新的 Codex home，並維持僅擁有者可存取。不要把任一產品的 `auth.json` 蓋到另一個上面。使用自訂 `CODEX_HOME` 的部署，應在遷移完成之前保留其明確的環境變數與可寫入的 volume 對應。覆寫 `CODEX_HOME` 時，請把那個確切目錄以可寫入方式掛載，並把預設目錄持久化在 `${CODEX_HOME}/opencodex-catalog.json`。若 `model_catalog_json` 明確指定了別的檔案，那條解析後的路徑同樣必須持久化。
-
-升級期間請維持 Compose 專案名稱不變，才會重用同一組具名 volume。既有外來擁有者的掛載、唯讀掛載，以及使用 `volume-nocopy` 的掛載，都不會被映像的目錄設定程序修復。分開選定的目錄或 SQLite 路徑請分開持久化；作業系統憑證儲存不在這兩個 volume 的備份範圍內。
-
-不使用 Compose 執行時，請明確提供兩個具名掛載。單靠 Dockerfile 的 `VOLUME` 宣告只會建立匿名 volume，之後的 `docker run` 不會自動重用。以下掛載選項使用獨立的範例名稱；若要重用 Compose 的資料，請換成它實際加上專案前綴的 volume 名稱：
-
-```sh
---mount type=volume,src=ocx-state,dst=/home/bun/.opencodex \
---mount type=volume,src=codex-state,dst=/home/bun/.codex
-```
-
-請先在主機上安裝 Git 與 Bun。在**每一次**建置映像之前，都要從這份 Git 檢出執行既有的標準產生器。它雜湊的是 Git 追蹤的工作樹原始碼（新加入的原始檔請先 stage），而不是任意的目錄掃描。產生與建置之間不要改動原始檔。只有它未被追蹤的產物 `src/generated/compatibility-version.json` 會進入映像；`.git` 仍在 Docker 脈絡之外。不要提交或手動編輯該清單。建置會拒絕過期的清單：它會把每一筆記錄的 SHA-256 對照唯讀建置脈絡驗證一次，再對照複製後的執行期檔案驗證一次。它需要 `package.json`、`bun.lock` 與 `scripts/model-metadata.source.json`；`scripts/` 的其餘內容不會被納入，只納入那一個確切產物。缺少或不符的檔案、清單中沒有的多餘原始檔，以及符號連結（含父目錄）都會讓建置失敗。唯一豁免於清單的原始檔就是產生出來的清單本身。驗證失敗時，請整理被追蹤的原始碼、移除非預期的原始檔，然後重跑標準產生器。
-
-```bash
-git clone https://github.com/lidge-jun/opencodex.git
-cd opencodex
-docker compose build
-openssl rand -hex 32 | docker compose run --rm -T hub bun run docker/bootstrap-token.ts
-docker compose up -d
-```
-
-直接從遠端 Git context 建置時，請使用 BuildKit 內建參數保留 Git metadata：
-
-```yaml
-services:
-  hub:
-    pull_policy: build
-    build:
-      context: https://github.com/lidge-jun/opencodex.git#main
-      dockerfile: Dockerfile
-      target: runtime
-      args:
-        BUILDKIT_CONTEXT_KEEP_GIT_DIR: "1"
-```
-
-容器以非 root 的 `bun` 使用者執行，根檔案系統唯讀，且只發布 `10100`。不要發布 `10101`，也不要把金鑰放入 `ARG`、`ENV`、`COPY`、Compose、映像歷史或 argv。healthcheck 後仍須分別驗證 readiness、已驗證目錄與真實請求。`docker compose down` 會保留 volume；`docker compose down --volumes` 也會刪除設定、憑證與資料金鑰。
-
-```bash
-OPENCODEX_PORT=10190 docker compose up -d
-```
-
-遠端存取是明確的 opt-in。請把 `OPENCODEX_BIND_ADDRESS` 設為主機的 LAN 或 Tailscale IP，或使用 `0.0.0.0` 發布到**所有**主機介面：
-
-```bash
-OPENCODEX_BIND_ADDRESS=0.0.0.0 docker compose up -d
-```
-
-在曝露連接埠之前，請先架好防火牆與已驗證的 TLS／tailnet 前端。這個繫結覆寫只改變主機端的發布，容器監聽器仍是 `0.0.0.0:10100`。後續會重建 hub 的 Compose 呼叫請沿用同一個繫結覆寫。要更新既有部署，請重新產生清單、執行 `docker compose build`，再以 `docker compose up -d` 重建 hub；不要重複執行一次性的金鑰初始化。
-
-請透過維運方自建的管理前端用儀表板設定供應商，或使用共用該狀態 volume 的一次性 CLI 指令。以下指令展示既有的 Remote Hub 設定；啟用前請先替換範例 origin 與身分：
-
-```bash
-docker compose run --rm hub bun run src/cli/index.ts config set hub.managementPublicOrigin '"https://hub-name.tailnet-name.ts.net"'
-docker compose run --rm hub bun run src/cli/index.ts config set hub.managementIngress '{"enabled":true,"port":10101}'
-docker compose run --rm hub bun run src/cli/index.ts config set remoteGui.allowedTailscaleUsers '["operator@example.com"]'
-docker compose restart hub
-```
-
-這些巢狀賦值之所以可行，是因為映像已植入首次執行的 `hub` 設定，物件已經存在。在全新的 standalone 安裝上並沒有，同樣這幾行會失敗，直到你先建立它為止——見上方「Linux systemd 或 macOS launchd」。
-
-容器監聽器繫結 `0.0.0.0`，所以它在容器自己的迴路位址上本來就連得到，`unauthenticatedLoopbackListener` 的 companion 寫法在那裡並不適用——它在萬用繫結上會被拒絕。下方的金鑰 bootstrap 是服務自行發放步驟在容器中的對應物，同樣只執行一次。
-
-不要把金鑰放進 `ARG`、`ENV`、`COPY`、Compose YAML、映像歷史或指令參數。不要掛載 Docker socket、主機的 home 或 Codex home、SSH agent，或供應商金鑰檔。容器內繫結在 `127.0.0.1:10101` 的管理入口，只有同一個網路命名空間中的 TLS／tailnet 前端連得到；絕不要為了抄近路而發布 `10101`。
-
-容器健康之後，請另外執行一次就緒升級檢查：
-
-```bash
-docker compose exec hub bun -e \
-  "const r=await fetch('http://127.0.0.1:10100/readyz');console.log(r.status,await r.text());if(!r.ok)process.exit(1)"
-
-docker compose exec hub bun -e \
-  "const t=(await Bun.file('/home/bun/.opencodex/service-api-token').text()).trim();const r=await fetch('http://127.0.0.1:10100/v1/catalog',{headers:{'x-opencodex-api-key':t}});console.log(r.status);if(!r.ok)process.exit(1)"
-```
-
-接著用已設定的模型送出一次真實、已驗證且路由過的回應。若密鑰不存在或無法讀取，非迴路的 hub 就不得被視為就緒。絕不要把存活檢查單獨當成證明。
-
-`docker compose down` 會移除容器與網路，但保留兩個具名 volume。請把 `docker compose down --volumes` 當成破壞性操作：它會把設定、OAuth 憑證、用量歷史、資料平面金鑰與持久化的 Codex 狀態一併刪除。
-
-跨平台 CI 會建置原始碼映像，並用一個隔離的 Compose 專案搭配用完即丟的憑證，檢查啟動、資料平面金鑰准入與容器重建。它會驗證兩個具名 volume 與一份合成目錄能在替換後存活。這項檢查不驗證真實的供應商帳號、OAuth 回呼、自訂掛載遷移，或每一種 CPU 架構；請針對你自己的部署執行上面那項已驗證的路由回應檢查。
 
 ## 回復
 
@@ -433,8 +313,7 @@ ocx service repair
 - **加入端機器的交換被拒絕，而配對碼被消耗掉：** 該授權綁定到一個那台機器並未呈現的 origin。請重讀邀請輸出的 `Bound browser origin:` 那一行——它指出另一台機器必須跑在哪個連接埠上，或提供改為在 hub 上准入 `http://localhost:10100` 的選項。
 - **`ocx hub invite` 拒絕某個 `--management-url`：** 在 hub 上該旗標是確認 `hub.managementPublicOrigin` 而不是覆寫它，因為授權綁定到設定中的值。請改設定，或拿掉該旗標。
 - **hub 上的 `ocx claude` 啟動了原生 Codex/Claude，或 hub 拒絕改寫自己的用戶端設定：** `unauthenticatedLoopbackListener` 是關閉的。略過訊息會指名該閘門。請啟用監聽器並重新啟動 proxy（服務安裝時用 `ocx service restart`）。
-- **hub 上的 `ocx claude` 從監聽器收到 `404`：** proxy 仍是那個在監聽器線路存在之前、或在連接埠改變之前就啟動的程序。請用 `ocx service restart` 重啟它——見「macOS 服務操作」。
-- **`ocx service repair` 印出 `nothing to do` 而程序沒有彈跳（macOS）：** 這是預期行為。對健康工作執行 repair 刻意是 no-op。當你要的是新程序時，請執行 `ocx service restart`，它會就地 kickstart 已載入的工作並回報 `service restarted (launchctl kickstart -k …)`。只有在它也失敗時，`launchctl kickstart -k gui/$(id -u)/com.opencodex.proxy` 才是手動退路——失敗訊息會指名它。
+- **hub 上的 `ocx claude` 從監聽器收到 `404`：** proxy 仍是那個在監聽器線路存在之前、或在連接埠改變之前就啟動的程序。請用 `ocx service restart` 重啟它。
 - **`ocx service install` 拒絕 `OPENCODEX_API_AUTH_TOKEN`：** 那個值是管理用的 admin token。請 `unset OPENCODEX_API_AUTH_TOKEN` 後重跑；服務會自行發放資料平面金鑰。見「資料平面金鑰由服務自行發放」。
 - **hub 在開機時反覆崩潰，而 `ocx status` 顯示 `admin-collision (file)`：** `service-api-token` 檔案裡裝的是管理金鑰，所以 hub 會把管理 API 關閉。請刪除該檔並執行 `ocx service repair` 以發放資料平面金鑰。在這裡取消環境變數沒有幫助——來源是那個檔案。
 - **明文 HTTP 被拒絕：** 透過非迴路 HTTP 配對會被直接拒絕，而且沒有任何旗標可以豁免。請把管理 origin 放到 HTTPS 後面，或改用迴路配對。admin token 絕不會經由 HTTP 傳送。

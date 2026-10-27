@@ -300,18 +300,6 @@ describe("packaged keyring native binding", () => {
     expect(release).toContain("Verify the packaged universal macOS runtime");
     expect(release).toContain("keyring.darwin-arm64.node");
     expect(release).toContain("keyring.darwin-x64.node");
-    const ci = readFileSync(repoPath(".github", "workflows", "ci.yml"), "utf8");
-    expect(ci).toContain("src/lib/standalone.ts");
-    expect(ci).toContain("Verify packaged Linux sidecar keyring");
-    expect(ci).toContain('bash desktop/scripts/verify-linux-sidecar.sh "$BUNDLE_ROOT/appimage"');
-    const verify = readFileSync(repoPath("desktop", "scripts", "verify-macos-runtime.sh"), "utf8");
-    expect(verify).toContain('app="$(cd "$(dirname "$app_input")" && pwd)/$(basename "$app_input")"');
-    expect(verify).toContain("cwd=work");
-    expect(verify).toContain('"__keyring-load-check"');
-    expect(verify).toContain('"schema": "ocx-keyring-load/1"');
-    const verifyLinux = readFileSync(repoPath("desktop", "scripts", "verify-linux-sidecar.sh"), "utf8");
-    expect(verifyLinux).toContain("usr/lib/OpenCodex/keyring/keyring.linux-x64-gnu.node");
-    expect(verifyLinux).toContain("__keyring-load-check");
     const cli = readFileSync(repoPath("src", "cli", "index.ts"), "utf8");
     expect(cli).toContain('process.argv[2] === "__keyring-load-check"');
   });

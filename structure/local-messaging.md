@@ -129,9 +129,6 @@ UUID; the daemon's submission ID remains separate. Neither is a processing recei
   allocations, command-local literal imports, cancellation/close and frame limits.
   The parser inventory is not an exhaustive dynamic dependency graph or proof
   about arbitrary computed imports.
-- `tests/codex-integration/messaging-local-send.test.ts` exercises correlated
-  text-only queueing, zero spawned helpers, stale targets, sanitized rejection
-  mappings and pre/post-write failures without replay or reconnect.
 - `tests/codex-integration/messaging-local-socket.test.ts` exercises real private
   and symlinked homes, writable-parent and non-socket rejection, plus injected
   ownership, ancestor modes and root-owned sticky-directory fixtures.

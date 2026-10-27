@@ -92,13 +92,6 @@ describe("remote hub guide", () => {
     expect(source).toContain("X-Forwarded-Host");
   });
 
-  test("the Docker section does not contradict the standalone parent-object rule", async () => {
-    // Compose seeds a hub object, so its nested sets work. Without saying so, the two sections
-    // read as two different rules and the reader cannot tell which applies to them.
-    const source = await Bun.file(GUIDE).text();
-    expect(source).toContain("because the image seeds a first-run");
-  });
-
   test("the retired --allow-insecure-http flag is not offered", async () => {
     // It is absent from CONNECT_USAGE, pairing refuses non-loopback HTTP outright, and
     // remoteGui.allowInsecureHttp is a retired no-op. Offering it sends an operator to an error.
@@ -178,24 +171,6 @@ describe("the one-port hub recipe", () => {
       expect(source, locale).toContain(`ocx config set corsAllowOrigins '["http://localhost:10100"]'`);
       expect(source, locale).toContain("--pairing-code-stdin");
     }
-  });
-
-  test("the English page keeps the macOS launchd semantics a repair changed", async () => {
-    const source = await Bun.file(GUIDE).text();
-    // `repair` of a healthy job is a no-op, and `restart` is no longer an alias of it (#4249):
-    // `ocx service restart` refreshes the definition and, when nothing was reloaded, kickstarts
-    // the loaded job in place. Naming the no-op without naming the verb that DOES restart is what
-    // sent operators to a hand-written launchctl command.
-    expect(source).toContain("ocx service restart");
-    expect(source).toMatch(/`ocx service restart`[^\n]*always restarts/);
-    expect(source).not.toMatch(/`ocx service restart` is an alias of `repair`/);
-    // The kickstart line stays pinned, but only as the documented manual fallback -- the page has
-    // to say so, or it reads as the recommended route again.
-    expect(source).toContain("launchctl kickstart -k gui/$(id -u)/com.opencodex.proxy");
-    expect(source).toContain("manual fallback");
-    // The fourth status state is the one that used to be reported as "not loaded" and sent
-    // operators to repair a serving hub.
-    expect(source).toContain("launchd state could not be verified");
   });
 
   test("the English page says the companion listener is not a TLS target", async () => {

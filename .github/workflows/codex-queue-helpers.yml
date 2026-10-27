@@ -35,10 +35,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
-            shells: bash
-          - os: macos-latest
-            shells: /bin/bash
           - os: windows-latest
             shells: powershell.exe,pwsh.exe
     steps:

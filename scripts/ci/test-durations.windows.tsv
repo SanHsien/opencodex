@@ -159,7 +159,6 @@
 359	tests/adapters/translator-budget-lifetime.test.ts
 3584	tests/adapters/translator-budget.test.ts
 127	tests/adapters/upstream-http-error.test.ts
-127	tests/ci-workflows/assert-mergeable-review.test.ts
 368	tests/ci-workflows/brand-favicons.test.ts
 364	tests/ci-workflows/build-desktop-icon-set.test.ts
 501	tests/ci-workflows/build-release-changelog.test.ts
@@ -167,12 +166,10 @@
 790	tests/ci-workflows/bun-runtime.test.ts
 144	tests/ci-workflows/ci-bun-crash-classifier.test.ts
 127	tests/ci-workflows/ci-concurrency-groups.test.ts
-143	tests/ci-workflows/ci-crash-disposition.test.ts
 3042	tests/ci-workflows/ci-gui-typecheck-gate.test.ts
 111	tests/ci-workflows/ci-privacy-gate.test.ts
 567	tests/ci-workflows/ci-review-lanes.test.ts
 1411	tests/ci-workflows/ci-scope-gaps.test.ts
-171	tests/ci-workflows/ci-scope-reduction.test.ts
 159	tests/ci-workflows/ci-shard-balance.test.ts
 94	tests/ci-workflows/ci-structure-gate.test.ts
 1226	tests/ci-workflows/ci-workflows.test.ts
@@ -202,9 +199,6 @@
 175	tests/ci-workflows/install-scripts.test.ts
 177	tests/ci-workflows/installed-gate-drivers.test.ts
 155	tests/ci-workflows/keyring-smoke.test.ts
-137	tests/ci-workflows/linux-desktop-packaged-ci.test.ts
-95	tests/ci-workflows/linux-desktop-packaged-e2e.test.ts
-162	tests/ci-workflows/macos-serial-lanes.test.ts
 3855	tests/ci-workflows/package-tree-fenced-restart.test.ts
 4263	tests/ci-workflows/package-tree-integrity.test.ts
 334	tests/ci-workflows/package-tree-restart-ownership.test.ts
@@ -236,8 +230,6 @@
 145	tests/ci-workflows/test-temp-quarantine.test.ts
 129	tests/ci-workflows/version-line.test.ts
 192	tests/ci-workflows/warmup-registration.test.ts
-322	tests/ci-workflows/zz-ci-api-usage-isolation.test.ts
-111	tests/ci-workflows/zz-ci-storage-policy-isolation.test.ts
 207	tests/ci-workflows/zz-pr-coderabbit-readiness-revalidation.test.ts
 46703	tests/claude-integration/anthropic2-native-routing.test.ts
 13495	tests/claude-integration/claude-529-mapping.test.ts
@@ -371,7 +363,6 @@
 200	tests/cli/cli-catalog-prewarm.test.ts
 2250	tests/cli/cli-claude-desktop-profile.test.ts
 126	tests/cli/cli-client-start-fence.test.ts
-177	tests/cli/cli-client-start-owner-e2e.test.ts
 210	tests/cli/cli-codex-cli-update.test.ts
 221	tests/cli/cli-codex-log-guard-compact.test.ts
 110	tests/cli/cli-codex-log-guard-protection.test.ts
@@ -550,7 +541,6 @@
 8909	tests/clients/desktop-supervised-restart.test.ts
 159	tests/clients/desktop-tray-availability.test.ts
 174	tests/clients/desktop-update-surface.test.ts
-95	tests/clients/desktop-widget-entry.test.ts
 3056	tests/clients/droid-client.test.ts
 3922	tests/clients/droid-managed-reasoning-defaults.test.ts
 2489	tests/clients/droid-normalized-reasoning-defaults.test.ts
@@ -574,7 +564,6 @@
 1397	tests/clients/link-ports.test.ts
 921	tests/clients/link-relay-bound-transport.test.ts
 207	tests/clients/link-routes.test.ts
-143	tests/clients/link-ssh-argv-discovery.test.ts
 1218	tests/clients/link-ssh-argv.test.ts
 110	tests/clients/link-ssh-config.test.ts
 689	tests/clients/link-ssh-runner.test.ts
@@ -604,7 +593,6 @@
 364	tests/clients/remote-workspace-command-runner.test.ts
 126	tests/clients/remote-workspace-device.test.ts
 191	tests/clients/remote-workspace-hub.test.ts
-328	tests/clients/remote-workspace-linux-confinement.test.ts
 606	tests/clients/remote-workspace-management.test.ts
 144	tests/clients/remote-workspace-platform.test.ts
 127	tests/clients/remote-workspace-protocol.test.ts
@@ -821,13 +809,7 @@
 2283	tests/codex-integration/codex-service-manager-probe.test.ts
 246	tests/codex-integration/codex-shim-autorestore.test.ts
 222	tests/codex-integration/codex-shim-destroyed-probe.test.ts
-125	tests/codex-integration/codex-shim-ensure-failure.test.ts
 185	tests/codex-integration/codex-shim-fnm.test.ts
-162	tests/codex-integration/codex-shim-migration.test.ts
-161	tests/codex-integration/codex-shim-overlay-candidates.test.ts
-190	tests/codex-integration/codex-shim-overlay-readiness.test.ts
-182	tests/codex-integration/codex-shim-overlay-transaction.test.ts
-79	tests/codex-integration/codex-shim-overlay.test.ts
 5044	tests/codex-integration/codex-shim-path-readiness.test.ts
 7716	tests/codex-integration/codex-shim-readiness.test.ts
 158	tests/codex-integration/codex-shim-runtime-preflight.test.ts
@@ -902,7 +884,6 @@
 238	tests/codex-integration/messaging-local-discovery.test.ts
 206	tests/codex-integration/messaging-local-envelope.test.ts
 587	tests/codex-integration/messaging-local-lifecycle.test.ts
-160	tests/codex-integration/messaging-local-send.test.ts
 334	tests/codex-integration/messaging-local-socket.test.ts
 141	tests/codex-integration/model-cache-generation-tombstone.test.ts
 309	tests/codex-integration/model-cache.test.ts
@@ -2030,7 +2011,6 @@
 8946	tests/server/v1-hub-state.test.ts
 2523	tests/server/v2-agent-message-failfast.test.ts
 160	tests/service/autostart-health.test.ts
-12949	tests/service/container-bootstrap.test.ts
 302	tests/service/crash-guard.test.ts
 304	tests/service/doctor-codex-envkey-readiness.test.ts
 1016	tests/service/doctor-oauth.test.ts
@@ -2048,7 +2028,6 @@
 386	tests/service/service-claim.test.ts
 110	tests/service/service-desktop-runtime-preflight.test.ts
 395	tests/service/service-desktop-startup-health.test.ts
-162	tests/service/service-desktop-startup-linux.test.ts
 1475	tests/service/service-desktop-startup.test.ts
 140	tests/service/service-handled-signal-exit.test.ts
 343	tests/service/service-health-sentinel-launch.test.ts

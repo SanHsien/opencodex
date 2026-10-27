@@ -357,52 +357,6 @@ Installing, repairing and removing the Desktop-owned `ocx` command on PATH is do
 
 ## Release packaging and updater
 
-### Linux packaged-shell acceptance
-
-The ordinary hosted Linux lane builds both AppImage and deb bundles with updater artifacts disabled,
-extracts each payload into a disposable directory, and boots its real application executable under a
-private Xvfb, Openbox, and D-Bus session. Openbox supplies only the window-manager close protocol;
-it does not supply a tray host. `desktop/scripts/linux-packaged-e2e.ts` gives each format fresh
-`HOME`, `XDG_*`, `CODEX_HOME`, and `OPENCODEX_HOME` roots plus a loopback port held until the app
-spawn boundary, then requires a visible OpenCodex window, the bundled sidecar's matching `/healthz`
-identity, port and version. It then asks the window manager to close the only window (`wmctrl -i -c`,
-the path a close button takes) and requires the app to exit on its own with code 0 and no signal and
-the runtime to be gone; destroying the X window or a crash does not count as a drain. Its
-report records readiness time and whole app-process-tree RSS as evidence; those observations are not
-pass/fail budgets until a reviewed cross-platform baseline exists.
-
-The lane takes about 15 minutes, so a pull request selects it only through the `changes` job's
-`desktop` filter: `desktop/**`, the standalone build and its runtime locator
-(`scripts/build-standalone.ts`, `scripts/standalone-targets.ts`, `src/lib/standalone.ts`,
-`src/lib/bun-runtime.ts`), native keyring staging (`scripts/standalone-keyring.ts`,
-`src/lib/keyring-native.ts`), `package.json`, `bun.lock` and `ci.yml` itself. Ordinary `src/**` and
-`gui/**` edits do not run it on a pull request; promotion pushes to `main` and `preview` and
-`workflow_dispatch` always do, so a packaging regression from such an edit surfaces at promotion.
-
-Extraction is intentional. A GitHub-hosted runner is disposable but its package database is still a
-shared job resource, and a normal pull request does not need passwordless package installation or GUI
-elevation to prove that the packaged executable and resources boot together. The separate
-`desktop-installed-gate.yml` remains the authority for real installation, package-manager ownership,
-takeover consent, elevation cancellation/acceptance, and in-place updater behavior on explicitly
-approved disposable GUI runners. Passing the hosted lane must never be described as passing those
-privileged installation flows.
-
-AppImage and deb are built with independent `CARGO_TARGET_DIR` roots in hosted acceptance and release
-jobs, then copied into a read-only staging layout for verification and collection. Tauri patches a
-per-format updater marker into the release binary while bundling; sharing one Cargo target lets one
-format observe a binary mutated for the other. The isolated roots make the marker and every other
-bundler mutation format-local.
-
-> Decision record: [ADR-5493](decisions/ADR-5493-linux-packaged-shell-acceptance.md)
-
-Linux AppImage packaging uses `desktop/scripts/appimage-patchelf.py` to preserve
-the compiled Bun CLI when linuxdeploy sets the executable RPATH. Only the exact
-AppDir sidecar under the active `CARGO_TARGET_DIR`, still byte-identical to the
-prepared target-matching CLI, is exempt; other ELF
-operations use the system patchelf. `desktop/scripts/verify-linux-sidecar.sh`
-extracts the completed AppImage (the release passes the staged isolated AppImage directory; a local
-build keeps the default Cargo target path), compares its CLI bytes and runs its version command
-on the hosted runner before any release asset is collected.
 The macOS release combines both prepared CLI architectures with `lipo` into the
 universal external binary Tauri expects, and checks that both slices are present.
 
@@ -432,32 +386,7 @@ in `Cargo.lock`), not from `package.json`, and the release workflow injects none
 together with `package.json` through `scripts/release-version-sources.ts`, and the release refuses
 to build when they disagree with the requested version; see `ops/docs-and-release.md`.
 
-## Widget snapshot
-
-The macOS desktop shell writes the WidgetKit snapshot to
-`~/Library/Containers/com.opencodex.desktop.widget/Data/Library/Application Support/OpenCodex/snapshot.json`.
-The schema version is `1`; the Rust writer refreshes it every five minutes after an
-immediate first write. The WidgetKit appex reads this privacy-safe file and performs no
-network access.
-
-The WidgetKit extension in `app/` needs three things that Xcode's app-extension target
-would supply on its own, and SwiftPM has no such target: `@main` on
-`OpenCodexWidgetBundle`, the `-e _NSExtensionMain` linker entry, and
-`-application-extension` — the compiler spelling of `APPLICATION_EXTENSION_API_ONLY` — all
-in `app/Package.swift`. Any one missing yields a widget that never appears: without
-`@main` the linker drops the bundle and the extension registers with nothing to offer, and
-without the entry override ExtensionFoundation traps during bootstrap. Nothing observable
-distinguishes these from a working widget, because the bundle still builds, signs and
-registers. `com.apple.security.app-sandbox` is also mandatory — `pkd` refuses to register
-an unsandboxed plug-in at all — which is why the shell writes its snapshot into the
-extension's own container rather than a shared App Group, which ad-hoc signing cannot use.
-
 ## The tray icon opens a usage popup
-
-`app/Sources/NativeTray/` defines the macOS SwiftUI display model and AppKit panel library.
-It accepts a versioned display-only snapshot and emits UI actions; it owns no network client,
-runtime process or application loop. `NativeTrayTests` exercises its decoding and formatting.
-The library is built separately from the WidgetKit extension.
 
 A left click on the tray icon opens a small always-on-top window anchored to the icon, not the
 dashboard. Reading the current numbers is the reason to look at a tray icon at all, and the

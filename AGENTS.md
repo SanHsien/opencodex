@@ -480,3 +480,7 @@ reviewers (Codex, CodeRabbit).
 - API key、ChatGPT / Codex token、cookie 與帳號資料一律不可提交。
 - 帳號池只做路由與韌性，不把它做成規避 provider 條款的工具。
 - 使用繁體中文，直接交付可驗證結果，避免冗長背景鋪陳。
+
+## Roadmap
+
+- `ROADMAP.md` is the single source of truth for this repository's next work. When you finish or add work, update it in the same commit: delete finished rows, add new ones. Do not keep a to-do list in any other file.

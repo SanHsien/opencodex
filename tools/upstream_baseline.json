@@ -3,8 +3,8 @@
   "branch": "main",
   "reviewed_through": "88aaa754566d119b6b8fc898f8fb47602387d82e",
   "reviewed_date": "2026-10-28",
-  "reviewed_issue_through": 7834,
-  "reviewed_pr_through": 7783,
+  "reviewed_issue_through": 7860,
+  "reviewed_pr_through": 7794,
   "integrated_through": "88aaa754566d119b6b8fc898f8fb47602387d82e",
   "integrated_tag": "v2.93.0"
 }

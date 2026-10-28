@@ -1104,6 +1104,15 @@ GUI 方面，`gui/src/i18n/zh-TW.ts` 與 fork 改過的 `gui/tests/{i18n-locales
 
 Windows 相關的 6 筆在下次同步時逐筆確認是否已隨版修正；未修正且影響本機使用的，才在 fork 自行處理並記入 `DECISIONS.md`。
 
+
+## 2026-10-28（續）：上游 PR／issue 分類第二批
+
+上游當天又關閉／開出一批，水位改為 `reviewed_pr_through = 7794`、`reviewed_issue_through = 7860`。
+
+- PR #7785–#7794（10 筆，jsonc／search／retry／adapters／lib／config／streams 小修正）：上游未直接合併，而是由 #7821 一次 squash 帶進 `dev`（504417f0e）。判定：不另行採用，隨上游下一個穩定版進來。
+- Issue #7854（Windows hosted runner 上 desktop-compatibility build probe 的 PowerShell 子行程 10 秒逾時）：相關（fork 只跑 Windows CI）；等上游修正，下次同步確認。
+- Issue #7860（macOS app-bundle 執行驗證）：不適用，fork 只支援 Windows。
+
 ## 2026-10-28：Windows-only 刪除清單（下次同步照這份處理）
 
 本 fork 從這一天起只支援 Windows，macOS／Linux 專屬檔案與 CI 以檔案層級移除（理由見 [`DECISIONS.md`](DECISIONS.md) 同日條目）。下次同步的做法：

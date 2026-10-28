@@ -76,7 +76,7 @@ async function append(dir: string, line: string): Promise<void> {
     const flags = constants.O_WRONLY | constants.O_APPEND | constants.O_CREAT | constants.O_NOFOLLOW | constants.O_NONBLOCK;
     file = await open(path, flags, 0o600);
     const current = await file.stat();
-    if (!current.isFile() || current.nlink !== 1) return;
+    if (!current.isFile() || current.nlink !== 1 || !(await namesOpenedFile(path, file))) return;
     if (windows) await hardenSecretPathAsync(path, { required: true });
     else await file.chmod(0o600);
     const previous = await lstat(backup).catch(error => {
@@ -97,6 +97,7 @@ async function append(dir: string, line: string): Promise<void> {
       file = await open(path, flags, 0o600);
       const fresh = await file.stat();
       if (!fresh.isFile() || fresh.nlink !== 1 || fresh.size + Buffer.byteLength(line) > MAX_BYTES) return;
+      if (!(await namesOpenedFile(path, file))) return;
       if (windows) await hardenSecretPathAsync(path, { required: true });
       else await file.chmod(0o600);
     }
@@ -114,6 +115,17 @@ async function append(dir: string, line: string): Promise<void> {
   } finally {
     await file?.close();
   }
+}
+
+/**
+ * Windows has no O_NOFOLLOW, so the open above follows a link planted at `path`. Before the ACL
+ * hardening and the write, require the name itself to be a plain file with the descriptor's
+ * identity (bigint: NTFS file IDs exceed 2^53).
+ */
+async function namesOpenedFile(path: string, file: Awaited<ReturnType<typeof open>>): Promise<boolean> {
+  const opened = await file.stat({ bigint: true });
+  const named = await lstat(path, { bigint: true });
+  return !named.isSymbolicLink() && named.isFile() && named.dev === opened.dev && named.ino === opened.ino;
 }
 
 /**

@@ -55,20 +55,21 @@ function validJournal(value: unknown): value is Record<string, unknown> {
 export function readCodexHomeJournal(journalPath: string): CodexHomeJournalInspection {
   let fd: number | undefined;
   try {
-    const before = lstatSync(journalPath);
-    if (!before.isFile() || before.isSymbolicLink() || before.size > MAX_JOURNAL_BYTES) return { kind: "unknown" };
+    // bigint: NTFS file IDs exceed 2^53 and would compare inexactly as numbers.
+    const before = lstatSync(journalPath, { bigint: true });
+    if (!before.isFile() || before.isSymbolicLink() || before.size > BigInt(MAX_JOURNAL_BYTES)) return { kind: "unknown" };
     fd = openSync(journalPath, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0));
-    const opened = fstatSync(fd);
-    if (!opened.isFile() || opened.size > MAX_JOURNAL_BYTES || before.dev !== opened.dev || before.ino !== opened.ino) return { kind: "unknown" };
-    const bytes = Buffer.alloc(opened.size + 1);
+    const opened = fstatSync(fd, { bigint: true });
+    if (!opened.isFile() || opened.size > BigInt(MAX_JOURNAL_BYTES) || before.dev !== opened.dev || before.ino !== opened.ino) return { kind: "unknown" };
+    const bytes = Buffer.alloc(Number(opened.size) + 1);
     let length = 0;
     while (length < bytes.length) {
       const count = readSync(fd, bytes, length, bytes.length - length, null);
       if (!count) break;
       length += count;
     }
-    const after = lstatSync(journalPath);
-    if (length !== opened.size || !after.isFile() || after.dev !== opened.dev || after.ino !== opened.ino
+    const after = lstatSync(journalPath, { bigint: true });
+    if (BigInt(length) !== opened.size || !after.isFile() || after.dev !== opened.dev || after.ino !== opened.ino
       || after.size !== opened.size || after.mtimeMs !== opened.mtimeMs || after.ctimeMs !== opened.ctimeMs) return { kind: "unknown" };
     const journal: unknown = JSON.parse(bytes.subarray(0, length).toString("utf8"));
     return validJournal(journal) ? { kind: "read", journal } : { kind: "unknown" };

@@ -511,12 +511,13 @@ function readLegacyBackupEntries(backup: string): Record<string, unknown> {
   try {
     // lstat rejects a symlinked backup (its target is never read); the dev/ino check
     // rejects a swap between lstat and open.
-    const lexical = lstatSync(backup);
+    const lexical = lstatSync(backup, { bigint: true });
     if (!lexical.isFile()) return {};
     // O_NOFOLLOW/O_NONBLOCK are undefined on Windows (?? 0); on POSIX a raced-in FIFO cannot block the open.
     const fd = openSync(backup, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0) | (fsConstants.O_NONBLOCK ?? 0));
     try {
-      const opened = fstatSync(fd);
+      // bigint: NTFS file IDs exceed 2^53 and would compare inexactly as numbers.
+      const opened = fstatSync(fd, { bigint: true });
       if (!opened.isFile() || opened.ino !== lexical.ino || opened.dev !== lexical.dev) return {};
       const parsed: unknown = JSON.parse(readFileSync(fd, "utf-8"));
       return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? { ...(parsed as Record<string, unknown>) } : {};

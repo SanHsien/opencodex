@@ -13,6 +13,7 @@ updates:
   # version updates，不支援 security updates；repo 設定的 security updates 遇到
   # bun.lock 一律走 npm_and_yarn 並報「Bun is misconfigured」，加 bun 條目也修不好。
   # 處理方式見 docs/fork/DECISIONS.md 2026-10-24 條目。
+  # fleet-waiver: security_fixes -- 自動安全修正遇 bun.lock 一律失敗（Bun 不支援 security updates）；Cargo.lock 警示由維護者逐筆處理（見 DECISIONS.md 2026-10-28）
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:

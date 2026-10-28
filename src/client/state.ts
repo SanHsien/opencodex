@@ -37,12 +37,13 @@ const pendingConnectPath = (): string => join(getConfigDir(), "client-connect-pe
  * before the open; the dev/ino match refuses a swap between lstat and open.
  */
 function readPendingMarker(path: string, unsafeMessage: string): string {
-  const lexical = lstatSync(path);
-  if (!lexical.isFile() || lexical.nlink !== 1 || lexical.size !== 65) throw new Error(unsafeMessage);
+  // bigint: NTFS file IDs exceed 2^53 and would compare inexactly as numbers.
+  const lexical = lstatSync(path, { bigint: true });
+  if (!lexical.isFile() || lexical.nlink !== 1n || lexical.size !== 65n) throw new Error(unsafeMessage);
   const fd = openSync(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0));
   try {
-    const opened = fstatSync(fd);
-    if (!opened.isFile() || opened.nlink !== 1 || opened.size !== 65
+    const opened = fstatSync(fd, { bigint: true });
+    if (!opened.isFile() || opened.nlink !== 1n || opened.size !== 65n
       || opened.dev !== lexical.dev || opened.ino !== lexical.ino) {
       throw new Error(unsafeMessage);
     }

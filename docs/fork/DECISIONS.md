@@ -698,3 +698,13 @@ commit，均 defer 至 stable promotion。open platform `#4200`（remote-hub doc
 **防回歸**：`tools/fork-hygiene-guards.ts` 加 `REMOVED_DIRECTORIES`／`REMOVED_FILES`／`REMOVED_CI_JOBS` 與非 Windows runner 標籤檢查（`release.yml` 例外），`tests/ci-workflows/fork-hygiene.test.ts` 在被刪路徑、被刪 job 或 `macos-*`／`opencodex-gate-(macos|linux)` 標籤回來時失敗；已用重新加入的樣本驗證為紅、還原後為綠。
 
 **代價與注意**：Ubuntu 測試腿移除後，PR 只剩 `test changed`，完整套件只在 Windows 的排程與手動 dispatch 跑；`ci.yml` 與數個測試檔的檔案內編輯在同步時會與上游衝突，需手動解（見 `UPSTREAM.md` 的「Windows-only 刪除清單」）。
+
+## 2026-10-28：安全警示逐筆處理；Dependabot 自動安全修正維持關閉
+
+**決定**：GitHub 開啟中的 57 個 CodeQL 與 5 個 Dependabot 警示逐筆判讀，不批量關閉。真問題在程式碼修正，其餘附具體、可在程式碼驗證的理由個別 dismiss。
+
+- 修正 20 筆（`1d102c6db` 與其後續提交）：3 個 polynomial-redos 改成線性掃描；12 個 file-system-race 讀取改走 `readBoundedRegularFile`（同一個 descriptor 決定型別、大小與內容）或補上 lstat／fstat 身分比對；`restart-replacement` 截斷 log 前比對 bigint dev／ino；`link/diagnostics` 在 ACL 加固與寫入前確認檔名本身就是開啟的檔案（Windows 沒有 `O_NOFOLLOW`）。另外 6 處身分比對改用 bigint（NTFS 檔案編號會超過 2^53）。`rustls` 升到 0.23.46（Dependabot 4 筆）。
+- dismiss 42 筆：41 個 CodeQL（31 false positive、10 won't fix），理由逐筆寫在 GitHub 的 dismiss 說明。`glib`（Dependabot #1）以 `not_used` 關閉：只由 Linux GTK 依賴鏈引入，`cargo tree --target x86_64-pc-windows-msvc -i glib` 為空；Tauri／GTK3 鎖 `^0.18`，無法升到 0.20。
+- 判讀過程經 fresh Opus 審查：原本以「O_NOFOLLOW」為理由的 #597 在 Windows 不成立，改為修正；5 筆說明改寫成與程式碼一致。
+
+**Dependabot 自動安全修正（`security_fixes`）維持關閉**，並在 `.github/dependabot.yml` 加 `fleet-waiver: security_fixes`：repo 的自動安全修正遇到 `bun.lock` 一律走 npm_and_yarn 並失敗（2026-10-24 條目），開了只會產生紅燈 run；`Cargo.lock` 的警示量少，由維護者逐筆處理，比照本條。

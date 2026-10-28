@@ -1073,6 +1073,37 @@ GUI 方面，`gui/src/i18n/zh-TW.ts` 與 fork 改過的 `gui/tests/{i18n-locales
 - 同日另有兩項 fork 修正隨同一次提交：更新路徑只認 fork releases、韓文剃除，見 [`DECISIONS.md`](DECISIONS.md)「更新路徑只認 fork releases」條目。
 
 
+
+## 2026-10-28：上游 PR／issue 分類（無新 commit）
+
+`reviewed_through` 仍是 `88aaa754566d119b6b8fc898f8fb47602387d82e`（上游 `main` 沒有新 commit）。本輪只分類 Upstream check 列出的新項目，水位改為 `reviewed_pr_through = 7783`、`reviewed_issue_through = 7834`。
+
+上游未合併關閉的 PR（7 筆，fork 全部不採用，跟隨上游）：
+
+| PR | 判定 |
+| --- | --- |
+| #7717 antigravity 多帳號模型探索 | 不採用：本機已停用 Antigravity provider（Antigravity 訂閱不給 agent 用），上游也未合併。 |
+| #7727 WebSocket ingress replay 歸因 | 不採用：上游未合併，等上游正式修正。 |
+| #7739 MiniMax Flash metadata（WRONG BRANCH） | 不採用：投錯分支；fork 不使用中國服務。 |
+| #7752 reasoning_raw_delta／inlineThinkTagModels | 不採用：上游未合併（#7750 仍待上游處理）。 |
+| #7755 GUI 顯示 Terra 記憶背景模型 | 不採用：上游未合併。 |
+| #7765 Withdrawn | 不採用：作者撤回。 |
+| #7783 PR fast lane 探針（WRONG BRANCH） | 不採用：上游 CI 測試用，非產品變更。 |
+
+`platform` issue（7 筆，皆 open）：
+
+| Issue | 判定 |
+| --- | --- |
+| #7756 macOS Homebrew Cask | 不適用：fork 只支援 Windows。 |
+| #7771 Windows desktop 卡在 taking-over（npm 執行環境＋Task Scheduler 服務） | 相關：本機 2026-10-28 已移除指向舊 npm 安裝的 `\opencodex-proxy` 排程，現況只由 desktop 啟動，不重現；等上游修正，下次同步確認。 |
+| #7808 Windows client path 接受無磁碟代號的根路徑 | 相關：等上游修正，下次同步確認。 |
+| #7810 長 TEMP 路徑或本機代理運作時部分 CLI 測試失敗 | 相關：與本機完整測試的環境性失敗同類；等上游修正。 |
+| #7815 config root 寫入與 ACL 加固重疊 | 相關：等上游修正，下次同步確認。 |
+| #7827 start 在 liveness 探測漏判時復原仍在使用的 Codex journal | 相關：等上游修正，下次同步確認。 |
+| #7834 atomicWriteFile 的 icacls 逾時記憶不會重置 | 相關：等上游修正，下次同步確認。 |
+
+Windows 相關的 6 筆在下次同步時逐筆確認是否已隨版修正；未修正且影響本機使用的，才在 fork 自行處理並記入 `DECISIONS.md`。
+
 ## 2026-10-28：Windows-only 刪除清單（下次同步照這份處理）
 
 本 fork 從這一天起只支援 Windows，macOS／Linux 專屬檔案與 CI 以檔案層級移除（理由見 [`DECISIONS.md`](DECISIONS.md) 同日條目）。下次同步的做法：

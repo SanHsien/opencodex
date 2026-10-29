@@ -7,13 +7,13 @@
 
 `opencodex` 是 `lidge-jun/opencodex` 的 Windows-only 維護 fork（本機 provider proxy＋ChatGPT／Codex 帳號池），產品基底為上游 `v2.93.0`（`package.json` 為 2.94.0、整合 tag 為 v2.93.0）加 fork overlay（`FORK.md`、`tools/upstream_baseline.json`）。最近 release 是 v2.93.0（2026-10-27）。
 健康：open PR 0、Dependabot 與 code scanning 告警 0，`main` 上 Cross-platform CI、CodeQL、Fork maintenance、Upstream check 最近一次皆 success（2026-10-29 `gh` 查詢）；issues 在 GitHub 上已停用，open issue 數是「未查到」，不是 0。與上游「No common ancestor」是 2026-09-27 刻意壓縮歷史的結果，不是缺陷（`FORK.md`「分支與 remote」）。
-安全告警在快照時兩類都是 0，之後可能變動，開工前先重查（見下方「新安全告警」那一列的查法）。上游 2026-10-28T16:37Z 仍有 push，快照之後是否出現未審項目「未查到」，以 `bun tools/check-upstream-updates.ts --strict` 為準。
+安全告警在快照時兩類都是 0；2026-10-30 重查 Dependabot 已有 3 筆 `zip` 告警（見近期表），Upstream check 也已轉紅（上游有未審項目），之後仍可能變動，開工前先重查（見下方「新安全告警」那一列的查法）。上游 2026-10-28T16:37Z 仍有 push，快照之後是否出現未審項目「未查到」，以 `bun tools/check-upstream-updates.ts --strict` 為準。
 
 ## 近期：可以直接動手
 
 | 項目 | 為什麼 | 驗收方式 | 建議執行者 | 證據 |
 | --- | --- | --- | --- | --- |
-| 改寫 `REVIEW.md` 為現況版本 | 現行內容停在 2026-08-27（fork HEAD `8d23124cb`、產品版本 2.31.0、「不要把目前 main 當成已跟上游發版線」），與現況差了 60 多個上游版本，還列出已不存在的 `CLAUDE.md`；接手的人讀到會判斷錯誤 | `REVIEW.md` 的日期、HEAD、產品版本、上游基底與 `tools/upstream_baseline.json`、`package.json` 一致；`pwsh -NoProfile -File tools\dev_check.ps1` 綠；文件連結檢查（`bun tools/check-links.ts`）0 斷鏈 | Claude Sonnet | `REVIEW.md:1-8,34`；`tools/upstream_baseline.json`；`FORK.md` 差異表 |
+| 處理 `zip` 套件的 3 筆 Dependabot 告警（#10 critical、#11 high、#12 medium） | 2026-10-29T16:53 隨 HEAD 的 push 產生 3 筆 open 告警（`desktop/src-tauri/Cargo.lock`） | 告警關閉或在延後清單記錄理由；完整閘門綠 | Claude Opus | `gh api "repos/SanHsien/opencodex/dependabot/alerts?state=open"`；`REVIEW.md:98` |
 
 ## 中期：等條件成立再做
 

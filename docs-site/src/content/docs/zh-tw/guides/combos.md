@@ -698,8 +698,8 @@ ocx combo remove <id> --yes
 ```
 
 `set` 也接受 `--strategy`、`--sticky`、`--effort`、`--alias`、`--native-alias`、
-`--display-name`、`--description` 與 `--rename-from`。用 `-` 作為 `--effort`、`--alias`、`--display-name` 或 `--description` 的值
-可清除該欄位。決策旗標只在有效策略為 JEV 時適用：`--strategy jev`，或省略 `--strategy` 但已儲存的 combo 是 JEV。
+`--allow-metered-targets on|off`、`--display-name`、`--description`、`--decision-provider`、`--decision-timeout` 與 `--rename-from`。用 `-` 作為 `--effort`、`--alias`、`--display-name`、`--description`、`--decision-provider` 或 `--decision-timeout` 的值
+可清除該欄位。這兩個決策旗標只在有效策略為 JEV 時適用：`--strategy jev`，或省略 `--strategy` 但已儲存的 combo 是 JEV。
 對既有 combo，`--targets` 只取代目標清單：未指定 `--strategy` 時，已儲存的策略與其 JEV 設定維持不變。`--native-alias` 需要一個目前受支援的裸原生模型別名，並搭配非空的顯示名稱。
 `create` 與 `update` 為 `set` 的別名；`delete` 為 `remove` 的別名；且相同子指令在
 `ocx route combo` 下也可用。

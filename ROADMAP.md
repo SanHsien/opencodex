@@ -16,7 +16,6 @@
 | 改寫 `REVIEW.md` 為現況版本 | 現行內容停在 2026-08-27（fork HEAD `8d23124cb`、產品版本 2.31.0、「不要把目前 main 當成已跟上游發版線」），與現況差了 60 多個上游版本，還列出已不存在的 `CLAUDE.md`；接手的人讀到會判斷錯誤 | `REVIEW.md` 的日期、HEAD、產品版本、上游基底與 `tools/upstream_baseline.json`、`package.json` 一致；`pwsh -NoProfile -File tools\dev_check.ps1` 綠；文件連結檢查（`bun tools/check-links.ts`）0 斷鏈 | Claude Sonnet | `REVIEW.md:1-8,34`；`tools/upstream_baseline.json`；`FORK.md` 差異表 |
 | 夜間排程解析 `dev` 失敗時不再吞掉 `gh` 的錯誤訊息 | `gh api …/commits/dev` 的 stderr 被丟進 `/dev/null`，網路或權限失敗與「沒有 dev 分支」看起來一樣，會默默改測 main | 非 404 的 `gh` 失敗在日誌印出原錯誤並讓該步驟失敗；404 時仍輸出 `::notice::` 並改測 `GITHUB_SHA`；`bun test tests/ci-workflows/fork-hygiene.test.ts` 與 `ci.yml` 相關測試綠 | Claude Sonnet | `.github/workflows/ci.yml:421`；`docs/fork/DECISIONS.md:631`（決定四）；審查 nit 見接續開發報告（2026-10-2x） |
 | 上游檢查器的「PR 清單被截斷」錯誤訊息改精確並補單元測試 | 目前以 `--limit 1000` 查，被截斷時回「未檢查」但訊息文字不精確、沒有單元測試保護；這條護欄擋過 206 筆被當成已審的事故 | 新增測試：清單剛好一整頁且最舊一筆仍新於水位時回 `undefined`，訊息指出是截斷；`bun test` 該檔綠 | Claude Sonnet | `tools/check-upstream-updates.ts:181,196-225`；`docs/fork/DECISIONS.md:616`（決定二）；`tests/ci-workflows/fork-hygiene.test.ts` |
-| 繁中 `combos.md` 的 `ocx combo set` 旗標清單補齊與英文頁一致 | 審查員指出 zh-tw 版缺 3 個旗標；zh-TW 是本 fork 兩個保留語系之一 | 英文頁與 `docs-site/src/content/docs/zh-tw/guides/combos.md` 的 `ocx combo set` 旗標逐項對照相同；`docs-zh-tw-parity` 相關測試綠 | Claude Haiku | `docs-site/src/content/docs/zh-tw/guides/combos.md`；接續開發報告（2026-10-2x）審查 nit |
 
 ## 中期：等條件成立再做
 

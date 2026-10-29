@@ -22,7 +22,10 @@ import {
   UPSTREAM_REPO,
 } from "../../tools/fork-hygiene-guards";
 import {
+  collectUnmergedPullRequests,
+  filterUnmergedPullRequests,
   loadBaseline,
+  PULL_REQUEST_LIST_LIMIT,
   renderIssueSection,
   renderMarkdown,
   UpstreamCheckError,
@@ -115,6 +118,16 @@ describe("upstream workflow isolation", () => {
       const text = await Bun.file(join(ROOT, ".github/workflows", name)).text();
       expect(text.includes(OFFICIAL_REPO_GUARD)).toBe(false);
     }
+  });
+
+  test("nightly dev-resolution step does not swallow gh errors with 2>/dev/null", async () => {
+    const ci = await Bun.file(join(ROOT, ".github/workflows/ci.yml")).text();
+    const nightlyBlock = ci.slice(
+      ci.indexOf("id: nightly"),
+      ci.indexOf("test-changed:"),
+    );
+    expect(nightlyBlock).not.toContain("2>/dev/null || true");
+    expect(nightlyBlock).toContain("HTTP (404|422)|404");
   });
 });
 
@@ -253,6 +266,43 @@ describe("upstream checker", () => {
     const section = renderPullRequestSection(baseline, undefined).join(NEWLINE);
 
     expect(section).toContain("Not checked");
+  });
+
+  test("a truncated pull request list returns undefined and indicates truncation", () => {
+    const baseline = {
+      repo: "https://github.com/example/product.git",
+      branch: "main",
+      reviewed_through: "a".repeat(40),
+      reviewed_date: "2026-08-29",
+      reviewed_pr_through: 500,
+    };
+
+    // A full page of items where the oldest is still newer than the watermark
+    const fullPage = Array.from({ length: PULL_REQUEST_LIST_LIMIT }, (_, index) => ({
+      number: 501 + index,
+      title: `PR #${501 + index}`,
+      mergedAt: null,
+      labels: [],
+    }));
+
+    let message = "";
+    const result = collectUnmergedPullRequests(baseline, fullPage, (msg) => {
+      message = msg;
+    });
+
+    expect(result).toBeUndefined();
+    expect(message).toContain("truncated");
+
+    let filterMessage = "";
+    const filterResult = filterUnmergedPullRequests(fullPage, 500, PULL_REQUEST_LIST_LIMIT, (msg) => {
+      filterMessage = msg;
+    });
+    expect(filterResult).toBeUndefined();
+    expect(filterMessage).toContain("truncated");
+
+    const section = renderPullRequestSection(baseline, undefined, message).join(NEWLINE);
+    expect(section).toContain("Not checked");
+    expect(section).toContain("truncated");
   });
 
   test("the shipped baseline carries both ticket numbers", () => {

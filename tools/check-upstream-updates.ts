@@ -178,7 +178,50 @@ export function collectNewIssues(baseline: Baseline): Ticket[] | undefined {
     }));
 }
 
-const PULL_REQUEST_LIST_LIMIT = 1000;
+export interface RawPullRequest {
+  number: number;
+  title: string;
+  mergedAt?: string | null;
+  labels?: { name: string }[];
+}
+
+export const PULL_REQUEST_LIST_LIMIT = 1000;
+
+/**
+ * Filter unmerged pull requests above the watermark.
+ *
+ * When the list returned is a full page and the oldest pull request is still
+ * newer than the watermark, older unreviewed pull requests were cut off (truncated).
+ * In this case, report undefined and notify via message callback / stderr rather than
+ * returning a partial list that appears complete.
+ */
+export function filterUnmergedPullRequests(
+  parsed: RawPullRequest[],
+  watermark: number,
+  limit = PULL_REQUEST_LIST_LIMIT,
+  onMessage?: (message: string) => void,
+): Ticket[] | undefined {
+  if (
+    parsed.length >= limit &&
+    Math.min(...parsed.map((row) => row.number)) > watermark
+  ) {
+    const msg = `pull request list was truncated at limit ${limit}; older unreviewed pull requests were cut off`;
+    if (onMessage) {
+      onMessage(msg);
+    } else {
+      process.stderr.write(`ERROR: ${msg}\n`);
+    }
+    return undefined;
+  }
+  return parsed
+    .filter((item) => item.number > watermark && !item.mergedAt)
+    .sort((left, right) => left.number - right.number)
+    .map((item) => ({
+      number: item.number,
+      title: item.title,
+      labels: (item.labels ?? []).map((label) => label.name),
+    }));
+}
 
 /**
  * Upstream pull requests that were closed **without merging**, above the watermark.
@@ -193,46 +236,38 @@ const PULL_REQUEST_LIST_LIMIT = 1000;
  * `TRACKED_ISSUE_LABEL` does: upstream closes far fewer pull requests unmerged
  * than it merges, and those are the ones a person here still has to judge.
  */
-export function collectUnmergedPullRequests(baseline: Baseline): Ticket[] | undefined {
-  const slug = upstreamSlug(baseline.repo);
-  if (!slug) return undefined;
-  const result = Bun.spawnSync(
-    ["gh", "pr", "list", "--repo", slug, "--state", "closed",
-     "--limit", String(PULL_REQUEST_LIST_LIMIT), "--json", "number,title,mergedAt,labels"],
-    { stdout: "pipe", stderr: "pipe" },
-  );
-  if (result.exitCode !== 0) return undefined;
-  let parsed: {
-    number: number;
-    title: string;
-    mergedAt?: string | null;
-    labels?: { name: string }[];
-  }[];
-  try {
-    parsed = JSON.parse(new TextDecoder().decode(result.stdout));
-  } catch {
-    return undefined;
+export function collectUnmergedPullRequests(
+  baseline: Baseline,
+  rawPullRequests?: RawPullRequest[],
+  onMessage?: (message: string) => void,
+): Ticket[] | undefined {
+  let parsed: RawPullRequest[];
+  if (rawPullRequests !== undefined) {
+    parsed = rawPullRequests;
+  } else {
+    const slug = upstreamSlug(baseline.repo);
+    if (!slug) return undefined;
+    const result = Bun.spawnSync(
+      ["gh", "pr", "list", "--repo", slug, "--state", "closed",
+       "--limit", String(PULL_REQUEST_LIST_LIMIT), "--json", "number,title,mergedAt,labels"],
+      { stdout: "pipe", stderr: "pipe" },
+    );
+    if (result.exitCode !== 0) return undefined;
+    try {
+      parsed = JSON.parse(new TextDecoder().decode(result.stdout));
+    } catch {
+      return undefined;
+    }
   }
   const watermark = Number(baseline.reviewed_pr_through ?? 0);
-  // A full page whose oldest row is still newer than the watermark means older unreviewed pull
-  // requests were cut off. Report "not checked" rather than a short list that reads as complete
-  // (the previous limit of 200 hid 206 of 257 unmerged pull requests).
-  if (parsed.length >= PULL_REQUEST_LIST_LIMIT
-    && Math.min(...parsed.map(row => row.number)) > watermark) return undefined;
-  return parsed
-    .filter((item) => item.number > watermark && !item.mergedAt)
-    .sort((left, right) => left.number - right.number)
-    .map((item) => ({
-      number: item.number,
-      title: item.title,
-      labels: (item.labels ?? []).map((label) => label.name),
-    }));
+  return filterUnmergedPullRequests(parsed, watermark, PULL_REQUEST_LIST_LIMIT, onMessage);
 }
 
 /** The pull request section: the closed-unmerged ones, or why they were not asked for. */
 export function renderPullRequestSection(
   baseline: Baseline,
   pullRequests: Ticket[] | undefined,
+  reason?: string,
 ): string[] {
   const watermark = baseline.reviewed_pr_through ?? 0;
   const lines = [
@@ -242,11 +277,19 @@ export function renderPullRequestSection(
     "",
   ];
   if (pullRequests === undefined) {
-    lines.push(
-      "Not checked: `gh` was unavailable or unauthenticated. This is reported rather than",
-      "treated as \"nothing to review\" — the difference matters.",
-      "",
-    );
+    if (reason) {
+      lines.push(
+        `Not checked: ${reason}. This is reported rather than`,
+        "treated as \"nothing to review\" — the difference matters.",
+        "",
+      );
+    } else {
+      lines.push(
+        "Not checked: `gh` was unavailable or unauthenticated. This is reported rather than",
+        "treated as \"nothing to review\" — the difference matters.",
+        "",
+      );
+    }
     return lines;
   }
   if (pullRequests.length === 0) {
@@ -315,6 +358,7 @@ export function renderMarkdown(
   error?: string,
   issues?: Ticket[] | undefined,
   pullRequests?: Ticket[] | undefined,
+  pullRequestReason?: string,
 ): string {
   const lines = [
     "# Upstream review report",
@@ -330,7 +374,7 @@ export function renderMarkdown(
   }
   if (commits.length === 0) {
     lines.push("## Result", "", "No new upstream commits. Nothing to review.", "");
-    lines.push(...renderPullRequestSection(baseline, pullRequests));
+    lines.push(...renderPullRequestSection(baseline, pullRequests, pullRequestReason));
     lines.push(...renderIssueSection(baseline, issues));
     return `${lines.join("\n")}\n`;
   }
@@ -361,7 +405,7 @@ export function renderMarkdown(
     "then advance `tools/upstream_baseline.json` only after verification.",
     "",
   );
-  lines.push(...renderPullRequestSection(baseline, pullRequests));
+  lines.push(...renderPullRequestSection(baseline, pullRequests, pullRequestReason));
   lines.push(...renderIssueSection(baseline, issues));
   return `${lines.join("\n")}\n`;
 }
@@ -399,6 +443,7 @@ export function main(args = Bun.argv.slice(2)): number {
   let commits: Commit[] = [];
   let issues: Ticket[] | undefined;
   let pullRequests: Ticket[] | undefined;
+  let pullRequestReason: string | undefined;
   let error: string | undefined;
 
   try {
@@ -406,13 +451,22 @@ export function main(args = Bun.argv.slice(2)): number {
     const ref = fetchUpstream(baseline, options.repoDir);
     commits = collectNewCommits(baseline, options.repoDir, ref);
     issues = collectNewIssues(baseline);
-    pullRequests = collectUnmergedPullRequests(baseline);
+    pullRequests = collectUnmergedPullRequests(baseline, undefined, (msg) => {
+      pullRequestReason = msg;
+    });
   } catch (caught) {
     if (!(caught instanceof UpstreamCheckError)) throw caught;
     error = caught.message;
   }
 
-  const report = renderMarkdown(baseline, commits, error, issues, pullRequests);
+  const report = renderMarkdown(
+    baseline,
+    commits,
+    error,
+    issues,
+    pullRequests,
+    pullRequestReason,
+  );
   writeFileSync(options.output, report, "utf8");
   process.stdout.write(report);
 
@@ -436,7 +490,11 @@ export function main(args = Bun.argv.slice(2)): number {
 
   if (error) return 2;
   if (ticketsUnavailable) {
-    process.stderr.write("ERROR: gh could not enumerate the upstream issues or pull requests.\n");
+    if (pullRequestReason) {
+      process.stderr.write(`ERROR: ${pullRequestReason}\n`);
+    } else {
+      process.stderr.write("ERROR: gh could not enumerate the upstream issues or pull requests.\n");
+    }
     return 2;
   }
   // A new `platform` issue upstream changes what this fork has to verify on

@@ -418,17 +418,24 @@ jobs:
             echo 'checkout_ref=' >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          sha="$(gh api "repos/${GITHUB_REPOSITORY}/commits/dev" --jq .sha 2>/dev/null || true)"
-          if ! printf '%s' "$sha" | grep -Eqx '[0-9a-f]{40}'; then
-            # SanHsien/opencodex has no dev branch (fork rule: edits go straight to main),
-            # so the nightly tests the head of the default branch instead.
-            if [ "$GITHUB_REPOSITORY" = "SanHsien/opencodex" ]; then
+          err_file="$(mktemp)"
+          if sha="$(gh api "repos/${GITHUB_REPOSITORY}/commits/dev" --jq .sha 2>"$err_file")"; then
+            rm -f "$err_file"
+          else
+            err="$(cat "$err_file")"
+            rm -f "$err_file"
+            if [ "$GITHUB_REPOSITORY" = "SanHsien/opencodex" ] && printf '%s' "$err" | grep -Eq 'HTTP (404|422)|404'; then
               sha="$GITHUB_SHA"
               printf '::notice::no dev branch in this fork; the scheduled run tests main at %s\n' "$sha"
             else
+              printf '%s\n' "$err" >&2
               printf '::error::could not resolve dev to a commit SHA\n'
               exit 1
             fi
+          fi
+          if ! printf '%s' "$sha" | grep -Eqx '[0-9a-f]{40}'; then
+            printf '::error::resolved dev commit is not a 40-character SHA: %s\n' "$sha"
+            exit 1
           fi
           printf 'checkout_ref=%s\n' "$sha" >> "$GITHUB_OUTPUT"
           printf 'Scheduled run: workflow from %s, testing dev at %s\n' "$GITHUB_SHA" "$sha" >> "$GITHUB_STEP_SUMMARY"

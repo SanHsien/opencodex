@@ -7,13 +7,12 @@
 
 `opencodex` 是 `lidge-jun/opencodex` 的 Windows-only 維護 fork（本機 provider proxy＋ChatGPT／Codex 帳號池），產品基底為上游 `v2.93.0`（`package.json` 為 2.94.0、整合 tag 為 v2.93.0）加 fork overlay（`FORK.md`、`tools/upstream_baseline.json`）。最近 release 是 v2.93.0（2026-10-27）。
 健康：open PR 0、Dependabot 與 code scanning 告警 0，`main` 上 Cross-platform CI、CodeQL、Fork maintenance、Upstream check 最近一次皆 success（2026-10-29 `gh` 查詢）；issues 在 GitHub 上已停用，open issue 數是「未查到」，不是 0。與上游「No common ancestor」是 2026-09-27 刻意壓縮歷史的結果，不是缺陷（`FORK.md`「分支與 remote」）。
-安全告警在快照時兩類都是 0；2026-10-30 重查 Dependabot 已有 3 筆 `zip` 告警（見近期表），Upstream check 也已轉紅（上游有未審項目），之後仍可能變動，開工前先重查（見下方「新安全告警」那一列的查法）。上游 2026-10-28T16:37Z 仍有 push，快照之後是否出現未審項目「未查到」，以 `bun tools/check-upstream-updates.ts --strict` 為準。
+安全告警在快照時兩類都是 0；2026-10-30 重查 Dependabot 曾有 3 筆 `zip` 告警（#10、#11、#12），其修補（`tauri-plugin-updater` 關閉 `zip` feature，lock 不再含 `zip`）推送前告警仍是 open，推送後以 `gh api "repos/SanHsien/opencodex/dependabot/alerts?state=open"` 確認會自動關閉，Upstream check 也已轉紅（上游有未審項目），之後仍可能變動，開工前先重查（見下方「新安全告警」那一列的查法）。上游 2026-10-28T16:37Z 仍有 push，快照之後是否出現未審項目「未查到」，以 `bun tools/check-upstream-updates.ts --strict` 為準。
 
 ## 近期：可以直接動手
 
 | 項目 | 為什麼 | 驗收方式 | 建議執行者 | 證據 |
 | --- | --- | --- | --- | --- |
-| 處理 `zip` 套件的 3 筆 Dependabot 告警（#10 critical、#11 high、#12 medium） | 2026-10-29T16:53 隨 HEAD 的 push 產生 3 筆 open 告警（`desktop/src-tauri/Cargo.lock`） | 告警關閉或在延後清單記錄理由；完整閘門綠 | Claude Opus | `gh api "repos/SanHsien/opencodex/dependabot/alerts?state=open"`；`REVIEW.md:98` |
 
 ## 中期：等條件成立再做
 

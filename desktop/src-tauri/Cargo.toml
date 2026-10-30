@@ -29,7 +29,11 @@ tauri-plugin-opener = "=2.5.3"
 tauri-plugin-process = "=2.3.0"
 tauri-plugin-shell = "=2.2.1"
 tauri-plugin-single-instance = "=2.4.0"
-tauri-plugin-updater = "=2.9.0"
+# `default-features = false` drops the `zip` feature: it is the only path that pulls the `zip` crate
+# (GHSA-m665-v7pm-7grj and two more, all fixed by zip >= 9.0.5). Updater 2.9.0 through 2.14.0 require
+# `zip ^4`; 2.14.1 moves to `^9` but needs tauri ^2.12, and this crate pins tauri =2.11.6.
+# On Windows the feature only unpacks a `.zip` update bundle; this fork ships no updater artifacts and no endpoints.
+tauri-plugin-updater = { version = "=2.9.0", default-features = false, features = ["rustls-tls"] }
 tokio = { version = "=1.45.1", features = ["sync", "time"] }
 
 # Linux only, and already in this graph: `tao` enables its own `dbus` feature by default, so

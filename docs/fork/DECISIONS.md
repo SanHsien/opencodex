@@ -708,3 +708,7 @@ commit，均 defer 至 stable promotion。open platform `#4200`（remote-hub doc
 - 判讀過程經 fresh Opus 審查：原本以「O_NOFOLLOW」為理由的 #597 在 Windows 不成立，改為修正；5 筆說明改寫成與程式碼一致。
 
 **Dependabot 自動安全修正（`security_fixes`）維持關閉**，並在 `.github/dependabot.yml` 加 `fleet-waiver: security_fixes`：repo 的自動安全修正遇到 `bun.lock` 一律走 npm_and_yarn 並失敗（2026-10-24 條目），開了只會產生紅燈 run；`Cargo.lock` 的警示量少，由維護者逐筆處理，比照本條。
+
+## 2026-10-31：`tauri-plugin-updater` 關閉 `zip` feature
+
+Dependabot #10、#11、#12 都是 `zip` 4.6.1，只由 updater 帶入。改為 `default-features = false, features = ["rustls-tls"]`，不升級 updater：2.14.1 才改 `zip ^9`，但需要 `tauri ^2.12`，本 fork 釘 `=2.11.6`。桌面更新維持停用（`endpoints: []`、`createUpdaterArtifacts: false`）。整合上游時保留此設定；日後重新啟用桌面更新或升到 tauri 2.12 以上時重新評估。

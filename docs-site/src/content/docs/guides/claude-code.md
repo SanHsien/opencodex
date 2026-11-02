@@ -254,6 +254,10 @@ Claude Desktop can use OpenCodex in one of two mutually exclusive modes. Pick it
 **Connect → Claude Desktop → Connection mode** in the dashboard or with `ocx claude desktop apply
 --first-party|--gateway`.
 
+If gateway cleanup fails during first-party apply and Windows ACL work prevents rollback
+from starting before its deadline, OpenCodex reports that settings rollback did not complete.
+It leaves the settings untouched by that rollback; check the current connection mode before retrying.
+
 > Desktop library profiles and `_meta.json` must be regular files of at most
 > 4 MiB. OpenCodex also refuses generated profile or metadata output above that
 > limit before replacing files. Back up and reduce oversized configuration

@@ -189,6 +189,9 @@ Claude Code 需要在 `ANTHROPIC_AUTH_TOKEN` 中有 token 才能與閘道器通�
 在儀表板的 **連線 → Claude Desktop → 連線模式**，或透過
 `ocx claude desktop apply --first-party|--gateway` 選擇互斥的模式。
 
+套用第一方模式時，若閘道清理失敗，且 Windows ACL 作業讓設定回復無法在期限內開始，
+OpenCodex 會明確回報設定回復未完成。該次回復不會改寫設定；重試前請先檢查目前連線模式。
+
 ### 閘道（預設）
 
 新安裝預設套用閘道設定檔：包含聊天分頁在內的整個應用程式都使用 OpenCodex。

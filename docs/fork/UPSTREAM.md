@@ -1152,3 +1152,17 @@ Windows 指定 issue 複查（讀取 issue 本文與維護者留言）：
 - [#7771](https://github.com/lidge-jun/opencodex/issues/7771)：仍 open。#7973（db7bdc5e3d）只完成拒絕原因診斷；Task Scheduler wrapper 存活／重啟與 Desktop taking-over 死路仍未解，不能記為已修復。
 - [#7808](https://github.com/lidge-jun/opencodex/issues/7808)：closed，#7824（07161c5b95）在 dev 拒絕 Windows 無磁碟代號根路徑；尚未整合至本 fork 的 v2.93.0 基底。
 - [#7810](https://github.com/lidge-jun/opencodex/issues/7810)：closed；#7823（95cfa30ec7）修 long-TEMP recovery，#7852（fb22d055e0）隔離 Windows Known Folder fixture。上游已完整修復，尚待 stable 整合進 fork；不再沿用「純環境性失敗」歸因。
+
+
+## 2026-11-03：stable 整合的獨立前置區段（#7795、#7781）
+
+以 GitHub release 清單複查：最新 stable 仍為 v2.96.0（2026-11-01），上游 main 為 `684ad75d254ae96a9971387d09ae428b96ada9c2`。`v2.93.0..upstream/main` 共 209 筆；`v2.93.0..v2.94.0` 涉及 1198 個檔案。先完成下列兩筆獨立判定與最小產品修正，沒有宣稱整版已整合。
+
+| Commit | 判定 | 逐筆核對與理由 |
+| --- | --- | --- |
+| `736fa5087c0b807cc2c7fd54ebae1548e6b2d4cb` | skip（已具備） | #7795 僅把 package、Cargo manifest／lock 與 Tauri 產品版本升到 2.94.0；四處已具備此版本。不重放整個檔案，保留 fork 關閉 updater 與 Cargo 安全修正。 |
+| `dd8bf1d657577c889169b8cb34afd6ff28341284` | adopt | #7781 完整五檔 diff：新增 rollback admission helper，替換 CLI apply、management apply 與 native toggle 三個呼叫點；測試新增 timeout／unexpected error／success 三條性質，另補 model-defaults barrier-entry handshake。原 ACL barrier、診斷遮罩與其他 fork 修改保留。 |
+
+停止點是 `dd8bf1d65`，下一筆為 `f94e95ce5`（structural tool turns）。這是逐筆審查的停止點，**不是可推進的 main 水位**：`git merge-base --is-ancestor v2.93.0 dd8bf1d65` exit 1，`dd8bf1d65..v2.93.0` 尚有 189 筆歷史 commit。把 scalar 水位改成該來源分支 SHA 會使檢查器重報舊項目。因此 `reviewed_through`、`reviewed_date`、`integrated_tag`、`integrated_through` 全部保持；其餘 207 筆仍需審查，strict 仍列出 209 筆（包含已在本節記錄的兩筆）。PR／issue 水位也不變。完整 tag 整合須接續審查並保留 Windows-only 刪除清單。
+
+安全邊界逐檔判定與回歸證據見 `DECISIONS.md`、`REVIEW.md` 同日區段。

@@ -150,3 +150,23 @@ WINDOWS DEV CHECK GREEN
 本機原始報告與日誌：gitignored `.tmp/upstream-triage/` 的 `before.md`、`after.md`、`before.log`、`after.log`、`dev-check.log`、`hangul-recheck.log`、`links.log`、`privacy.log`。GitHub PR 本文與留言快照亦留於同處，不納入提交。
 
 隱私補驗：`bun run privacy:scan` exit 0，結尾 `Privacy scan passed`（在 240 秒整輪上限前完成，沒有終止或重跑）。五個修改檔另直接呼叫同一 `scanText`，exit 0、`Changed-file privacy scan: 5 files, 0 findings`；本段回註後僅重驗 `REVIEW.md`。最終對帳驗證 15 筆 PR 在兩份文件皆存在，PR 水位等於本輪最大號碼，commit／產品整合／issue 水位保持原值；exit 0。`git diff --check` 無輸出。無新增產品或測試檔案，沒有需要同步的中英雙語產品頁面；根目錄沒有 `CHANGELOG.md`，本次維護結果記於此處與兩份 fork 紀錄。
+
+
+## 2026-11-03：#7781 獨立整合區段驗證
+
+基準 HEAD：`f24f0532c23f29332447ce842f893af085a14227`；驗證對象為在此基準套用上游 `dd8bf1d65` 五檔修正，連同英／繁中說明及 fork 判定紀錄的工作樹。產品整合 tag 保持 v2.93.0；#7795 版本開線已具備，判 skip。其餘 207 筆 commit 的計畫只追在 `ROADMAP.md`。
+
+| 指令 | Exit code | 結尾輸出／證據 |
+| --- | --- | --- |
+| `bun test tests/claude-integration/claude-intercept-acl-barrier.test.ts --test-name-pattern 'settled first-party rollback'`（只套測試、未套產品修正） | 1 | 0 pass、1 fail；`rollbackDesktopFirstPartySettled is not a function`，證明舊產品不具備新合約。 |
+| `bun test tests/claude-integration/claude-intercept-acl-barrier.test.ts`（套產品修正後） | 0 | 30 pass、0 fail、173 expect() calls；涵蓋 timeout 不執行回復、unexpected error 繼續拋出與成功回復。 |
+| `bun run typecheck` | 0 | `bun x tsc --noEmit`，無型別錯誤。 |
+| `bun run structure:check` | 0 | `structure/ SSOT checks passed`。 |
+| `pwsh -NoProfile -File tools/dev_check.ps1` | 0 | fork-hygiene 36 pass、0 fail；10 份文件、0 份斷鏈；`WINDOWS DEV CHECK GREEN`。fork-hygiene 的顯示耗時含等待整套測試鎖。 |
+| `bun install --frozen-lockfile`、`bun run build`（`docs-site/`） | 0、0 | 147 pages、20705 internal links；`[build] Complete!`。 |
+| `bun tools/check-upstream-updates.ts --strict --output .tmp/upstream-review-report.md` | 1 | `209 upstream commit(s) require review.`；沒有新 PR／platform issue。scalar 水位保持，理由見 `docs/fork/UPSTREAM.md` 同日區段。 |
+| `bun run test` | 255（人工中止，incomplete） | 前三批 exit 0：298＋262＋398＝958 pass、0 fail，48 檔，共 510.5 秒；第 4 批中止，完整 2622 檔／162 批及串行 lane 並未跑完。結尾為 `error: script "test" exited with code 255`。 |
+
+完整套件採 repo 的資源例外：僅前三批就耗時 510.5 秒，相較五檔獨立修正成本不成比例，故保留已通過批次，採用聚焦回歸與 fork gate。沒有把中止改稱成功，也沒有縮短測試器的 600 秒單批／120 分鐘整體時限。廣域產品測試覆蓋仍有限制，不能據此宣稱 stable 整版驗收完成。
+
+逐檔安全審查：ACL barrier 沒有被繞過；timeout 回傳 false 而不回復，非 timeout 錯誤仍拋出；CLI／management apply 與 native toggle 三個呼叫點保留既有 mode persistence、changed 判斷、權限與 transition 邊界。其餘 fork overlay 未重放。原作者 trailer 由上游 commit 取得並保留在採用程式碼的提交訊息。

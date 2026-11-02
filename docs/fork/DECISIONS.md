@@ -758,3 +758,22 @@ Windows 指定 issue 複查（讀取 issue 本文與維護者留言）：
 - [#7771](https://github.com/lidge-jun/opencodex/issues/7771)：仍 open。#7973（db7bdc5e3d）只完成拒絕原因診斷；Task Scheduler wrapper 存活／重啟與 Desktop taking-over 死路仍未解，不能記為已修復。
 - [#7808](https://github.com/lidge-jun/opencodex/issues/7808)：closed，#7824（07161c5b95）在 dev 拒絕 Windows 無磁碟代號根路徑；尚未整合至本 fork 的 v2.93.0 基底。
 - [#7810](https://github.com/lidge-jun/opencodex/issues/7810)：closed；#7823（95cfa30ec7）修 long-TEMP recovery，#7852（fb22d055e0）隔離 Windows Known Folder fixture。上游已完整修復，尚待 stable 整合進 fork；不再沿用「純環境性失敗」歸因。
+
+
+## 2026-11-03：採用 #7781 的 first-party rollback 逾時回報
+
+來源：上游公開 commit `dd8bf1d657577c889169b8cb34afd6ff28341284`（JUN，#7781）。僅採用其完整五檔 diff，不重放整版產品或 fork overlay；commit 清冊與 scalar 水位限制見 `UPSTREAM.md` 同日區段。
+
+| 安全邊界檔案 | 判定 |
+| --- | --- |
+| `src/claude/desktop-first-party.ts` | 採用 `rollbackDesktopFirstPartySettled`：仍先等既有 ACL barrier；只有 `WindowsSecretAclSettleTimeoutError` 映成 false，timeout 不執行回復；其他錯誤繼續拋出。不讀取或記錄憑證。 |
+| `src/cli/claude-desktop.ts` | 僅把 gateway cleanup 失敗後的回復入口換成 helper；保留 changed 判斷與 mode marker 保存，回報既有 rollback did not complete 警告。其他 ACL barrier 呼叫保留。 |
+| `src/server/management/agent-settings-routes.ts` | 同步 management apply 的回復入口與 dynamic import；保留 body size／JSON 驗證、權限、transition lock 與 mode persistence。其他 first-party rollback 的既有 catch 不變。 |
+| `src/server/management/native-integration-routes.ts` | 同步 native toggle 回復入口，timeout 走既有 postCommitRefusal 500，而非泛用錯誤；保留 cleanup、ownership 與使用者同意邊界。 |
+| `tests/claude-integration/claude-intercept-acl-barrier.test.ts` | 採用 timeout 不執行、非 timeout 錯誤不吞掉、成功執行且傳回結果的測試，以及 model-defaults barrier-entry 握手；不放寬時間限制。 |
+
+本區段不修改 workflow、更新來源、語系、Cargo 或 provider 行為；Windows 與隱私護欄沿用。上游版本開線 #7795 已在四個版本欄位具備，判 skip，避免覆蓋 fork updater／依賴安全差異。沒有新增 release tag，產品整合 tag 仍為 v2.93.0。
+
+採用原作者程式碼的提交須保留：
+
+上游 #7781 的 JUN Co-authored-by trailer（由 `git show --format=full dd8bf1d65` 取得；保留在提交訊息，不寫入產品文件）。

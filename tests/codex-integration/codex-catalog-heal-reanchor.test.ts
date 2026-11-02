@@ -1,3 +1,4 @@
+import { canFileSymlink } from "../helpers/file-symlink";
 import { afterEach, expect, spyOn, test } from "bun:test";
 import * as fs from "node:fs";
 import { tmpdir } from "node:os";
@@ -17,7 +18,7 @@ afterEach(() => {
   for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true, force: true });
 });
 
-test("a leaf symlink retargeted before native resolution stays unknown on every platform", () => {
+test.skipIf(!canFileSymlink)("a leaf symlink retargeted before native resolution stays unknown on every platform", () => {
   const root = fixture(), a = join(root, "a.json"), b = join(root, "b.json"), alias = join(root, "alias.json");
   fs.writeFileSync(a, "A");
   fs.writeFileSync(b, "B");
@@ -41,7 +42,7 @@ test("a leaf symlink retargeted before native resolution stays unknown on every 
   expect(relation).toBe("unknown");
 });
 
-test.each([false, true])("a proven selected publication reanchors when the obsolete target is dangling (released=%s)", async released => {
+test.skipIf(!canFileSymlink).each([false, true])("a proven selected publication reanchors when the obsolete target is dangling (released=%s)", async released => {
   const root = fixture(), oldPath = join(root, "old.json"), newPath = join(root, "new.json");
   const full = { models: [{ slug: "ark/a", description: "Routed via opencodex → ark/a (owner)." }] };
   fs.writeFileSync(oldPath, JSON.stringify(full));
@@ -105,7 +106,7 @@ test.each(["entry", "parent"] as const)("native %s evidence is revalidated on ev
   } finally { for (const spy of spies) spy.mockRestore(); }
 });
 
-test("native link observations and revalidation share the 64-call budget", () => {
+test.skipIf(!canFileSymlink)("native link observations and revalidation share the 64-call budget", () => {
   const root = fixture(), path = join(root, "catalog.json");
   fs.writeFileSync(path, "catalog");
   let alias = path;
@@ -128,7 +129,7 @@ test("native link observations and revalidation share the 64-call budget", () =>
   } finally { for (const spy of spies) spy.mockRestore(); }
 });
 
-test.each([false, true])("an unreadable selected publication preserves uncertainty and release fences (released=%s)", async released => {
+test.skipIf(!canFileSymlink).each([false, true])("an unreadable selected publication preserves uncertainty and release fences (released=%s)", async released => {
   const root = fixture(), oldPath = join(root, "old.json"), newPath = join(root, "new.json");
   const full = JSON.stringify({ models: [{ slug: "ark/a", description: "Routed via opencodex → ark/a (owner)." }] });
   fs.writeFileSync(oldPath, full);

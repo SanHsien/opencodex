@@ -1,3 +1,4 @@
+import { sameFileIdentity } from "../lib/file-identity";
 import { realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
@@ -50,7 +51,7 @@ function sameFile(left: string, right: string): boolean {
   try {
     const a = statSync(left, { bigint: true });
     const b = statSync(right, { bigint: true });
-    return a.ino !== 0n && a.dev === b.dev && a.ino === b.ino;
+    return a.ino !== 0n && sameFileIdentity(a, b);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
     throw new ClientPathError("Cannot verify Gentle Shell and Pi catalog identities.");

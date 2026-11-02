@@ -1,3 +1,4 @@
+import { sameFileIdentity, lstatFileIdentity, fstatFileIdentity, type IdentityStats } from "../lib/file-identity";
 import { randomUUID } from "node:crypto";
 import {
   closeSync,
@@ -10,7 +11,6 @@ import {
   rmdirSync,
   unlinkSync,
   writeFileSync,
-  type Stats,
 } from "node:fs";
 import { join } from "node:path";
 import { getConfigDir } from "../config";
@@ -34,7 +34,7 @@ interface ShimRestoreLockRecord {
 interface ShimRestoreLockSnapshot {
   record: ShimRestoreLockRecord;
   ownerPath: string;
-  lockIdentity: Pick<Stats, "dev" | "ino">;
+  lockIdentity: Pick<IdentityStats, "dev" | "ino">;
   fingerprint: ShimPathFingerprint;
 }
 
@@ -42,15 +42,13 @@ function restoreLockPath(): string {
   return join(getConfigDir(), "codex-shim.autorestore.lock");
 }
 
-function sameFileIdentity(left: Pick<Stats, "dev" | "ino">, right: Pick<Stats, "dev" | "ino">): boolean {
-  return left.dev === right.dev && left.ino === right.ino;
-}
+
 
 function readShimRestoreLockSnapshot(path: string): ShimRestoreLockSnapshot | null {
-  let lockIdentity: Stats;
+  let lockIdentity: IdentityStats;
   let entries: string[];
   try {
-    lockIdentity = lstatSync(path);
+    lockIdentity = lstatFileIdentity(path);
     if (!lockIdentity.isDirectory()) return null;
     entries = readdirSync(path);
   } catch {
@@ -66,7 +64,7 @@ function readShimRestoreLockSnapshot(path: string): ShimRestoreLockSnapshot | nu
       || typeof value.pid !== "number" || !Number.isSafeInteger(value.pid) || value.pid <= 0
       || typeof value.createdAt !== "number" || !Number.isFinite(value.createdAt)) return null;
     if (entries[0] !== `${value.token}.json`) return null;
-    const currentLockIdentity = lstatSync(path);
+    const currentLockIdentity = lstatFileIdentity(path);
     if (!currentLockIdentity.isDirectory() || !sameFileIdentity(lockIdentity, currentLockIdentity)) return null;
     return {
       record: value as ShimRestoreLockRecord,
@@ -112,7 +110,7 @@ function tryAcquireShimRestoreLock(beforeStaleDelete?: () => void): ShimRestoreL
   const path = restoreLockPath();
   for (let attempt = 0; attempt < 2; attempt += 1) {
     let fd: number | null = null;
-    let identity: Stats | null = null;
+    let identity: IdentityStats | null = null;
     let createdDirectory = false;
     const record: ShimRestoreLockRecord = {
       version: 1,
@@ -125,9 +123,9 @@ function tryAcquireShimRestoreLock(beforeStaleDelete?: () => void): ShimRestoreL
       mkdirSync(path, { mode: 0o700 });
       createdDirectory = true;
       fd = openSync(ownerPath, "wx", 0o600);
-      identity = fstatSync(fd);
+      identity = fstatFileIdentity(fd);
       writeFileSync(fd, `${JSON.stringify(record)}\n`, "utf8");
-      identity = fstatSync(fd);
+      identity = fstatFileIdentity(fd);
       let released = false;
       return {
         release(): void {

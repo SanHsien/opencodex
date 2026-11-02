@@ -1,8 +1,8 @@
+import { sameFileInode, storedFileIdentity, validStoredFileIdentity, type FileIdentity, sameFileIdentity, statFileIdentity, lstatFileIdentity, fstatFileIdentity, type IdentityStats } from "../lib/file-identity";
 import { randomUUID } from "node:crypto";
 import {
   chmodSync, closeSync, fstatSync, linkSync, lstatSync, mkdirSync, openSync,
-  realpathSync, renameSync, rmdirSync, statSync, unlinkSync, writeFileSync, type Stats,
-} from "node:fs";
+  realpathSync, renameSync, rmdirSync, statSync, unlinkSync, writeFileSync, } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { getConfigDir } from "../config";
 import { durableBunRuntime } from "../lib/bun-runtime";
@@ -41,19 +41,19 @@ export function overlayPaths(configDir = getConfigDir()): { wrapper: string; env
 export function overlayActivationHint(configDir = getConfigDir()): string {
   return `For sh/bash/zsh, run . ${shQuote(overlayPaths(configDir).env)} and add that line after other PATH setup in your shell startup file. Absolute Codex paths and GUI launchers bypass this shim.`;
 }
-function sameId(left: OverlayIdentity | null | undefined, right: OverlayIdentity | null | undefined): boolean {
-  return !!left && !!right && left.dev === right.dev && left.ino === right.ino;
+function sameId(left: OverlayIdentity | FileIdentity | null | undefined, right: OverlayIdentity | FileIdentity | null | undefined): boolean {
+  return !!left && !!right && sameFileIdentity(left, right);
 }
 /** APFS device numbers can change after reboot; persisted ownership still requires the same inode. */
-function samePersistedInode(current: OverlayIdentity, recorded: OverlayIdentity | undefined): boolean {
-  return !!recorded && current.ino === recorded.ino;
+function samePersistedInode(current: OverlayIdentity | FileIdentity, recorded: OverlayIdentity | undefined): boolean {
+  return !!recorded && sameFileInode(current, recorded);
 }
-function lexical(path: string): Stats | null {
-  try { return lstatSync(path); }
+function lexical(path: string): IdentityStats | null {
+  try { return lstatFileIdentity(path); }
   catch (error) { if (fileErrorCode(error) === "ENOENT") return null; throw error; }
 }
 /** Name the path and the failed check; a group/world-writable owned file gets the chmod that fixes it. */
-function untrustedArtifact(path: string, stat: Stats): Error {
+function untrustedArtifact(path: string, stat: IdentityStats): Error {
   const prefix = `Private Codex artifact is not an owned regular file: ${path}`;
   if (stat.isSymbolicLink() || !stat.isFile()) return new Error(`${prefix} is not a regular file`);
   if (stat.uid !== process.getuid?.()) return new Error(`${prefix} is owned by uid ${stat.uid}`);
@@ -68,14 +68,14 @@ function snapshot(path: string): Snapshot | null {
   }
   const bounded = readBoundedRegularFile(path, PRIVATE_FILE_MAX_BYTES);
   if (!bounded || "warning" in bounded) throw new Error("Private Codex artifact is unreadable or changed");
-  const after = lstatSync(path);
+  const after = lstatFileIdentity(path);
   if (!sameId(before, after) || before.mode !== after.mode || before.uid !== after.uid
     || before.size !== after.size || before.mtimeMs !== after.mtimeMs || before.ctimeMs !== after.ctimeMs
     || !sameId(bounded.stat, after) || bounded.stat.mode !== after.mode || bounded.stat.uid !== after.uid
     || bounded.stat.size !== after.size || bounded.stat.mtimeMs !== after.mtimeMs || bounded.stat.ctimeMs !== after.ctimeMs) {
     throw new Error("Private Codex artifact changed");
   }
-  return { identity: { dev: after.dev, ino: after.ino }, mode: after.mode & 0o7777,
+  return { identity: storedFileIdentity(after), mode: after.mode & 0o7777,
     content: bounded.content, uid: after.uid, gid: after.gid };
 }
 function unchanged(path: string, expected: Snapshot | null): boolean {
@@ -95,20 +95,20 @@ function namespace(create: boolean): () => void {
     mkdirSync(home, { recursive: true, mode: 0o700 });
   }
   const physical = realpathSync.native(home);
-  const root = statSync(home);
+  const root = statFileIdentity(home);
   if (!root.isDirectory() || root.uid !== process.getuid?.() || (root.mode & 0o022)) {
     throw new Error("Private Codex home must be owned by the current user and not group/world writable");
   }
   const bin = join(home, "bin");
   if (!lexical(bin) && create) mkdirSync(bin, { mode: 0o700 });
   const child = lexical(bin);
-  const trusted = (value: Stats): boolean => value.isDirectory()
+  const trusted = (value: IdentityStats): boolean => value.isDirectory()
     && value.uid === process.getuid?.() && (value.mode & 0o022) === 0;
   if (!trusted(root) || (child && (!trusted(child) || child.isSymbolicLink()))) {
     throw new Error("Private Codex home/bin must be owned by the current user and not group/world writable");
   }
   return () => {
-    if (realpathSync.native(home) !== physical || !sameId(root, statSync(home)) || !trusted(statSync(home))) {
+    if (realpathSync.native(home) !== physical || !sameId(root, statFileIdentity(home)) || !trusted(statFileIdentity(home))) {
       throw new Error("Private Codex home changed during operation");
     }
     const current = lexical(bin);
@@ -212,7 +212,7 @@ export function overlayDiagnostic(state: ShimState): CodexShimDiagnostic {
 /** Capture the created inode from its descriptor, never by trusting a later pathname read. */
 function stage(path: string, content: string, mode: number): Snapshot {
   const fd = openSync(path, "wx", 0o600);
-  const created = fstatSync(fd);
+  const created = fstatFileIdentity(fd);
   try {
     writeFileSync(fd, content, "utf8");
     if (!sameId(created, lexical(path))) throw new Error("Staged Codex file replaced");
@@ -236,7 +236,7 @@ function journalPath(): string { return join(getConfigDir(), JOURNAL_NAME); }
 function validSnapshot(value: unknown): value is Snapshot {
   if (!value || typeof value !== "object") return false;
   const item = value as Snapshot;
-  return !!item.identity && Number.isSafeInteger(item.identity.dev) && Number.isSafeInteger(item.identity.ino)
+  return !!item.identity && validStoredFileIdentity(item.identity)
     && Number.isInteger(item.mode) && item.mode >= 0 && item.mode <= 0o7777 && typeof item.content === "string"
     // Older journals have no owner fields; snapshot() still requires current-user ownership.
     && (item.uid === undefined || Number.isSafeInteger(item.uid) && item.uid >= 0)
@@ -337,7 +337,7 @@ function publishOverlay(launcher: string, state: OverlayState | null, check: () 
     add(statePath(), JSON.stringify(nextState, null, 2) + "\n", 0o600, currentState);
     const probeDir = join(dirname(paths.wrapper), `.probe-${token}`);
     mkdirSync(probeDir, { mode: 0o700 });
-    const probeIdentity = lstatSync(probeDir);
+    const probeIdentity = lstatFileIdentity(probeDir);
     const probeWrapper = join(probeDir, "codex");
     let unsafe: ReturnType<typeof probeUnixShimFiles>;
     try {

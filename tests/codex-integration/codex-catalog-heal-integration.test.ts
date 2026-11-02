@@ -1,3 +1,4 @@
+import { canFileSymlink } from "../helpers/file-symlink";
 import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -160,7 +161,7 @@ test.each([undefined, Promise.resolve(true)])("an untyped guard returning %p can
   expect(existsSync(join(codexHome, "models_cache.json"))).toBe(false);
 });
 
-test("unknown expected-target identity prevents every catalog and cache write", async () => {
+test.skipIf(!canFileSymlink)("unknown expected-target identity prevents every catalog and cache write", async () => {
   let expectedCatalogPath = catalogPath;
   for (let i = 0; i < 20; i += 1) {
     const next = join(codexHome, `expected-${i}.json`);

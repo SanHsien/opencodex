@@ -1,3 +1,4 @@
+import { sameFileIdentity, fileIdentityKey } from "../../lib/file-identity";
 import { randomBytes } from "node:crypto";
 import { closeSync, constants, fchmodSync, fstatSync, lstatSync, mkdirSync, openSync, readSync, renameSync, unlinkSync, writeFileSync, type BigIntStats } from "node:fs";
 import { basename, dirname, join } from "node:path";
@@ -33,7 +34,7 @@ function owned(stat: BigIntStats, directory = false, mode: FileMode = 0o600): vo
 function same(path: string, expected: BigIntStats, directory = false, mode: FileMode = 0o600): BigIntStats {
   const stat = lstatSync(path, { bigint: true });
   owned(stat, directory, mode);
-  if (stat.dev !== expected.dev || stat.ino !== expected.ino || stat.ino === 0n) throw unsafe();
+  if (!sameFileIdentity(stat, expected) || stat.ino === 0n) throw unsafe();
   return stat;
 }
 function inspect(path: string, mode: FileMode, checkAcl: AclCheck, sqliteSidecar = false): BigIntStats | null {
@@ -79,7 +80,7 @@ function readPinned(path: string, expected: BigIntStats, mode: FileMode, assertD
   try {
     const opened = fstatSync(fd, { bigint: true });
     owned(opened, false, mode);
-    if (opened.dev !== expected.dev || opened.ino !== expected.ino || opened.size > BigInt(MAX_PEM_BYTES)) throw unsafe();
+    if (!sameFileIdentity(opened, expected) || opened.size > BigInt(MAX_PEM_BYTES)) throw unsafe();
     checkAcl(path, opened);
     same(path, opened, false, mode);
     const bytes = Buffer.alloc(MAX_PEM_BYTES + 1);
@@ -136,7 +137,7 @@ function stage(path: string, contents: string, mode: FileMode, assertDirectory: 
         same(temp, created, false, mode);
         checkAcl(temp, created);
         const current = inspect(path, mode, checkAcl);
-        if (previous ? !current || previous.dev !== current.dev || previous.ino !== current.ino : current !== null) throw unsafe();
+        if (previous ? !current || !sameFileIdentity(previous, current) : current !== null) throw unsafe();
         renameSync(temp, path);
         if (current) checkAcl.forget(current);
         removed = true;
@@ -170,7 +171,7 @@ export function withLocalCaPublication<T>(dir: string, lockName: string, work: (
   const checkAcl: AclCheck = Object.assign((path: string, stat: BigIntStats, level: AclLevel = "private") => {
     if (!windowsSecretAclApplies()) return;
     const identity = same(path, stat, stat.isDirectory());
-    const key = `${identity.dev}:${identity.ino}:${identity.birthtimeNs}`;
+    const key = `${fileIdentityKey(identity)}:${identity.birthtimeNs}`;
     const prior = verified.get(key);
     if (prior !== undefined && strength[prior] >= strength[level]) return;
     assertLocalCaWindowsAcl(path, level);
@@ -178,7 +179,7 @@ export function withLocalCaPublication<T>(dir: string, lockName: string, work: (
     verified.set(key, level);
   }, {
     // An identity this publication unlinked or replaced is retired; a recycled id must be re-inspected.
-    forget(stat: BigIntStats): void { verified.delete(`${stat.dev}:${stat.ino}:${stat.birthtimeNs}`); },
+    forget(stat: BigIntStats): void { verified.delete(`${fileIdentityKey(stat)}:${stat.birthtimeNs}`); },
   });
   const directory = lstatSync(dir, { bigint: true });
   owned(directory, true);
@@ -187,7 +188,7 @@ export function withLocalCaPublication<T>(dir: string, lockName: string, work: (
   try {
     if (dirFd !== null) {
       const opened = fstatSync(dirFd, { bigint: true });
-      if (opened.dev !== directory.dev || opened.ino !== directory.ino) throw unsafe();
+      if (!sameFileIdentity(opened, directory)) throw unsafe();
       owned(opened, true);
     } else {
       let needsHardening = created;
@@ -228,7 +229,7 @@ export function withLocalCaPublication<T>(dir: string, lockName: string, work: (
       lockFd = openSync(lockPath, constants.O_RDONLY | NOFOLLOW | NONBLOCK);
       const opened = fstatSync(lockFd, { bigint: true });
       owned(opened);
-      if (opened.dev !== existing.dev || opened.ino !== existing.ino) throw unsafe();
+      if (!sameFileIdentity(opened, existing)) throw unsafe();
     }
     const lock = fstatSync(lockFd, { bigint: true });
     assertEntries();

@@ -1,3 +1,5 @@
+import { fileIdentityKey } from "../lib/file-identity";
+// Exact identity boundary: dev/ino doubles are legacy protocol metadata only; fileId from bigint authorizes equality.
 import { realpathSync, statSync, type BigIntStats } from "node:fs";
 import { readClientConnectionState } from "../client/state";
 import { readConfigDiagnostics } from "../config/diagnostics";
@@ -26,7 +28,7 @@ function physicalDirectory(path: string, stat: (path: string) => UpdateRestartDi
   const canonical = realpathSync.native(path);
   const observed = stat(canonical);
   if (!observed.isDirectory()) throw new Error("update_restart_home_unverified");
-  return { path: canonical, dev: Number(observed.dev), ino: Number(observed.ino), fileId: `${observed.dev}:${observed.ino}` };
+  return { path: canonical, dev: Number(observed.dev), ino: Number(observed.ino), fileId: fileIdentityKey(observed) };
 }
 
 export interface UpdateRestartHomeDeps {

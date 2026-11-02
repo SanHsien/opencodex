@@ -1,3 +1,4 @@
+import { sameFileIdentity } from "../lib/file-identity";
 import { randomUUID } from "node:crypto";
 import {
   closeSync,
@@ -13,7 +14,7 @@ import {
   rmdirSync,
   unlinkSync,
   writeFileSync,
-  type Stats,
+  type BigIntStats,
   constants as fsConstants,
 } from "node:fs";
 import { basename, dirname, join } from "node:path";
@@ -34,8 +35,8 @@ interface ServiceStateLockRecord {
 interface ServiceStateLockSnapshot {
   readonly record: ServiceStateLockRecord;
   readonly ownerPath: string;
-  readonly lockIdentity: Pick<Stats, "dev" | "ino">;
-  readonly ownerIdentity: Pick<Stats, "dev" | "ino" | "size">;
+  readonly lockIdentity: Pick<BigIntStats, "dev" | "ino">;
+  readonly ownerIdentity: Pick<BigIntStats, "dev" | "ino" | "size">;
   readonly mtimeMs: number;
 }
 
@@ -74,10 +75,10 @@ function lockOwnerProcessAlive(pid: number): boolean {
 }
 
 function sameIdentity(
-  left: Pick<Stats, "dev" | "ino">,
-  right: Pick<Stats, "dev" | "ino">,
+  left: Pick<BigIntStats, "dev" | "ino">,
+  right: Pick<BigIntStats, "dev" | "ino">,
 ): boolean {
-  return left.dev === right.dev && left.ino === right.ino;
+  return sameFileIdentity(left, right);
 }
 
 function ownerFileName(record: ServiceStateLockRecord): string {
@@ -92,10 +93,10 @@ function parseOwnerFileName(name: string): { pid: number; pathToken: string } | 
 }
 
 function readLockSnapshot(lockPath: string): ServiceStateLockSnapshot | null {
-  let lockIdentity: Stats;
+  let lockIdentity: BigIntStats;
   let entries: string[];
   try {
-    lockIdentity = lstatSync(lockPath);
+    lockIdentity = lstatSync(lockPath, { bigint: true });
     if (!lockIdentity.isDirectory()) return null;
     entries = readdirSync(lockPath);
   } catch {
@@ -105,16 +106,16 @@ function readLockSnapshot(lockPath: string): ServiceStateLockSnapshot | null {
   const ownerPath = join(lockPath, entries[0]!);
   try {
     // lstat rejects a symlinked owner record; dev/ino rejects a swap before open.
-    const lexical = lstatSync(ownerPath);
+    const lexical = lstatSync(ownerPath, { bigint: true });
     if (!lexical.isFile() || lexical.size > 4096) return null;
     // O_NOFOLLOW/O_NONBLOCK are undefined on Windows (?? 0); on POSIX a raced-in FIFO cannot block the open.
     const fd = openSync(ownerPath, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0) | (fsConstants.O_NONBLOCK ?? 0));
-    let ownerIdentity: Stats;
+    let ownerIdentity: BigIntStats;
     let value: Partial<ServiceStateLockRecord>;
     try {
-      ownerIdentity = fstatSync(fd);
+      ownerIdentity = fstatSync(fd, { bigint: true });
       if (!ownerIdentity.isFile() || ownerIdentity.size > 4096
-        || ownerIdentity.dev !== lexical.dev || ownerIdentity.ino !== lexical.ino) return null;
+        || !sameFileIdentity(ownerIdentity, lexical)) return null;
       value = JSON.parse(readFileSync(fd, "utf8")) as Partial<ServiceStateLockRecord>;
     } finally {
       closeSync(fd);
@@ -125,12 +126,12 @@ function readLockSnapshot(lockPath: string): ServiceStateLockSnapshot | null {
       || typeof value.createdAt !== "number" || !Number.isFinite(value.createdAt)) return null;
     const record = value as ServiceStateLockRecord;
     if (entries[0] !== ownerFileName(record)) return null;
-    const currentLock = lstatSync(lockPath);
-    const currentOwner = lstatSync(ownerPath);
+    const currentLock = lstatSync(lockPath, { bigint: true });
+    const currentOwner = lstatSync(ownerPath, { bigint: true });
     if (!currentLock.isDirectory() || !sameIdentity(lockIdentity, currentLock)
       || !currentOwner.isFile() || !sameIdentity(ownerIdentity, currentOwner)
       || currentOwner.size !== ownerIdentity.size) return null;
-    return { record, ownerPath, lockIdentity, ownerIdentity, mtimeMs: ownerIdentity.mtimeMs };
+    return { record, ownerPath, lockIdentity, ownerIdentity, mtimeMs: Number(ownerIdentity.mtimeMs) };
   } catch {
     return null;
   }
@@ -147,16 +148,16 @@ function sameLock(left: ServiceStateLockSnapshot, right: ServiceStateLockSnapsho
 
 function parsedIncompleteOwner(lockPath: string): { ownerPath: string | null; pid: number | null; mtimeMs: number } | null {
   try {
-    const lock = lstatSync(lockPath);
+    const lock = lstatSync(lockPath, { bigint: true });
     if (!lock.isDirectory()) return null;
     const entries = readdirSync(lockPath);
-    if (entries.length === 0) return { ownerPath: null, pid: null, mtimeMs: lock.mtimeMs };
+    if (entries.length === 0) return { ownerPath: null, pid: null, mtimeMs: Number(lock.mtimeMs) };
     if (entries.length !== 1) return null;
     const parsed = parseOwnerFileName(entries[0]!);
     if (!parsed) return null;
     const ownerPath = join(lockPath, entries[0]!);
-    const owner = lstatSync(ownerPath);
-    return owner.isFile() ? { ownerPath, pid: parsed.pid, mtimeMs: owner.mtimeMs } : null;
+    const owner = lstatSync(ownerPath, { bigint: true });
+    return owner.isFile() ? { ownerPath, pid: parsed.pid, mtimeMs: Number(owner.mtimeMs) } : null;
   } catch {
     return null;
   }

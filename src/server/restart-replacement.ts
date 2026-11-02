@@ -1,3 +1,4 @@
+import { sameFileIdentity } from "../lib/file-identity";
 /**
  * Spawning the detached `ocx start` that replaces this process: the parent side of a restart handoff.
  *
@@ -127,7 +128,7 @@ export function emptyRestartHandoffLogIfFull(path: string, now: () => number = D
     // Truncate only the object the lstat described: Windows has no O_NOFOLLOW, so a link swapped in
     // between the lstat and the open would otherwise be emptied (CodeQL js/file-system-race).
     const opened = fstatSync(fd, { bigint: true });
-    if (!opened.isFile() || opened.dev !== stat.dev || opened.ino !== stat.ino) return false;
+    if (!opened.isFile() || !sameFileIdentity(opened, stat)) return false;
     ftruncateSync(fd, 0);
     writeSync(fd, `[${new Date(now()).toISOString()}] log emptied at the ${RESTART_HANDOFF_LOG_MAX_BYTES / 1024} KiB cap\n`);
     return true;

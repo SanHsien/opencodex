@@ -1,3 +1,4 @@
+import { sameFileIdentity } from "./file-identity";
 import { createHash } from "node:crypto";
 import { closeSync, constants, fchmodSync, fstatSync, fsyncSync, lstatSync, openSync, readFileSync, readSync, unlinkSync } from "node:fs";
 import { readBoundedRegularFile, type BoundedFileRefusal } from "./bounded-file-read";
@@ -105,7 +106,7 @@ export function hardenReusedServiceApiToken(
       } catch {
         return { kind: "unsafe", reason: "service token path could not be inspected" };
       }
-      if (entry.isSymbolicLink() || !entry.isFile() || entry.dev !== stat.dev || entry.ino !== stat.ino) {
+      if (entry.isSymbolicLink() || !entry.isFile() || !sameFileIdentity(entry, stat)) {
         return { kind: "unsafe", reason: "service token path is not a bounded regular file" };
       }
     }
@@ -300,7 +301,7 @@ export function loadServiceTokenFromFile(env: Record<string, string | undefined>
     if (!stat.isFile() || stat.size > BigInt(MAX_SERVICE_API_TOKEN_BYTES)) return null;
     if (entry) {
       const after = lstatSync(file, { bigint: true });
-      if (after.isSymbolicLink() || after.dev !== stat.dev || after.ino !== stat.ino || entry.ino !== stat.ino || entry.dev !== stat.dev) return null;
+      if (after.isSymbolicLink() || !sameFileIdentity(after, stat) || !sameFileIdentity(entry, stat)) return null;
     }
     const buffer = Buffer.alloc(MAX_SERVICE_API_TOKEN_BYTES + 1);
     let length = 0;

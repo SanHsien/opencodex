@@ -1,3 +1,4 @@
+import { fileIdentityKey } from "../../lib/file-identity";
 import { readFileSync, statSync, type BigIntStats } from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
 import type { UsageIdentity } from './usage-controller';
@@ -10,7 +11,7 @@ const equal = (a: UsageIdentity, b: UsageIdentity) => a.id === b.id && a.userId 
 export function createNativeIdentityReader(authPath: string, upstreamFetch: typeof fetch = fetch) {
   const readerId = randomUUID(); let generation = 0, previousSnapshot: string | undefined;
   const stamp = (value: BigIntStats) =>
-    `${value.dev}:${value.ino}:${value.size}:${value.mtimeNs}:${value.ctimeNs}`;
+    `${fileIdentityKey(value)}:${value.size}:${value.mtimeNs}:${value.ctimeNs}`;
   const readCredential = (): Credential => {
     const before = statSync(authPath, { bigint: true });
     if (before.size > 1048576n) throw new Error('Unexpected native auth size');

@@ -1,3 +1,4 @@
+import { fileIdentityKey, lstatFileIdentity, fstatFileIdentity, type IdentityStats } from "../../lib/file-identity";
 import {
   closeSync,
   constants as fsConstants,
@@ -11,7 +12,6 @@ import {
   rmSync,
   statSync,
   writeSync,
-  type Stats,
 } from "node:fs";
 import { dirname, join, posix, relative, resolve, sep } from "node:path";
 import { randomBytes } from "node:crypto";
@@ -35,22 +35,22 @@ interface TrustedScratchDir {
 // inside producer-writable scratch nor its age grants later deletion authority.
 
 /** Require stats to describe a regular file, not a symlink or special node. */
-function assertRegularFile(stats: Stats, label: string): void {
+function assertRegularFile(stats: IdentityStats, label: string): void {
   if (!stats.isFile() || stats.isSymbolicLink() || stats.isDirectory() || stats.isFIFO() || stats.isSocket() || stats.isCharacterDevice() || stats.isBlockDevice()) {
     throw new FabricTaskError(`${label} must be a regular file`, "sandbox_violation", "harness");
   }
 }
 
 /** Require stats to describe a real directory, not a symlink. */
-function assertRealDirectory(stats: Stats, label: string): void {
+function assertRealDirectory(stats: IdentityStats, label: string): void {
   if (stats.isSymbolicLink() || !stats.isDirectory()) {
     throw new FabricTaskError(`${label} must be a real directory`, "sandbox_violation", "harness");
   }
 }
 
 /** Stable device/inode identity string for a filesystem node. */
-function identityOf(stats: Stats): string {
-  return `${stats.dev}:${stats.ino}`;
+function identityOf(stats: IdentityStats): string {
+  return fileIdentityKey(stats);
 }
 
 /** Whether the host supports O_NOFOLLOW for scratch open operations. */
@@ -73,7 +73,7 @@ function assertScratchName(name: string): void {
 
 /** Confirm the scratch root path still refers to the same directory inode. */
 function revalidateScratchDir(dir: TrustedScratchDir): void {
-  const stats = lstatSync(dir.path);
+  const stats = lstatFileIdentity(dir.path);
   assertRealDirectory(stats, "scratch dir");
   if (identityOf(stats) !== dir.identity) {
     throw new FabricTaskError("scratch directory identity changed", "sandbox_violation", "harness");
@@ -93,12 +93,12 @@ function openAtScratch(dir: TrustedScratchDir, name: string, flags: number, mode
   assertScratchName(name);
   const path = childScratchPath(dir, name);
   const fd = openSync(path, openFlags(flags), mode);
-  const opened = fstatSync(fd);
+  const opened = fstatFileIdentity(fd);
   if (expectDirectory) {
     assertRealDirectory(opened, name);
   } else {
     assertRegularFile(opened, name);
-    const pathEntry = lstatSync(path);
+    const pathEntry = lstatFileIdentity(path);
     if (identityOf(opened) !== identityOf(pathEntry)) {
       throw new FabricTaskError("scratch path redirection detected", "sandbox_violation", "harness");
     }
@@ -115,7 +115,7 @@ function openTrustedScratchRoot(scratchRoot: string): TrustedScratchDir {
   } else {
     fd = openSync(abs, fsConstants.O_RDONLY);
   }
-  const stats = fstatSync(fd);
+  const stats = fstatFileIdentity(fd);
   assertRealDirectory(stats, "scratch root");
   return { path: abs, fd, identity: identityOf(stats) };
 }
@@ -149,7 +149,7 @@ function openScratchRelativePath(
           : openFlags(fsConstants.O_RDONLY, true);
         const subFd = openAtScratch(current, part, dirFlags, 0, true);
         intermediateFds.push(subFd);
-        const subStats = fstatSync(subFd);
+        const subStats = fstatFileIdentity(subFd);
         assertRealDirectory(subStats, part);
         current = { path: join(current.path, part), fd: subFd, identity: identityOf(subStats) };
         continue;
@@ -218,7 +218,7 @@ function assertUnderScratchRoot(root: string, target: string): void {
 export function resolveInsideScratch(scratchRoot: string, relativePath: string, opts: { allowMissingFinal?: boolean } = {}): string {
   const safe = assertSafeRelativePosixPath(relativePath);
   const root = resolve(scratchRoot);
-  const rootStats = lstatSync(root);
+  const rootStats = lstatFileIdentity(root);
   assertRealDirectory(rootStats, "scratch root");
 
   let current = root;
@@ -231,7 +231,7 @@ export function resolveInsideScratch(scratchRoot: string, relativePath: string, 
       if (isFinal && opts.allowMissingFinal) return next;
       throw new FabricTaskError(isFinal ? `missing file ${relativePath}` : "missing intermediate directory", "sandbox_violation", "harness");
     }
-    const stats = lstatSync(next);
+    const stats = lstatFileIdentity(next);
     if (stats.isSymbolicLink()) {
       throw new FabricTaskError("symlink rejected", "sandbox_violation", "harness");
     }
@@ -247,7 +247,7 @@ export function resolveInsideScratch(scratchRoot: string, relativePath: string, 
 function ensureScratchRelativeDir(scratchRoot: string, relativeDir: string): void {
   const safe = assertSafeRelativePosixPath(relativeDir);
   const root = resolve(scratchRoot);
-  const rootStats = lstatSync(root);
+  const rootStats = lstatFileIdentity(root);
   assertRealDirectory(rootStats, "scratch root");
   let current = root;
   for (const part of safe.split("/")) {
@@ -261,7 +261,7 @@ function ensureScratchRelativeDir(scratchRoot: string, relativeDir: string): voi
         if (code !== "EEXIST") throw error;
       }
     }
-    const stats = lstatSync(next);
+    const stats = lstatFileIdentity(next);
     if (stats.isSymbolicLink()) {
       throw new FabricTaskError("symlink rejected", "sandbox_violation", "harness");
     }
@@ -339,14 +339,14 @@ export interface WalkedFile {
 /** No-follow walk; rejects symlinks and special files; enforces file/byte budgets. */
 export function walkScratchFiles(scratchRoot: string): WalkedFile[] {
   const root = resolve(scratchRoot);
-  const rootStats = lstatSync(root);
+  const rootStats = lstatFileIdentity(root);
   assertRealDirectory(rootStats, "scratch root");
   const out: WalkedFile[] = [];
   const stack: string[] = [root];
   let aggregateBytes = 0;
   while (stack.length > 0) {
     const current = stack.pop()!;
-    const stats = lstatSync(current);
+    const stats = lstatFileIdentity(current);
     if (stats.isSymbolicLink()) {
       throw new FabricTaskError("symlink rejected", "sandbox_violation", "harness");
     }
@@ -389,7 +389,7 @@ export function readScratchFileUtf8(scratchRoot: string, relativePath: string, m
   try {
     const fd = openScratchRelativePath(trusted, relativePath, openFlags(fsConstants.O_RDONLY, true), 0);
     try {
-      const stats = fstatSync(fd);
+      const stats = fstatFileIdentity(fd);
       assertRegularFile(stats, relativePath);
       if (stats.size > maxBytes) {
         throw new FabricTaskError("file exceeds io budget", "budget_exhausted", "environment");
@@ -424,7 +424,7 @@ export function writeScratchFileUtf8(scratchRoot: string, relativePath: string, 
       FILE_MODE,
     );
     try {
-      const stats = fstatSync(fd);
+      const stats = fstatFileIdentity(fd);
       assertRegularFile(stats, relativePath);
       writeSync(fd, bytes);
     } finally {

@@ -1,3 +1,4 @@
+import { sameFileIdentity } from "./file-identity";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { closeSync, constants, fstatSync, lstatSync, mkdirSync, openSync, readdirSync, readSync, rmdirSync, unlinkSync, writeFileSync, type BigIntStats } from "node:fs";
 import { join } from "node:path";
@@ -20,7 +21,7 @@ function owned(stat: BigIntStats): boolean {
   return process.platform === "win32" || (stat.uid === BigInt(process.getuid!()) && (stat.mode & 0o022n) === 0n);
 }
 function same(a: BigIntStats, b: BigIntStats): boolean {
-  return a.dev === b.dev && a.ino === b.ino && a.ctimeNs === b.ctimeNs;
+  return sameFileIdentity(a, b) && a.ctimeNs === b.ctimeNs;
 }
 function directory(path: string): BigIntStats {
   const stat = lstatSync(path, { bigint: true });
@@ -100,7 +101,7 @@ export function createGuiPairIntent(capability: string, configDir = getConfigDir
     if (!hardenSecretPath(path, { required: true, deadlineMs: 2_000 }).ok) throw new Error("GUI pairing intent ACL refused");
     identity = fstatSync(fd, { bigint: true });
     if (!same(identity, lstatSync(path, { bigint: true })) || !owned(identity)
-      || identity.nlink !== 1n || parent.dev !== directory(dir).dev || parent.ino !== directory(dir).ino) {
+      || identity.nlink !== 1n || !sameFileIdentity(parent, directory(dir))) {
       throw new Error("GUI pairing intent changed during publication");
     }
   } catch (error) {
@@ -131,7 +132,7 @@ export function consumeGuiPairIntent(capability: string | null, proof: string | 
     mkdirSync(consumeLock, { mode: 0o700 });
     consumeLockIdentity = directory(consumeLock);
     const lockedParent = directory(dir);
-    if (parent.dev !== lockedParent.dev || parent.ino !== lockedParent.ino) return false;
+    if (!sameFileIdentity(parent, lockedParent)) return false;
     const before = lstatSync(path, { bigint: true });
     if (!before.isFile() || before.isSymbolicLink() || !owned(before) || before.nlink !== 1n || before.size !== 65n) return false;
     // Do not block on a substituted FIFO. Windows retains descriptor/path identity checks.
@@ -144,7 +145,7 @@ export function consumeGuiPairIntent(capability: string | null, proof: string | 
     if (size !== 65 || !timingSafeEqual(bytes.subarray(0, size), Buffer.from(`${digest(proof)}\n`))) return false;
     const after = fstatSync(fd, { bigint: true });
     if (!same(opened, after) || !same(after, lstatSync(path, { bigint: true }))
-      || parent.dev !== directory(dir).dev || parent.ino !== directory(dir).ino) return false;
+      || !sameFileIdentity(parent, directory(dir))) return false;
     closeSync(fd); fd = undefined;
     // Verify only a matching commitment, with its descriptor closed and lock held.
     // Redemption must never harden an untrusted record into acceptable authority.
@@ -152,7 +153,7 @@ export function consumeGuiPairIntent(capability: string | null, proof: string | 
       { path: dir, directory: true }, { path, directory: false },
     ], WINDOWS_OWNER_ACL_TIMEOUT_MS)) return false;
     const verifiedParent = directory(dir);
-    if (parent.dev !== verifiedParent.dev || parent.ino !== verifiedParent.ino
+    if (!sameFileIdentity(parent, verifiedParent)
       || !same(after, lstatSync(path, { bigint: true }))) return false;
     unlinkSync(path);
     forgetEphemeralSecretPath(path);

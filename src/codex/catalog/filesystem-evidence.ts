@@ -1,3 +1,4 @@
+import { storedFileIdentity } from "../../lib/file-identity";
 import { createHash } from "node:crypto";
 import { readFileSync, realpathSync, statSync } from "node:fs";
 import { basename, dirname, resolve } from "node:path";
@@ -60,7 +61,8 @@ const sessionStates = new WeakMap<object, MutableSessionState>();
 function filesystemIdentity(
   entry: Readonly<{ dev: bigint; ino: bigint }>,
 ): CatalogFilesystemIdentity {
-  return Object.freeze({ volume: String(entry.dev), fileId: String(entry.ino) });
+  const id = storedFileIdentity(entry);
+  return Object.freeze({ volume: String(id.dev), fileId: String(id.ino) });
 }
 
 function sessionState(session: CatalogFilesystemEvidenceSession): MutableSessionState {
@@ -198,7 +200,8 @@ export function readCatalogGatherSource<R extends CatalogSourceRole>(
 function optionalFileIdentity(path: string): Readonly<{ device: string; inode: string }> | null {
   try {
     const entry = statSync(path, { bigint: true });
-    return { device: String(entry.dev), inode: String(entry.ino) };
+    const id = storedFileIdentity(entry);
+    return { device: String(id.dev), inode: String(id.ino) };
   } catch (error) {
     if (isMissing(error)) return null;
     throw error;
@@ -217,7 +220,7 @@ export function captureCatalogGatherTargetIdentity(
   }
   const textualPath = resolve(path);
   const canonicalParent = realpathSync.native(dirname(textualPath));
-  const parent = statSync(canonicalParent, { bigint: true });
+  const parent = storedFileIdentity(statSync(canonicalParent, { bigint: true }));
   return JSON.stringify({
     path: textualPath,
     canonicalParent,

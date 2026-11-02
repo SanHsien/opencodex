@@ -1,3 +1,4 @@
+import { fileIdentityKey, sameFileIdentity, statFileIdentity, lstatFileIdentity, fstatFileIdentity } from "../lib/file-identity";
 import { createHash } from "node:crypto";
 import { closeSync, constants, existsSync, fstatSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, statSync, unlinkSync, writeSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -214,7 +215,7 @@ function readFirstRolloutLine(fd: number): string | null {
 const ROLLOUT_TAIL_WINDOW_BYTES = 1 << 20;
 
 function readRolloutTailCompleteLines(fd: number): string[] | null {
-  const size = Number(fstatSync(fd).size);
+  const size = Number(fstatFileIdentity(fd).size);
   if (!Number.isFinite(size) || size < 0) return null;
   if (size === 0) return [];
   const start = Math.max(0, size - ROLLOUT_TAIL_WINDOW_BYTES);
@@ -288,15 +289,15 @@ function readFirstLineProviderValue(path: string, expectedId: string): string | 
 
 function patchFirstLineProviderInPlace(
   path: string, expectedId: string, provider: string,
-  expectedIdentity: { dev: number | bigint; ino: number | bigint },
+  expectedIdentity: { dev: bigint | bigint; ino: bigint | bigint },
 ): FirstLineProviderResult {
   historyAppendHooks?.beforeFirstLineOpen?.(path);
   const fd = openSync(path, "r+");
   try {
     const assertIdentity = (): void => {
       assertHistoryDescriptorIdentity(path, fd);
-      const held = fstatSync(fd);
-      if (held.dev !== expectedIdentity.dev || held.ino !== expectedIdentity.ino) {
+      const held = fstatFileIdentity(fd);
+      if (!sameFileIdentity(held, expectedIdentity)) {
         throw new CodexHistoryIntegrityError("history_rollout_identity_changed");
       }
     };
@@ -380,10 +381,10 @@ function assertLegacyHistoryRecord(line: string): void {
 }
 
 function assertHistoryDescriptorIdentity(path: string, fd: number): void {
-  const held = fstatSync(fd);
-  let current: ReturnType<typeof lstatSync>;
-  try { current = lstatSync(path); } catch { throw new CodexHistoryIntegrityError("history_rollout_identity_changed"); }
-  if (!current.isFile() || current.isSymbolicLink() || current.dev !== held.dev || current.ino !== held.ino) {
+  const held = fstatFileIdentity(fd);
+  let current: ReturnType<typeof lstatFileIdentity>;
+  try { current = lstatFileIdentity(path); } catch { throw new CodexHistoryIntegrityError("history_rollout_identity_changed"); }
+  if (!current.isFile() || current.isSymbolicLink() || !sameFileIdentity(current, held)) {
     throw new CodexHistoryIntegrityError("history_rollout_identity_changed");
   }
 }
@@ -658,9 +659,9 @@ export function setBeforeHistoryApplyTransactionForTests(hook: (() => void) | un
 }
 
 function readBackupStrict(path: string, stateDbPath: string): StrictBackupRead {
-  let pathStat: ReturnType<typeof lstatSync>;
+  let pathStat: ReturnType<typeof lstatFileIdentity>;
   try {
-    pathStat = lstatSync(path);
+    pathStat = lstatFileIdentity(path);
   } catch (error) {
     const code = typeof error === "object" && error && "code" in error ? String((error as { code?: unknown }).code) : "";
     if (code !== "ENOENT") {
@@ -742,8 +743,8 @@ function inspectBackupForNoop(path: string, stateDbPath: string): StrictBackupIn
 
 function historyFileIdentity(path: string): string | null {
   try {
-    const stat = statSync(path);
-    return [stat.dev, stat.ino, stat.size, stat.mtimeMs, stat.ctimeMs].join(":");
+    const stat = statFileIdentity(path);
+    return [fileIdentityKey(stat), stat.size, stat.mtimeMs, stat.ctimeMs].join(":");
   } catch {
     return null;
   }
@@ -1181,7 +1182,7 @@ function updateSessionMeta(
   } = {},
 ): SessionMetaUpdateResult {
   if (!path || !existsSync(path)) return { changed: false, durableProvider: false };
-  const validatedIdentity = lstatSync(path);
+  const validatedIdentity = lstatFileIdentity(path);
   if (options.expectedFileIdentity !== undefined
     && historyFileIdentity(path) !== options.expectedFileIdentity) {
     return { changed: false, durableProvider: false, conflict: true };
@@ -1233,7 +1234,7 @@ function updateSessionMeta(
     let appended: Buffer | null = null;
     let beforeSize = 0;
     if (changed) {
-      beforeSize = statSync(path).size;
+      beforeSize = statFileIdentity(path).size;
       beforeStrictHistoryRolloutAppendForTests?.();
       record.timestamp = new Date().toISOString();
       appended = appendRolloutLine(path, JSON.stringify(record));

@@ -1,3 +1,4 @@
+import { sameFileIdentity, statFileIdentity, lstatFileIdentity, fstatFileIdentity, type IdentityStats } from "../lib/file-identity";
 import {
   closeSync,
   existsSync,
@@ -10,7 +11,7 @@ import {
   readSync,
   statSync,
 } from "node:fs";
-import type { Stats } from "node:fs";
+
 import { basename, dirname, join, resolve } from "node:path";
 
 import { Database } from "bun:sqlite";
@@ -57,7 +58,7 @@ type ReadResult =
 
 type PathResult =
   | { kind: "absent" }
-  | { kind: "path"; path: string; stat: Stats }
+  | { kind: "path"; path: string; stat: IdentityStats }
   | { kind: "indeterminate"; reason: string };
 
 type CatalogTarget = {
@@ -96,11 +97,10 @@ function errorReason(error: unknown): string {
 }
 
 function sameStat(
-  left: Stats,
-  right: Stats,
+  left: IdentityStats,
+  right: IdentityStats,
 ): boolean {
-  return left.dev === right.dev
-    && left.ino === right.ino
+  return sameFileIdentity(left, right)
     && left.size === right.size
     && left.mtimeMs === right.mtimeMs;
 }
@@ -108,7 +108,7 @@ function sameStat(
 function resolveRegularFile(path: string): PathResult {
   let entry;
   try {
-    entry = lstatSync(path);
+    entry = lstatFileIdentity(path);
   } catch (error) {
     if (errorCode(error) === "ENOENT") return { kind: "absent" };
     return { kind: "indeterminate", reason: errorReason(error) };
@@ -124,7 +124,7 @@ function resolveRegularFile(path: string): PathResult {
   }
 
   try {
-    const before = statSync(target);
+    const before = statFileIdentity(target);
     if (!before.isFile()) {
       return { kind: "indeterminate", reason: "surface is not a regular file" };
     }
@@ -146,7 +146,7 @@ function readRegularFile(path: string): ReadResult {
   }
   try {
     const content = readFileSync(resolved.path, "utf8");
-    const after = statSync(resolved.path);
+    const after = statFileIdentity(resolved.path);
     if (!sameStat(resolved.stat, after)) {
       return { kind: "indeterminate", reason: "surface changed while it was being observed" };
     }
@@ -446,7 +446,7 @@ function classifyReferencedRollout(
   let partial = "";
   let totalRead = 0;
   try {
-    const opened = fstatSync(handle);
+    const opened = fstatFileIdentity(handle);
     if (opened.size > MAX_ROLLOUT_INSPECTION_BYTES) {
       return indeterminate(
         surface,
@@ -497,11 +497,11 @@ function classifyReferencedRollout(
         latest = payload.payload;
       }
     }
-    const after = fstatSync(handle);
+    const after = fstatFileIdentity(handle);
     if (!sameStat(resolved.stat, after)) {
       return indeterminate(surface, resolved.path, "rollout changed while it was being observed");
     }
-    const pathAfter = statSync(resolved.path);
+    const pathAfter = statFileIdentity(resolved.path);
     if (!sameStat(resolved.stat, pathAfter)) {
       return indeterminate(surface, resolved.path, "rollout pathname was replaced while it was being observed");
     }
@@ -591,7 +591,7 @@ function classifyHistoryDatabase(path: string, budget: RolloutInspectionBudget):
       budget,
     );
     if (rollouts.kind !== "clean") return rollouts;
-    const after = statSync(resolved.path);
+    const after = statFileIdentity(resolved.path);
     if (!sameStat(resolved.stat, after)) {
       return indeterminate("history", resolved.path, "history database changed while it was being observed");
     }

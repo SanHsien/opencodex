@@ -1,3 +1,4 @@
+import { sameFileIdentity, statFileIdentity, lstatFileIdentity, fstatFileIdentity } from "../lib/file-identity";
 import { createHash, randomUUID } from "node:crypto";
 import {
   closeSync,
@@ -65,8 +66,8 @@ export interface RemoteWorkspaceCommandRunner {
 interface ApprovedRoot {
   id: string;
   path: string;
-  dev: number;
-  ino: number;
+  dev: bigint;
+  ino: bigint;
   birthtimeMs: number;
 }
 
@@ -125,7 +126,7 @@ function assertNoSymlinkComponents(root: string, candidate: string, includeLeaf:
   let current = root;
   for (let index = 0; index < limit; index += 1) {
     current = resolve(current, parts[index]!);
-    if (lstatSync(current).isSymbolicLink()) throw new Error("remote workspace symlink traversal is not allowed");
+    if (lstatFileIdentity(current).isSymbolicLink()) throw new Error("remote workspace symlink traversal is not allowed");
   }
 }
 
@@ -170,13 +171,13 @@ function decodeUtf8(value: Uint8Array): string {
 }
 
 function assertOpenedRegularFile(root: string, target: string, descriptor: number, maximum: number) {
-  const opened = fstatSync(descriptor);
-  const linked = lstatSync(target);
+  const opened = fstatFileIdentity(descriptor);
+  const linked = lstatFileIdentity(target);
   if (opened.isFile() && linked.isFile() && (opened.nlink !== 1 || linked.nlink !== 1)) {
     throw new Error("remote workspace hard-linked files are not allowed");
   }
   if (!opened.isFile() || !linked.isFile() || linked.isSymbolicLink()
-    || opened.dev !== linked.dev || opened.ino !== linked.ino
+    || !sameFileIdentity(opened, linked)
     || opened.birthtimeMs !== linked.birthtimeMs) {
     throw new Error("remote workspace file identity changed during access");
   }
@@ -216,10 +217,10 @@ function assertStableWritableParent(root: string, target: string): void {
 }
 
 function assertApprovedRootIdentity(root: ApprovedRoot): void {
-  const linked = lstatSync(root.path);
+  const linked = lstatFileIdentity(root.path);
   const canonical = realpathSync(root.path);
   if (!linked.isDirectory() || linked.isSymbolicLink()
-    || linked.dev !== root.dev || linked.ino !== root.ino
+    || !sameFileIdentity(linked, root)
     || linked.birthtimeMs !== root.birthtimeMs
     || relative(root.path, canonical) !== "") {
     throw new Error("remote workspace approved root identity changed; pair the folder again");
@@ -253,10 +254,10 @@ export class RemoteWorkspaceExecutor {
     }
     for (const root of options.roots) {
       if (!root.id || root.id.length > 128 || this.roots.has(root.id)) throw new Error("invalid remote workspace root ID");
-      const metadata = lstatSync(root.path);
+      const metadata = lstatFileIdentity(root.path);
       if (!metadata.isDirectory() || metadata.isSymbolicLink()) throw new Error("remote workspace root must be a real directory");
       const canonical = realpathSync(root.path);
-      const identity = lstatSync(canonical);
+      const identity = lstatFileIdentity(canonical);
       this.roots.set(root.id, {
         id: root.id,
         path: canonical,
@@ -303,7 +304,7 @@ export class RemoteWorkspaceExecutor {
     const args = objectArguments(input);
     noExtraKeys(args, ["path"]);
     const target = resolveExisting(root.path, args.path ?? ".", this.options.platform);
-    if (!statSync(target).isDirectory()) throw new Error("remote workspace list target is not a directory");
+    if (!statFileIdentity(target).isDirectory()) throw new Error("remote workspace list target is not a directory");
     const directory = opendirSync(target);
     const entries: Array<{ name: string; type: "directory" | "file" | "symlink" | "other" }> = [];
     try {
@@ -378,7 +379,7 @@ export class RemoteWorkspaceExecutor {
       throw new Error("remote workspace command vector is too large");
     }
     const cwd = resolveExisting(root.path, args.cwd ?? ".", this.options.platform);
-    if (!statSync(cwd).isDirectory()) throw new Error("remote workspace command cwd is not a directory");
+    if (!statFileIdentity(cwd).isDirectory()) throw new Error("remote workspace command cwd is not a directory");
     const timeoutMs = boundedInteger(args.timeoutMs, 30_000, 1, 60_000);
     const result = await this.options.commandRunner.run({
       command,

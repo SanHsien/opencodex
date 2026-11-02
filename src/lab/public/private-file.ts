@@ -1,3 +1,4 @@
+import { sameFileIdentity, lstatFileIdentity, type IdentityStats } from "../../lib/file-identity";
 import { randomUUID } from "node:crypto";
 import {
   closeSync,
@@ -10,7 +11,7 @@ import {
   unlinkSync,
   writeSync,
 } from "node:fs";
-import type { Stats } from "node:fs";
+
 import { basename, dirname, join } from "node:path";
 
 export type PrivateFileCommitFault = "before_publish" | "parent_directory_sync" | null;
@@ -86,7 +87,7 @@ export function isPrivateFileStageName(name: string): boolean {
   return PRIVATE_STAGE_RE.test(name);
 }
 
-function isPrivateRegularStage(stats: Stats): boolean {
+function isPrivateRegularStage(stats: IdentityStats): boolean {
   return stats.isFile() && !stats.isSymbolicLink();
 }
 
@@ -96,9 +97,9 @@ function shouldReclaimPrivateFileStage(dir: string, name: string, nowMs: number)
   const pid = Number(match[1]);
   if (!Number.isSafeInteger(pid) || pid <= 0) return false;
 
-  let stats: Stats;
+  let stats: IdentityStats;
   try {
-    stats = lstatSync(join(dir, name));
+    stats = lstatFileIdentity(join(dir, name));
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
     throw error;
@@ -152,7 +153,7 @@ export function cleanupStalePrivateFileStages(finalPath: string): void {
 function cleanupPublishedPrivateFileStages(finalPath: string): void {
   let finalStats;
   try {
-    finalStats = lstatSync(finalPath);
+    finalStats = lstatFileIdentity(finalPath);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
     throw error;
@@ -166,9 +167,9 @@ function cleanupPublishedPrivateFileStages(finalPath: string): void {
     if (!name.startsWith(prefix) || !PRIVATE_STAGE_RE.test(name)) continue;
     const stagePath = join(dir, name);
     try {
-      const stageStats = lstatSync(stagePath);
+      const stageStats = lstatFileIdentity(stagePath);
       if (!stageStats.isFile() || stageStats.isSymbolicLink()) continue;
-      if (stageStats.dev !== finalStats.dev || stageStats.ino !== finalStats.ino) continue;
+      if (!sameFileIdentity(stageStats, finalStats)) continue;
       unlinkSync(stagePath);
       changed = true;
     } catch (error) {

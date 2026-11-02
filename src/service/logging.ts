@@ -1,3 +1,4 @@
+import { sameFileIdentity } from "../lib/file-identity";
 import { closeSync, constants, fstatSync, fsyncSync, ftruncateSync, lstatSync, openSync, readSync, realpathSync, renameSync, statSync, writeSync, type BigIntStats } from "node:fs";
 import { formatWithOptions } from "node:util";
 import { basename, dirname, join } from "node:path";
@@ -18,7 +19,7 @@ function regularLeaf(path: string): BigIntStats | undefined {
 }
 
 function sameFile(left: BigIntStats | undefined, right: BigIntStats | undefined): boolean {
-  return left !== undefined && right !== undefined && left.dev === right.dev && left.ino === right.ino;
+  return left !== undefined && right !== undefined && sameFileIdentity(left, right);
 }
 
 function matchesDescriptor(path: string, fd: number, expected: BigIntStats): boolean {

@@ -1,3 +1,4 @@
+import { sameFileIdentity, lstatFileIdentity } from "../../lib/file-identity";
 import { randomUUID } from "node:crypto";
 import {
   lstatSync,
@@ -41,8 +42,8 @@ type MutationLockReclaim = {
 };
 
 type MutationLockDirectoryIdentity = {
-  dev: number;
-  ino: number;
+  dev: bigint;
+  ino: bigint;
 };
 
 function mutationLockPath(configDir?: string): string {
@@ -106,7 +107,7 @@ function readMutationLockReclaim(lockPath: string): MutationLockReclaim | null {
 }
 
 function assertMutationLockDirectory(lockPath: string) {
-  const stat = lstatSync(lockPath);
+  const stat = lstatFileIdentity(lockPath);
   if (!stat.isDirectory() || stat.isSymbolicLink()) {
     throw new PublicEvidenceValidationError(
       "community_cache_lock",
@@ -120,7 +121,7 @@ function sameDirectoryIdentity(
   left: MutationLockDirectoryIdentity,
   right: MutationLockDirectoryIdentity,
 ): boolean {
-  return left.dev === right.dev && left.ino === right.ino;
+  return sameFileIdentity(left, right);
 }
 
 function currentDirectoryIdentity(lockPath: string): MutationLockDirectoryIdentity {
@@ -210,7 +211,7 @@ function reclaimClaimIsRecoverable(lockPath: string, nowMs: number): boolean {
     return pidDefinitelyDead(claim.pid) || exceedsAbsoluteLockAge(claim.createdAt, nowMs);
   }
   try {
-    const stat = lstatSync(claimPath);
+    const stat = lstatFileIdentity(claimPath);
     return nowMs - stat.mtimeMs > PUBLIC_EVIDENCE_MUTATION_LOCK_INCOMPLETE_STALE_MS;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return true;

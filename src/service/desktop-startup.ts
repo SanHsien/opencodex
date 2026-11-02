@@ -1,3 +1,4 @@
+import { fileIdentityKey } from "../lib/file-identity";
 import { execFileSync } from "node:child_process";
 import { accessSync, constants, lstatSync, readFileSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
@@ -70,7 +71,7 @@ function macLoginRegistration(deps: DesktopStartupDeps) {
   const domain = `gui/${deps.uid ?? process.getuid!()}`;
   const identity = (file: string) => {
     const stat = lstatSync(file, { bigint: true });
-    return [stat.dev, stat.ino, stat.size, stat.mode, stat.mtimeNs, stat.ctimeNs].map(String).join(":");
+    return [fileIdentityKey(stat), stat.size, stat.mode, stat.mtimeNs, stat.ctimeNs].map(String).join(":");
   };
   const capture = () => {
     const registrationPath = realpathSync(path);

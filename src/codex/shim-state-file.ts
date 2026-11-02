@@ -1,3 +1,5 @@
+import { validStoredFileIdentity, type IdentityStats, type StoredFileIdentity } from "../lib/file-identity";
+// Exact identity boundary: persisted identity validation accepts exact decimal strings and safe legacy integers.
 import {
   existsSync,
   mkdirSync,
@@ -28,7 +30,7 @@ interface ShimState {
   wrappers?: ShimFileState[];
 }
 
-export interface OverlayIdentity { dev: number; ino: number }
+export type OverlayIdentity = StoredFileIdentity;
 export interface OverlayState {
   schema: 2;
   mode: "path-overlay";
@@ -63,7 +65,7 @@ export function decodeOverlayState(value: unknown, configDir: string): OverlaySt
   }
   for (const key of ["wrapperIdentity", "envIdentity"]) {
     const id = state[key] as Partial<OverlayIdentity> | undefined;
-    if (id !== undefined && (!id || !Number.isSafeInteger(id.dev) || !Number.isSafeInteger(id.ino))) return null;
+    if (id !== undefined && (!id || !validStoredFileIdentity(id as OverlayIdentity))) return null;
   }
   if (state.transactionId !== undefined && (typeof state.transactionId !== "string" || !/^[a-f0-9-]{36}$/.test(state.transactionId))) return null;
   return state as unknown as OverlayState;
@@ -99,7 +101,7 @@ function fileErrorCode(error: unknown): string | undefined {
  * The open-then-fstat-then-verify body this used to hold now lives in
  * `lib/bounded-file-read`; only the operator-facing sentences are shim-state business.
  */
-function readShimStateFile(path: string, maxBytes: number): { bytes: Buffer; content: string; stat: Stats } | { warning: string } | null {
+function readShimStateFile(path: string, maxBytes: number): { bytes: Buffer; content: string; stat: IdentityStats } | { warning: string } | null {
   const result = readBoundedRegularFile(path, maxBytes);
   switch (result.kind) {
     case "absent":

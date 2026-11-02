@@ -1,3 +1,4 @@
+import { lstatFileIdentity, fileIdentityKey } from "../../lib/file-identity";
 import { lstatSync, readdirSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { jcsStringify } from "../digest";
@@ -411,8 +412,8 @@ export function importCommunityEvidenceRevocation(
 function communityFingerprint(names: readonly string[], configDir?: string): string {
   const dir = labCommunityDir(configDir);
   return names.map((name) => {
-    const stat = lstatSync(join(dir, name));
-    return [name, stat.dev, stat.ino, stat.mode, stat.nlink, stat.size, stat.mtimeMs, stat.ctimeMs].join(":");
+    const stat = lstatFileIdentity(join(dir, name));
+    return [name, fileIdentityKey(stat), stat.mode, stat.nlink, stat.size, stat.mtimeMs, stat.ctimeMs].join(":");
   }).join("\n");
 }
 

@@ -1,3 +1,4 @@
+import { sameFileIdentity } from "../../lib/file-identity";
 import { lstatSync, realpathSync, statSync } from "node:fs";
 import { Database, constants as sqliteConstants } from "bun:sqlite";
 
@@ -156,8 +157,7 @@ function databasePathStillMatches(
 ): boolean {
   const after = databasePathIdentity(databasePath, deps);
   return after !== null
-    && after.dev === before.dev
-    && after.ino === before.ino
+    && sameFileIdentity(after, before)
     && samePathIdentity(after.realPath, before.realPath);
 }
 

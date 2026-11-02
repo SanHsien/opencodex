@@ -1,3 +1,4 @@
+import { sameFileIdentity } from "../lib/file-identity";
 import { randomUUID } from "node:crypto";
 import { Database } from "bun:sqlite";
 import {
@@ -166,7 +167,7 @@ function pathIdentity(path: string): PathIdentity {
 }
 
 function sameIdentity(left: PathIdentity, right: PathIdentity): boolean {
-  return left.dev === right.dev && left.ino === right.ino;
+  return sameFileIdentity(left, right);
 }
 
 function assertPathIdentity(path: string, expected: PathIdentity, label: string): void {
@@ -725,8 +726,7 @@ export class NativeProfileManager {
         !opened.isFile()
         || !pathEntry.isFile()
         || pathEntry.isSymbolicLink()
-        || opened.dev !== pathEntry.dev
-        || opened.ino !== pathEntry.ino
+        || !sameFileIdentity(opened, pathEntry)
         || opened.nlink !== 1n
       ) throw new NativeProfileError(
         "STAGING_CLEANUP_REQUIRED",
@@ -738,7 +738,7 @@ export class NativeProfileManager {
       );
       unlinkSync(authPath);
       const unlinked = fstatSync(authFd, { bigint: true });
-      if (unlinked.dev !== opened.dev || unlinked.ino !== opened.ino || unlinked.nlink !== 0n) {
+      if (!sameFileIdentity(unlinked, opened) || unlinked.nlink !== 0n) {
         throw new NativeProfileError(
           "STAGING_CLEANUP_REQUIRED",
           "The staged credential file could not be exclusively unlinked; plaintext may remain and requires manual cleanup.",

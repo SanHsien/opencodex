@@ -1,4 +1,5 @@
-import { closeSync, constants, fstatSync, openSync, readSync, statSync, type Stats } from "node:fs";
+import { statFileIdentity, fstatFileIdentity, type IdentityStats, sameFileIdentity } from "../../lib/file-identity";
+import { closeSync, constants, fstatSync, openSync, readSync, statSync, } from "node:fs";
 
 const MAX_CODEX_CONFIG_BYTES = 1024 * 1024;
 
@@ -19,9 +20,9 @@ function configTooLarge(): Error {
 export function readBoundedCodexConfig(path: string): string | null {
   let fd: number | undefined;
   try {
-    let namedBefore: Stats;
+    let namedBefore: IdentityStats;
     try {
-      namedBefore = statSync(path);
+      namedBefore = statFileIdentity(path);
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code;
       if (code === "ENOENT" || code === "ENOTDIR") return null;
@@ -37,8 +38,8 @@ export function readBoundedCodexConfig(path: string): string | null {
       ? 0
       : (constants.O_NONBLOCK ?? 0);
     fd = openSync(path, constants.O_RDONLY | guardedFlags);
-    const before = fstatSync(fd);
-    if (before.dev !== namedBefore.dev || before.ino !== namedBefore.ino) {
+    const before = fstatFileIdentity(fd);
+    if (!sameFileIdentity(before, namedBefore)) {
       throw new Error("config.toml changed while it was read");
     }
     if (!before.isFile()) throw new Error("config.toml is not a bounded regular file");
@@ -51,12 +52,12 @@ export function readBoundedCodexConfig(path: string): string | null {
       if (count === 0) break;
       bytesRead += count;
     }
-    const after = fstatSync(fd);
-    const namedAfter = statSync(path);
+    const after = fstatFileIdentity(fd);
+    const namedAfter = statFileIdentity(path);
     if (bytesRead !== before.size || after.size !== before.size
       || after.mtimeMs !== before.mtimeMs || after.ctimeMs !== before.ctimeMs
       || !namedAfter.isFile()
-      || namedAfter.dev !== before.dev || namedAfter.ino !== before.ino) {
+      || !sameFileIdentity(namedAfter, before)) {
       throw new Error("config.toml changed while it was read");
     }
     return buffer.toString("utf8", 0, bytesRead);

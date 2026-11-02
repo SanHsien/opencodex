@@ -1,3 +1,4 @@
+import { canFileSymlink } from "../helpers/file-symlink";
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import * as fs from "node:fs";
 import { linkSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, truncateSync, writeFileSync } from "node:fs";
@@ -476,7 +477,7 @@ describe("bounded catalog healing observations", () => {
     expect(selectCatalogHealPath(journal, fallback, path => path)).toBeNull();
   });
 
-  test("stat-only observation, regular content, directory and byte cap", () => {
+  test.skipIf(!canFileSymlink)("stat-only observation, regular content, directory and byte cap", () => {
     const root = temporaryRoot(), file = join(root, "catalog.json");
     writeFileSync(file, JSON.stringify(full));
     const quick = observeCatalogHealFile(file, false);
@@ -594,7 +595,7 @@ describe("catalog path comparison", () => {
     finally { nativePath.mockRestore(); }
   });
 
-  test("path lookup stops at its I/O budget and reports unknown", async () => {
+  test.skipIf(!canFileSymlink)("path lookup stops at its I/O budget and reports unknown", async () => {
     const { path } = aliasPaths("lexical");
     linkSync(path, join(temporaryRoot(), "catalog.json"));
     let alias = path;
@@ -685,7 +686,7 @@ describe("catalog path comparison", () => {
     expect(sameCatalogHealPath(distinct, alias)).toBe(false);
   });
 
-  test("relative leaf symlinks use their canonical parent and preserve hardlink names", () => {
+  test.skipIf(!canFileSymlink)("relative leaf symlinks use their canonical parent and preserve hardlink names", () => {
     const root = temporaryRoot(), home = join(root, "home"), inner = join(home, "inner");
     mkdirSync(inner, { recursive: true });
     const path = join(home, "catalog.json"), sibling = join(root, "catalog.json");
@@ -710,7 +711,7 @@ describe("catalog path comparison", () => {
     expect(sameCatalogHealPath(sibling, leaf)).toBe(false);
   });
 
-  test("a link target crossing a symlinked directory follows the platform's .. semantics", () => {
+  test.skipIf(!canFileSymlink)("a link target crossing a symlinked directory follows the platform's .. semantics", () => {
     const root = temporaryRoot(), a = join(root, "a"), realHome = join(root, "b", "subdir");
     mkdirSync(realHome, { recursive: true });
     mkdirSync(a, { recursive: true });
@@ -732,7 +733,7 @@ describe("catalog path comparison", () => {
     expect(compareCatalogHealPaths(other, link)).toBe("different");
   });
 
-  test("a link target crossing a missing directory follows the platform's crossing rules", () => {
+  test.skipIf(!canFileSymlink)("a link target crossing a missing directory follows the platform's crossing rules", () => {
     const root = temporaryRoot(), a = join(root, "a");
     mkdirSync(a, { recursive: true });
     const present = join(a, "catalog.json");
@@ -755,7 +756,7 @@ describe("catalog path comparison", () => {
     }
   });
 
-  test.skipIf(process.platform === "win32")("a POSIX link target keeps literal backslashes inside names", () => {
+  test.skipIf(!canFileSymlink || process.platform === "win32")("a POSIX link target keeps literal backslashes inside names", () => {
     // Windows has no such filenames; only POSIX must not split on "\\".
     const root = temporaryRoot(), a = join(root, "a");
     const backslashDir = join(a, "we\\ird");
@@ -775,7 +776,7 @@ describe("catalog path comparison", () => {
     expect(compareCatalogHealPaths(dotdot, real)).toBe("different");
   });
 
-  test.skipIf(process.platform === "win32")("a POSIX link target crossing a file-pointing link refuses the traversal", () => {
+  test.skipIf(!canFileSymlink || process.platform === "win32")("a POSIX link target crossing a file-pointing link refuses the traversal", () => {
     // "bridge" resolves to a regular file: POSIX refuses "bridge/.." with ENOTDIR.
     const root = temporaryRoot(), a = join(root, "a");
     mkdirSync(a, { recursive: true });
@@ -792,7 +793,7 @@ describe("catalog path comparison", () => {
     expect(inspectHealPath(link, read => read())).toEqual({ kind: "unavailable", hardlink: true });
   });
 
-  test("40-hop exhaustion stays uncertain independently of the comparator read budget", () => {
+  test.skipIf(!canFileSymlink)("40-hop exhaustion stays uncertain independently of the comparator read budget", () => {
     const root = temporaryRoot(), cycle = join(root, "cycle.json");
     symlinkSync("cycle.json", cycle, "file");
     let reads = 0;
@@ -805,7 +806,7 @@ describe("catalog path comparison", () => {
     expect(observed).toEqual({ kind: "unavailable", hardlink: true });
   });
 
-  test.each([
+  test.skipIf(!canFileSymlink).each([
     [1, "initial leaf lstat", false],
     [2, "symlink parent stat", true],
     [3, "symlink readlink", true],
@@ -825,7 +826,7 @@ describe("catalog path comparison", () => {
     expect(observed).toEqual({ kind: "unavailable", hardlink: uncertain });
   });
 
-  test("initial unavailable leaves retain lexical equality while observed dangling links stay unknown", () => {
+  test.skipIf(!canFileSymlink)("initial unavailable leaves retain lexical equality while observed dangling links stay unknown", () => {
     const root = temporaryRoot(), missing = join(root, "missing.json");
     const dangling = join(root, "dangling.json"), cycle = join(root, "cycle.json");
     symlinkSync("missing.json", dangling, "file");
@@ -844,7 +845,7 @@ describe("catalog path comparison", () => {
 });
 
 for (const release of ["restore", "native-release"] as const) {
-  test(`observed-symlink lookup failure ${release} fences the known target while selection is unavailable`, async () => {
+  test.skipIf(!canFileSymlink)(`observed-symlink lookup failure ${release} fences the known target while selection is unavailable`, async () => {
     const root = temporaryRoot(), target = join(root, "target.json"), alias = join(root, "alias.json");
     writeFileSync(target, JSON.stringify(full));
     linkSync(target, join(root, "sibling.json"));
@@ -939,7 +940,7 @@ test("a precommit parent race refuses a suspended heal", async () => {
   } finally { finish.resolve(); await tick; parent.mockRestore(); }
 });
 
-test("a release whose lookup exceeds the I/O budget fences a suspended heal", async () => {
+test.skipIf(!canFileSymlink)("a release whose lookup exceeds the I/O budget fences a suspended heal", async () => {
   const { path } = aliasPaths("lexical");
   let alias = path;
   for (let i = 0; i < 20; i += 1) {

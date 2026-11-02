@@ -1,3 +1,4 @@
+import { lstatFileIdentity, fileIdentityKey } from "../lib/file-identity";
 /**
  * CODEX_HOME-keyed transition state and coordinator transaction ownership.
  *
@@ -461,7 +462,7 @@ export function openCodexCoordinatorTransaction(
 
   try {
     try {
-      const before = lstatSync(finalDatabasePath);
+      const before = lstatFileIdentity(finalDatabasePath);
       if (before.isSymbolicLink() || !before.isFile()) {
         throw new CodexUserIdentityRefusal("The coordinator database path is not a real file.");
       }
@@ -513,10 +514,10 @@ export function openCodexCoordinatorTransaction(
     // still wrong afterwards is genuinely wrong, not merely early.
     if (process.platform !== "win32") {
       const uid = process.getuid?.();
-      let current = lstatSync(finalDatabasePath);
+      let current = lstatFileIdentity(finalDatabasePath);
       if ((current.mode & 0o777) !== 0o600) {
         try { chmodSync(finalDatabasePath, 0o600); } catch { /* refused below */ }
-        current = lstatSync(finalDatabasePath);
+        current = lstatFileIdentity(finalDatabasePath);
       }
       if (uid === undefined || current.uid !== uid || (current.mode & 0o777) !== 0o600) {
         throw new CodexUserIdentityRefusal(
@@ -524,11 +525,11 @@ export function openCodexCoordinatorTransaction(
         );
       }
     }
-    const opened = lstatSync(finalDatabasePath);
+    const opened = lstatFileIdentity(finalDatabasePath);
     if (opened.isSymbolicLink() || !opened.isFile()) {
       throw new CodexUserIdentityRefusal("The coordinator database path changed during open.");
     }
-    initialIdentity = `${opened.dev}:${opened.ino}`;
+    initialIdentity = fileIdentityKey(opened);
     database.exec("PRAGMA busy_timeout = 0; PRAGMA locking_mode = NORMAL; BEGIN IMMEDIATE");
     transactionOpen = true;
     initialize(database, databaseWasAbsent || databaseWasEmpty);
@@ -546,9 +547,9 @@ export function openCodexCoordinatorTransaction(
   };
   const assertStablePath = (): void => {
     requireOpen();
-    const entry = lstatSync(finalDatabasePath);
+    const entry = lstatFileIdentity(finalDatabasePath);
     if (entry.isSymbolicLink() || !entry.isFile()
-      || `${entry.dev}:${entry.ino}` !== initialIdentity
+      || fileIdentityKey(entry) !== initialIdentity
       || !samePathIdentity(realpathSync.native(finalDatabasePath), finalDatabasePath)) {
       throw new CodexUserIdentityRefusal("The coordinator database path was substituted.");
     }

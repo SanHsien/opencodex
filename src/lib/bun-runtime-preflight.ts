@@ -1,3 +1,4 @@
+import { lstatFileIdentity, sameFileIdentity } from "./file-identity";
 import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { lstatSync, mkdirSync, readdirSync, rmdirSync } from "node:fs";
@@ -19,7 +20,7 @@ export class RuntimePreflightError extends Error {
   }
 }
 
-type DirectoryIdentity = { dev: number; ino: number; isDirectory(): boolean; isSymbolicLink(): boolean };
+type DirectoryIdentity = { dev: bigint; ino: bigint; isDirectory(): boolean; isSymbolicLink(): boolean };
 export interface RuntimePreflightFs {
   lstatSync: (path: string) => DirectoryIdentity;
   mkdirSync: (path: string, mode: number) => unknown;
@@ -41,12 +42,12 @@ export interface RuntimePreflightDeps {
   platform?: NodeJS.Platform;
 }
 
-const probeFs: RuntimePreflightFs = { lstatSync, mkdirSync, rmdirSync, readdirSync };
+const probeFs: RuntimePreflightFs = { lstatSync: lstatFileIdentity, mkdirSync, rmdirSync, readdirSync };
 
 function sameDirectory(fs: RuntimePreflightFs, path: string, owned: DirectoryIdentity): boolean {
   const current = fs.lstatSync(path);
   return current.isDirectory() && !current.isSymbolicLink()
-    && current.dev === owned.dev && current.ino === owned.ino;
+    && sameFileIdentity(current, owned);
 }
 
 function removeOwnedEmptyDirectory(fs: RuntimePreflightFs, path: string, owned: DirectoryIdentity): void {
@@ -96,10 +97,11 @@ function probeChild(runtime: DurableBunRuntime, path: string, nonce: string, spa
   // The child emits only this invocation's nonce and a fixed result, never paths/errors.
   const script = `const fs = require("node:fs"); const path = ${JSON.stringify(path)};
 let result = "create", owned;
-try { fs.mkdirSync(path, 0o700); owned = fs.lstatSync(path); result = "remove";
+try { fs.mkdirSync(path, 0o700); owned = fs.lstatSync(path, { bigint: true }); result = "remove";
   fs.rmdirSync(path); result = "ok";
 } catch { /* result already names the failed step; details never leave the child */ } finally {
-  if (owned) { try { const now = fs.lstatSync(path);
+  // Exact identity boundary: isolated runtime child has no module imports; compare bigint witnesses inline.
+  if (owned) { try { const now = fs.lstatSync(path, { bigint: true });
     if (now.isDirectory() && !now.isSymbolicLink() && now.dev === owned.dev && now.ino === owned.ino
       && fs.readdirSync(path).length === 0) fs.rmdirSync(path);
   } catch { /* leave any probe entry that cannot be proven ours */ } }

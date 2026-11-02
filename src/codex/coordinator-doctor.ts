@@ -1,3 +1,4 @@
+import { sameFileIdentity, lstatFileIdentity, type IdentityStats } from "../lib/file-identity";
 /**
  * Observe and explicitly quarantine non-authoritative native-write coordinators.
  *
@@ -11,7 +12,6 @@ import {
   lstatSync,
   realpathSync,
   renameSync,
-  type Stats,
 } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -33,7 +33,7 @@ import {
 const IMMUTABLE_READONLY_FLAGS =
   sqliteConstants.SQLITE_OPEN_READONLY | sqliteConstants.SQLITE_OPEN_URI;
 
-export type FileIdentity = Pick<Stats, "dev" | "ino" | "size" | "mtimeMs" | "ctimeMs">;
+export type FileIdentity = Pick<IdentityStats, "dev" | "ino" | "size" | "mtimeMs" | "ctimeMs">;
 
 export interface CodexCoordinatorDiagnosticEvidence {
   sizeBytes: number;
@@ -66,15 +66,14 @@ function errorCode(error: unknown): string {
 }
 
 function sameIdentity(left: FileIdentity, right: FileIdentity): boolean {
-  return left.dev === right.dev
-    && left.ino === right.ino
+  return sameFileIdentity(left, right)
     && left.size === right.size
     && left.mtimeMs === right.mtimeMs
     && left.ctimeMs === right.ctimeMs;
 }
 
 function sameNodeAndSize(left: FileIdentity, right: FileIdentity): boolean {
-  return left.dev === right.dev && left.ino === right.ino && left.size === right.size;
+  return sameFileIdentity(left, right) && left.size === right.size;
 }
 
 function coordinatorPathWithoutCreation(): { kind: "absent"; path: string | null } | { kind: "path"; path: string } {
@@ -84,9 +83,9 @@ function coordinatorPathWithoutCreation(): { kind: "absent"; path: string | null
   if (namespace.status === "missing") return { kind: "absent", path: null };
 
   const locks = join(namespace.root, "native-write-locks");
-  let locksEntry: Stats;
+  let locksEntry: IdentityStats;
   try {
-    locksEntry = lstatSync(locks);
+    locksEntry = lstatFileIdentity(locks);
   } catch (cause) {
     if (errorCode(cause) === "ENOENT") {
       const digest = createHash("sha256").update(canonicalCodexHome).digest("hex");
@@ -113,9 +112,9 @@ function inspectTarget(
   path: string,
   options: { allowSqliteSidecars?: boolean } = {},
 ): { kind: "absent" } | { kind: "file"; identity: FileIdentity } | { kind: "unsafe"; reason: string } {
-  let entry: Stats;
+  let entry: IdentityStats;
   try {
-    entry = lstatSync(path);
+    entry = lstatFileIdentity(path);
   } catch (cause) {
     if (errorCode(cause) === "ENOENT") return { kind: "absent" };
     return { kind: "unsafe", reason: "the coordinator file cannot be inspected" };

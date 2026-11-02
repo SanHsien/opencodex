@@ -1,3 +1,4 @@
+import { sameFileIdentity } from "../lib/file-identity";
 import { lstatSync, readFileSync, readlinkSync, realpathSync, statSync, type BigIntStats } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
@@ -115,7 +116,7 @@ type DirectoryIdentity = { path: string; dev: bigint; ino: bigint };
 type Boundary = Array<DirectoryIdentity | null>;
 
 function sameIdentity(a: Pick<BigIntStats, "dev" | "ino">, b: Pick<BigIntStats, "dev" | "ino">): boolean {
-  return a.dev === b.dev && a.ino === b.ino;
+  return sameFileIdentity(a, b);
 }
 
 function validatePaths(profile: AsideProfile): void {

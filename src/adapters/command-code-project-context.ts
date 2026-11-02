@@ -1,3 +1,4 @@
+import { sameFileIdentity } from "../lib/file-identity";
 import { constants } from "node:fs";
 import { lstat, open, opendir, realpath, stat } from "node:fs/promises";
 import { join, sep } from "node:path";
@@ -189,16 +190,16 @@ function truncateUtf8(text: string, capBytes: number): string {
 async function openedFileIsConfined(
   handle: Awaited<ReturnType<typeof open>>, path: string, cwdCanonical: string, deadline: number, scope: ScanScope,
 ): Promise<boolean> {
-  const opened = await withinDeadline(() => handle.stat(), deadline, scope);
+  const opened = await withinDeadline(() => handle.stat({ bigint: true }), deadline, scope);
   if (!opened.isFile()) return false;
-  const current = await withinDeadline(() => lstat(path), deadline, scope);
-  if (!current.isFile() || opened.dev !== current.dev || opened.ino !== current.ino) return false;
+  const current = await withinDeadline(() => lstat(path, { bigint: true }), deadline, scope);
+  if (!current.isFile() || !sameFileIdentity(opened, current)) return false;
   const resolved = await withinDeadline(() => realpath(path), deadline, scope);
   // The input path was canonical before open. A changed intermediate symlink changes this
   // result even though O_NOFOLLOW protects only the final component on macOS and Linux.
   if (!isContainedCanonicalPath(cwdCanonical, resolved) || resolved !== path) return false;
-  const resolvedInfo = await withinDeadline(() => lstat(resolved), deadline, scope);
-  return resolvedInfo.isFile() && opened.dev === resolvedInfo.dev && opened.ino === resolvedInfo.ino;
+  const resolvedInfo = await withinDeadline(() => lstat(resolved, { bigint: true }), deadline, scope);
+  return resolvedInfo.isFile() && sameFileIdentity(opened, resolvedInfo);
 }
 
 async function readUtf8File(path: string, capBytes: number, deadline: number, cwdCanonical: string, scope: ScanScope): Promise<string | null> {

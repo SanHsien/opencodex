@@ -1,3 +1,4 @@
+import { sameFileIdentity } from "../lib/file-identity";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import {
   closeSync,
@@ -86,7 +87,7 @@ function pathIdentity(path: string): { dev: bigint; ino: bigint } {
 }
 
 function sameIdentity(entry: { dev: bigint; ino: bigint }, dev: string, ino: string): boolean {
-  return entry.dev.toString() === dev && entry.ino.toString() === ino;
+  return sameFileIdentity(entry, { dev, ino });
 }
 
 function boundedRead(path: string): string {
@@ -102,8 +103,7 @@ function boundedRead(path: string): string {
       !opened.isFile()
       || !linked.isFile()
       || linked.isSymbolicLink()
-      || opened.dev !== linked.dev
-      || opened.ino !== linked.ino
+      || !sameFileIdentity(opened, linked)
       || opened.size > BigInt(MAX_STAGE_REGISTRY_BYTES)
     ) throw storageUnsafe("The native-login stage registry is not a bounded private file.");
     return readFileSync(fd, "utf8");
@@ -261,7 +261,7 @@ export class NativeProfileStageStore {
         if (!markerBefore.isFile() || markerBefore.isSymbolicLink() || markerBefore.size > 4096n) throw new Error("stage marker type");
         const marker = JSON.parse(readFileSync(markerPath, "utf8")) as Record<string, unknown>;
         const markerAfter = lstatSync(markerPath, { bigint: true });
-        if (markerAfter.dev !== markerBefore.dev || markerAfter.ino !== markerBefore.ino) throw new Error("stage marker identity");
+        if (!sameFileIdentity(markerAfter, markerBefore)) throw new Error("stage marker identity");
         if (
           marker.version !== 2
           || marker.stageId !== record.stageId

@@ -1,3 +1,4 @@
+import { sameFileIdentity, statFileIdentity, lstatFileIdentity, fstatFileIdentity } from "../lib/file-identity";
 import { createHash } from "node:crypto";
 import {
   accessSync,
@@ -161,7 +162,7 @@ function parseNativeHelperJson(value: Uint8Array): unknown {
 function sha256File(path: string): string {
   const descriptor = openSync(path, constants.O_RDONLY);
   try {
-    const metadata = fstatSync(descriptor);
+    const metadata = fstatFileIdentity(descriptor);
     if (!metadata.isFile() || metadata.size < 1 || metadata.size > MAX_NATIVE_HELPER_BYTES) {
       throw new Error("remote workspace native helper has an invalid size");
     }
@@ -174,9 +175,9 @@ function sha256File(path: string): string {
       hash.update(chunk.subarray(0, count));
       offset += count;
     }
-    const after = fstatSync(descriptor);
+    const after = fstatFileIdentity(descriptor);
     if (after.size !== metadata.size || after.mtimeMs !== metadata.mtimeMs
-      || after.dev !== metadata.dev || after.ino !== metadata.ino) {
+      || !sameFileIdentity(after, metadata)) {
       throw new Error("remote workspace native helper changed while hashing");
     }
     return hash.digest("hex");
@@ -189,13 +190,13 @@ export function pinRemoteWorkspaceNativeHelper(path: string): RemoteWorkspaceNat
   if (!isAbsolute(path) || path.includes("\0")) {
     throw new Error("remote workspace native helper must be an absolute path");
   }
-  const linked = lstatSync(path);
+  const linked = lstatFileIdentity(path);
   if (!linked.isFile() || linked.isSymbolicLink()) {
     throw new Error("remote workspace native helper must remain a real file");
   }
   const canonical = realpathSync(path);
   accessSync(canonical, process.platform === "win32" ? constants.F_OK : constants.X_OK);
-  if (process.platform !== "win32" && (statSync(canonical).mode & 0o022) !== 0) {
+  if (process.platform !== "win32" && (statFileIdentity(canonical).mode & 0o022) !== 0) {
     throw new Error("remote workspace native helper must not be group or world writable");
   }
   return { path: canonical, sha256: sha256File(canonical) };
@@ -239,7 +240,7 @@ export function parseRemoteWorkspaceNativeHelperDescriptor(value: unknown): Remo
 
 function assertNativeHelperIntegrity(value: RemoteWorkspaceNativeHelperDescriptor): RemoteWorkspaceNativeHelperDescriptor {
   const helper = parseRemoteWorkspaceNativeHelperDescriptor(value);
-  const linked = lstatSync(helper.path);
+  const linked = lstatFileIdentity(helper.path);
   if (!linked.isFile() || linked.isSymbolicLink() || realpathSync(helper.path) !== helper.path) {
     throw new Error("remote workspace native helper identity changed; pair it again");
   }
@@ -313,7 +314,7 @@ function assertWorkspaceHasNoExternalHardlinkAliases(root: string): void {
           throw new Error("remote workspace is too large for safe command preflight");
         }
         const target = join(current, entry.name);
-        const metadata = lstatSync(target);
+        const metadata = lstatFileIdentity(target);
         if (metadata.isDirectory() && !metadata.isSymbolicLink()) {
           pending.push(target);
         } else if (!metadata.isDirectory() && metadata.nlink > 1) {
@@ -352,7 +353,7 @@ function approvedToolchainRoots(values: readonly string[]): string[] {
     if (!isAbsolute(value) || !existsSync(value) || value.includes("\0")) {
       throw new Error("remote workspace toolchain root must be an existing absolute path");
     }
-    const metadata = lstatSync(value);
+    const metadata = lstatFileIdentity(value);
     if (!metadata.isDirectory() || metadata.isSymbolicLink()) {
       throw new Error("remote workspace toolchain root must remain a real directory");
     }
@@ -367,7 +368,7 @@ function approvedRuntimeExecutable(value: string | undefined): string | null {
     throw new Error("remote workspace runtime executable must be an absolute path");
   }
   const canonical = realpathSync(value);
-  if (!statSync(canonical).isFile()) throw new Error("remote workspace runtime executable must be a file");
+  if (!statFileIdentity(canonical).isFile()) throw new Error("remote workspace runtime executable must be a file");
   accessSync(canonical, constants.X_OK);
   return canonical;
 }
@@ -375,7 +376,7 @@ function approvedRuntimeExecutable(value: string | undefined): string | null {
 function trustedBubblewrap(path: string, roots: readonly string[]): string {
   if (!isAbsolute(path)) throw new Error("bubblewrap must be an absolute executable path");
   const canonical = realpathSync(path);
-  const file = lstatSync(canonical);
+  const file = lstatFileIdentity(canonical);
   if (!file.isFile() || file.nlink !== 1) throw new Error("bubblewrap must be a private executable file");
   for (const root of roots) {
     if (inside(realpathSync(root), canonical)) {
@@ -385,7 +386,7 @@ function trustedBubblewrap(path: string, roots: readonly string[]): string {
   accessSync(canonical, constants.X_OK);
   let current = canonical;
   for (;;) {
-    const metadata = lstatSync(current);
+    const metadata = lstatFileIdentity(current);
     if (process.platform !== "win32" && (metadata.mode & 0o022) !== 0) {
       throw new Error("bubblewrap executable and parent directories must not be group or world writable");
     }

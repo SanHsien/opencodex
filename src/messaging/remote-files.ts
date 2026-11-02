@@ -1,3 +1,4 @@
+import { sameFileIdentity, lstatFileIdentity, fstatFileIdentity } from "../lib/file-identity";
 import { constants, closeSync, fstatSync, fsyncSync, lstatSync, mkdirSync, openSync, readSync,
   realpathSync, renameSync, rmdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
@@ -29,13 +30,13 @@ function checkDirectory(path: string, privateLeaf: boolean): void {
     throw remoteError("unsupported_platform", "Remote messaging requires a private Linux or macOS configuration home.");
   }
   try {
-    const final = lstatSync(path);
+    const final = lstatFileIdentity(path);
     if (!final.isDirectory() || final.isSymbolicLink()
       || (privateLeaf && (final.uid !== process.getuid!() || (final.mode & 0o077)))) throw new Error();
     if (privateLeaf) checkMacAcl(path);
     // Root-controlled OS aliases (/tmp and /var on macOS) are not user-controlled redirects.
     for (let entry = path; ; entry = dirname(entry)) {
-      const stat = lstatSync(entry);
+      const stat = lstatFileIdentity(entry);
       if (stat.isSymbolicLink()) { if (stat.uid !== 0) throw new Error(); }
       else if (!stat.isDirectory() || (stat.uid !== process.getuid!() && stat.uid !== 0)
         || ((stat.mode & 0o022) !== 0 && !(stat.uid === 0 && (stat.mode & 0o1000) !== 0))
@@ -43,7 +44,7 @@ function checkDirectory(path: string, privateLeaf: boolean): void {
       if (entry === "/") break;
     }
     for (let entry = realpathSync(path); ; entry = dirname(entry)) {
-      const stat = lstatSync(entry);
+      const stat = lstatFileIdentity(entry);
       if (!stat.isDirectory() || (stat.uid !== process.getuid!() && stat.uid !== 0)
         || ((stat.mode & 0o022) && !(stat.uid === 0 && (stat.mode & 0o1000)))) throw new Error();
       if (entry === "/") break;
@@ -52,7 +53,7 @@ function checkDirectory(path: string, privateLeaf: boolean): void {
 }
 /** ENOENT alone means absent; permission failures and redirects are not empty state. */
 export function remotePathExists(path: string): boolean {
-  try { lstatSync(path); return true; }
+  try { lstatFileIdentity(path); return true; }
   catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return false; throw error; }
 }
 /** A published directory entry must reach storage before dependent remote work starts. */
@@ -94,7 +95,7 @@ export function readRemoteFile(path: string): string | null {
     throw remoteError("unsafe_remote_storage", "Cannot safely read messaging state.");
   }
   try {
-    const stat = fstatSync(fd);
+    const stat = fstatFileIdentity(fd);
     if (!stat.isFile() || stat.nlink !== 1 || stat.uid !== process.getuid!() || (stat.mode & 0o077)
       || stat.size > REMOTE_LIMITS.storeBytes) throw new Error();
     checkMacAcl(path);
@@ -131,10 +132,10 @@ export function withRemoteLock<T>(directory: string, action: () => T): T {
   const lock = join(directory, "mutation.lock");
   try { mkdirSync(lock, { mode: 0o700 }); }
   catch { throw remoteError("remote_state_busy", "Messaging state is locked; finish or recover its owning mutation first."); }
-  const identity = lstatSync(lock);
+  const identity = lstatFileIdentity(lock);
   try { return action(); }
   finally {
-    const current = lstatSync(lock);
-    if (current.dev === identity.dev && current.ino === identity.ino) rmdirSync(lock);
+    const current = lstatFileIdentity(lock);
+    if (sameFileIdentity(current, identity)) rmdirSync(lock);
   }
 }

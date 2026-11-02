@@ -12,6 +12,8 @@ import type { SshChild, SshRunner } from "../../src/link/ssh-runner";
 import { handleManagementAPI } from "../../src/server/management-api";
 import type { ManagementApiDeps } from "../../src/server/management/context";
 import type { OcxConfig } from "../../src/types";
+import { setAsyncIcaclsRunnerForTests, resetHardenedStateForTests } from "../../src/lib/windows-secret-acl";
+import { setAsyncWindowsPrincipalRunnerForTests, resetWindowsPrincipalForTests } from "../../src/lib/windows-user-principal";
 import { removeTreeWithRetry } from "../helpers/remove-tree";
 
 const LINK_ID = "lnk_0123456789abcdef";
@@ -172,25 +174,37 @@ test("a changed host key stays terminal and is recorded once", async () => {
 test("the diagnostics file keeps only the fixed tunnel fields", async () => {
   const configDir = mkdtempSync(join(tmpdir(), "ocx-link-tunnel-diag-"));
   temps.push(configDir);
-  const sink = createLinkDiagnosticSink({ configDir, now: () => 1_000 });
-  sink({
-    event: "tunnel_transition", outcome: "remote_forward_conflict", state: "failed", previousState: "reconnecting",
-    attempt: 3, tunnelPort: 19002, retryAfterMs: 120_000,
-    ...{ alias: ALIAS, argv: ["ssh", "-R", "127.0.0.1:19002:127.0.0.1:19001", "--", ALIAS], stderr: STALE_FORWARD },
-  } as LinkDiagnosticRecord);
-  sink({ event: "tunnel_transition", outcome: "connected", state: "connected", previousState: "bogus", tunnelPort: 70_000 } as LinkDiagnosticRecord);
-  sink({ event: "tunnel_transition", outcome: "not-a-cause" } as unknown as LinkDiagnosticRecord);
-  // Every cause the history can name is an allowed outcome; none is dropped as unknown.
-  for (const cause of TUNNEL_CAUSES) sink({ event: "tunnel_transition", outcome: cause, state: "failed" });
-  await sink.flush();
-  const lines = readFileSync(join(configDir, "link", "diagnostics.jsonl"), "utf8").trim().split("\n").map(line => JSON.parse(line));
-  expect(lines.slice(0, 2)).toEqual([
-    { event: "tunnel_transition", outcome: "remote_forward_conflict", state: "failed", previousState: "reconnecting",
-      attempt: 3, retryAfterMs: 120_000, tunnelPort: 19002, timestamp: 1_000 },
-    { event: "tunnel_transition", outcome: "connected", state: "connected", timestamp: 1_000 },
-  ]);
-  // remote_forward_conflict was already written once in this one-second window.
-  expect(lines.slice(2).map(line => line.outcome)).toEqual(TUNNEL_CAUSES.filter(cause => cause !== "remote_forward_conflict"));
+  // This checks serialized fields; real Windows ACL subprocess latency can outlive flush().
+  setAsyncWindowsPrincipalRunnerForTests(async () => ({ success: true, exitCode: 0, timedOut: false,
+    stdout: "S-1-5-21-1-2-3-1001\nTEST\\user\n" }));
+  setAsyncIcaclsRunnerForTests(async () => ({ success: true, exitCode: 0, timedOut: false, stdout: "" }));
+  resetHardenedStateForTests();
+  try {
+    const sink = createLinkDiagnosticSink({ configDir, now: () => 1_000 });
+    sink({
+      event: "tunnel_transition", outcome: "remote_forward_conflict", state: "failed", previousState: "reconnecting",
+      attempt: 3, tunnelPort: 19002, retryAfterMs: 120_000,
+      ...{ alias: ALIAS, argv: ["ssh", "-R", "127.0.0.1:19002:127.0.0.1:19001", "--", ALIAS], stderr: STALE_FORWARD },
+    } as LinkDiagnosticRecord);
+    sink({ event: "tunnel_transition", outcome: "connected", state: "connected", previousState: "bogus", tunnelPort: 70_000 } as LinkDiagnosticRecord);
+    sink({ event: "tunnel_transition", outcome: "not-a-cause" } as unknown as LinkDiagnosticRecord);
+    // Every cause the history can name is an allowed outcome; none is dropped as unknown.
+    for (const cause of TUNNEL_CAUSES) sink({ event: "tunnel_transition", outcome: cause, state: "failed" });
+    await sink.flush();
+    const lines = readFileSync(join(configDir, "link", "diagnostics.jsonl"), "utf8").trim().split("\n").map(line => JSON.parse(line));
+    expect(lines.slice(0, 2)).toEqual([
+      { event: "tunnel_transition", outcome: "remote_forward_conflict", state: "failed", previousState: "reconnecting",
+        attempt: 3, retryAfterMs: 120_000, tunnelPort: 19002, timestamp: 1_000 },
+      { event: "tunnel_transition", outcome: "connected", state: "connected", timestamp: 1_000 },
+    ]);
+    // remote_forward_conflict was already written once in this one-second window.
+    expect(lines.slice(2).map(line => line.outcome)).toEqual(TUNNEL_CAUSES.filter(cause => cause !== "remote_forward_conflict"));
+  } finally {
+    setAsyncIcaclsRunnerForTests(null);
+    setAsyncWindowsPrincipalRunnerForTests(null);
+    resetWindowsPrincipalForTests();
+    resetHardenedStateForTests();
+  }
 });
 
 function statusDeps(supervisor: LinkSupervisor, store: LinkStore): ManagementApiDeps {

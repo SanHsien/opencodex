@@ -1,3 +1,4 @@
+import { sameFileIdentity } from "../../lib/file-identity";
 /**
  * Isolated MCP catalog used by the CodeBuddy adapter.
  *
@@ -46,7 +47,7 @@ function hasUnpairedSurrogate(value: string): boolean {
 async function readCatalogBounded(path: string): Promise<Buffer> {
   const handle = await open(path, "r");
   try {
-    const before = await handle.stat();
+    const before = await handle.stat({ bigint: true });
     if (!before.isFile()) throw new Error("tool catalog must be a regular file");
     if (before.size > CODEBUDDY_TOOL_LIMITS.maxCatalogBytes) {
       throw new Error("tool catalog is too large");
@@ -66,14 +67,13 @@ async function readCatalogBounded(path: string): Promise<Buffer> {
       throw new Error("tool catalog is too large");
     }
 
-    const after = await handle.stat();
+    const after = await handle.stat({ bigint: true });
     if (
-      before.dev !== after.dev
-      || before.ino !== after.ino
+      !sameFileIdentity(before, after)
       || before.size !== after.size
       || before.mtimeMs !== after.mtimeMs
       || before.ctimeMs !== after.ctimeMs
-      || after.size !== offset
+      || after.size !== BigInt(offset)
     ) {
       throw new Error("tool catalog changed while being read");
     }

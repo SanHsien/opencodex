@@ -1,3 +1,4 @@
+// Exact identity boundary: standalone Node launcher cannot load file-identity.ts; both cleanup witnesses use bigint stats.
 import { mkdtempSync, lstatSync, writeFileSync, unlinkSync, rmdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -11,7 +12,7 @@ const MUTATIONS = new Set(["add", "install", "update", "remove", "uninstall"]);
 export function withPnpmCommandCwd(args, run) {
   if (!MUTATIONS.has(args?.[0])) return run(PNPM_READ_CWD);
   const cwd = mkdtempSync(join(tmpdir(), "ocx-pnpm-command-"));
-  const created = lstatSync(cwd);
+  const created = lstatSync(cwd, { bigint: true });
   const files = ["pnpm-workspace.yaml", ".npmrc"];
   try {
     // Stop discovery at our own workspace, rather than inheriting a shared /tmp workspace.
@@ -20,7 +21,7 @@ export function withPnpmCommandCwd(args, run) {
     return run(cwd);
   } finally {
     try {
-      const now = lstatSync(cwd);
+      const now = lstatSync(cwd, { bigint: true });
       if (!now.isDirectory() || now.isSymbolicLink() || now.dev !== created.dev || now.ino !== created.ino) {
         throw new Error("temporary directory identity changed");
       }

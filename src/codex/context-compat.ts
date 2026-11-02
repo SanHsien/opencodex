@@ -1,3 +1,4 @@
+import { fileIdentityKey, statFileIdentity } from "../lib/file-identity";
 /** Backend path and opt-in config compatibility for native Codex history/notes. */
 import { statSync } from "node:fs";
 import { join } from "node:path";
@@ -43,8 +44,8 @@ export function contextRelayActivated(configPath?: string): boolean {
     // CODEX_HOME that became unreadable while the proxy runs would throw past this try. This
     // function is now on the model path, where that would abort a turn upstream already served.
     path = configPath ?? join(getCodexHome(), "config.toml");
-    const seen = statSync(path);
-    key = `${path}:${seen.mtimeMs}:${seen.size}:${String(seen.ino)}`;
+    const seen = statFileIdentity(path);
+    key = `${path}:${seen.mtimeMs}:${seen.size}:${fileIdentityKey(seen)}`;
   } catch {
     activation = undefined;
     return false;

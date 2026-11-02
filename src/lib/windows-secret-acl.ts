@@ -1,3 +1,4 @@
+import { fileIdentityKey } from "./file-identity";
 /**
  * Windows per-user NTFS ACL hardening for secret files and directories.
  *
@@ -172,7 +173,7 @@ function observe(targetPath: string): PathObservation | null {
   try {
     const s = statReader(targetPath);
     if (s.ino === 0n) return null;
-    return { object: `${s.dev}:${s.ino}`, freshness: `${s.ctimeNs}` };
+    return { object: fileIdentityKey(s), freshness: `${s.ctimeNs}` };
   } catch {
     return null;
   }

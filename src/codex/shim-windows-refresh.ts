@@ -1,3 +1,4 @@
+import { sameFileIdentity } from "../lib/file-identity";
 import { randomUUID } from "node:crypto";
 import { closeSync, constants, existsSync, fstatSync, linkSync, lstatSync, openSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, extname, join } from "node:path";
@@ -36,7 +37,7 @@ function targetIdentity(path: string): EntryIdentity | null {
 }
 
 const same = (left: EntryIdentity | null, right: EntryIdentity | null): boolean =>
-  !!left && !!right && left.dev === right.dev && left.ino === right.ino && left.link === right.link;
+  !!left && !!right && sameFileIdentity(left, right) && left.link === right.link;
 
 /** The entry at `path` is exactly `identity` (same inode, same link-ness). */
 function entryIs(path: string, identity: EntryIdentity): boolean {

@@ -1,3 +1,4 @@
+import { sameFileIdentity } from "./file-identity";
 import { readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -131,8 +132,7 @@ export function packageManifestPathIn(root: string): string {
 }
 
 export function sameObservation(left: PackageTreeObservation, right: PackageTreeObservation): boolean {
-  return left.device === right.device
-    && left.inode === right.inode
+  return sameFileIdentity({ dev: left.device, ino: left.inode }, { dev: right.device, ino: right.inode })
     && left.contentTimeNs === right.contentTimeNs
     && left.size === right.size;
 }

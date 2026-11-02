@@ -1,3 +1,4 @@
+import { sameFileIdentity, statFileIdentity, lstatFileIdentity, fstatFileIdentity, type IdentityStats } from "../lib/file-identity";
 import { createHash } from "node:crypto";
 import {
   closeSync,
@@ -9,7 +10,6 @@ import {
   readSync,
   realpathSync,
   statSync,
-  type Stats,
 } from "node:fs";
 import { posix, win32 } from "node:path";
 import { getConfigDir } from "../config";
@@ -321,8 +321,8 @@ function resolveCandidateCommandPath(
   // bind command resolution and wrapper reads to stable filesystem handles.
   if (isWindowsPlatform(platform)) return null;
   const exists = deps.exists ?? existsSync;
-  const lstat = deps.lstat ?? lstatSync;
-  const stat = deps.stat ?? statSync;
+  const lstat = deps.lstat ?? lstatFileIdentity;
+  const stat = deps.stat ?? statFileIdentity;
   const usable = (path: string): boolean => {
     if (!isSafeLocalInspectionPath(path, deps)) return false;
     try {
@@ -487,8 +487,8 @@ function readBoundedFile(
   // local check. Virtual filesystem tests may omit lstat and retain their
   // injected stat/read behavior.
   const inspectLexical = deps.lstat
-    ?? (deps.stat === undefined && deps.readFile === undefined ? lstatSync : null);
-  let lexicalBefore: ReturnType<typeof lstatSync> | null = null;
+    ?? (deps.stat === undefined && deps.readFile === undefined ? lstatFileIdentity : null);
+  let lexicalBefore: ReturnType<typeof lstatFileIdentity> | ReturnType<typeof lstatSync> | null = null;
   if (inspectLexical) {
     try {
       lexicalBefore = inspectLexical(path);
@@ -505,7 +505,7 @@ function readBoundedFile(
         ? fsConstants.O_RDONLY
         : fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW | fsConstants.O_NONBLOCK;
       fd = openSync(path, flags);
-      const before = fstatSync(fd);
+      const before = fstatFileIdentity(fd);
       if (!before.isFile() || before.size > maxBytes) return null;
       const bytes = Buffer.allocUnsafe(before.size);
       let offset = 0;
@@ -516,14 +516,14 @@ function readBoundedFile(
       }
       const extra = Buffer.allocUnsafe(1);
       if (readSync(fd, extra, 0, 1, offset) !== 0) return null;
-      const after = fstatSync(fd);
+      const after = fstatFileIdentity(fd);
       const lexicalAfter = inspectLexical ? inspectLexical(path) : null;
       if (lexicalAfter?.isSymbolicLink()) return null;
-      if (before.dev !== after.dev || before.ino !== after.ino || before.size !== after.size
+      if (!sameFileIdentity(before, after) || before.size !== after.size
         || before.mtimeMs !== after.mtimeMs || before.ctimeMs !== after.ctimeMs
         || (lexicalBefore !== null && (lexicalAfter === null || lexicalAfter.isSymbolicLink()
-          || lexicalBefore.dev !== before.dev || lexicalBefore.ino !== before.ino
-          || lexicalAfter.dev !== after.dev || lexicalAfter.ino !== after.ino
+          || !sameFileIdentity(lexicalBefore, before)
+          || !sameFileIdentity(lexicalAfter, after)
           || lexicalAfter.size !== after.size || lexicalAfter.mtimeMs !== after.mtimeMs
           || lexicalAfter.ctimeMs !== after.ctimeMs))) return null;
       return bytes;
@@ -544,13 +544,12 @@ function readBoundedFile(
     const lexicalAfter = inspectLexical ? inspectLexical(path) : null;
     if (
       bytes.byteLength !== before.size
-      || before.dev !== after.dev
-      || before.ino !== after.ino
+      || !sameFileIdentity(before, after)
       || before.size !== after.size
       || before.mtimeMs !== after.mtimeMs
       || (lexicalBefore !== null && (lexicalAfter === null || lexicalAfter.isSymbolicLink()
-        || lexicalBefore.dev !== before.dev || lexicalBefore.ino !== before.ino
-        || lexicalAfter.dev !== after.dev || lexicalAfter.ino !== after.ino))
+        || !sameFileIdentity(lexicalBefore, before)
+        || !sameFileIdentity(lexicalAfter, after)))
     ) return null;
     return bytes;
   } catch {
@@ -805,7 +804,7 @@ function observeHeldFileSet(
     const read = deps.readFile;
     if (!stat || !read) return null;
     const results = new Map<string, ObservedContentFile>();
-    const identities: { before: Stats; req: InstallContentFile }[] = [];
+    const identities: { before: NonNullable<ReturnType<typeof stat>>; req: InstallContentFile }[] = [];
     try {
       for (const req of requests) {
         const before = stat(req.path);
@@ -813,7 +812,7 @@ function observeHeldFileSet(
         const bytes = read(req.path);
         const after = stat(req.path);
         if (bytes.byteLength !== before.size
-          || before.dev !== after.dev || before.ino !== after.ino
+          || !sameFileIdentity(before, after)
           || before.size !== after.size || before.mtimeMs !== after.mtimeMs) return null;
         identities.push({ before, req });
         results.set(req.role, {
@@ -824,7 +823,7 @@ function observeHeldFileSet(
       // A replacement that slipped in after a file's own read still failed.
       for (const { before, req } of identities) {
         const now = stat(req.path);
-        if (before.dev !== now.dev || before.ino !== now.ino
+        if (!sameFileIdentity(before, now)
           || before.size !== now.size || before.mtimeMs !== now.mtimeMs) return null;
       }
       if (finalize && !finalize()) return null;
@@ -833,7 +832,7 @@ function observeHeldFileSet(
       return null;
     }
   }
-  const held: { fd: number; req: InstallContentFile; before: Stats }[] = [];
+  const held: { fd: number; req: InstallContentFile; before: IdentityStats }[] = [];
   const openedFds: number[] = [];
   try {
     const flags = process.platform === "win32"
@@ -845,7 +844,7 @@ function observeHeldFileSet(
       // The descriptor joins the close set before any check that can bail, so
       // an fstat failure or a refused type/size cannot leak it.
       openedFds.push(fd);
-      const before = fstatSync(fd);
+      const before = fstatFileIdentity(fd);
       // O_NONBLOCK keeps a FIFO open nonblocking, so the type check must come
       // first: anything that is not a regular file is refused before a read.
       if (!before.isFile() || before.size > req.maxBytes) return null;
@@ -871,15 +870,15 @@ function observeHeldFileSet(
       results.set(req.role, { digest: hasher.digest("hex"), bytes });
     }
     for (const { fd, req, before } of held) {
-      const after = fstatSync(fd);
-      const lexical = lstatSync(req.path);
-      const followed = statSync(req.path);
-      if (before.dev !== after.dev || before.ino !== after.ino
+      const after = fstatFileIdentity(fd);
+      const lexical = lstatFileIdentity(req.path);
+      const followed = statFileIdentity(req.path);
+      if (!sameFileIdentity(before, after)
         || before.size !== after.size || before.mtimeMs !== after.mtimeMs
         || before.ctimeMs !== after.ctimeMs
         || lexical.isSymbolicLink() || !lexical.isFile()
-        || lexical.dev !== before.dev || lexical.ino !== before.ino
-        || followed.dev !== before.dev || followed.ino !== before.ino) return null;
+        || !sameFileIdentity(lexical, before)
+        || !sameFileIdentity(followed, before)) return null;
     }
     if (finalize && !finalize()) return null;
     return results;
@@ -936,7 +935,7 @@ function observeInstallContent(
   if (!entrypoint) return null;
 
   const globals = globalModuleDirs(env, platform, deps);
-  const lstat = deps.lstat ?? lstatSync;
+  const lstat = deps.lstat ?? lstatFileIdentity;
   // Probe one modeled lookup lane in order; the first hit wins.
   const probeDirs = (
     dirs: readonly string[],
@@ -1274,7 +1273,7 @@ export async function inspectCodexCliInstall(
     });
   }
 
-  const stat = deps.stat ?? statSync;
+  const stat = deps.stat ?? statFileIdentity;
   if (!isSafeLocalInspectionPath(canonicalOwnershipPath, deps)) {
     return unknownReport("candidate_path_unsafe", candidate);
   }

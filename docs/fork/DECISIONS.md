@@ -799,3 +799,22 @@ API root 由 [官方 Chat Completions 文件](https://www.runcrate.ai/docs/model
 延後項與後續逐筆游標統一記在 `ROADMAP.md`。
 
 作者歸屬：#7726 原作者 Nirupam Bhowmick，上游另帶 JUN co-author；兩筆 trailer 保留在採用提交訊息。
+
+
+## 2026-11-03：分類水位更正與 Windows 精度／路徑差異
+
+205 筆清冊中，依 stat 第一檔產生的樣板理由只標「只分類、未審」，不當成 fork 等價證據。
+`reviewed_through`／`reviewed_date` 保持基準 `d8b305993` 的 88aaa754566d119b6b8fc898f8fb47602387d82e／2026-10-28；
+integrated、PR、issue 軸保持。沒有證據足以推進任何連續前綴，strict 的未審 commit 警示保留。
+
+`95cfa30ec`：採用 compaction recovery 的 namespace path，ACL 使用 extended Windows spelling，
+memo key 仍用原路徑；備份、exclusive create、fsync、digest recheck 與 atomic rename 邊界保持。
+`86b72a689`：對憑證 lstat→open→fstat、初始 config publication、OAuth／service locks、
+catalog audit、desktop store 與 integration guards 使用 bigint identity；不從 rounded Number 放大。
+共用 bounded reader 保留既有 numeric metadata API，另回傳同一次 descriptor observation 的 exact identity。
+全域 identity 擴展涵蓋 Codex catalog、workspace、CLI、Lab、usage／history；比較與精確字串保存共用 file-identity helper。
+獨立 Node updater／lease 與無模組的 runtime probe child 保留原生 bigint 比較，不引入 TypeScript 載入依賴；CLI legacy numeric 欄位只供協定 metadata，授權使用 exact fileId。
+Windows catalog 實體 file symlink 測試在能力探測遇 EPERM 時 skip；其他錯誤照常失敗，沒有改變產品路徑比對語意。
+
+兩筆上游作者皆 JUN，均帶 JUN 的 Co-authored-by trailer；完整作者行由 git show 的提交 metadata 查詢，不複製個人信箱到產品文件。
+驗收命令與紅綠結果見 `REVIEW.md` 的新段落；全版 stable 整合與其餘候選保留於路線圖。

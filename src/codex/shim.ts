@@ -1,3 +1,4 @@
+import { sameFileIdentity, lstatFileIdentity } from "../lib/file-identity";
 import { randomUUID } from "node:crypto";
 import {
   chmodSync,
@@ -188,7 +189,7 @@ function findWindowsCodexTargets(): ShimFileState[] | null {
     if (stableExe === null) return null;
     if (existsSync(stableExe) && !isShim(stableExe)) {
       try {
-        if (!lstatSync(stableExe).isDirectory()) {
+        if (!lstatFileIdentity(stableExe).isDirectory()) {
           lastShimDiscoveryError = truncateRetainedUtf8(
             `Found codex.exe at ${stableExe}. Refusing to rename a real .exe because exact codex.exe invocations would break; ` +
             "install a codex.cmd/codex.ps1 launcher or use `ocx service install` for autostart.",
@@ -211,7 +212,7 @@ function findWindowsCodexTargets(): ShimFileState[] | null {
       if (stablePath === null) return null;
       if (!existsSync(stablePath) || isShim(stablePath)) continue;
       try {
-        if (!lstatSync(stablePath).isDirectory()) {
+        if (!lstatFileIdentity(stablePath).isDirectory()) {
           targets.push({ wrapperPath: stablePath, originalPath: stablePath, backupPath: backupPathFor(stablePath) });
         }
       } catch { /* keep scanning */ }
@@ -280,7 +281,7 @@ interface FreshShimInstallJournalEntry {
   writtenWrapperFingerprint?: ShimPathFingerprint;
   wrapperWriteStarted: boolean;
   /** dev/ino of the file our `writeShim()` created, recorded before anything can fail. */
-  writtenWrapperInode?: { dev: number; ino: number };
+  writtenWrapperInode?: { dev: bigint; ino: bigint };
 }
 
 function rollbackFreshShimInstall(journal: readonly FreshShimInstallJournalEntry[]): void {
@@ -304,7 +305,7 @@ function rollbackFreshShimInstall(journal: readonly FreshShimInstallJournalEntry
       if (ownsWrapper) unlinkSync(target.wrapperPath);
       else {
         try {
-          lstatSync(target.originalPath);
+          lstatFileIdentity(target.originalPath);
           sourceOccupied = true;
         } catch (error) {
           if (fileErrorCode(error) !== "ENOENT") sourceOccupied = true;
@@ -362,7 +363,7 @@ function windowsShimContent(wrapperPath: string, realCodexPath: string, runtime?
   return buildUnixCodexShim(gitBashPath(realCodexPath), gitBashPath(bun), gitBashPath(cli), bunRuntimeSource, gitBashPath(serviceApiTokenFilePath()));
 }
 
-function writeShim(wrapperPath: string, realCodexPath: string, runtime?: DurableBunRuntime): { dev: number; ino: number } | undefined {
+function writeShim(wrapperPath: string, realCodexPath: string, runtime?: DurableBunRuntime): { dev: bigint; ino: bigint } | undefined {
   const { bun, bunRuntimeSource, cli } = cliEntry(runtime);
   if (process.platform === "win32") {
     writeFileSync(wrapperPath, windowsShimContent(wrapperPath, realCodexPath, runtime), "utf8");
@@ -382,7 +383,7 @@ function writeShim(wrapperPath: string, realCodexPath: string, runtime?: Durable
     try {
       // "wx" fails if the staging path somehow exists, so we never inherit a file.
       writeFileSync(staged, buildUnixCodexShim(realCodexPath, bun, cli, bunRuntimeSource), { encoding: "utf8", flag: "wx", mode: 0o600 });
-      const stagedStat = lstatSync(staged);
+      const stagedStat = lstatFileIdentity(staged);
       chmodSync(staged, 0o755);
       renameSync(staged, wrapperPath);
       renamed = true;
@@ -404,14 +405,14 @@ function writeShim(wrapperPath: string, realCodexPath: string, runtime?: Durable
  */
 function ownedWrapperFingerprint(
   wrapperPath: string,
-  written: { dev: number; ino: number } | undefined,
+  written: { dev: bigint; ino: bigint } | undefined,
 ): ShimPathFingerprint | undefined {
   const probe = stableShimPathProbe(wrapperPath);
   if (!probe) return undefined;
   // Platforms that still write in place (Windows) have no staged identity; fall
   // back to the marker check they have always used.
   if (!written) return probe.prefix.includes(SHIM_MARKER) ? probe.fingerprint : undefined;
-  if (probe.fingerprint.dev !== written.dev || probe.fingerprint.ino !== written.ino) return undefined;
+  if (!sameFileIdentity(probe.fingerprint, written)) return undefined;
   return probe.fingerprint;
 }
 
@@ -426,11 +427,11 @@ function ownedWrapperFingerprint(
  */
 function wrapperInodeIsOurs(
   wrapper: StableShimPathProbe,
-  written: { dev: number; ino: number } | undefined,
+  written: { dev: bigint; ino: bigint } | undefined,
   recorded: ShimPathFingerprint | undefined,
 ): boolean {
   // A different inode is conclusive: someone renamed their own file over ours.
-  if (written && (wrapper.fingerprint.dev !== written.dev || wrapper.fingerprint.ino !== written.ino)) {
+  if (written && (!sameFileIdentity(wrapper.fingerprint, written))) {
     return false;
   }
   // Same inode is not sufficient on its own — an in-place truncation (shell `>`,
@@ -591,7 +592,7 @@ function rollbackGuardedRefresh(journal: readonly GuardedRefreshJournalEntry[]):
         unlinkSync(entry.operation.file.wrapperPath);
       } else {
         try {
-          lstatSync(entry.operation.sourcePath);
+          lstatFileIdentity(entry.operation.sourcePath);
           sourceOccupied = true;
         } catch (error) {
           if (fileErrorCode(error) !== "ENOENT") sourceOccupied = true;

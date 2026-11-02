@@ -1,3 +1,4 @@
+import { storedFileIdentity, sameFileIdentity, lstatFileIdentity, fstatFileIdentity } from "../lib/file-identity";
 import { closeSync, fstatSync, linkSync, lstatSync, openSync, readlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import { getConfigDir } from "../config";
@@ -11,14 +12,14 @@ export type UnixShimMigrationResult =
   | { status: "native-repair-required"; message: string }
   | { status: "refused"; message: string };
 
-type Identity = { dev: number; ino: number; mode: number; size: number; mtimeMs: number; link?: string };
+type Identity = { dev: string | number; ino: string | number; mode: number; size: number; mtimeMs: number; link?: string };
 type MigrationRecord = { original: string; backup: string; wrapper: Identity; saved: Identity };
 
 function identity(path: string): Identity | null {
   try {
-    const stat = lstatSync(path);
+    const stat = lstatFileIdentity(path);
     if (!stat.isFile() && !stat.isSymbolicLink()) throw new Error("Unsupported migration entry");
-    return { dev: stat.dev, ino: stat.ino, mode: stat.mode, size: stat.size, mtimeMs: stat.mtimeMs,
+    return { ...storedFileIdentity(stat), mode: stat.mode, size: stat.size, mtimeMs: stat.mtimeMs,
       ...(stat.isSymbolicLink() ? { link: readlinkSync(path) } : {}) };
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
@@ -26,13 +27,13 @@ function identity(path: string): Identity | null {
   }
 }
 function same(left: Identity | null, right: Identity | null): boolean {
-  return !!left && !!right && JSON.stringify(left) === JSON.stringify(right);
+  return !!left && !!right && sameFileIdentity(left, right) && left.mode === right.mode && left.size === right.size && left.mtimeMs === right.mtimeMs && left.link === right.link;
 }
 /** Drop a journal this run created before any migration step, never a replacement at that path. */
-function discardCreatedJournal(journal: string, created: { dev: number; ino: number }): void {
+function discardCreatedJournal(journal: string, created: { dev: bigint; ino: bigint }): void {
   try {
-    const now = lstatSync(journal);
-    if (now.isFile() && now.dev === created.dev && now.ino === created.ino) unlinkSync(journal);
+    const now = lstatFileIdentity(journal);
+    if (now.isFile() && sameFileIdentity(now, created)) unlinkSync(journal);
   } catch {
     // An unreadable or vanished path is left for the next run's ownership checks.
   }
@@ -67,7 +68,7 @@ export function migrateLegacyUnixShim(state: ShimState): UnixShimMigrationResult
     let record: MigrationRecord | null = null;
     const journalBefore = identity(journal);
     if (journalBefore) {
-      const entry = lstatSync(journal);
+      const entry = lstatFileIdentity(journal);
       if (!entry.isFile() || entry.uid !== process.getuid?.() || (entry.mode & 0o022)) return refused("Migration journal is not privately owned.");
     }
     const stored = readBoundedRegularFile(journal, 16 * 1024);
@@ -94,12 +95,12 @@ export function migrateLegacyUnixShim(state: ShimState): UnixShimMigrationResult
         if (evacuated) return refused("Unrecorded migration quarantine requires manual inspection.");
         record = { original, backup, wrapper: current, saved };
         const fd = openSync(journal, "wx", 0o600);
-        const created = fstatSync(fd);
+        const created = fstatFileIdentity(fd);
         try {
           writeFileSync(fd, JSON.stringify(record) + "\n");
-          const written = fstatSync(fd);
+          const written = fstatFileIdentity(fd);
           journalIdentity = identity(journal);
-          if (journalIdentity?.ino !== created.ino || journalIdentity.dev !== created.dev
+          if (!journalIdentity || !sameFileIdentity(journalIdentity, created)
             || journalIdentity.size !== written.size || journalIdentity.mtimeMs !== written.mtimeMs) throw new Error("Journal replaced");
         } catch (error) {
           // Nothing has moved yet, so a partial journal of ours would only block every retry.

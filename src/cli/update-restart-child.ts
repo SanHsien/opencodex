@@ -1,3 +1,4 @@
+// Exact identity boundary: numeric fields are legacy protocol validation only; fileId is the exact directory identity.
 import { existsSync } from "node:fs";
 import { getRuntimePortPath, readRuntimePort } from "../config/process-state";
 import { packageVersion } from "../lib/package-version";

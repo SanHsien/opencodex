@@ -1,3 +1,4 @@
+import { sameFileIdentity } from "../lib/file-identity";
 import { linkSync, mkdirSync, readdirSync, readFileSync, renameSync, rmdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { ownEvidence, ownerState, safeNamespace, safeNamespaceStat, type OwnerDeps, type OwnerEvidence } from "./prompt-lock-owner";
@@ -54,7 +55,7 @@ export function withLockClaim<T>(
   if (!safeNamespaceStat(directoryStat, "directory", deps)) throw new UnsafeLockNamespace(directory);
   const parents = [root, { path: directory, stat: directoryStat }];
   const claimDirectoryGone = (): boolean => {
-    try { const now = deps.lstat(directory); return now.dev !== parents[1].stat.dev || now.ino !== parents[1].stat.ino; }
+    try { const now = deps.lstat(directory); return !sameFileIdentity(now, parents[1].stat); }
     catch { return true; }
   };
   const ownName = `${process.pid}-${token}.claim`, ownPath = join(directory, ownName);

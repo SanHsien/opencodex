@@ -137,7 +137,7 @@ configuration. Ordinary Chat-tab traffic is out of scope for both modes.
 
 ### Intercept credential lifetime
 
-`src/claude/intercept/proxy-auth.ts` reads a bounded base64url credential through a checked
+`src/claude/intercept/proxy-auth.ts` compares bigint device/inode observations (including NTFS IDs above 2^53) and reads a bounded base64url credential through a checked
 regular-file descriptor, rejects links and foreign POSIX owners, and never replaces invalid
 existing entries. Creation hardens before no-replace publication. The authenticated listener
 reads this current authority for every CONNECT; absence or invalidity denies admission.

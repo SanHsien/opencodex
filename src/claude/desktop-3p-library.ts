@@ -1,3 +1,4 @@
+import { sameFileIdentity } from "../lib/file-identity";
 import { closeSync, constants, fstatSync, lstatSync, openSync, readSync, type BigIntStats } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -62,7 +63,7 @@ export function serializeDesktopLibraryJson(value: unknown): string {
 function pathStillNamesExpectedFile(path: string, expected: BigIntStats): boolean {
   try {
     const now = lstatSync(path, { bigint: true });
-    return now.isFile() && now.dev === expected.dev && now.ino === expected.ino
+    return now.isFile() && sameFileIdentity(now, expected)
       && now.ctimeNs === expected.ctimeNs;
   } catch { return false; }
 }
@@ -91,7 +92,7 @@ export function readDesktopLibraryBytes(
   }
   try {
     const opened = fstatSync(fd, { bigint: true });
-    if (!opened.isFile() || opened.dev !== expected.dev || opened.ino !== expected.ino
+    if (!opened.isFile() || !sameFileIdentity(opened, expected)
       || opened.ctimeNs !== expected.ctimeNs) throw new Error("desktop_config_not_regular");
     if (opened.size > BigInt(maxBytes)) throw new Error("desktop_config_too_large");
     // Allocate for the observed size plus one sentinel byte, not the full cap: callers scan many

@@ -225,3 +225,23 @@ test("a temporary close error does not replace the published credential result",
     expect(readdirSync(join(root, "claude-intercept"))).toEqual(["proxy-token"]);
   } finally { close.mockRestore(); write.mockRestore(); warning.mockRestore(); }
 });
+
+test("adjacent NTFS IDs above 2^53 cannot substitute the credential", () => {
+  const root = dir();
+  const token = ensureClaudeInterceptProxyToken(root);
+  const real = filesystem.fstatSync;
+  const spy = spyOn(filesystem, "fstatSync").mockImplementation(((fd: number, options: any) => {
+    const stat = real(fd, options);
+    Object.defineProperty(stat, "ino", { value: options?.bigint ? 2n ** 53n + 1n : Number(2n ** 53n + 1n) });
+    return stat;
+  }) as typeof filesystem.fstatSync);
+  const lreal = filesystem.lstatSync;
+  const lspy = spyOn(filesystem, "lstatSync").mockImplementation(((path: any, options: any) => {
+    const stat = lreal(path, options);
+    Object.defineProperty(stat, "ino", { value: options?.bigint ? 2n ** 53n : Number(2n ** 53n) });
+    return stat;
+  }) as typeof filesystem.lstatSync);
+  try { expect(readClaudeInterceptProxyToken(root)).toBeNull(); }
+  finally { spy.mockRestore(); lspy.mockRestore(); }
+  expect(readClaudeInterceptProxyToken(root)).toBe(token);
+});

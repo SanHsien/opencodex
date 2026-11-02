@@ -1,3 +1,4 @@
+import { sameFileIdentity, lstatFileIdentity, fstatFileIdentity } from "../lib/file-identity";
 import {
   chmodSync,
   closeSync,
@@ -101,7 +102,7 @@ export function resolveWriteTarget(path: string): string {
   } catch (cause) {
     let entry;
     try {
-      entry = lstatSync(path);
+      entry = lstatFileIdentity(path);
     } catch (error) {
       if (isMissingPathError(error)) return path;
       throw error;
@@ -133,10 +134,10 @@ function assertResolvedTargetAllowed(path: string, target: string): void {
 }
 
 function assertPrivateTempDescriptor(path: string, descriptor: number): void {
-  const opened = fstatSync(descriptor);
-  const linked = lstatSync(path);
+  const opened = fstatFileIdentity(descriptor);
+  const linked = lstatFileIdentity(path);
   if (!opened.isFile() || !linked.isFile()
-    || opened.dev !== linked.dev || opened.ino !== linked.ino) {
+    || !sameFileIdentity(opened, linked)) {
     throw new Error("atomic temporary file identity changed before write");
   }
   if (process.platform !== "win32" && (opened.mode & 0o777) !== 0o600) {

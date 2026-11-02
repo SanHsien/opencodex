@@ -40,7 +40,7 @@ Google providers may persist `googleToolSchemaPolicy` as `compatible` or `reject
 `initializePersistedConfigIfMissing` in `src/config.ts` is the create-only path consumed by
 `src/cli/init.ts`. It rechecks absence under the existing config-mutation lock and publishes through
 `src/config/initialize.ts`: a private descriptor is hardened before secret bytes are written, then
-linked without replacing an occupied destination. Existing invalid or unsafe entries are preserved.
+linked without replacing an occupied destination. Descriptor/path device and inode comparisons use bigint stats, preserving adjacent NTFS file IDs above 2^53. Existing invalid or unsafe entries are preserved.
 The initializer never truncates a staged inode or rolls back by unlinking the destination; cleanup
 only removes its own temporary name. Unsupported/denied links and incomplete cleanup fail explicitly,
 and publication followed by a later failure can leave a complete config or private residue. Ordinary

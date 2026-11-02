@@ -1,3 +1,4 @@
+import { fileIdentityKey, sameFileIdentity } from "../lib/file-identity";
 import { createHash } from "node:crypto";
 import { closeSync, constants, fstatSync, lstatSync, openSync, readSync, realpathSync, type BigIntStats } from "node:fs";
 import { basename, dirname, join } from "node:path";
@@ -20,7 +21,7 @@ export const UPDATE_RESTART_SERVICE_RECORD_MAX_BYTES = 1024 * 1024;
 const READ_CHUNK_BYTES = 64 * 1024;
 const FAILURE = "update_restart_service_record_unverified";
 const hash = (bytes: string | Buffer) => createHash("sha256").update(bytes).digest("hex");
-const metadata = (stat: BigIntStats) => [stat.dev, stat.ino, stat.size, stat.mtimeNs, stat.ctimeNs, stat.mode, stat.uid, stat.gid].map(String);
+const metadata = (stat: BigIntStats) => [fileIdentityKey(stat), stat.size, stat.mtimeNs, stat.ctimeNs, stat.mode, stat.uid, stat.gid].map(String);
 const absent = (error: unknown) => !!error && typeof error === "object" && "code" in error && error.code === "ENOENT";
 
 // Canonicalize directories, never the record itself: a record symlink is a refusal.
@@ -71,7 +72,7 @@ export function captureUpdateRestartServiceRecord(deps: UpdateRestartServiceReco
         const statFd = deps.fstat ?? (handle => fstatSync(handle, { bigint: true }));
         const opened = statFd(fd);
         const identity = metadata(before);
-        if (!opened.isFile() || opened.dev !== before.dev || opened.ino !== before.ino
+        if (!opened.isFile() || !sameFileIdentity(opened, before)
           || opened.size < 0n || opened.size > BigInt(UPDATE_RESTART_SERVICE_RECORD_MAX_BYTES)
           || JSON.stringify(identity) !== JSON.stringify(metadata(opened))) throw new Error(FAILURE);
         const bytes = readBoundedRecord(fd, deps.read ?? readSync);

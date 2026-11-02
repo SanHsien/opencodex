@@ -1,3 +1,4 @@
+import { fileIdentityKey } from "../lib/file-identity";
 /**
  * config-write-lock.ts — one advisory lock for every opencodex-originated
  * `config.toml` write.
@@ -72,7 +73,7 @@ function destination(path: string): Destination {
   }
   try {
     const stat = statSync(canonical, { bigint: true });
-    return { canonical, inode: `${stat.dev}:${stat.ino}` };
+    return { canonical, inode: fileIdentityKey(stat) };
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     return { canonical, inode: null };
@@ -109,7 +110,7 @@ function acquire(configPath: string): ConfigWriteAcquireResult {
     // dangling link (realpath's fallback) or a fresh replacement for proven absence.
     try {
       const entry = lstatSync(current.canonical, { bigint: true });
-      if (entry.isSymbolicLink() || `${entry.dev}:${entry.ino}` !== current.inode) throw new ConfigWriteDestinationChanged();
+      if (entry.isSymbolicLink() || fileIdentityKey(entry) !== current.inode) throw new ConfigWriteDestinationChanged();
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT" || current.inode !== null) throw error;
     }
@@ -181,8 +182,8 @@ function canonicalFileIdentity(canonical: string): string | null {
     if ((error as NodeJS.ErrnoException).code === "ENOENT" && current.inode === null) return null;
     throw error;
   }
-  if (!stat.isFile() || `${stat.dev}:${stat.ino}` !== current.inode) throw new Error("canonical configuration target is not the observed regular file");
-  return `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeNs}:${stat.ctimeNs}`;
+  if (!stat.isFile() || fileIdentityKey(stat) !== current.inode) throw new Error("canonical configuration target is not the observed regular file");
+  return `${fileIdentityKey(stat)}:${stat.size}:${stat.mtimeNs}:${stat.ctimeNs}`;
 }
 /** Capture before the first write; nested native children share the same recovery scope. */
 export function withConfigWriteRecovery<T>(
@@ -357,7 +358,7 @@ export function removeConfigWriteEntry(configPath: string, held: LockHandle, pat
   if (expected.inode === null) return;
 
   const entry = join(realpathSync.native(dirname(resolve(path))), basename(resolve(path)));
-  const identity = (file: { dev: bigint; ino: bigint }) => `${file.dev}:${file.ino}`;
+  const identity = (file: { dev: bigint; ino: bigint }) => fileIdentityKey(file);
   const before = lstatSync(entry, { bigint: true });
   if (before.isSymbolicLink() || !before.isFile() || identity(before) !== expected.inode) {
     throw new Error("Codex artifact destination changed; files and recovery evidence were preserved.");

@@ -209,3 +209,197 @@ WINDOWS DEV CHECK GREEN
 `typecheck.log`、`structure-final.log`、`ratchet-final.log`、`dev-check.log`、`docs-install.log`、
 `docs-build-settled.log`、`privacy.log`、`upstream.log`、`full.log`）；最終工作樹與新檔 hash
 清冊為同目錄的 `evidence.json`。上游作者與共同作者 trailer 保留在採用提交訊息。
+
+## 2026-11-03：分類水位更正與 Windows identity／long-TEMP 驗收
+
+基準 `d8b305993199c8e86670525d686764d6126776a7`。reviewed commit/date 恢復為
+`88aaa754566d119b6b8fc898f8fb47602387d82e`／2026-10-28；integrated、PR、issue 水位不變。
+107 筆樣板理由先撤銷審查狀態；其中 docs hint 改 skip，三筆已知分類錯誤更正。
+205 筆清冊的 SHA 以 `git log --reverse --topo-order --format=%H v2.93.0..v2.96.0`
+扣除既有四筆後，比對表格每列第一欄：順序完全相同、無重複、無缺漏；
+初次精度／路徑驗收快照的狀態為 skip 42、defer 55、只分類未審 106、adopt 1、部分採用 1。分類不等於已審查。
+
+紅綠回歸：
+
+- `bun test tests/claude-integration/claude-intercept-proxy-auth.test.ts tests/codex-integration/history-ocx-compaction-long-path.test.ts --timeout=60000`：修正前 exit 1，`18 pass / 2 skip / 1 fail`；將 lstat/fstat 的 ino 注入 2^53 與 2^53+1，舊碼錯誤讀出替換後 credential，預期 null。
+- `bun test tests/codex-integration/history-ocx-compaction-long-path.test.ts --timeout=60000`：修正前 exit 1，`0 pass / 1 fail`；路徑超過 260 字元時，傳給 ACL 的參數缺少 namespace prefix。此環境的實體長路徑可成功，故另釘住 ACL 參數，同時實際驗證備份原文及修復後內容。
+- `bun test tests/lib/file-identity.test.ts tests/lib/file-identity-callers.test.ts tests/claude-integration/claude-intercept-proxy-auth.test.ts tests/codex-integration/history-ocx-compaction-long-path.test.ts --timeout=60000`：修正後 exit 0，`34 pass / 2 skip / 0 fail`，100 expect calls。共用 helper 的新增大 ID 單元案例再由下方九檔集合驗證。
+
+| 指令 | Exit code | 結尾輸出／範圍 |
+| --- | --- | --- |
+| `pwsh -NoProfile -File tools/dev_check.ps1` | 0 | `36 pass / 0 fail`、127 expect calls；10 份文件零斷鏈；`WINDOWS DEV CHECK GREEN`。 |
+| `bun run typecheck` | 0 | `$ bun x tsc --noEmit`，無診斷。 |
+| `bun test tests/config/config-mutation-lock.test.ts tests/codex-integration/codex-catalog-write-audit.test.ts tests/service/service-ownership-state.test.ts tests/lib/bounded-file-read.test.ts tests/codex-integration/history-ocx-compaction-recovery.test.ts tests/test-layout.test.ts tests/test-layout-tooling.test.ts --timeout=60000` | 1 | `162 pass / 4 skip / 2 fail`，1088 expect calls。catalog 實體 symlink 建立遇 Windows EPERM；另 ACL mock 未傳 bigint 選項，後者已修正並聚焦補驗。 |
+| `bun test tests/codex-integration/codex-catalog-write-audit.test.ts -t 'Windows audit privacy' --timeout=60000` | 0 | `8 pass / 31 filtered out / 0 fail`，60 expect calls；包含修正後的 ACL ctime 轉換案例。EPERM 案例不在此範圍，仍是未通過。 |
+| `bun test tests/lib/file-identity.test.ts tests/config/config-mutation-lock.test.ts tests/providers/command-code-project-context.test.ts tests/clients/desktop-remote-store.test.ts tests/clients/hermes-profiles.test.ts tests/clients/hermes-profile-routes.test.ts tests/oauth/oauth-store-multi.test.ts tests/oauth/oauth-refresh-generic-lock.test.ts tests/oauth/oauth-refresh-lock-multiprocess.test.ts --timeout=60000` | 0 | `199 pass / 5 skip / 0 fail`，1258 expect calls，112.90s。 |
+| `bun run test:changed --timeout=60000` | 1 | `git merge-base failed while validating changed mode: exit 1`；壓縮 fork 與 dev 無共同祖先，沒有假裝選測成功。 |
+| `bun run structure:check` | 0 | `structure/ SSOT checks passed`。 |
+| `bun scripts/file-size-ratchet.ts` | 0 | `file-size ratchet passed`。 |
+| `bun tools/check-upstream-updates.ts --strict` | 1 | `209 upstream commit(s) require review.`；無新 closed-unmerged PR 或 platform issue。scalar 不因分類完成而前移。 |
+
+安全邊界自審：bigint 直接來自 stat options，不從 Number 放大；POSIX mode／uid、bounded read、exclusive publication、已持有 descriptor 與釋放前的再次身分檢查保持。long-TEMP 只轉換 ACL 參數，原 memo key 與備份／digest／atomic rename 不變。
+
+初次驗收快照中，`86b72a689` 是部分採用：`rg -n '\.ino\b|\.dev\b|lstatSync|fstatSync' src` 仍能找到
+Codex／workspace／CLI／Lab 等需要逐點確認的數值 identity 觀察，包含上游後續 `6c86d0fad`／`51030653f` 範圍。
+不能把指定三個憑證點與上游初始 patch 的修正稱作全 repo identity 驗收完成。
+`95cfa30ec` 已採用並有紅綠證據；全版 stable 整合計畫保留，沒有推進 integrated 水位。
+完整產品套件未跑：此驗收採聚焦集合，包含 OAuth 跨進程鎖與文件/layout gates；不能把它們稱為完整產品回歸通過。
+沒有根目錄 CHANGELOG.md；結果記於此段與 DECISIONS，計畫只記 ROADMAP。
+
+## 2026-11-03：全域 file identity
+
+基準 HEAD：`d8b305993199c8e86670525d686764d6126776a7`。`86b72a689` 的 bigint identity 實作擴展至全部 86 個 caller，全域驗收未完成；未新增採用其他上游 commit，integrated／reviewed／PR／issue 水位保持。
+
+所有 runtime TypeScript identity owner 使用共用 file-identity helper；下表逐一列出基準的 ino／dev 點與實作行號。raw grep 的 provider URL、註解及字串中的 .dev 網域不是 filesystem identity；零 inode 檢查是有效性檢查，不是兩檔相等判定。caller guard 對每個 owner 獨立驗證 helper、numeric metadata 例外清單與新增漏列 caller；Node-only 邊界的 bigint acquisition 另受 guard／專用測試約束。
+
+| Caller | HEAD ino／dev 點（行） | 實作點（行） | 處理結果 |
+| --- | --- | --- | --- |
+| `src/adapters/codebuddy/mcp-server.ts` | 71, 72 | 72 | bigint 觀察／共用 helper 比對或 fingerprint；數值 mode／size／time 僅為 metadata |
+| `src/adapters/command-code-project-context.ts` | 195, 201 | 196, 202 | bigint 觀察／共用 helper 比對或 fingerprint；數值 mode／size／time 僅為 metadata |
+| `src/claude/desktop-3p-library.ts` | 65, 94 | 66, 95 | bigint 觀察／共用 helper 比對或 fingerprint；數值 mode／size／time 僅為 metadata |
+| `src/claude/desktop-remote-store-io.ts` | 11 | 12 | bigint 觀察／共用 helper 比對或 fingerprint；數值 mode／size／time 僅為 metadata |
+| `src/claude/intercept/local-ca-files.ts` | 36, 82, 139, 173, 181, 190, 231 | 37, 83, 140, 174, 182, 191, 232 | bigint 觀察／共用 helper 比對或 fingerprint；數值 mode／size／time 僅為 metadata |
+| `src/claude/intercept/picker-ca-persistence.ts` | 35 | 36 | bigint 觀察／共用 helper 比對或 fingerprint；數值 mode／size／time 僅為 metadata |
+| `src/claude/intercept/proxy-auth.ts` | 33, 52 | 34, 53 | bigint 觀察／共用 helper 比對或 fingerprint；數值 mode／size／time 僅為 metadata |
+| `src/cli/update-restart-child.ts` | 26 | 27 | 僅驗證舊協定 numeric metadata 格式；exact fileId 由 update-restart-home 的共用 helper 產生並驗證 |
+| `src/cli/update-restart-home.ts` | 29 | 31 | bigint 觀察→fileIdentityKey；Number(dev／ino) 僅保留協定 metadata，不用於授權相等判定 |
+| `src/cli/update-restart-service-record.ts` | 23, 74 | 24, 75 | bigint 觀察／共用 helper 比對或 fingerprint；數值 mode／size／time 僅為 metadata |
+| `src/client/link-tunnel.ts` | 505 | 505, 506 | bigint 觀察／共用 helper 比對或 fingerprint；數值 mode／size／time 僅為 metadata |
+| `src/client/state.ts` | 47 | 48 | bigint 觀察／共用 helper 比對或 fingerprint；數值 mode／size／time 僅為 metadata |
+| `src/clients/aside-profiles.ts` | 118, 161 | 119, 162 | bigint 觀察／共用 helper 比對或 fingerprint；數值 mode／size／time 僅為 metadata |
+| `src/clients/gentle-shell-path.ts` | 53 | 54 | bigint 觀察／共用 helper 比對或 fingerprint；數值 mode／size／time 僅為 metadata |
+| `src/clients/omo-role-models.ts` | 66 | 67 | bigint 觀察／共用 helper 比對或 fingerprint；數值 mode／size／time 僅為 metadata |
+| `src/codex/account-store.ts` | 824, 831, 833 | 825, 832, 834 | bigint 觀察／共用 helper 比對或 fingerprint；數值 mode／size／time 僅為 metadata |
+| `src/codex/catalog/filesystem-evidence.ts` | 63, 201, 224 | 64, 65, 203, 204, 223, 227 | bigint 觀察→storedFileIdentity；volume/fileId、device/inode 既有 evidence schema 維持 decimal string |
+| `src/codex/catalog/heal-observation.ts` | 25, 144, 146, 178 | 26, 145, 147, 179 | bigint 觀察／共用 helper 比對或 fingerprint；數值 mode／size／time 僅為 metadata |
+| `src/codex/catalog/write-audit.ts` | 50, 138 | 51, 139 | bigint 觀察／共用 helper 比對或 fingerprint；數值 mode／size／time 僅為 metadata |
+| `src/codex/cli-install-provenance.ts` | 522, 525, 526, 547, 548, 552, 553, 816, 827, 877, 881, 882 | 508, 519, 522, 525, 526, 547, 551, 552, 815, 826, 847, 873, 874, 875, 876, 880, 881 | bigint 觀察／共用 helper 比對或 fingerprint；數值 mode／size／time 僅為 metadata |
+| `src/codex/codex-home-owner.ts` | 63, 72 | 64, 73 | bigint 觀察／共用 helper 比對或 fingerprint；數值 mode／size／time 僅為 metadata |
+| `src/codex/config-write-lock.ts` | 75, 112, 184, 185, 360 | 76, 113, 185, 186, 361 | bigint 觀察／共用 helper 比對或 fingerprint；數值 mode／size／time 僅為 metadata |
+| `src/codex/context-compat.ts` | 47 | 47, 48 | bigint 觀察／共用 helper 比對或 fingerprint；數值 mode／size／time 僅為 metadata |
+| `src/codex/coordinator-doctor.ts` | 69, 70, 77 | 69, 76, 88, 117 | bigint 觀察／共用 helper 比對或 fingerprint；數值 mode／size／time 僅為 metadata |
+| `src/codex/desktop-compatibility/native-identity.ts` | 13 | 14 | bigint 觀察／共用 helper 比對或 fingerprint；數值 mode／size／time 僅為 metadata |
+| `src/codex/features.ts` | 1164 | 1164, 1165 | bigint 觀察／共用 helper 比對或 fingerprint；數值 mode／size／time 僅為 metadata |
+| `src/codex/history-provider.ts` | 299, 386, 746 | 218, 299, 300, 384, 386, 387, 664, 746, 747, 1185, 1237 | bigint 觀察／共用 helper 比對或 fingerprint；數值 mode／size／time 僅為 metadata |
+| `src/codex/inject/bounded-config-reader.ts` | 41, 59 | 25, 41, 42, 55, 56, 60 | bigint 觀察／共用 helper 比對或 fingerprint；數值 mode／size／time 僅為 metadata |
+| `src/codex/log-guard/inspect.ts` | 142, 143 | 90, 98, 144 | bigint 觀察／共用 helper 比對或 fingerprint；數值 mode／size／time 僅為 metadata |
+| `src/codex/log-guard/maintenance.ts` | 139, 142, 159, 160 | 140, 143, 160 | bigint 觀察／共用 helper 比對或 fingerprint；數值 mode／size／time 僅為 metadata |
+| `src/codex/main-account.ts` | 177, 286, 287 | 177, 178, 287 | bigint 觀察／共用 helper 比對或 fingerprint；數值 mode／size／time 僅為 metadata |
+| `src/codex/native-main-auth-temp.ts` | 54, 68, 79 | 55, 69, 80 | bigint 觀察／共用 helper 比對或 fingerprint；數值 mode／size／time 僅為 metadata |
+| `src/codex/native-main-claim.ts` | 91 | 92 | bigint 觀察／共用 helper 比對或 fingerprint；數值 mode／size／time 僅為 metadata |
+| `src/codex/native-main-lock-file.ts` | 45, 46, 71, 95, 96 | 45, 46, 71, 87, 91, 95, 96, 114 | bigint 觀察／共用 helper 比對或 fingerprint；數值 mode／size／time 僅為 metadata |
+| `src/codex/native-profile-manager.ts` | 165, 169, 728, 729, 741 | 166, 170, 729, 741 | bigint 觀察／共用 helper 比對或 fingerprint；數值 mode／size／time 僅為 metadata |
+| `src/codex/native-profile-stage-store.ts` | 85, 89, 105, 106, 234, 255, 264, 275, 301, 302, 323, 324 | 86, 90, 106, 234, 255, 264, 275, 301, 302, 323, 324 | bigint 觀察／共用 helper 比對或 fingerprint；數值 mode／size／time 僅為 metadata |
+| `src/codex/native-profile-store.ts` | 398, 399 | 399 | bigint 觀察／共用 helper 比對或 fingerprint；數值 mode／size／time 僅為 metadata |
+| `src/codex/native-residue.ts` | 102, 103 | 103, 111, 127, 149, 449, 500, 504, 594 | bigint 觀察／共用 helper 比對或 fingerprint；數值 mode／size／time 僅為 metadata |
+| `src/codex/orca-auth-source.ts` | 33, 48 | 19, 29, 33, 34, 48, 49 | bigint 觀察／共用 helper 比對或 fingerprint；數值 mode／size／time 僅為 metadata |
+| `src/codex/prompt-lock-claim.ts` | 57 | 58 | bigint 觀察／共用 helper 比對或 fingerprint；數值 mode／size／time 僅為 metadata |
+| `src/codex/prompt-lock-evidence.ts` | 10 | 11 | bigint 觀察／共用 helper 比對或 fingerprint；數值 mode／size／time 僅為 metadata |
+| `src/codex/shim-fingerprint.ts` | 54, 55, 71, 72 | 41, 52, 55, 56, 72, 169 | bigint 觀察／共用 helper 比對或 fingerprint；數值 mode／size／time 僅為 metadata |
+| `src/codex/shim-inspect.ts` | 114, 154 | 115, 155 | bigint 觀察／共用 helper 比對或 fingerprint；數值 mode／size／time 僅為 metadata |
+| `src/codex/shim-migration.ts` | 21, 35, 102 | 20, 22, 30, 35, 36, 71, 98, 101, 103 | bigint 觀察／共用 helper 比對或 fingerprint；數值 mode／size／time 僅為 metadata |
+| `src/codex/shim-overlay.ts` | 45, 49, 78, 239 | 45, 49, 52, 71, 78, 98, 111, 215, 340 | 共用 helper 比對／decimal string 保存；APFS 持久 ownership 保留只比 inode 的原合約 |
+| `src/codex/shim-restore-lock.ts` | 46 | 51, 67, 68, 82, 126, 128, 138, 151 | bigint 觀察／共用 helper 比對或 fingerprint；數值 mode／size／time 僅為 metadata |
+| `src/codex/shim-state-file.ts` | 66 | 委由 home 驗證 | bigint 觀察／共用 helper 比對或 fingerprint；數值 mode／size／time 僅為 metadata |
+| `src/codex/shim-windows-refresh.ts` | 22, 32, 39, 61, 79 | 23, 33, 40, 62, 80 | bigint 觀察／共用 helper 比對或 fingerprint；數值 mode／size／time 僅為 metadata |
+| `src/codex/shim.ts` | 391, 414, 433 | 192, 215, 308, 386, 392, 415, 434, 595 | bigint 觀察／共用 helper 比對或 fingerprint；數值 mode／size／time 僅為 metadata |
+| `src/codex/transition-state.ts` | 531, 551 | 465, 517, 520, 528, 532, 550, 552 | bigint 觀察／共用 helper 比對或 fingerprint；數值 mode／size／time 僅為 metadata |
+| `src/config/atomic-write.ts` | 139 | 105, 137, 138, 140 | bigint 觀察／共用 helper 比對或 fingerprint；數值 mode／size／time 僅為 metadata |
+| `src/config/initialize.ts` | 50 | 51 | bigint 觀察／共用 helper 比對或 fingerprint；數值 mode／size／time 僅為 metadata |
+| `src/integrations/aside-profile-context.ts` | 80 | 81 | bigint 觀察／共用 helper 比對或 fingerprint；數值 mode／size／time 僅為 metadata |
+| `src/integrations/droid-settings.ts` | 42 | 43 | bigint 觀察／共用 helper 比對或 fingerprint；數值 mode／size／time 僅為 metadata |
+| `src/integrations/hermes-profiles.ts` | 151 | 152 | bigint 觀察／共用 helper 比對或 fingerprint；數值 mode／size／time 僅為 metadata |
+| `src/lab/artifacts/secure-fs.ts` | 99, 163, 164 | 99, 157, 159, 163, 204, 227, 282, 319, 362, 463 | bigint 觀察／共用 helper 比對或 fingerprint；數值 mode／size／time 僅為 metadata |
+| `src/lab/fabric/scratch.ts` | 53 | 53, 76, 96, 101, 118, 152, 221, 234, 250, 264, 342, 349, 392, 427 | bigint 觀察／共用 helper 比對或 fingerprint；數值 mode／size／time 僅為 metadata |
+| `src/lab/public/community.ts` | 415 | 415, 416 | bigint 觀察／共用 helper 比對或 fingerprint；數值 mode／size／time 僅為 metadata |
+| `src/lab/public/file-safety.ts` | 55, 56, 82, 83, 114, 115 | 42, 52, 56, 78, 82, 97, 100, 109, 113 | bigint 觀察／共用 helper 比對或 fingerprint；數值 mode／size／time 僅為 metadata |
+| `src/lab/public/mutation-lock.ts` | 123, 128 | 110, 124, 129, 214 | bigint 觀察／共用 helper 比對或 fingerprint；數值 mode／size／time 僅為 metadata |
+| `src/lab/public/private-file.ts` | 171 | 102, 156, 170, 172 | bigint 觀察／共用 helper 比對或 fingerprint；數值 mode／size／time 僅為 metadata |
+| `src/lib/bounded-file-read.ts` | 148, 154, 172 | 124, 149, 155, 173 | bigint 觀察／共用 helper 比對或 fingerprint；數值 mode／size／time 僅為 metadata |
+| `src/lib/bun-runtime-preflight.ts` | 49 | 50 | 父程序使用共用 helper；無模組的 probe child 以原生 bigint 再驗 directory，不引入 loader 依賴 |
+| `src/lib/gui-pair-intent.ts` | 23, 103, 134, 147, 155 | 24, 104, 135, 148, 156 | bigint 觀察／共用 helper 比對或 fingerprint；數值 mode／size／time 僅為 metadata |
+| `src/lib/package-tree-integrity.ts` | 107, 108 | 108, 109, 135 | bigint 觀察／共用 helper 比對或 fingerprint；數值 mode／size／time 僅為 metadata |
+| `src/lib/service-secrets.ts` | 108, 303 | 109, 304 | bigint 觀察／共用 helper 比對或 fingerprint；數值 mode／size／time 僅為 metadata |
+| `src/lib/spend-pool-alias-validation.ts` | 15 | 16 | bigint 觀察／共用 helper 比對或 fingerprint；數值 mode／size／time 僅為 metadata |
+| `src/lib/windows-secret-acl.ts` | 161, 174, 175 | 162, 175, 176 | bigint 觀察／共用 helper 比對或 fingerprint；數值 mode／size／time 僅為 metadata |
+| `src/link/diagnostics.ts` | 108, 128 | 109, 129 | bigint 觀察／共用 helper 比對或 fingerprint；數值 mode／size／time 僅為 metadata |
+| `src/messaging/remote-files.ts` | 138 | 33, 39, 47, 56, 98, 135, 138, 139 | bigint 觀察／共用 helper 比對或 fingerprint；數值 mode／size／time 僅為 metadata |
+| `src/oauth/store.ts` | 435, 436, 437, 521 | 436, 437, 438, 522 | bigint 觀察／共用 helper 比對或 fingerprint；數值 mode／size／time 僅為 metadata |
+| `src/remote-control/workspace-command-runner.ts` | 179 | 165, 178, 180, 193, 199, 243, 317, 356, 371, 379, 389 | bigint 觀察／共用 helper 比對或 fingerprint；數值 mode／size／time 僅為 metadata |
+| `src/remote-control/workspace-executor.ts` | 179, 222, 263, 264 | 129, 174, 175, 180, 220, 223, 257, 260, 264, 265, 307, 382 | bigint 觀察／共用 helper 比對或 fingerprint；數值 mode／size／time 僅為 metadata |
+| `src/routing/history/indexer.ts` | 208, 209 | 209 | bigint 觀察／共用 helper 比對或 fingerprint；數值 mode／size／time 僅為 metadata |
+| `src/routing/history/ingest.ts` | 37, 82, 83, 199 | 38, 83, 84, 200 | bigint 觀察／共用 helper 比對或 fingerprint；數值 mode／size／time 僅為 metadata |
+| `src/server/live.ts` | 143, 150, 151, 154 | 144, 151, 152, 155 | bigint 觀察／共用 helper 比對或 fingerprint；數值 mode／size／time 僅為 metadata |
+| `src/server/restart-replacement.ts` | 130 | 131 | bigint 觀察／共用 helper 比對或 fingerprint；數值 mode／size／time 僅為 metadata |
+| `src/service/desktop-startup.ts` | 73 | 74 | bigint 觀察／共用 helper 比對或 fingerprint；數值 mode／size／time 僅為 metadata |
+| `src/service/logging.ts` | 12, 21, 40 | 13, 22, 41 | bigint 觀察／共用 helper 比對或 fingerprint；數值 mode／size／time 僅為 metadata |
+| `src/service/ownership-mutation-lease.mjs` | 85, 96, 97, 99 | 86, 97, 98, 100 | 保留原生 bigint 比對：獨立 Node launcher／updater／lease 不依賴 TypeScript loader；所有 identity stat 明訂 bigint |
+| `src/service/state-lock.ts` | 80, 117 | 81, 118 | bigint 觀察／共用 helper 比對或 fingerprint；數值 mode／size／time 僅為 metadata |
+| `src/update/pnpm-read-policy.mjs` | 24 | 25 | 保留原生 bigint 比對：獨立 Node launcher／updater／lease 不依賴 TypeScript loader；所有 identity stat 明訂 bigint |
+| `src/update/transactional-install.mjs` | 220 | 221 | 保留原生 bigint 比對：獨立 Node launcher／updater／lease 不依賴 TypeScript loader；所有 identity stat 明訂 bigint |
+| `src/usage/ledger-retention.ts` | 131 | 132 | sameFileIdentity 同時檢查 dev 與 ino；size 仍為 numeric metadata |
+| `src/usage/log.ts` | 1379, 1398, 1399, 1410 | 1380, 1381, 1400, 1411 | bigint 觀察／共用 helper 比對或 fingerprint；數值 mode／size／time 僅為 metadata |
+| `src/usage/user-cost-overlay-reconciler.ts` | 50, 229 | 46, 51 | bigint 觀察／共用 helper 比對或 fingerprint；數值 mode／size／time 僅為 metadata |
+
+Windows catalog file symlink 的能力探測僅將 win32 EPERM 判為無權限，並用 skipIf 標記需要權限的案例。junction、hardlink 與不需 file symlink 的案例仍執行；其他建立錯誤拋出，不更動產品語意。
+
+### 本機驗收快照（2026-11-03；基準 d8b305993199）
+
+| 指令 | Exit code | 結尾輸出／範圍 |
+| --- | --- | --- |
+| `pwsh -NoProfile -File tools/dev_check.ps1` | 0 | WINDOWS DEV CHECK GREEN |
+| `bun run typecheck` | 0 | $ bun x tsc --noEmit |
+| `bun run privacy:scan` | 0 | Privacy scan passed |
+| `bun run structure:check` | 0 | structure/ SSOT checks passed |
+| `bun scripts/file-size-ratchet.ts` | 0 | file-size ratchet passed |
+| `bun test tests/lib/file-identity.test.ts tests/lib/file-identity-callers.test.ts tests/codex-integration/codex-catalog-write-audit.test.ts tests/codex-integration/codex-filesystem-evidence.test.ts tests/codex-integration/codex-log-guard-inspect.test.ts tests/codex-integration/codex-log-guard-maintenance.test.ts --timeout=60000` | 0 | 185 pass / 1 skip / 0 fail；761 expect calls，6 files。 |
+| `bun test tests/lib/file-identity-callers.test.ts --timeout=60000` | 0 | 105 pass / 0 fail；382 expect calls。 |
+| `bun run test:changed --timeout=60000` | 1 | git merge-base failed while validating changed mode: exit 1；壓縮 fork 無共同祖先。 |
+
+Catalog path／self-heal／reanchor／scheduler 集合：修正前 147 pass / 2 skip / 23 fail，均在實體 file symlink 建立遇 EPERM；能力探測後與 helper 集合共同驗證 exit 0（166 pass / 26 skip / 0 fail）。Windows 無權限的 skip 有明確能力條件；未變更產品 path 判定。
+
+Workspace 大 ID 行為回歸：使用 HEAD 原始 workspace executor 的 scratch 對照，以基準 executor 重放 `tests/lib/file-identity.test.ts` 的 `workspace rejects` 案例，exit 1，實際錯誤接受替換後 root（ok=true）；`bun test tests/lib/file-identity.test.ts --timeout=60000` exit 0，5 pass / 0 fail。保存身分欄位的 primitive shape 斷言亦有先紅後綠（assertion exit 1 → 0），拒絕 coercion，同時接受精確 decimal string 與安全 legacy integer。
+
+全域驗收未達標：更廣的 caller 消費端測試包含 coordinator/history 的 unsafe-path、既有非 catalog file symlink EPERM、以及 POSIX fixture／Windows shim 案例失敗。coordinator 的單一對照案例以 HEAD 原始 doctor 實作執行仍 exit 1：預期 zero-byte、實際 unsafe，reason 為 the coordinator path is redirected；本次 bigint 修改不是該案例的必要條件。6 個已結束的擴大批次均 exit 1，沒有以 timeout 或中止批次作通過證據。完整產品套件與其餘受影響測試沒有通過證據，故保留 ROADMAP 全域驗收與 stable 整合計畫，86b72a689 仍列部分採用。
+
+範圍維持全域 exact identity 與 catalog symlink 權限處理；其他 client/CLI 的測試 skip 擴充已撤回，未擴大產品修復。安全邊界自審保留 bounded descriptor read、exclusive publication、POSIX ownership/mode、ACL 與 mutation lock 的既有條件；JSON 身分保存使用 decimal string。
+
+### 指定七個退化的驗收（2026-11-03；基準 d8b305993199）
+
+保留既有 86 個 caller 的 identity 實作；沒有採用其他上游 commit 或推進水位。此區段直接保存驗收摘要，不依賴忽略目錄的報告連結。
+
+| 退化案例 | 根因與修正 |
+| --- | --- |
+| temporary ACL acl | 目錄替身缺 dev／ino／nanosecond 時間，identityStats 拒收；改以真實 bigint stat 為底，保留模擬 ownership／mode。 |
+| temporary ACL error | 同一目錄替身缺欄位；lstat／fstat 亦丟掉 bigint options，改為完整傳遞。 |
+| temporary ACL timeout | 同上；修正後仍驗 descriptor 關閉、暫存清除、零 write／sync／rename 與舊檔保留。 |
+| post-rename ACL acl | 相同舊 stat 替身讓目錄檢查先失敗，未到發布後 ACL 注入；改為 bigint stat。 |
+| post-rename ACL error | 同上；保留單次 rename、不可 rollback／retry、unknown publication 與診斷去敏斷言。 |
+| post-rename ACL timeout | 同上；fstat 保留真實 descriptor identity，ownership／mode 使用 bigint。 |
+| the diagnostics file keeps only the fixed tunnel fields | 欄位測試把有 1 秒上限的 best-effort flush 當成 drain 完成：平行執行時實際在約 1009ms 讀到空 JSON，直接執行可過。以既有 async principal／icacls runner seam 提供即時成功，仍用真實檔案與 identity，finally 還原 seam／cache。原欄位、過濾、全部 cause 與去重斷言不變。 |
+
+Tunnel 失敗的直接原因是等待外部 Windows ACL 程序超過 flush 上限；沒有證據顯示 bigint 相等判定誤拒同一檔案，也不把這個時間敏感案例說成精度缺陷。產品 flush 上限與 ACL 安全檢查均維持原值。
+
+紅綠使用相同四檔命令：`bun scripts/test.ts tests/codex-integration/messaging-remote-store.test.ts tests/clients/link-tunnel-history.test.ts tests/lib/file-identity.test.ts tests/lib/file-identity-callers.test.ts --timeout=60000`。
+
+| 狀態 | Exit code | 結尾輸出 |
+| --- | --- | --- |
+| 修正前 | 1 | 115 pass / 10 skip / 7 fail；463 expect calls；132 tests across 4 files。 |
+| 修正後 | 0 | 122 pass / 10 skip / 0 fail；471 expect calls；132 tests across 4 files；suite finished in 7.3s。 |
+
+10 個既有 skip 為 messaging 的平台限制，七個指定案例全部實際執行。使用明確檔名，避免 Windows 將 file-identity*.test.ts 原樣交給 Bun 而漏跑 helper 測試。
+
+先前擴大驗收的持久摘要如下；六批均正常結束，exit 1，不當成全套通過證據。派工方提供的乾淨 origin/main 同批比對指出，僅上述七案為新增退化；其餘失敗屬基準既有問題，此分類來自派工交接，未重跑六批。
+
+| 批次（各 20 檔） | Pass | Skip | Fail | Exit code |
+| --- | --- | --- | --- | --- |
+| CLI／client state | 537 | 4 | 3 | 1 |
+| client／link／workspace | 415 | 17 | 11 | 1 |
+| account／catalog／history | 949 | 21 | 18 | 1 |
+| history／home／native／shim | 590 | 21 | 19 | 1 |
+| shim／transition／history | 539 | 11 | 36 | 1 |
+| messaging／native profile／config | 277 | 54 | 6 | 1 |
+
+另外一批 20 檔聚焦集合為 433 pass / 22 skip / 0 fail，exit 0。歷史 workspace 大 ID 對照為 0 pass / 1 fail（exit 1，錯誤接受相鄰大 ID root）；helper 修正後 5 pass / 0 fail（exit 0）。primitive shape 斷言從 true !== false（exit 1）到 exit 0，證明拒絕非 primitive coercion。這些是歷史證據；目前四檔綠燈另見上表。先前 source-state checkpoint 的全部 SHA-256 在續接修改前核對一致，包含既有改動與新增檔案。
+
+Stable 整合其餘逐筆審查、全版 tag diff 與 Windows-only 重放仍有驗收缺口；ROADMAP 的整合列保留。

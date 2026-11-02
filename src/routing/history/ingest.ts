@@ -1,3 +1,4 @@
+import { fileIdentityKey, sameFileIdentity } from "../../lib/file-identity";
 /**
  * Ingest of canonical `usage.jsonl` rows into a request-history index file.
  *
@@ -34,7 +35,7 @@ const tailObservations = new WeakMap<Database, {
 }>();
 
 function tailRevision(stat: BigIntStats): string {
-  return [stat.dev, stat.ino, stat.birthtimeNs, stat.size, stat.mtimeNs, stat.ctimeNs].join(":");
+  return [fileIdentityKey(stat), stat.birthtimeNs, stat.size, stat.mtimeNs, stat.ctimeNs].join(":");
 }
 
 /** The ledger at the recorded path is no longer the file the rebuild started from. */
@@ -196,7 +197,7 @@ export function ingestSourceTail(
     const expected = options.expected;
     if (expected) {
       const opened = exactFileIdentity(fd);
-      if (opened.dev !== expected.dev || opened.ino !== expected.ino) {
+      if (!sameFileIdentity(opened, expected)) {
         throw new RequestHistoryIndexStaleError("usage log changed before indexing");
       }
     }

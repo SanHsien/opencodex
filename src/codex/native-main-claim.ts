@@ -1,3 +1,4 @@
+import { fileIdentityKey } from "../lib/file-identity";
 import { join } from "node:path";
 
 import { Database } from "bun:sqlite";
@@ -88,7 +89,7 @@ async function openClaimDatabase(
   let database: Database | undefined;
   try {
     file = openStableLockFile(path, platform);
-    const identity = `${file.dev}:${file.ino}`;
+    const identity = fileIdentityKey(file);
     if (hardenedIdentities.get(path) !== identity) {
       // The resolved platform is threaded into the DEFAULT hardener, not left to
       // `hardenStableLockFile`'s own `process.platform` read. Otherwise a test

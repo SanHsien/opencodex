@@ -6,17 +6,23 @@
 ## 現況
 
 `opencodex` 是 `lidge-jun/opencodex` 的 Windows-only 維護 fork（本機 provider proxy＋ChatGPT／Codex 帳號池），產品基底為上游 `v2.93.0`（`package.json` 為 2.94.0、整合 tag 為 v2.93.0）加 fork overlay（`FORK.md`、`tools/upstream_baseline.json`）。最近 release 是 v2.93.0（2026-10-27）。
-健康（歷史快照）：open PR 0、Dependabot 與 code scanning 告警 0，CodeQL、Fork maintenance、Upstream check 曾於 2026-10-29 查為 success；issues 在 GitHub 上已停用，open issue 數是「未查到」，不是 0。2026-11-02 複查 Cross-platform CI：最新 schedule run 41354967821 failure（Windows shard 2、7），shard 9 success；本機修正尚未提交，仍待修正後 schedule 驗收。與上游「No common ancestor」是 2026-09-27 刻意壓縮歷史的結果，不是缺陷（`FORK.md`「分支與 remote」）。
+健康（歷史快照）：open PR 0、Dependabot 與 code scanning 告警 0，CodeQL、Fork maintenance、Upstream check 曾於 2026-10-29 查為 success；issues 在 GitHub 上已停用，open issue 數是「未查到」，不是 0。2026-11-02 複查 Cross-platform CI：最新 schedule run 41354967821 failure（Windows shard 2、7），shard 9 success；此快照不包含後續修正的 schedule 驗收。與上游「No common ancestor」是 2026-09-27 刻意壓縮歷史的結果，不是缺陷（`FORK.md`「分支與 remote」）。
 上游分類（2026-11-03）：15 筆新 closed-unmerged PR 已逐筆判定，PR 水位 8086；無新 platform issue，issue 水位仍為 7860。strict 仍因 209 筆未審 commit exit 1；最新上游 stable 為 v2.96.0，產品整合仍停在 v2.93.0。分類列保留待完整驗收。
 獨立整合區段（2026-11-03）：`42549ba1b` 的 Runcrate 目錄資料與英／繁中說明已採用；`f94e95ce5` 的 structural tool turns 判 defer，須補完整 diff 與安全邊界審查。產品整合 tag 與 commit scalar 水位保持原值，整版 stable 驗收尚未達標。
 安全告警：2026-10-31 查 Dependabot 0（#10、#11、#12 已由 `f314d92c5` 修復並關閉）。
+
+分類清冊（2026-11-03；fork 基準 `d8b305993`，上游 tag `684ad75d2`）：205 筆僅完成分類盤點；樣板理由已改標「只分類、未審」。reviewed 水位為 `88aaa754`（2026-10-28），產品 integrated 為 v2.93.0；完整 stable 整合與逐筆 fork 證據仍有缺口。
+
+`86b72a689` 的 bigint file identity 已擴展到 86 個 caller、`95cfa30ec` 長路徑修正已採用（2026-11-03，基準 `d8b305993199`）；更廣的 caller 測試與 main 比對後無新增失敗，其餘既有失敗與完整 stable 整合仍待處理，逐案證據見 REVIEW.md 2026-11-03 段。
 
 ## 近期：可以直接動手
 
 | 項目 | 為什麼 | 驗收方式 | 建議執行者 | 證據 |
 | --- | --- | --- | --- | --- |
-| 查明夜間 `Cross-platform CI` 的 Windows shard 紅燈 | 已完成本機分類與測試修正：shard 2 的 job 名單過期、shard 7 的故障注入過期；`stall-timeout` 全過；shard 9 是 npm 子程序逾時，後續 schedule 已綠。push 不跑完整 Windows shards，不能作為對照綠燈 | 逐項分類與本機修正已完成；仍待維護者提交後下一次 schedule 的九個 Windows shards 與 aggregate `ci` success，達標才刪列 | 維護者 | `docs/fork/DECISIONS.md` 2026-11-02 條目；`REVIEW.md` 本機證據；run 41354967821 |
+| 釐清 bigint identity 對既有持久化值的影響 | `src/lib/file-identity.ts` 的 `identityStats()` 以 `Number(xNs)/1e6` 算 `mtimeMs`，與一般 `statSync().mtimeMs` 的浮點尾數不同；`src/codex/shim-migration.ts` 的 migration journal 存 `mtimeMs`，舊版寫入、新版續做時 `same()` 會判不同而拒絕（fail-closed，只在中斷中的 migration 跨版升級時發生）；`src/routing/history/ingest.ts` 的 `sourceMtimeMs` 會多觸發一次 reindex；持久化 identity 改存十進位字串後，降版會被舊版拒絕 | 決定 journal 比對用同一來源的時間值或容許精度差，加跨版續做的回歸測試；在 docs/fork/DECISIONS.md 記錄降版不相容 | Codex | `src/lib/file-identity.ts`；`src/codex/shim-migration.ts:15,30`；`src/routing/history/ingest.ts:87` |
+| 查明夜間 `Cross-platform CI` 的 Windows shard 紅燈 | 已完成本機分類與測試修正：shard 2 的 job 名單過期、shard 7 的故障注入過期；`stall-timeout` 全過；shard 9 是 npm 子程序逾時，後續 schedule 已綠。push 不跑完整 Windows shards，不能作為對照綠燈 | 逐項分類與本機修正已完成；以修正後 schedule 的九個 Windows shards 與 aggregate `ci` success，達標才刪列 | 維護者 | `docs/fork/DECISIONS.md` 2026-11-02 條目；`REVIEW.md` 本機證據；run 41354967821 |
 | PR 水位改用 closedAt 或逐筆清單 | `reviewed_pr_through` 是單一數字，上游目前仍 open 的 53 筆 PR（編號 7795–8086）日後若未合併就關閉，永遠不會被列出（`collectUnmergedPullRequests`） | 基準推進時仍 open、之後未合併關閉的 PR 仍會被回報；附回歸測試 | Codex | `tools/check-upstream-updates.ts:239-263` |
+| 整合上游下一個 stable 版（`v2.93.0` 之後）：逐筆 fork 審查與重放 | 分類盤點尚缺 fork 檔案:行號與觸發條件，產品基底為 v2.93.0 | 依序處理：① #8019 全域 identity 補審（含 6c86d0fad、51030653f） ② 小而獨立的 `2f7f1d113`、`f4eef7b23` 下一輪可直接採用並先紅後綠 ③ `8eb970d9d` native Messages stream 提前結束誤記 200 ④ `e04aae068`／`ba880dfae`／`007dbfd89` 多帳號 session／device／installation ID 隔離 ⑤ `67bdeb03a` canonical forward 的 safety_identifier 400 ⑥ #7810 fixture `fb22d055e`、#7808 路徑 `07161c5b9` ⑦ ACL memo `c7f3928a2` ⑧ EOF／CR 配套 `d42b9b1b2` ⑨ `f94e95ce5` durable principal／HMAC scope／ingress；每筆完整 diff、fork 證據與聚焦測試，安全邊界逐檔判定；全版 tag diff 與 Windows-only 重放驗收後才推 integrated，逐筆證據完整的連續前綴才推 reviewed | Codex | `docs/fork/UPSTREAM.md` 205 筆分類清冊；`REVIEW.md` 2026-11-03 精度／路徑驗收 |
 
 ## 中期：等條件成立再做
 

@@ -1,3 +1,4 @@
+import { sameFileIdentity } from "../lib/file-identity";
 /**
  * Opt-in size limit for the canonical usage ledger (#5063).
  *
@@ -128,7 +129,7 @@ export function enforceUsageLedgerSizeLimit(
   let sourceClosed = false;
   try {
     const opened = fstatSync(sourceFd);
-    if (Number(opened.size) !== captured.size || exactFileIdentity(sourceFd).ino !== captured.ino) {
+    if (Number(opened.size) !== captured.size || !sameFileIdentity(exactFileIdentity(sourceFd), captured)) {
       return { kind: "deferred", currentBytes: captured.size, reason: "revision-changed" };
     }
     const start = firstRowBoundary(sourceFd, Math.max(0, captured.size - target), captured.size);

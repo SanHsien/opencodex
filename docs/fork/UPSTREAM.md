@@ -1188,3 +1188,238 @@ GitHub release 清單複查最新 stable 為 v2.96.0（2026-11-01），符合 st
 且本段沒有整合完整 stable tag，因此 `reviewed_through`／`reviewed_date`、`integrated_tag`／
 `integrated_through` 全部不變；PR／issue 水位也不變。整版整合列保留。
 驗證結果見 `REVIEW.md`，逐檔邊界判定見 `DECISIONS.md` 同日區段。
+
+
+## 2026-11-03：v2.96.0 逐筆分類清冊（205 筆）
+
+範圍以 `git log --reverse --topo-order --stat v2.93.0..v2.96.0` 為準：209 筆中，前四筆
+`736fa5087`、`dd8bf1d65`、`f94e95ce5`、`42549ba1b` 已於前兩節逐筆記錄；其餘從
+`15b38cb0e` 至 `v2.96.0`（`684ad75d254ae96a9971387d09ae428b96ada9c2`）共 205 筆如下。
+不可用 `15b38cb0e^..v2.96.0` 代替：兩條發版 ancestry 不同，該集合另含已處理的舊歷史，共 394 筆。
+2026-11-03 以 GitHub release 清單確認 v2.96.0 為最新 stable（2026-11-01 發布）。
+
+本表是主旨、逐檔 stat 與功能依賴的分類判定，**不是每個 defer 的完整 diff／安全審查通過證明**。
+`skip` 表示不重放；`defer` 表示保留採用／依賴審查，不表示不存在缺陷或已有等價修正。
+檔案 identity 與 long-TEMP 差異另依下方實作證據記錄；前兩節已採用者的歸屬保持。
+純測試 skip 不刪除 fork 測試，也不承諾永遠拒收；若相關產品改動採用，須重新核對配套測試。
+「只分類、未審」不是 defer 審查結論；沒有逐筆 fork 證據就不推進 reviewed 水位。
+
+Windows-only 刪除清單、英／繁中語系、官方 workflow guard、fork 更新來源與隱私／ACL 防線
+均不重放。發版封裝六筆另外比對 promotion tree 與 frozen tip，再比 merge tree 與 promotion，
+三組 `git diff --shortstat` 都是空，故不把 merge 當作另一批產品修正。
+
+分類狀態合計（2026-11-03）：defer 55、只分類、未審 106、skip 42、adopt 1、部分採用；全域未審完 1；候選 skip／defer 不代表已完成 fork 等價審查。
+
+| Commit（主旨） | 類別 | 判定 | 一句理由 |
+| --- | --- | --- | --- |
+| `15b38cb0e2a64b258ec6e56f931cfb5a4baff532` chore(ci): take every Bun pin from package.json (#7818) | CI／工具鏈 | defer | Bun pin 涉及 workflow、型別與 lockfile；fork 保留官方 repo guard，工具鏈變更另做安全審查。 |
+| `2b5148b124cb012e039bbec76ed7daaa42c43515` fix(xai): publish the subscription lane's widest context rung for Grok 4.5-4.7 (#7701) | 需要採用的修正 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `9a757f540857c6bf352fce561660c8072805814c` perf(google): avoid rescanning fragmented SSE records (#7766) | 需要採用的修正 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `e72f5d666e46dbed778e3708d75d7a4f0d65335f` fix(claude): expire idle picker uploads while preserving backpressure (#7784) | 需要採用的修正 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `962546affc489f476d751d7688a9c0be3e8a1f25` fix(openai-chat): preserve native Mistral thinking on replay (#7814) | 需要採用的修正 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `1fe3dd758fc102c648a8ff587714cbb7a5a9d97c` fix(windows): preserve bounded ACL failure diagnostics (#7773) | 需要採用的修正 | defer | ACL 診斷重構超過千行；須與 853508eb6、12c0ec6ed 的 ACL 鏈一起審，保留遮罩與有界輸出。 |
+| `d9f594b01106522621123bb58cd3588934f14abd` feat(integrations): refresh connected Hermes configs after catalog changes (#7704) (#7719) | 依賴／跨模組大功能 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `04f1988ffc97c3a0cec816c8526abfcd3328a9bc` fix(claude): preserve append-only client tool discovery on opted-in Responses routes (#7453) | 依賴／跨模組大功能 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `d519ab07bfc2db1bf60e7a9fef5fc947a4a483f3` fix(responses): frame retained requests before portable compaction checkpoints (#7822) | 需要採用的修正 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `e25be531f066cd639087f85f8f738aad95e72b3d` fix(combos): scope cooldown reprobes to reserving request (#7764) | 需要採用的修正 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `377fa522379111c2661f352ce6fc260780e530fe` test(providers): fix ASL server fixture cleanup and budgets (#7778) | 純測試 | skip | 僅調整 `tests/providers/aistupidlevel-provider.test.ts` 等測試 fixture／斷言／預算；產品不變，保留 fork 現有回歸，不整批覆蓋測試。 |
+| `98e6f0c72206de16b66ed88da7099e52d8e8a566` fix(google): honor Retry-After floor and recognize the Cloud Code Assist ToS account ban (#7819) | 需要採用的修正 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `102ccee612414da8b0c18f0c682afea1dc00e8b9` fix(providers): guard MiniMax seed refresh by destination (#7829) | fork 刻意不收的功能面 | skip | MiniMax 目的地修正屬未使用的中國供應商，fork 不擴充此功能面。 |
+| `1112f5b958797b0e49e6b9fc1bd838ac555b59b0` fix(qoder): forward Qoder CN images through shared coding-agent projection (#7536) | 需要採用的修正 | defer | Qoder CN 圖片轉接包含共用 coding-agent 投影，不能只憑 CN 功能不使用而跳過共用差異審查。 |
+| `4118b90ba40076c62af66fd922421943204bb041` feat(codex): add confirmed POSIX CLI updates and durable job status (#7586) | 依賴／跨模組大功能 | defer | POSIX 更新不是 Windows 需求，但此 75 檔提交亦建立 Windows updater 共用基礎，須與 8178745ba／63820c415／c655484d9 成套審查。 |
+| `41bd7e45ebe9f1ed0dfc45900146c6b2c5c3ea1b` fix(startup): verify live Desktop recovery before CLI cold start (#7797) | 依賴／跨模組大功能 | defer | Desktop recovery 同時更動 Rust supervisor 與 CLI 活性證據，須以 Windows 冷啟動／復原流程驗收。 |
+| `95cfa30ec72f201818b1c80ff9b03fe70c7a8a0e` fix(windows): support long compaction recovery paths (#7823) | Windows 路徑修正 | adopt | src/codex/ocx-compaction-history.ts:17,83：backup／temp 路徑超過 MAX_PATH 時，在 ACL 呼叫使用 toNamespacedPath；原 path memo key 保持，先紅後綠見 REVIEW.md。 |
+| `0c32c8132d0fd2731e8f772aac1b62874e8041a0` fix(claude): expose native Fast selectors with 1M context (#7748) | 需要採用的修正 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `e04aae068e0a920bc1badf2b7f2ab947159f682a` fix(anthropic): align Claude Code 2.1.280 OAuth profile and isolate session/device IDs (#7838) | 需要採用的修正 | defer | OAuth profile、device/session identity 與多個轉送入口同改，須逐檔審查憑證與身分隔離。 |
+| `ba880dfaecce0c3abff383a39c6ee05056d8993c` fix(codex): isolate pooled installation IDs, scrub turn-state on account switch, and align JSON token refresh (#7840) | 需要採用的修正 | defer | 帳號切換 scrub 與 installation identity 必須和 007dbfd89 最終修正一起核對，不能只採中間狀態。 |
+| `1d91861dc6077073987a3d306f3cc2e21f432add` fix(google,cursor): isolate Antigravity session/replay and Cursor H2 pool/JWT sub scope (#7842) | 需要採用的修正 | defer | 雖停用 Antigravity，此提交也改 Cursor H2／JWT scope；不能整筆當作不使用的 provider 略過。 |
+| `f4a3312ffa1ca95456570936f8e9d301445e8ec9` fix(oauth): harden multi-account pool cooldowns, affinity eviction, and deactivated exclusion (#7844) | 需要採用的修正 | defer | 跨 provider OAuth failover 與停用帳號政策，須驗證 affinity／cooldown 不跨帳號污染。 |
+| `48a0f9eca8232ffa06a206ad1347308b36566494` fix(zed): relay OpenAI tool calls instead of ending on the first sentence (#7599) | 依賴／跨模組大功能 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `c4dbcc0ae74d8edfdc3d1df3512db24f46e9ace9` fix(service): explain elevated scheduler uninstall failures on Windows (#7825) | 需要採用的修正 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `7deb359ff2b60cacb1b599dce1f4f0a962c6ede4` fix(logs): preserve replay refusal attribution on WebSocket ingress (#7830) | 需要採用的修正 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `a5ecb912928df697ec0bb0645ff74e6e121b8a5a` test(messaging): reserve distinct remote fixture ports (#7820) | 純測試 | skip | 僅調整 `tests/codex-integration/messaging-remote-send.test.ts` 等測試 fixture／斷言／預算；產品不變，保留 fork 現有回歸，不整批覆蓋測試。 |
+| `611f403dec6e71d53fd6e41f375bdc5ec134d056` docs(gui): clarify subagent spawn_agent fill behavior in order hint (#7537) | 純文件／i18n | skip | 純 subagent order hint 與 tooltip 測試；fork 不維護德文，保留英／繁中現有提示（gui/src/i18n/en.ts、zh-TW.ts 的 orderHint），不涉及 spawn_agent 實作或 picker 排序。 |
+| `3481acea5a758d14ecf0e5d06a73f0206195b363` fix(chat): deliver upstream raw reasoning to Chat clients without a generation opt-in (#7833) | 需要採用的修正 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `c5c21962d1d682db7c664286661b9315dfa576ac` fix(antigravity): request quota summary with the CLI fingerprint so Argon usage shows (#7804) | fork 刻意不收的功能面 | skip | Antigravity quota fingerprint 功能面已停用；不為不可用路線引入額外辨識資訊。 |
+| `343c87bcfb3f6ced3f5e349656ff52c755ff02fd` fix(antigravity): consolidate multi-account discovery and model-denial routing (#7835) | fork 刻意不收的功能面 | skip | Antigravity discovery／model-denial 路由功能面已停用；不擴充該路線。 |
+| `8145d52f9020bc4ef0c08cafbce59a905e9c64d4` fix(responses): enforce required tools in native combo streams (#7831) | 依賴／跨模組大功能 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `38fcb22c5ddf2e9653e181615fff810939f449b3` fix(server): reclaim inbound body capacity with a configurable budget (#7428) | 依賴／跨模組大功能 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `dc0ed96077bbb7d2b631db7bb0593f171664c4e3` docs(agents): treat lane=all as a batched dev check, not a per-PR gate (#7855) | 純 docs／文件登錄 | skip | 僅文件或其 layout／structure 登錄（`AGENTS.md`）；不重放上游多語系或以其驗收聲明取代 fork 證據。 |
+| `a09e882ae5c12125a02f35b5fe8418fa76599246` fix(cli): attest connected-stop preflight reads (#7762) | 需要採用的修正 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `d9ae8e595eab2db76a00b844e8cb22abc0fc2df7` fix(anthropic): keep pool session affinity across restarts and transient detours (#7828) | 需要採用的修正 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `0fc96b02793180ba2d3c7011830917679da38ee6` feat(claude): label routed /v1/models rows from modelDisplayNames (#7817) | 功能新增（feat） | 只分類、未審 | 新增 routed /v1/models 顯示名稱功能，非 bug fix；需核對 src/claude/model-info.ts 與 modelDisplayNames 的 fork 對應行為。 |
+| `ce608abc03ddf33d4375dfe818a7ac0ebdfacccc` docs: keep the provider configuration reference under the file-size cap (#7856) | 純 docs／文件登錄 | skip | 僅文件或其 layout／structure 登錄（`docs-site/src/content/docs/reference/configuration/providers.md`）；不重放上游多語系或以其驗收聲明取代 fork 證據。 |
+| `338bcf53194d903ceb70864d33275e0413949241` fix(codex): preserve native source priority behind featured subagent models (#7839) | 依賴／跨模組大功能 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `86da61358616e0b3d3b9d01c277989cc21d586cc` fix(codex): keep native main available after keyring migration (#7774) | 依賴／跨模組大功能 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `b33fc566561ca714c5b521eb4efbed33028ef1d1` feat(cli): add `ocx codex` launcher mirroring `ocx claude` (#7346) | 依賴／跨模組大功能 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `6bc511d1b5f74160cf07e7a90a5e28a53d8d59e8` fix(windows): gate config and Desktop writer phases on config-root ACL settlement (#7826) | 需要採用的修正 | defer | config-root ACL writer barrier 涉及既有 fork 加固，與 fdc6dd82d／19ab11394 成組補安全審查。 |
+| `abc932d1434f85e7aa9714d5a43b1d5374792cc0` fix(desktop): provide paired authority for compatibility controls (#7775) | 依賴／跨模組大功能 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `f7b4fd6c79122fbb931ddd55446682d7a05390ec` feat(link): Windows Remote Link Children and Child credential/connection attestation (#7832) | 依賴／跨模組大功能 | defer | Remote Link 新增 Windows Child 憑證與 attestation，須整體審查信任鏈與停止還原流程。 |
+| `a4e4cda1deb6f396023f74aab541ffc2ea52db03` test: stop rebinding released loopback ports (#7847) | 純測試 | skip | 僅調整 `tests/claude-integration/claude-intercept-proxy-auth.test.ts` 等測試 fixture／斷言／預算；產品不變，保留 fork 現有回歸，不整批覆蓋測試。 |
+| `504417f0efdc4e56dc835704b263fb14dc062fe3` fix: land ten small jsonc, search, retry, plain-data and stream fixes (#7821) | 需要採用的修正 | defer | 十項修正混合於同一提交，不能當單一獨立低風險修正；須拆檢 JSONC／retry／stream 各合約。 |
+| `0eb589768265abb8b896f352991f98cf2c704ddf` fix(responses): recognize exact case-insensitive media types (#7768) | 需要採用的修正 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `96f2f47725b278ff4a9d9fc61d8847a149eb8e8b` feat(codex): restore LazyCodex role models from a change history (#7693) | 依賴／跨模組大功能 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `4bf5728ff3e18697d2a990d64785fc6f20948152` fix(dsh): export a known output limit as `maxTokens` (#7763) | 需要採用的修正 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `e1976daf13fe2221d0dbf761f32d72b063d8f330` fix(advisor): preserve captured caller admission scope (#7718) | 依賴／跨模組大功能 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `1997c69c5c10a467ed9c6322b9d2ceb308bbb37a` fix(openai-chat): keep captured usage on an invalid negotiated completion (#7849) | 需要採用的修正 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `fb22d055e0dc39e076dec9272052fb298409ec19` test: isolate Windows fixture children from the account-wide runtime namespace (#7852) | 需要採用的修正（測試隔離） | defer | Windows fixture namespace 隔離對 #7810 有關，屬需要採用的測試修正，須先核對現有 fixture 防線。 |
+| `8178745ba4d3ba3af780a30af3944f4221c38eeb` feat(codex): add proof-bound Windows CLI update planning (#7596) | 依賴／跨模組大功能 | defer | 依賴 4118b90ba 的更新基礎；Windows proof-bound planning 必須和 protected store／apply 交易成套驗收。 |
+| `4cdcb50d9d318302777840cb5906feae66d37edd` perf(tooling): use Bun 1.4.4 native type checking (#7632) | CI／工具鏈 | defer | 改型別檢查器與 package 工具鏈，分類為工具鏈而非純效能修正，須另驗三個工作區型別檢查。 |
+| `a18de03d4dfc76c72da062a3c98f9000161a1ddf` feat(clients): add T3 Code as an export and integration client (#7529) | 依賴／跨模組大功能 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `c0014da53f428f349237112ad4ecf46f09a57b47` fix(codex): validate macOS app trust at execution boundaries (#7758) | 需要採用的修正 | defer | 主題為 macOS trust，但修改共用 exec-boundary／runtime／workspace；Windows-only 不代表可整筆跳過。 |
+| `4b2fc8dea945caf1ee5c7a2734d48468713f818a` test: assert the specific refusal gate in the fixture preload tests (#7861) | 純測試 | skip | 僅調整 `tests/ci-workflows/fixture-windows-runtime-preload.test.ts` 等測試 fixture／斷言／預算；產品不變，保留 fork 現有回歸，不整批覆蓋測試。 |
+| `f26d6e8177ef85ff99cf62c6c346bf52ed5944a4` fix(responses): preserve combo replay-refusal attribution (#7864) | 需要採用的修正 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `aef4b6a9231bf5166e811b7a6793831d911f190f` Kiro: drop the private final answer when a real tool call shares the turn (#7434) | 需要採用的修正 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `d67feddd73a87ad0305a0e5ace3b0df367bd72d8` docs(responses): register and document citation replay coverage (#7865) | 純 docs／文件登錄 | skip | 僅文件或其 layout／structure 登錄（`scripts/test-layout/layout.json`）；不重放上游多語系或以其驗收聲明取代 fork 證據。 |
+| `6f0d5eb37469ea4f0bc871b472803dae73fb74e9` fix: Stream completion-stable canonical apply_patch input (#7506) | 需要採用的修正 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `a7072ec664b9e2c1200e2f25f1ef0787cb02ef84` fix(quota-pool): compute pooled windows from held account rows (#7862) | 需要採用的修正 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `08d80f24a9afc9fb65411ff08c1d47e9585ff06a` fix(link): restore local routing when a Link Child stops (#7736) | 依賴／跨模組大功能 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `3ca99278d9da20e56f3c3d28f07b7fc83e2d4f24` fix(router,combos): hop and cool provider on upstream account quota exhaustion (#7625) | 需要採用的修正 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `4db877256697ee4599655d52bff203b386e4d886` fix(gui): avoid quota refresh failures from paused accounts (#7628) | 需要採用的修正 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `f209d4283b86f5ba29a22ee2922dc4f62c298f58` feat(dashboard): revocable server-side remembered device sessions (#7593) | 依賴／跨模組大功能 | defer | 持久 GUI session 改認證與撤銷機制，須核對 fork 的 consent／dashboard session 防線後整體採用。 |
+| `07161c5b951ac94e602e9829536ac711b9bcc03a` fix(clients): reject drive-less rooted Windows path overrides (#7824) | 需要採用的修正 | defer | 需要採用的 Windows 無磁碟代號根路徑拒絕；跨多個 client exporter，須保留全部合法路徑與回歸。 |
+| `cd26e920c3528161c3dd06e18ba9995c82b73926` test: stop restarting the proxy per row in the bearer admission matrix (#7866) | 純測試 | skip | 僅調整 `tests/codex-integration/bearer-admission-routed-provider.test.ts` 等測試 fixture／斷言／預算；產品不變，保留 fork 現有回歸，不整批覆蓋測試。 |
+| `7a1565bb968b343f68eddd6ea266222fcfd95ff1` fix(cli): recheck live ownership before journal recovery (#7851) | 依賴／跨模組大功能 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `63820c415f8c13faaff73dc7f6775b8a0c32357b` feat(codex): add protected Windows CLI update job storage (#7626) (#7626) | 依賴／跨模組大功能 | defer | 依賴 4118b90ba／8178745ba，protected store 與 Windows ACL 不可拆開驗收。 |
+| `100ab90fb60e90cdd26cddf8fdf871868611eddd` fix: disable header-arrival deadline for local upstreams by default (#7472) | 依賴／跨模組大功能 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `713fdfbe22e2c7b33851435dc0065659269f8a1b` fix(config): keep a protected recovery copy before persisting the opencode-free retirement (#7836) | 依賴／跨模組大功能 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `86b821696a4627238f0b059f0f729a46bc35f4a2` test(claude): isolate first-party desktop lifecycle locks (#7868) | 測試／依賴功能 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `c655484d9cccf316f3da41047d508bf10d92070a` feat(codex): apply Windows CLI updates with owned transactions (#7648) (#7648) | 依賴／跨模組大功能 | defer | 依賴 updater planning／protected store，75 檔 owned transaction 要與 recovery／observation 成套審查。 |
+| `3b8414d3d69af33921781be2aa8169a10b52adea` feat(integrations): add opt-in alias naming for Hermes and Command Code exports (#7867) | 依賴／跨模組大功能 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `f716508b7303d38439659b7b5a419f4d5317cff8` feat(shadow-call): add per-source interception toggles (#7760) | 依賴／跨模組大功能 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `f9e7d939d125c810aa3f3d700dcb8b0cb4129a0f` fix(update): preserve service-home authority during recovery (#7154) | 依賴／跨模組大功能 | defer | 104 檔跨 updater、service-home 與程序控制；fork 自動更新刻意關閉，仍須辨識共用啟停修正，不能整筆略過。 |
+| `492c1a15228d3af69e313e1191be3e42dbb15e55` ci: bound frozen installs and retry only deadline stalls (#7870) | CI／工具鏈 | defer | frozen-install 新增 deadline／retry 合約，與 508349e51／88de3762f 同鏈審查，保留 fork Windows CI。 |
+| `fdc6dd82d930295880dcf6d10bbb9f2c61994574` fix(windows): admit local config writer phases after config-root ACL settlement (#7869) | 依賴／跨模組大功能 | defer | 依賴 config-root barrier 設計，先與 6bc511d1b 核對 CLI mutation／management 的寫入授權。 |
+| `1f840573466667fc97e881d11c2bba7d5828b737` test(claude): isolate the remaining Desktop lifecycle-lock fixtures (#7877) | 測試／依賴功能 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `5b701743163f82e08366dba95d96c7ed336127a6` test: bound desktop compatibility fixture port recovery (#7897) | 測試／依賴功能 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `508349e5166bc2ed3e8da63f855ceb8bbefea9e6` fix(ci): rerun interrupted postinstalls after install timeout (#7898) | CI／工具鏈 | defer | 依賴 492c1a152 的 frozen-install helper；須連同 88de3762f 的 deadline 分類驗收。 |
+| `e7778fe7d202693d10bae12c931e58c46342a365` fix(ci): keep the bun install command non-empty for macOS bash 3.2 (#7900) | CI／非 Windows 測試 | skip | 僅修 macOS bash 3.2 install command；fork 不維護 macOS CI，且尚未採其前置 frozen-install helper。 |
+| `6ed7d6e487a0466f9a81813f5ba34535d8691918` test: copy macOS bundle binary in remote workspace fixture (#7901) | CI／非 Windows 測試 | skip | 只修 macOS bundle fixture；fork 不維護該平台驗收。 |
+| `12c0ec6edbcb002fdd25882db0add10c4e657573` fix(windows): verify private lifecycle runtime roots before ACL propagation (#7903) | 依賴／跨模組大功能 | defer | ACL propagation 的私有 runtime-root 驗證須與 1fe3dd758／6bc511d1b 核對，不單獨覆蓋 fork ACL。 |
+| `83062fcf7cd21fa02965ccf5148dbb4161080a0c` test: expose Windows recovery proof state and drain failed fixtures (#7902) | 測試／依賴功能 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `7eab2439c1aba2e387f97bcec82d5aaf813ee1c4` fix(windows): recover interrupted Codex CLI child publication (#7909) | 依賴／跨模組大功能 | defer | 依賴 Windows updater job store／recovery 新交易，不在舊基底孤立採用。 |
+| `b46db27b554891f3ff53f8a94776e5be867ab332` test: separate recovery PID evidence and budget cold Windows fetches (#7915) | 測試／依賴功能 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `be6b6b9556b0c075c350687ce515d0d024adfd69` test: stub the owner-ACL verifier in mocked config-root fixtures and canonicalize the history probe path (#7914) | 測試／依賴功能 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `f5a5e5bcf09136b310b420f71a139efbc2b33311` test: partition Windows apply coverage and refresh shard weights (#7917) | 測試／依賴功能 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `f29091a5319399f46e7795932b265b7e4989d52a` fix(restart): retire drained parent ownership and preserve bind scope (#7874) | 依賴／跨模組大功能 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `53a98e9f45696a379788c5aa9ea90118ce517cb3` fix(codex): address Windows updater release and observation reviews (#7875) | 依賴／跨模組大功能 | defer | 依賴 Windows updater apply／observation；須與 c655484d9、7eab2439c 成套驗收。 |
+| `b383b1fa83623b0316161a5abf73fd9656116630` test(link): give Windows Child HTTP non-deadline scenarios a realistic budget (#7921) | 測試／依賴功能 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `b16bc0978b2eef1799f38042084809b5a0cd11bf` ci(windows): refresh weights and spread suite over eleven shards (#7923) | CI／工具鏈 | defer | 上游十一分片與 fork 九分片政策不同；不以整檔重放覆蓋 fork Windows CI，另評估權重。 |
+| `e7b8cdfdaf16e8ec3fdb5333a655207a09dc70c3` docs: generate a client support matrix from the client registries (#7924) | 依賴／跨模組大功能 | defer | 生成 client support matrix 會改 scripts／package；須與尚未採用的 client registry 新功能同步驗證。 |
+| `640a40f6d57fe7613624a4b827b09c8501e277b6` test(claude): make CONNECT upstream failure deterministic (#7929) | 純測試 | skip | 僅調整 `tests/claude-integration/claude-intercept-proxy.test.ts` 等測試 fixture／斷言／預算；產品不變，保留 fork 現有回歸，不整批覆蓋測試。 |
+| `06ec878822f21ad0497e9be202534efe8266d7ab` test(service): stabilize native recovery fixture compilation (#7930) | 測試／依賴功能 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `386c3bbadba06e19f50124fce9373e212cb789d3` docs: lead with one local gateway for every coding tool (#7925) | 純 docs／文件登錄 | skip | 僅文件或其 layout／structure 登錄（`README.md`）；不重放上游多語系或以其驗收聲明取代 fork 證據。 |
+| `d2a3186d38978c072d678200c76b70514eeefe38` fix(gui): show provider connection and model tests on the served dashboard (#7922) | 需要採用的修正 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `8eb970d9dcd63d119c9a9d20de4c18a27ca542c2` fix(claude): fail native Messages streams that end before message_stop (#7928) | 需要採用的修正 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `9c33e4658b7b180ec8dd20f0e6a21daf3699f76e` ci(macos): split suite across four weighted shards (#7926) | CI／非 Windows 測試 | skip | macOS 四分片屬 fork 明確移除的 CI 功能面，不重放 workflow 或 runner。 |
+| `da721e33a30a46c12a5e2f1414fb1b6b842c6c1e` docs: record runtime-verified client results on the support page (#7927) | 純 docs／文件登錄 | skip | 僅文件或其 layout／structure 登錄（`docs-site/src/content/docs/fr/reference/client-support.md`）；不重放上游多語系或以其驗收聲明取代 fork 證據。 |
+| `dc75a3e5115ad4be10a33617600c93c8fcdfe7c5` fix(cursor): parse model variants without delimiter backtracking (#7938) | 需要採用的修正 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `300a73ab0e1e7c5a0fcef79f32378eb0fecab8be` chore(release): open dev at 2.95.0 before releasing 2.94.0 (#7934) | 純版本號 | skip | 只推進上游 package／Cargo／Tauri 版本；未整合整版產品，不宣稱 fork 已升至該版本。 |
+| `24d176efdfe0975a0eb55fc01fd515e2c3b68b7e` feat(gui): show distinct first-response states on the provider overview (#7939) | 依賴／跨模組大功能 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `ef1ca714ca3d8c56132ed33f21809142887ccf88` fix(anthropic): honor explicit Opus 5.5 reasoning summaries (#7728) (#7881) | 需要採用的修正 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `8ed7b453d7f37f111f011bc2b5d4e89dc4816294` fix(codex): report main-pool affinity decisions in request logs (#7883) | 需要採用的修正 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `d588ca9d22a905a1ab5efef3f31151723229df8a` test(windows): warm the PowerShell ancestry probe before its timed run (#7854) (#7885) | 測試／依賴功能 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `4179e8a1dff47e7a05109da6704600f46b75d288` perf(usage): fast-path ASCII metadata folding (#7886) | 需要採用的修正 | defer | redact-folding 涉及隱私遮罩等價性，雖是 ASCII 快路徑仍須差分測試，不當低風險純效能修改。 |
+| `93b8a5e18bff30252a5ec0900970006fb7b5e1da` fix(codex): keep local account cooldowns from quarantining combo targets (#7887) | 需要採用的修正 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `69c1c6ed6bc7779fedb50734d42a96f72daf6ffd` fix(messaging): reserve SSH forward ports until handoff and recover lost candidates (#7893) | 依賴／跨模組大功能 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `c7f3928a21f2ff3c47ba7a2dd91c193ad4cf1273` fix(config): re-arm the atomic writer's ACL timeout memo per destination (#7891) | 需要採用的修正 | defer | 需要採用的 ACL memo re-arm 修正；須與 config writer barrier 核對 destination 隔離及 timeout 回歸。 |
+| `041d87f0bc12a8e6cb954410f15c20aba2f01ac2` fix: preserve tool safety on translated Messages fallbacks (#7919) | 依賴／跨模組大功能 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `92e7350c0d70d11ae5192727eb671a08067834f9` test: add offline fixtures for claude-cli schema-constrained output (#7908) | 純測試 | skip | 僅調整 `tests/providers/claude-cli-adapter.test.ts` 等測試 fixture／斷言／預算；產品不變，保留 fork 現有回歸，不整批覆蓋測試。 |
+| `392b786bcfee4078caa575e3fd0dee5b68eaf290` fix(openai-responses): drop the include entry xAI rejects (#7911) | 需要採用的修正 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `cac6f7265b680aa0448808f5f6b4bfc803e8a5e9` fix(gui): preserve Muse reset countdown after quota exhaustion (#7730) | 需要採用的修正 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `2e447c868b07bce47f5caa9fce50d9c1eb5c5d65` Kiro: log the usage Kiro reports on every wire, and forward combo child usage after commit (#7433) | 依賴／跨模組大功能 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `0e6ac986a87331cd1a3552f7524035b56442cf4a` feat(claude-desktop): per-client model visibility for the Desktop list (#7769) | 依賴／跨模組大功能 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `6c49278cb7764939f57735ff42935243a0ee32ae` fix(oauth): explain why Antigravity project discovery failed (#7888) | fork 刻意不收的功能面 | skip | Antigravity project discovery 診斷屬停用功能，不擴充其登入路線。 |
+| `e1a60c218ce290ca4c828412b9154fd8bf209291` feat(kiro): add IAM Identity Center login to dashboard (#7690) | 依賴／跨模組大功能 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `e42c3749518271f7b0f5c06aeb75ff5fa38a91f0` fix(test-layout): keep layout.json under the file-size threshold (#7943) | 純測試 | skip | 僅調整 `scripts/test-layout/layout.json` 等測試 fixture／斷言／預算；產品不變，保留 fork 現有回歸，不整批覆蓋測試。 |
+| `ad3e3d187182ef9b3cbd8f9ed6091de624ffa7a5` fix(providers): default Moonshot API to K3.1 Pro and retire K2.5 (#7880) | fork 刻意不收的功能面 | skip | Moonshot 中國供應商預設模型遷移非 fork 使用需求，不推進其產品預設。 |
+| `e3ebd82a5b51926d964e5d0e86dd0177aed9e2da` fix(openai-chat): send LM Studio one leading system message (#7882) | 依賴／跨模組大功能 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `49775ecaf9dc2004b27c90bb53aaec0c6f03a508` feat(catalog): opt in to omitting disabled native models (#7889) | 依賴／跨模組大功能 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `fb81e53e96b00a58df49030be8f9709a5a1a4818` fix(service): treat headless GUI-domain launchctl 125 as an unreachable domain (#7697) (#7745) | fork 刻意不收的功能面 | skip | 只處理 launchctl GUI-domain 125，fork 不維護 macOS service 啟停。 |
+| `b09c9302c4832a12c17da5f57f5d2240fe20f817` test(codex): retain bounded Windows plan refusal diagnostics (#7937) | 需要採用的修正 | defer | 標題雖為 test，亦更動 Windows plan provenance 產品碼；依賴 8178745ba，不歸純測試。 |
+| `524c019c7b82384aa7574ce4dfd11abe380d2cb9` fix(combos): fail over when a target rejects a request for context length (#7892) | 需要採用的修正 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `8a6cea9c168666733d97dd8172cbe6296b1b0104` fix(advisor): support manual consultations during web search (#7858) | 依賴／跨模組大功能 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `f4eef7b23ef2154d6d004077c5522d754a72c0d5` fix(search): consume the final Responses data line at EOF (#7873) | 需要採用的修正 | defer | 需要採用的 Responses EOF 尾列解析；與 504417f0e／d42b9b1b2 同檔相疊，先核對前置差異並補回歸。 |
+| `fc17ac23a118e37c43c5981f59fe2430ce3ccb83` test(windows): resolve the atomic-write fixture root before matching cleanup paths (#7945) | 測試／依賴功能 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `9b78a16f4fe0c300527e6b183052407269bb941d` test(windows): budget hosted fixture phases without weakening contracts (#7946) | 純測試 | skip | 僅調整 `tests/claude-integration/claude-native-passthrough.test.ts` 等測試 fixture／斷言／預算；產品不變，保留 fork 現有回歸，不整批覆蓋測試。 |
+| `26224ad6c4bae6f3a31f768be450d4ce4a17bea8` test(codebuddy): feed the abort fixture's stdout once (#7948) | 純測試 | skip | 僅調整 `tests/providers/codebuddy-adapter.test.ts` 等測試 fixture／斷言／預算；產品不變，保留 fork 現有回歸，不整批覆蓋測試。 |
+| `b9fb2c7366cf9606136d243bebe81a2ceff942db` test(windows): use a never-allocated PID for the pending-child recovery fixture (#7949) | 測試／依賴功能 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `8131535cdd53a2161d2fd2e317b3445a52f1dd73` test(claude): give native passthrough success paths the internal header deadline (#7951) | 純測試 | skip | 僅調整 `tests/claude-integration/claude-native-passthrough.test.ts` 等測試 fixture／斷言／預算；產品不變，保留 fork 現有回歸，不整批覆蓋測試。 |
+| `9c96ce5729939c69448a508d482050ce5da2dc6a` feat(gui): link completion probe failures to recovery, re-verification, and disconnect scope (#7947) | 依賴／跨模組大功能 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `095ddf64dae1f1e32cd2df8aa47fab55c891a455` test(config): publish the overlap fixture after the recheck budget is spent (#7950) | 測試／依賴功能 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `463a0ee0b7bebd82b3fbd9ab5766e6f161d1c33d` fix(test): judge protected-tree containment per path component (#7884) | 需要採用的修正 | defer | 雖名為 fix(test)，改共用 test-home-guard containment，須保留 Windows 磁碟與路徑邊界測試。 |
+| `7aae44dabbcc17a13b034b8f5919929537daba58` perf(anthropic): scan SSE inspection fragments incrementally (#7913) | 需要採用的修正 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `6c2cdd111d8ad1297ba3499098e15bf45e372a42` feat(providers): test all models of a provider and disable the failures (#7742) | 依賴／跨模組大功能 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `a391835c235d6a173460a7b606058a3c151da157` feat(responses): complete gracefully on max_output_tokens (#7770) | 依賴／跨模組大功能 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `297f29939c5479a9da28da3c8806afea90e654ec` fix(advisor): apply the caller's paid-combo consent and device fallback policy (#7894) | 依賴／跨模組大功能 | defer | paid-combo consent 與 captured admission policy 橫跨 ingress／vision／sidecar；須逐檔安全審查，保留付費同意邊界。 |
+| `96e0e009e2c9134441ec01a3a60b01a364894199` feat(clients): let the omo integration write the Responses dialect (#7890) | 依賴／跨模組大功能 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `f5f47b057997c0d60ec420456d9450e109ca4ed1` feat(provider): add keyless CC-Switch provider import with preview, apply and restore (#7935) | 依賴／跨模組大功能 | defer | CC-Switch 匯入新增 SQLite／檔案讀取與 apply／restore，須補完整 preview／同意與資料隔離驗收。 |
+| `3ea89653f5727aea41948ddbd5e833f74afe3e36` fix(gui): explain upstream request failures (#7936) | 需要採用的修正 | 只分類、未審 | 實質差異在 gui/src/pages/Logs.tsx、src/usage/log.ts、src/server/request-log.ts，以及 logs-failure-summary；需核對多次嘗試／normalization loss 的 fork 行為，不能以 de.ts 為理由。 |
+| `8143cc0537d4c674b178d6743e1688a84a3edc36` build(deps): bump rustls from 0.23.45 to 0.23.46 in /desktop/src-tauri (#7942) | fork 已有等價修正 | skip | fork Cargo.lock 已有 rustls 0.23.46 與相同 checksum；等價依賴修正已具備，避免覆蓋其他 Cargo 安全修正。 |
+| `88de3762fdabb7ef6038c2ea0313fb34b0f34c36` fix(ci): distinguish install failures from owned deadlines (#7977) | CI／工具鏈 | defer | 依賴 492c1a152／508349e51 的 helper，須一起驗證 owned deadline 與真正 install failure。 |
+| `2c4e580e23f902af929f93f3294e13b687467308` test(xai): cover encrypted Responses tool continuation (#7975) | 純測試 | skip | 僅調整 `tests/providers/xai/xai-responses-adjacency.test.ts` 等測試 fixture／斷言／預算；產品不變，保留 fork 現有回歸，不整批覆蓋測試。 |
+| `3a70dd4788db76701df546c8629c8d8e17c2680d` fix(volcengine): keep Kimi K3.1 Pro tool continuations valid (#7944) | 需要採用的修正 | defer | Volcengine Kimi 工具延續涉及共用 openai-chat/messages.ts，不能因未使用中國 provider 而略過整筆。 |
+| `4998194755f3698005409a6e75408f4e80a7a81b` perf(responses): count snapshot text bytes incrementally (#7957) | 需要採用的修正 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `572467f21d82b30bc2070c48e8753438492ff97d` perf(history): move integrity scans off the serving thread (#7972) | 依賴／跨模組大功能 | defer | history integrity worker 與 rebuild 協定為跨模組功能，連同 227811fd7 的等待上限驗收。 |
+| `0cc5a5958d5435444a0185bf06e424843916716f` fix(workflow-budget): make per-task ceilings configurable from config and dashboard (#7960) | 依賴／跨模組大功能 | defer | workflow ceilings 更動 schema／dashboard／send budget，須驗證零值、互動預留與持久設定一致性。 |
+| `899cc4fe4da796006dbd526039777499c67927c5` docs(config): say when the workflow send ceiling is checked (#7987) | 純 docs／文件登錄 | skip | 僅文件或其 layout／structure 登錄（`docs-site/src/content/docs/reference/configuration/server.md`）；不重放上游多語系或以其驗收聲明取代 fork 證據。 |
+| `4fc870074e8030cd1e0a35a6a5c707f208e51b93` fix(kiro): exclude runtime callbacks from retry snapshot (#7981) | 需要採用的修正 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `853508eb629abe05fe290e84b0f6687d9682a7ad` fix(windows): snapshot ACL failure diagnostics (#7970) | 需要採用的修正 | defer | 依賴 1fe3dd758 的 ACL 診斷重構，須一起驗證快照與遮罩，不覆蓋現有 Windows 防線。 |
+| `db7bdc5e3d233aed8425420e77fbd66fe20ec947` fix(cli): explain tracked runtime stop refusals (#7973) | 需要採用的修正 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `d82d7ee739d7bcd2aa55d9e2ca2bbae669b11812` fix(router): decode routed slugs via modelDisplayNames ids (#7979) | 需要採用的修正 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `1e1620f3d9c2bee0c45591f3d074ae5f141fccea` fix(responses): normalize Codex tool catalogs and include for Meta Muse (#7985) | 需要採用的修正 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `ac0833bc55cce392d79d42fa2b952b2ccbe9d9b3` fix(windows): bigint probe identity in runtime preflight; release CC-Switch F3 WAL handles (#7986) | 需要採用的修正 | defer | bigint runtime identity 與 CC-Switch WAL handle 混合，須拆核前置 runtime preflight／import 合約。 |
+| `6218a9a63ba1ae7807c0eb94bec2a184d89e42f2` fix(combo): skip Meta Muse targets for mandatory tool_choice (#7982) | 需要採用的修正 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `d42b9b1b231a6a5b1dadde9262dfb63736823488` fix(sidecars): accept CR-delimited Responses events (#7989) | 需要採用的修正 | defer | 需要採用的 CR-delimited parser 修正；同檔 f4eef7b23／504417f0e 有前置差異，合併回歸後再採。 |
+| `d389699c96db753931a5f785f7a6a78c3ff94a1e` fix(azure): omit unsupported Responses encrypted output include (#7988) | 需要採用的修正 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `a2ae4825350813b41d92abf2231924ed8950ef63` fix(codex): validate CLI and desktop launcher execution boundaries (#7876) | 依賴／跨模組大功能 | defer | launcher execution authority 依賴 b33fc5665／c0014da53，須核對 Windows 可執行邊界及還原權限。 |
+| `eea1454782be464848b66e8a9483c453c2189a97` fix(credentials): stop Windows ancestor-watch feedback loops (#7976) | 需要採用的修正 | defer | Windows ancestor-watch feedback loop 涉及 credential inventory／generation，須驗證監看停止與身分失效。 |
+| `1eca7a32938507706321c10c8e9b7988fb5c525e` fix(discovery): name the invalid model row and the static-list workaround (#7990) | 需要採用的修正 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `0c74947006604918a0821ba77463ce66cda095ba` fix(codex): stop scoring an elapsed 5-hour window against a pool account (#7994) | 需要採用的修正 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `b692a8a33399007baae29de60c6646da091497ea` test(history): corrupt the index the health query plan actually reads (#7995) | 測試／依賴功能 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `ba0556d001dbca25aaef46680a56fd3150c4b19c` fix(codex): retire a pool account's carried 5-hour window when WHAM shows none (#7980) | 需要採用的修正 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `03d8bd0ce9dd707e1cfb0ac678b4a53f02f813d1` fix(claude): keep web_search native when no sidecar backend can run (#7991) | 需要採用的修正 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `8063be23e47822240b45c0456f3243102d4a0d9d` fix(providers): keep the quota report cache when pool readings are only restamped (#7992) | 需要採用的修正 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `d9e0c057881200d32b0398c5a1bc38144c1da73e` fix(responses): promote additional_tools to top-level tools for xAI and strict gateways (#7983) | 依賴／跨模組大功能 | defer | 45 檔 additional_tools／namespace／destination 聯動，含認證入口，須先核對與 f94e95ce5 等工具回放變更的相依性。 |
+| `a022a67fd8152045268405145d73ef696ff5afdd` fix(claude): prune generated agents when the Claude integration is turned off (#7993) | 需要採用的修正 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `227811fd70886f78a379ca478be84f2368fa3cb8` fix(history): bound the integrity check wait (#7997) | 需要採用的修正 | defer | 依賴 572467f21 的 integrity worker，等待上限要和 worker 生命週期合測。 |
+| `9922f8159a9e5327fcc4ead930c309faa57755ec` test(history): corrupt the health index through a cold connection (#8000) | 測試／依賴功能 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `cb483626c8f6af0c0120642179d3336e42b68151` fix(codex): await recovery ACL checks in async parent admission (#7931) | 依賴／跨模組大功能 | defer | 跨 38 檔將 recovery ACL admission 改 async，依賴 updater 鏈並需驗證 synchronous activation 不被破壞。 |
+| `236a886f77c95c8d1191c339b845d5a84b7272e3` feat(codex): tier role auto-assign candidates by measured capability (#7624) | 依賴／跨模組大功能 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `3bda3e5fe074d67c1ac20f7380d32f43675d93e3` test(codex): assert the cold keyring refusal kind and report its cause (#8001) | 純測試 | skip | 僅調整 `tests/codex-integration/main-quota-provenance.test.ts` 等測試 fixture／斷言／預算；產品不變，保留 fork 現有回歸，不整批覆蓋測試。 |
+| `b53b5d26e22a8284fd7d46035432422d6643b05d` test(cc-switch): finalize the F1/F2 fixture statements before cleanup (#8002) | 測試／依賴功能 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `261131d3726d95b4ad3335cf416254a868963e08` fix(update): refuse dashboard restart under a systemd unit OpenCodex does not own (#7996) | 需要採用的修正 | defer | systemd ownership 為非 Windows 功能，但改共用 management/config-routes 與 update worker；不得只按標題略過。 |
+| `19ab113945530483f4524ae3e6f8374d16572976` fix(windows): admit config-root cache writes after the optional config-root ACL flight (#7998) | 需要採用的修正 | defer | config-root cache writer admission 與 6bc511d1b／fdc6dd82d 同鏈，須核對 quota cache 非同步安全。 |
+| `8e58c9683d7d1e0fd2dbb3604cf05dca62b02b99` test(cli): name the pinned-port holder when a sibling misses its deadline (#8003) | 純測試 | skip | 僅調整 `tests/cli/cli-start-journal-order.test.ts` 等測試 fixture／斷言／預算；產品不變，保留 fork 現有回歸，不整批覆蓋測試。 |
+| `3cab4a74e4eec15ee5ff3bdd59dcab8ede938372` test(anthropic): await the admitted provider quota cache write (#8004) | 需要採用的修正 | defer | 標題為 test 但改 account-quota-disk.ts，依賴 19ab11394 的 admitted write 合約。 |
+| `c34d26ff2bde9516517fe7fd58c2bcda70ca5e03` test(claude): report the hardened local-CA ACL in the first-party apply suite (#8016) | 純測試 | skip | 僅調整 `tests/claude-integration/claude-desktop-first-party.test.ts` 等測試 fixture／斷言／預算；產品不變，保留 fork 現有回歸，不整批覆蓋測試。 |
+| `86b72a689c21b97b0a425303e64b54ccceeb530a` fix: compare file identity with bigint stat (#8019) | Windows identity 精度修正 | 部分採用；全域驗收未完成 | fork 全域 bigint identity 擴展至 Codex catalog／workspace／CLI／Lab；以共用 file-identity helper 比對、格式化與保存精確 ID。逐檔比對點、Node standalone 邊界、metadata 例外及聚焦回歸見 REVIEW.md「全域 file identity」。Windows coordinator 原始實作亦被判 path is redirected，受影響測試未全綠，故不宣稱整筆完成；其他 commit 與 scalar 水位保持。 |
+| `6c86d0fad2e1690358bf1adbe5e3687f9cc28bc8` fix: compare Codex and remote workspace file identity with bigint stat (#8023) | 依賴／跨模組大功能 | defer | 依賴 86b72a689 的 bigint helper，Codex／workspace identity 防線須成組審查。 |
+| `c618c77b1e81aa8952422e2d3657439ed6d5f8fe` test: select injected stat targets by canonical path (#8029) | 測試／依賴功能 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `51030653fcf95e83c491388ec3eb5f0fbc613198` fix: compare CLI install and update artifact identity with bigint stat (#8031) | 依賴／跨模組大功能 | defer | 依賴 86b72a689 與 Windows updater 鏈，install／artifact 身分比對不可孤立重放。 |
+| `c68885b5f16a2a36d8eaa9877ffcae7235128c1b` test: give the Windows apply x64 fixture compile the shared spawn budget (#8032) | 測試／依賴功能 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `63de499e1add6bd05e3baaeecd16402fa65d0095` chore(release): open dev at 2.96.0 before releasing 2.95.0 (#8033) | 純版本號 | skip | 只推進上游 package／Cargo／Tauri 版本；未整合整版產品，不宣稱 fork 已升至該版本。 |
+| `eb6f1e52c1bbe9229499459b4dc357793d82f0c1` feat(messaging): add opt-in MCP tools for stored Codex queues (#7999) | 依賴／跨模組大功能 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `cc23d5d3ca4089b01c44947ea0e9d7e54a61a983` fix(combo): exclude Meta for direct hosted tool choices (#8010) | 需要採用的修正 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `b2e47bd26d52d12935e2319f74d3749931ccb93f` perf(ollama): count fragmented NDJSON bytes incrementally (#8015) | 需要採用的修正 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `468e635abd1d88f5fcb8ae3b274b9f3ac764b448` fix(grok): honor disable and shutdown during startup sync (#8017) | 需要採用的修正 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `2ee32ab25f40a8eef1e99311abd4011ca9e5bbb5` fix(qoder): bound CN PNG raster dimensions (#8021) | 需要採用的修正 | defer | Qoder CN raster 上限依賴 1112f5b95 新 image-input 模組，待共用投影與影像邊界一起審。 |
+| `afafe6d360120f315aeba48122274400942cdc89` fix(cli): preserve server-issued batch for role suggestion --apply (#8022) | 需要採用的修正 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `2f7f1d113ec061e5e08e1a46228240a0ac3064e1` fix(responses): strip rejected reasoning toggle from native passthrough (#8025) | 需要採用的修正 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `67bdeb03a3a3e6d3b59435527d4bf5b6a232b731` fix(adapters): strip safety_identifier at the canonical ChatGPT forward destination (#8030) | 需要採用的修正 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `e972776eced1b266692b780263828635f47b2754` fix(anthropic): support Ultra quota windows and show subscription names (#8055) | 依賴／跨模組大功能 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `d5708c37c0235194c1d7bdba63bdc587099f6fcf` test(messaging): observe descriptor closure without probing reused fd numbers (#8058) | 純測試 | skip | 僅調整 `tests/codex-integration/messaging-remote-store.test.ts` 等測試 fixture／斷言／預算；產品不變，保留 fork 現有回歸，不整批覆蓋測試。 |
+| `98bd8c07bdb999e883c68c89e1a932c3598912bb` test(cli): await sibling startup signal instead of polling deadline (#8062) | 純測試 | skip | 僅調整 `tests/cli/cli-start-journal-order.test.ts` 等測試 fixture／斷言／預算；產品不變，保留 fork 現有回歸，不整批覆蓋測試。 |
+| `007dbfd8950a6af778297b15c858863420e69171` fix(codex): isolate Pool installation identity per account (#8065) | 依賴／跨模組大功能 | defer | 帳號 installation identity 最終修正橫跨 57 檔與 HTTP／WebSocket／sidecar，須連同 ba880dfae 審完整身分鏈。 |
+| `df5a95c059304a754cfbe5ea72b204672f8a7f9c` release: promote frozen tip dc75a3e5115ad4be10a33617600c93c8fcdfe7c5 to main as 2.94.0 (ours merge of main) | 版本號／發版封裝 | skip | promotion／merge 的產品 tree 與其 frozen tip 相同；修正以表內來源 commit 分類，避免重放整棵上游 tree。 |
+| `d844ff4af67c98271be1c1451e7583d36c323527` Merge pull request #7940 from lidge-jun/codex/promote-main-2.94.0-r2 | 版本號／發版封裝 | skip | promotion／merge 的產品 tree 與其 frozen tip 相同；修正以表內來源 commit 分類，避免重放整棵上游 tree。 |
+| `0c9edcb46e6e3c6eb6e60167b4b7246fedfd3c29` release: promote frozen tip c68885b5f1 to main as 2.95.0 | 版本號／發版封裝 | skip | promotion／merge 的產品 tree 與其 frozen tip 相同；修正以表內來源 commit 分類，避免重放整棵上游 tree。 |
+| `9df4f6a56483ffe62526e29c7d9c6eeed3e742f4` Merge pull request #8034 from lidge-jun/release/promote-main-2.95.0 | 版本號／發版封裝 | skip | promotion／merge 的產品 tree 與其 frozen tip 相同；修正以表內來源 commit 分類，避免重放整棵上游 tree。 |
+| `cb487a1f575d60fca510399556decbe1b8eaac13` release: promote frozen tip 007dbfd895 to main as 2.96.0 | 版本號／發版封裝 | skip | promotion／merge 的產品 tree 與其 frozen tip 相同；修正以表內來源 commit 分類，避免重放整棵上游 tree。 |
+| `684ad75d254ae96a9971387d09ae428b96ada9c2` Merge pull request #8069 from lidge-jun/release/promote-main-2.96.0 | 版本號／發版封裝 | skip | promotion／merge 的產品 tree 與其 frozen tip 相同；修正以表內來源 commit 分類，避免重放整棵上游 tree。 |
+
+連續 commit 軸：清冊涵蓋範圍不等於逐筆審查完成。`reviewed_through` 保持
+`88aaa754566d119b6b8fc898f8fb47602387d82e`，`reviewed_date` 保持 2026-10-28。
+未建立每筆 fork 檔案:行號與觸發條件的連續前綴，故不前移 scalar；strict exit 1 是預期缺口。
+`integrated_tag = v2.93.0` 與 integrated／PR／issue 其餘水位保持。
+後續採用順序與 structural tool turns 補審統一由 `ROADMAP.md` 追蹤。

@@ -36,13 +36,13 @@ test.each(["acl", "error", "timeout"])("temporary ACL %s closes the descriptor a
       Object.defineProperty(process, "getuid", { value: () => 1234 });
       mock.module("node:path", () => ({ ...nativePath, ...nativePath.posix }));
       mock.module("node:fs", () => ({ ...native,
-        lstatSync(path) {
+        lstatSync(path, options) {
           if (path === "/fixture" || path === "/") return {
-            uid: 1234, mode: 0o700,
+            ...native.lstatSync(root, options), uid: 1234n, mode: 0o40700n,
             isDirectory: () => true,
             isSymbolicLink: () => false,
           };
-          return native.lstatSync(join(root, basename(path)));
+          return native.lstatSync(join(root, basename(path)), options);
         },
         realpathSync: () => "/",
         openSync(path, flags, mode) {
@@ -50,7 +50,7 @@ test.each(["acl", "error", "timeout"])("temporary ACL %s closes the descriptor a
           fd = native.openSync(temporary, flags, mode);
           return fd;
         },
-        fstatSync(fd) { return Object.assign(native.fstatSync(fd), { uid: 1234, mode: 0o100600 }); },
+        fstatSync(fd, options) { return Object.assign(native.fstatSync(fd, options), { uid: 1234n, mode: 0o100600n }); },
         writeFileSync(...args) { writes++; return native.writeFileSync(...args); },
         renameSync() { renames++; throw new Error("unexpected publication"); },
         unlinkSync(path) { native.unlinkSync(join(root, basename(path))); },
@@ -122,11 +122,11 @@ test.each(["acl", "error", "timeout"])("post-rename ACL %s reports unknown publi
       Object.defineProperty(process, "getuid", { value: () => 1234 });
       mock.module("node:path", () => ({ ...nativePath, ...nativePath.posix }));
       mock.module("node:fs", () => ({ ...native,
-        lstatSync(path) {
+        lstatSync(path, options) {
           if (path === "/fixture" || path === "/") return {
-            uid: 1234, mode: 0o700, isDirectory: () => true, isSymbolicLink: () => false,
+            ...native.lstatSync(root, options), uid: 1234n, mode: 0o40700n, isDirectory: () => true, isSymbolicLink: () => false,
           };
-          return native.lstatSync(join(root, basename(path)));
+          return native.lstatSync(join(root, basename(path)), options);
         },
         realpathSync: () => "/",
         openSync(path, flags, mode) {
@@ -134,7 +134,7 @@ test.each(["acl", "error", "timeout"])("post-rename ACL %s reports unknown publi
           const fd = native.openSync(join(root, basename(path)), flags, mode);
           descriptors.push(fd); return fd;
         },
-        fstatSync(fd) { return Object.assign(native.fstatSync(fd), { uid: 1234, mode: 0o100600 }); },
+        fstatSync(fd, options) { return Object.assign(native.fstatSync(fd, options), { uid: 1234n, mode: 0o100600n }); },
         writeFileSync(...args) { writes++; return native.writeFileSync(...args); },
         renameSync(from, to) {
           assert.equal(native.readFileSync(published, "utf8"), "old");

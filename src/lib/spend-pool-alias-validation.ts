@@ -1,3 +1,4 @@
+import { sameFileIdentity } from "./file-identity";
 import { createHash } from "node:crypto";
 import { constants, lstatSync, openSync, fstatSync, readFileSync, closeSync, type BigIntStats } from "node:fs";
 import { join } from "node:path";
@@ -12,7 +13,7 @@ export function readExistingSpendSalt(home: string): string | undefined {
     const before = lstatSync(path, { bigint: true });
     if (!before.isFile() || before.nlink !== 1n) return undefined;
     const matches = (stat: BigIntStats): boolean => stat.isFile() && stat.nlink === 1n
-      && stat.dev === before.dev && stat.ino === before.ino;
+      && sameFileIdentity(stat, before);
     fd = openSync(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
     if (!matches(fstatSync(fd, { bigint: true }))) return undefined;
     const contents = readFileSync(fd, "utf8").trim();

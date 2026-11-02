@@ -1,3 +1,4 @@
+import { sameFileIdentity } from "../lib/file-identity";
 import {
   createCipheriv,
   createDecipheriv,
@@ -395,8 +396,7 @@ export function readBounded(path: string, limit: number, testSeam?: BoundedReadT
       if (
         !pathEntry.isFile()
         || pathEntry.isSymbolicLink()
-        || pathEntry.dev !== opened.dev
-        || pathEntry.ino !== opened.ino
+        || !sameFileIdentity(pathEntry, opened)
       ) throw new Error("invalid bounded file");
     }
 

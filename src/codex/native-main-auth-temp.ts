@@ -1,3 +1,4 @@
+import { sameFileIdentity } from "../lib/file-identity";
 import {
   closeSync,
   constants as fsConstants,
@@ -51,7 +52,7 @@ function errorCode(error: unknown): string | undefined {
 }
 
 function sameIdentity(stats: { dev: bigint; ino: bigint }, expected: PathIdentity): boolean {
-  return stats.dev === expected.dev && stats.ino === expected.ino;
+  return sameFileIdentity(stats, expected);
 }
 
 function samePath(left: string, right: string): boolean {

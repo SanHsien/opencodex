@@ -1,3 +1,4 @@
+import { sameFileIdentity } from "../lib/file-identity";
 import { classifyChatgptRefreshFailure, noteChatgptRefreshFailure, type ChatgptRefreshDiagnosticCode } from "./chatgpt-refresh-failure";
 import { readBoundedResponseBody } from "../lib/bounded-body";
 export { classifyChatgptRefreshFailure } from "./chatgpt-refresh-failure";
@@ -830,7 +831,7 @@ function releaseCodexRefreshFileLock(path: string, fd: number): void {
         const info = statSync(path, { bigint: true });
         if (info.dev >= 0n && info.ino > 0n) current = { dev: info.dev, ino: info.ino };
       } catch { /* Keep the lock and the callback outcome when the path probe fails. */ }
-      if (owned && current && current.dev === owned.dev && current.ino === owned.ino) {
+      if (owned && current && sameFileIdentity(current, owned)) {
         try { unlinkSync(path); } catch (err) {
           if (errCode(err) !== "ENOENT") throw err;
         }

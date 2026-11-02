@@ -36,6 +36,17 @@ let codexHome = "";
 let opencodexHome = "";
 let previousOpencodexHome: string | undefined;
 
+// Windows without Developer Mode / elevation cannot create symlinks (EPERM).
+// Probe once; only the real-symlink case is skipped, never the other audit guards.
+const canSymlink = (() => {
+  const dir = mkdtempSync(join(tmpdir(), "ocx-audit-symlink-probe-"));
+  try { symlinkSync(join(dir, "target"), join(dir, "link")); return true; }
+  catch (error) {
+    if (process.platform === "win32" && (error as NodeJS.ErrnoException).code === "EPERM") return false;
+    throw error;
+  } finally { removeTreeWithRetry(dir); }
+})();
+
 const native = { slug: "gpt-5.5", description: "native" };
 const routed = { slug: "ark/glm-5.3", description: "Routed via opencodex → ark/glm-5.3 (ark)." };
 const catalogBytes = (...models: object[]) => `${JSON.stringify({ models }, null, 2)}\n`;
@@ -322,12 +333,15 @@ describe("bounded audit descriptors and privacy", () => {
     expect(existsSync(auditPath())).toBe(false);
   });
 
-  test("symlink, directory, and public mode audits never change a real catalog outcome", () => {
+  test.skipIf(!canSymlink)("symlink audits never change a real catalog outcome (requires symlink privilege)", () => {
     const target = join(root, "target"); writeFileSync(target, "untouched");
     symlinkSync(target, auditPath());
     expect(replaceAs("restore", catalogBytes(native))).toEqual({ kind: "written" });
     expect(readFileSync(target, "utf8")).toBe("untouched");
-    rmSync(auditPath()); mkdirSync(auditPath());
+  });
+
+  test("directory and public mode audits never change a real catalog outcome", () => {
+    mkdirSync(auditPath());
     expect(replaceAs("restore", catalogBytes(native, routed))).toEqual({ kind: "written" });
     rmSync(auditPath(), { recursive: true });
     writeFileSync(auditPath(), '{}\n', { mode: 0o644 });
@@ -595,11 +609,11 @@ describe("Windows audit privacy (r4176128642)", () => {
     const realFstat = fs.fstatSync;
     const realLstat = fs.lstatSync;
     // Deterministic ACL metadata transition; no dependency on filesystem clock resolution.
-    const postAcl = (stat: fs.Stats) => Object.assign(Object.create(Object.getPrototypeOf(stat)), stat,
-      { ctimeMs: stat.ctimeMs + (hardened ? 1 : 0) }) as fs.Stats;
-    const fstat = spyOn(fs, "fstatSync").mockImplementation(fd => postAcl(realFstat(fd)));
-    const lstat = spyOn(fs, "lstatSync").mockImplementation(path =>
-      path === auditPath() ? postAcl(realLstat(path)) : realLstat(path));
+    const postAcl = (stat: fs.BigIntStats) => Object.assign(Object.create(Object.getPrototypeOf(stat)), stat,
+      { ctimeNs: stat.ctimeNs + (hardened ? 1_000_000n : 0n) }) as fs.BigIntStats;
+    const fstat = spyOn(fs, "fstatSync").mockImplementation(((fd, options) => options?.bigint ? postAcl(realFstat(fd, { bigint: true })) : realFstat(fd)) as typeof fs.fstatSync);
+    const lstat = spyOn(fs, "lstatSync").mockImplementation(((path, options) =>
+      path === auditPath() && options?.bigint ? postAcl(realLstat(path, { bigint: true })) : realLstat(path)) as typeof fs.lstatSync);
     const write = spyOn(fs, "writeSync");
     const open = spyOn(fs, "openSync");
     harden.mockImplementation((path, options) => {

@@ -1,3 +1,4 @@
+import { sameFileIdentity, lstatFileIdentity, fstatFileIdentity } from "../../lib/file-identity";
 import {
   closeSync,
   constants as fsConstants,
@@ -38,7 +39,7 @@ function sizeError(options: PrivateRegularFileReadOptions): PublicEvidenceValida
  */
 function recoverPublishedPrivateFileStage(path: string): void {
   if (process.platform === "win32") return;
-  const finalStats = lstatSync(path);
+  const finalStats = lstatFileIdentity(path);
   if (finalStats.isSymbolicLink() || !finalStats.isFile() || finalStats.nlink <= 1) return;
 
   const dir = dirname(path);
@@ -48,12 +49,11 @@ function recoverPublishedPrivateFileStage(path: string): void {
     if (!name.startsWith(prefix) || !isPrivateFileStageName(name)) continue;
     const stagePath = join(dir, name);
     try {
-      const stageStats = lstatSync(stagePath);
+      const stageStats = lstatFileIdentity(stagePath);
       if (
         stageStats.isFile()
         && !stageStats.isSymbolicLink()
-        && stageStats.dev === finalStats.dev
-        && stageStats.ino === finalStats.ino
+        && sameFileIdentity(stageStats, finalStats)
       ) {
         candidates.push(stagePath);
       }
@@ -75,12 +75,11 @@ function recoverPublishedPrivateFileStage(path: string): void {
 
   for (const stagePath of candidates) {
     try {
-      const stageStats = lstatSync(stagePath);
+      const stageStats = lstatFileIdentity(stagePath);
       if (
         stageStats.isFile()
         && !stageStats.isSymbolicLink()
-        && stageStats.dev === finalStats.dev
-        && stageStats.ino === finalStats.ino
+        && sameFileIdentity(stageStats, finalStats)
       ) {
         unlinkSync(stagePath);
       }
@@ -95,10 +94,10 @@ function withPrivateRegularFile<T>(
   options: PrivateRegularFileReadOptions,
   consume: (fd: number, size: number) => T,
 ): T {
-  let pathStats = lstatSync(path);
+  let pathStats = lstatFileIdentity(path);
   if (!pathStats.isSymbolicLink() && pathStats.isFile() && pathStats.nlink > 1) {
     recoverPublishedPrivateFileStage(path);
-    pathStats = lstatSync(path);
+    pathStats = lstatFileIdentity(path);
   }
   if (pathStats.isSymbolicLink() || !pathStats.isFile() || pathStats.nlink !== 1) {
     throw new PublicEvidenceValidationError(options.errorCode, options.errorMessage);
@@ -107,12 +106,11 @@ function withPrivateRegularFile<T>(
 
   const fd = openSync(path, fsConstants.O_RDONLY | O_NOFOLLOW);
   try {
-    const stats = fstatSync(fd);
+    const stats = fstatFileIdentity(fd);
     if (
       !stats.isFile()
       || stats.nlink !== 1
-      || stats.dev !== pathStats.dev
-      || stats.ino !== pathStats.ino
+      || !sameFileIdentity(stats, pathStats)
     ) {
       throw new PublicEvidenceValidationError(options.errorCode, options.errorMessage);
     }

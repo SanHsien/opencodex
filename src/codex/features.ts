@@ -1,3 +1,4 @@
+import { fileIdentityKey, statFileIdentity } from "../lib/file-identity";
 /**
  * features.ts — codex feature-flag view for $CODEX_HOME/config.toml.
  *
@@ -1160,8 +1161,8 @@ export function probeCodexSupportsModeHint(): boolean | null {
     const candidates = codexNativeBinaryCandidates(runtime.command);
     const binaryStatFingerprint = candidates.map(candidate => {
       try {
-        const stat = statSync(candidate);
-        return `${candidate}\0${stat.dev}\0${stat.ino}\0${stat.size}\0${stat.mtimeMs}\0${stat.ctimeMs}`;
+        const stat = statFileIdentity(candidate);
+        return `${candidate}\0${fileIdentityKey(stat)}\0${stat.size}\0${stat.mtimeMs}\0${stat.ctimeMs}`;
       } catch {
         return `${candidate}\0missing`;
       }

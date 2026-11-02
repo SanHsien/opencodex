@@ -1,3 +1,4 @@
+import { sameFileIdentity, fileIdentityKey } from "../../lib/file-identity";
 import { closeSync, constants, fstatSync, lstatSync, openSync, readlinkSync, readSync, realpathSync, statSync, type BigIntStats } from "node:fs";
 import { basename, dirname, isAbsolute, join, parse, resolve } from "node:path";
 import { readCodexHomeJournal } from "../codex-home-owner";
@@ -22,7 +23,7 @@ type PathObservation = {
 } | { kind: "unavailable"; hardlink: boolean };
 
 function unchanged(before: BigIntStats, after: BigIntStats): boolean {
-  return before.dev === after.dev && before.ino === after.ino && before.mode === after.mode
+  return sameFileIdentity(before, after) && before.mode === after.mode
     && before.nlink === after.nlink && before.size === after.size
     && before.mtimeNs === after.mtimeNs && before.ctimeNs === after.ctimeNs;
 }
@@ -141,9 +142,9 @@ export function compareCatalogHealPaths(left: string, right: string): CatalogHea
   if (a.kind === "unavailable" || b.kind === "unavailable") return "unknown";
   try {
     let result: CatalogHealPathComparison = "unknown";
-    if (a.stat.dev !== b.stat.dev || a.stat.ino !== b.stat.ino) result = "different";
+    if (!sameFileIdentity(a.stat, b.stat)) result = "different";
     else if (a.kind === "hardlink" && b.kind === "hardlink") {
-      if (a.parentStat.dev !== b.parentStat.dev || a.parentStat.ino !== b.parentStat.ino) result = "different";
+      if (!sameFileIdentity(a.parentStat, b.parentStat)) result = "different";
       else if (basename(a.path) === basename(b.path)) result = "same";
       // Bun 1.4.3 opendir/Glob eagerly enumerate the whole directory. Without a
       // bounded entry-name primitive, aliases and sibling hardlinks stay unknown.
@@ -175,7 +176,7 @@ export function selectCatalogHealPath(
 }
 
 function signature(stat: BigIntStats): string {
-  return `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeNs}:${stat.ctimeNs}`;
+  return `${fileIdentityKey(stat)}:${stat.size}:${stat.mtimeNs}:${stat.ctimeNs}`;
 }
 
 /** Bounded regular descriptor reads; never open a FIFO/device or follow a replaced symlink. */

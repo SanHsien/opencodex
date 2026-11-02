@@ -1,3 +1,4 @@
+import { fileIdentityKey } from "../lib/file-identity";
 import { lstatSync, readdirSync, realpathSync } from "node:fs";
 import { join, relative, resolve, sep } from "node:path";
 import { ClientPathError, type ExportModel } from "../clients/config-export";
@@ -74,10 +75,10 @@ function storeGuard(anchor: string, target: string): () => void {
   const identities = new Map<string, string>();
   const inspect = (path: string, directory: boolean): boolean => {
     try {
-      const stat = lstatSync(path);
+      const stat = lstatSync(path, { bigint: true });
       if (stat.isSymbolicLink() || (directory ? !stat.isDirectory() : !stat.isFile()) || (!directory && stat.nlink > 1)) storeUnsafe();
       if (directory) {
-        const identity = `${realpathSync(path)}:${stat.dev}:${stat.ino}`;
+        const identity = `${realpathSync(path)}:${fileIdentityKey(stat)}`;
         if (identities.has(path) && identities.get(path) !== identity) storeUnsafe();
         identities.set(path, identity);
       }

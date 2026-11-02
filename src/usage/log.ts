@@ -1,3 +1,4 @@
+import { storedFileIdentity, fileIdentityKey } from "../lib/file-identity";
 import { createHash, type Hash } from "node:crypto";
 import { chmodSync, closeSync, existsSync, fstatSync, mkdirSync, openSync, readFileSync, readSync, appendFileSync } from "node:fs";
 import { join } from "node:path";
@@ -1376,7 +1377,8 @@ function readExactly(fd: number, length: number, position: number): Buffer | nul
 /** Exact dev/ino of an open file, read through bigint stats so large ids keep every bit. */
 export function exactFileIdentity(fd: number): { dev: string; ino: string } {
   const exact = fstatSync(fd, { bigint: true });
-  return { dev: exact.dev.toString(), ino: exact.ino.toString() };
+  const id = storedFileIdentity(exact);
+  return { dev: String(id.dev), ino: String(id.ino) };
 }
 
 function usageLogRevision(path: string, fd: number, stat: ReturnType<typeof fstatSync>): UsageLogRevision {
@@ -1395,8 +1397,7 @@ export function usageLogRevisionKey(revision: UsageLogRevision | null): string {
   if (!revision) return "missing";
   return [
     revision.path,
-    revision.dev,
-    revision.ino,
+    ...fileIdentityKey(revision).split(":"),
     revision.birthtimeMs,
     revision.size,
     revision.mtimeMs,
@@ -1407,7 +1408,7 @@ export function usageLogRevisionKey(revision: UsageLogRevision | null): string {
 /** Identity of the usage ledger file, excluding size/mtime/ctime so appends can share work. */
 export function usageLogIdentityKey(revision: UsageLogRevision | null): string {
   if (!revision) return "missing";
-  return [revision.path, revision.dev, revision.ino, revision.birthtimeMs].join("\0");
+  return [revision.path, ...fileIdentityKey(revision).split(":"), revision.birthtimeMs].join("\0");
 }
 
 export function currentUsageLogRevision(): UsageLogRevision | null {

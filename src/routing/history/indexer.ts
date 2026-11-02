@@ -1,3 +1,4 @@
+import { sameFileIdentity } from "../../lib/file-identity";
 /**
  * Derived request-history index (RI-02).
  *
@@ -205,8 +206,7 @@ export function sourceIdentityMatches(dbHandle: Database, revision: UsageLogRevi
   const storedIno = readStoredMetaField(dbHandle, HISTORY_META_KEYS.sourceIno);
   const storedBirthtimeMs = Number(readStoredMetaField(dbHandle, HISTORY_META_KEYS.sourceBirthtimeMs));
   return storedPath === revision.path
-    && storedDev === revision.dev
-    && storedIno === revision.ino
+    && sameFileIdentity({ dev: storedDev, ino: storedIno }, revision)
     && storedBirthtimeMs === Number(revision.birthtimeMs);
 }
 

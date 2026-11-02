@@ -1,3 +1,4 @@
+import { identityStats, type IdentityStats, sameFileIdentity } from "./file-identity";
 import { closeSync, constants, fstatSync, lstatSync, openSync, readSync, type BigIntStats, type Stats } from "node:fs";
 
 /**
@@ -42,7 +43,7 @@ export type BoundedFileRead =
    */
   | { kind: "refused"; reason: BoundedFileRefusal; code?: string }
   /** `stat` is the DESCRIPTOR's stat, so a mode check on it describes the bytes just read. */
-  | { kind: "present"; bytes: Buffer; content: string; stat: Stats };
+  | { kind: "present"; bytes: Buffer; content: string; stat: IdentityStats; identity: Readonly<{ dev: bigint; ino: bigint }> };
 
 function errorCode(error: unknown): string | undefined {
   return error && typeof error === "object" && "code" in error
@@ -100,7 +101,7 @@ export function readBoundedRegularFile(path: string, maxBytes: number): BoundedF
 
     const after = fstatSync(fd, { bigint: true });
     // The caller gets a number-typed stat; take it from the same descriptor and hold it to `after`.
-    const returnedStat = fstatSync(fd);
+    const returnedStat = identityStats(after);
     let lexicalAfter: BigIntStats;
     try {
       lexicalAfter = lstatSync(path, { bigint: true });
@@ -120,7 +121,7 @@ export function readBoundedRegularFile(path: string, maxBytes: number): BoundedF
       || BigInt(returnedStat.uid) !== after.uid) {
       return { kind: "refused", reason: lexicalAfter.isSymbolicLink() || !lexicalAfter.isFile() ? "not-a-regular-file" : "changed-while-reading" };
     }
-    return { kind: "present", bytes: buffer, content: buffer.toString("utf8"), stat: returnedStat };
+    return { kind: "present", bytes: buffer, content: buffer.toString("utf8"), stat: returnedStat, identity: { dev: after.dev, ino: after.ino } };
   } catch (error) {
     // A byte-range lock taken after the open (EBUSY/EACCES on Windows) lands here, not on the
     // open; keep its code so callers can still treat it as transient.
@@ -145,7 +146,7 @@ function sameIdentity(
   left: { dev: bigint; ino: bigint },
   right: { dev: bigint; ino: bigint },
 ): boolean {
-  return left.dev === right.dev && left.ino === right.ino;
+  return sameFileIdentity(left, right);
 }
 
 // Only the file index has to be nonzero: some volumes report serial number 0 for dev, and

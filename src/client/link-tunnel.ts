@@ -1,3 +1,4 @@
+import { fileIdentityKey, statFileIdentity } from "../lib/file-identity";
 import { randomUUID } from "node:crypto";
 import { chmodSync, mkdirSync, readFileSync, statSync, unlinkSync } from "node:fs";
 import { execFile } from "node:child_process";
@@ -501,8 +502,8 @@ function defaultConnectedLinkId(): string | null | typeof CONNECTION_UNREADABLE 
 
 function fileSignature(path: string): string | null {
   try {
-    const stat = statSync(path);
-    return `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`;
+    const stat = statFileIdentity(path);
+    return `${fileIdentityKey(stat)}:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`;
   } catch (error) {
     return isMissingPathError(error) ? "missing" : null;
   }

@@ -1,3 +1,4 @@
+import { canFileSymlink } from "../helpers/file-symlink";
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { spawnTestChild } from "../helpers/spawn-test-child";
 import { SPAWN_BUDGET_MS } from "../helpers/test-budget";
@@ -821,7 +822,7 @@ describe("catalog auto-refresh drift heal", () => {
     }
   }, SPAWN_BUDGET_MS);
 
-  test("invalid journal bytes and unsafe catalogs are read without mutation", () => {
+  test.skipIf(!canFileSymlink)("invalid journal bytes and unsafe catalogs are read without mutation", () => {
     const journalPath = join(openCodexHome, "journal.json");
     const defaultPath = join(openCodexHome, "opencodex-catalog.json");
     writeFileSync(defaultPath, JSON.stringify({ models: [] }));

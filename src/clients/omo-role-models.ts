@@ -1,3 +1,4 @@
+import { sameFileIdentity } from "../lib/file-identity";
 /**
  * omo (Codex / LazyCodex)'s per-role model setting, `"[codex]".agents.<role>.model` in `~/.omo/omo.jsonc`.
  * The section name carries its brackets: LazyCodex reads `[codex]`, and its strict loader drops a
@@ -63,7 +64,7 @@ function load(path: string): Loaded {
     fd = openSync(path, flags);
     const opened = fstatSync(fd, { bigint: true });
     const current = lstatSync(path, { bigint: true });
-    if (!opened.isFile() || !current.isFile() || opened.dev !== current.dev || opened.ino !== current.ino) {
+    if (!opened.isFile() || !current.isFile() || !sameFileIdentity(opened, current)) {
       return { kind: "invalid" };
     }
     text = readFileSync(fd, "utf8");

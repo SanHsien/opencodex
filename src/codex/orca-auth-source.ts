@@ -1,3 +1,4 @@
+import { lstatFileIdentity, fstatFileIdentity, sameFileIdentity } from "../lib/file-identity";
 import { closeSync, constants, fstatSync, lstatSync, openSync, readSync, realpathSync } from "node:fs";
 import { dirname, isAbsolute, join, parse, relative, resolve } from "node:path";
 
@@ -15,7 +16,7 @@ export function assertPlainLocalPath(path: string): string {
   let current = parse(absolute).root;
   for (const component of relative(current, absolute).split(/[\\/]/).filter(Boolean)) {
     current = join(current, component);
-    if (lstatSync(current).isSymbolicLink()) throw new Error("Unsafe local credential path.");
+    if (lstatFileIdentity(current).isSymbolicLink()) throw new Error("Unsafe local credential path.");
   }
   if (!sameLocalPath(realpathSync(absolute), absolute)) throw new Error("Unsafe local credential path.");
   return absolute;
@@ -25,12 +26,12 @@ export function readBoundedLocalFile(path: string, limit = MAX_AUTH_BYTES): stri
   assertPlainLocalPath(path);
   // O_NOFOLLOW does not exist on Windows, so the lexical lstat plus the dev/ino match
   // is what rejects a symlink and a swap between the check and the open.
-  const before = lstatSync(path);
+  const before = lstatFileIdentity(path);
   if (!before.isFile() || before.size > limit) throw new Error("Invalid local credential file.");
   const fd = openSync(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0));
   try {
-    const opened = fstatSync(fd);
-    if (!opened.isFile() || opened.size > limit || before.dev !== opened.dev || before.ino !== opened.ino) {
+    const opened = fstatFileIdentity(fd);
+    if (!opened.isFile() || opened.size > limit || !sameFileIdentity(before, opened)) {
       throw new Error("Local credential file changed.");
     }
     // The cap bounds the read, not the allocation: tiny registry files should not
@@ -44,8 +45,8 @@ export function readBoundedLocalFile(path: string, limit = MAX_AUTH_BYTES): stri
     }
     if (length !== opened.size) throw new Error("Local credential file changed.");
     assertPlainLocalPath(path);
-    const after = lstatSync(path);
-    if (after.dev !== opened.dev || after.ino !== opened.ino || after.size !== opened.size || after.mtimeMs !== opened.mtimeMs) {
+    const after = lstatFileIdentity(path);
+    if (!sameFileIdentity(after, opened) || after.size !== opened.size || after.mtimeMs !== opened.mtimeMs) {
       throw new Error("Local credential file changed.");
     }
     return bytes.subarray(0, length).toString("utf8");

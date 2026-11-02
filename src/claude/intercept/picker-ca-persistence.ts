@@ -1,3 +1,4 @@
+import { sameFileIdentity } from "../../lib/file-identity";
 import { X509Certificate } from "node:crypto";
 import { constants, closeSync, fstatSync, lstatSync, openSync, readSync, realpathSync, rmSync, writeFileSync, type BigIntStats } from "node:fs";
 import { join } from "node:path";
@@ -32,7 +33,7 @@ function readState(path: string, configId: string, initialization: boolean): Ini
   catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return null; throw new Error("picker_ca_metadata_unsafe"); }
   try {
     const stat = fstatSync(fd, { bigint: true });
-    if (stat.dev !== expected.dev || stat.ino !== expected.ino || stat.ino === 0n
+    if (!sameFileIdentity(stat, expected) || stat.ino === 0n
       || stat.ctimeNs !== expected.ctimeNs) throw new Error("picker_ca_metadata_unsafe");
     if (!stat.isFile() || stat.nlink !== 1n || stat.size > BigInt(MAX_PUBLIC_STATE_BYTES)
       || (process.platform !== "win32" && stat.uid !== BigInt(process.getuid!()))) throw new Error();

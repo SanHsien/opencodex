@@ -1,3 +1,4 @@
+import { fileIdentityKey, statFileIdentity } from "../lib/file-identity";
 /**
  * Cross-process reconciliation for user cost overlays.
  *
@@ -37,17 +38,17 @@ let reconcileTimer: ReturnType<typeof setInterval> | null = null;
 let reconcileTimerMs = 0;
 const owners = new Map<symbol, OcxConfig | null>();
 const ownerIntervals = new Map<symbol, number>();
-let lastStamp: { mtimeMs: number; size: number; ctimeMs: number; ino: number } | null = null;
+let lastStamp: { mtimeMs: number; size: number; ctimeMs: number; fileId: string } | null = null;
 let invalidReconcileCount = 0;
 
-function configStamp(): { mtimeMs: number; size: number; ctimeMs: number; ino: number } | null {
+function configStamp(): { mtimeMs: number; size: number; ctimeMs: number; fileId: string } | null {
   try {
-    const stat = statSync(getConfigPath());
+    const stat = statFileIdentity(getConfigPath());
     return {
       mtimeMs: stat.mtimeMs,
       size: stat.size,
       ctimeMs: stat.ctimeMs,
-      ino: Number(stat.ino),
+      fileId: fileIdentityKey(stat),
     };
   } catch {
     return null;
@@ -226,7 +227,7 @@ function syncReconcileTimer(): void {
       && lastStamp.mtimeMs === stamp.mtimeMs
       && lastStamp.size === stamp.size
       && lastStamp.ctimeMs === stamp.ctimeMs
-      && lastStamp.ino === stamp.ino
+      && lastStamp.fileId === stamp.fileId
     ) return;
     lastStamp = stamp;
     try {

@@ -1,3 +1,4 @@
+import { sameFileIdentity, fileIdentityKey, lstatFileIdentity, fstatFileIdentity, type IdentityStats } from "../../lib/file-identity";
 /**
  * Descriptor/handle-bound, no-follow artifact I/O for the Compatibility Lab store.
  *
@@ -18,7 +19,6 @@ import {
   renameSync,
   unlinkSync,
   writeSync,
-  type Stats,
 } from "node:fs";
 import { join } from "node:path";
 import {
@@ -72,7 +72,7 @@ function openFlags(base: number, noFollow: boolean): number {
   return base;
 }
 
-function assertRegularFileStats(stats: Stats, label: string): void {
+function assertRegularFileStats(stats: IdentityStats, label: string): void {
   if (
     !stats.isFile() ||
     stats.isSymbolicLink() ||
@@ -89,14 +89,14 @@ function assertRegularFileStats(stats: Stats, label: string): void {
   }
 }
 
-function assertDirectoryStats(stats: Stats, label: string): void {
+function assertDirectoryStats(stats: IdentityStats, label: string): void {
   if (!stats.isDirectory() || stats.isSymbolicLink()) {
     harnessFailure(`${label}: must be a real directory (no symlink/reparse redirection)`, "artifact_unsafe_target");
   }
 }
 
-function identityOf(stats: Stats): string {
-  return `${stats.dev}:${stats.ino}`;
+function identityOf(stats: IdentityStats): string {
+  return fileIdentityKey(stats);
 }
 
 function assertRelativeName(name: string): void {
@@ -154,14 +154,13 @@ function childPath(dir: TrustedArtifactDir, name: string): string {
 
 function assertOpenedPathMatchesDescriptor(dir: TrustedArtifactDir, name: string, fd: number): void {
   if (detectArtifactIoMode(dir) !== "win32_pinned") return;
-  const opened = fstatSync(fd);
+  const opened = fstatFileIdentity(fd);
   assertRegularFileStats(opened, "artifact fd");
-  const pathEntry = lstatSync(childPath(dir, name));
+  const pathEntry = lstatFileIdentity(childPath(dir, name));
   if (
     !pathEntry.isFile() ||
     pathEntry.isSymbolicLink() ||
-    pathEntry.dev !== opened.dev ||
-    pathEntry.ino !== opened.ino
+    !sameFileIdentity(pathEntry, opened)
   ) {
     closeSync(fd);
     harnessFailure("artifact path identity mismatch after open", "artifact_unsafe_target");
@@ -202,7 +201,7 @@ function unlinkAtDir(dir: TrustedArtifactDir, name: string): void {
 }
 
 function revalidateDir(dir: TrustedArtifactDir): void {
-  const stats = fstatSync(dir.fd);
+  const stats = fstatFileIdentity(dir.fd);
   assertDirectoryStats(stats, "artifacts dir");
   if (identityOf(stats) !== dir.identity) {
     harnessFailure("artifacts directory identity changed", "artifact_unsafe_target");
@@ -225,7 +224,7 @@ export function openTrustedArtifactDir(artifactsDir: string): TrustedArtifactDir
     fd = openSync(abs, O_RDONLY);
   }
 
-  const stats = fstatSync(fd);
+  const stats = fstatFileIdentity(fd);
   assertDirectoryStats(stats, "artifacts dir");
   const trusted = { path: abs, fd, identity: identityOf(stats) };
   detectArtifactIoMode(trusted);
@@ -280,7 +279,7 @@ function artifactTargetAlreadyPublished(dir: TrustedArtifactDir, name: string): 
   revalidateDir(dir);
   assertRelativeName(name);
   try {
-    const stats = lstatSync(childPath(dir, name));
+    const stats = lstatFileIdentity(childPath(dir, name));
     if (stats.isSymbolicLink()) {
       harnessFailure("artifact target is a symbolic link", "artifact_unsafe_target");
     }
@@ -317,7 +316,7 @@ function writeTempArtifact(
     fd = openAtDir(dir, tmpName, openFlags(O_RDWR | O_CREAT | O_EXCL, true), 0o600);
     writeAll(fd, bytes);
     fsyncSync(fd);
-    const stats = fstatSync(fd);
+    const stats = fstatFileIdentity(fd);
     assertRegularFileStats(stats, "artifact temp");
     if (stats.size !== bytes.byteLength) {
       harnessFailure("size mismatch after write", "artifact_mismatch");
@@ -360,7 +359,7 @@ export function readArtifactBytes(
   let fd: number | null = null;
   try {
     fd = openAtDir(dir, name, openFlags(O_RDONLY, true));
-    const stats = fstatSync(fd);
+    const stats = fstatFileIdentity(fd);
     assertRegularFileStats(stats, "artifact fd");
     if (opts.expectedByteCount !== undefined && stats.size !== opts.expectedByteCount) {
       harnessFailure("artifact size mismatch on descriptor", "artifact_mismatch");
@@ -461,7 +460,7 @@ export function artifactExists(dir: TrustedArtifactDir, digest: string): boolean
   try {
     const fd = openAtDir(dir, digestFileName(digest), openFlags(O_RDONLY, true));
     try {
-      const stats = fstatSync(fd);
+      const stats = fstatFileIdentity(fd);
       assertRegularFileStats(stats, "artifact exists");
       return true;
     } finally {

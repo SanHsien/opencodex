@@ -1,3 +1,4 @@
+// Exact identity boundary: standalone Node lease cannot load file-identity.ts; every lock/owner witness uses bigint stats.
 import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import {
@@ -66,7 +67,7 @@ function parseOwnerName(name) {
 
 function readOwner(path) {
   try {
-    const lock = lstatSync(path);
+    const lock = lstatSync(path, { bigint: true });
     if (!lock.isDirectory()) return null;
     const entries = readdirSync(path);
     if (entries.length !== 1) return null;
@@ -79,10 +80,10 @@ function readOwner(path) {
     let owner;
     let record;
     try {
-      owner = fstatSync(fd);
+      owner = fstatSync(fd, { bigint: true });
       // bigint: Windows file indexes exceed 2^53 and would compare inexactly as numbers.
       const ownerId = fstatSync(fd, { bigint: true });
-      if (!owner.isFile() || owner.size > 4096 || ownerId.dev !== lexical.dev || ownerId.ino !== lexical.ino) return null;
+      if (!owner.isFile() || owner.size > 4096n || ownerId.dev !== lexical.dev || ownerId.ino !== lexical.ino) return null;
       record = JSON.parse(readFileSync(fd, "utf8"));
     } finally {
       closeSync(fd);
@@ -91,12 +92,12 @@ function readOwner(path) {
       || typeof record.processInstance !== "string" || !record.processInstance
       || typeof record.token !== "string" || !record.token
       || !Number.isFinite(record.createdAt) || entries[0] !== ownerName(record)) return null;
-    const currentLock = lstatSync(path);
-    const currentOwner = lstatSync(ownerPath);
+    const currentLock = lstatSync(path, { bigint: true });
+    const currentOwner = lstatSync(ownerPath, { bigint: true });
     if (currentLock.dev !== lock.dev || currentLock.ino !== lock.ino
       || currentOwner.dev !== owner.dev || currentOwner.ino !== owner.ino
       || currentOwner.size !== owner.size) return null;
-    return { path, ownerPath, record, lockDev: lock.dev, lockIno: lock.ino, ownerDev: owner.dev, ownerIno: owner.ino, ownerSize: owner.size, mtimeMs: owner.mtimeMs };
+    return { path, ownerPath, record, lockDev: lock.dev, lockIno: lock.ino, ownerDev: owner.dev, ownerIno: owner.ino, ownerSize: owner.size, mtimeMs: Number(owner.mtimeMs) };
   } catch { return null; }
 }
 
@@ -111,16 +112,16 @@ function sameOwner(left, right) {
 
 function readIncompleteOwner(path) {
   try {
-    const lock = lstatSync(path);
+    const lock = lstatSync(path, { bigint: true });
     if (!lock.isDirectory()) return null;
     const entries = readdirSync(path);
-    if (entries.length === 0) return { path, ownerPath: null, pid: null, mtimeMs: lock.mtimeMs };
+    if (entries.length === 0) return { path, ownerPath: null, pid: null, mtimeMs: Number(lock.mtimeMs) };
     if (entries.length !== 1) return null;
     const pid = parseOwnerName(entries[0]);
     if (!pid) return null;
     const ownerPath = join(path, entries[0]);
-    const owner = lstatSync(ownerPath);
-    return owner.isFile() ? { path, ownerPath, pid, mtimeMs: owner.mtimeMs } : null;
+    const owner = lstatSync(ownerPath, { bigint: true });
+    return owner.isFile() ? { path, ownerPath, pid, mtimeMs: Number(owner.mtimeMs) } : null;
   } catch { return null; }
 }
 

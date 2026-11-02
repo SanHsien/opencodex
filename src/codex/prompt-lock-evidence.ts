@@ -1,3 +1,4 @@
+import { sameFileIdentity } from "../lib/file-identity";
 import { readFileSync } from "node:fs";
 import { type LockStat, type OwnerDeps } from "./prompt-lock-owner";
 import { LockFileBusy, lockFileOperation } from "./prompt-lock-io";
@@ -7,7 +8,7 @@ export interface Namespace { path: string; stat: LockStat }
 export interface Entry extends Namespace { body: string }
 export function checkIdentity(saved: Namespace, deps: OwnerDeps): void {
   const current = deps.lstat(saved.path);
-  if (current.isSymbolicLink() || current.dev !== saved.stat.dev || current.ino !== saved.stat.ino
+  if (current.isSymbolicLink() || !sameFileIdentity(current, saved.stat)
     || current.uid !== saved.stat.uid || current.isDirectory() !== saved.stat.isDirectory()
     || current.isFile() !== saved.stat.isFile()) throw new ChangedLock("Lock namespace changed");
 }

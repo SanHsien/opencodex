@@ -1,3 +1,4 @@
+import { sameFileIdentity } from "../lib/file-identity";
 import { constants } from "node:fs";
 import { chmod, lstat, mkdir, open, rename, unlink } from "node:fs/promises";
 import { dirname, join } from "node:path";
@@ -105,7 +106,7 @@ async function append(dir: string, line: string): Promise<void> {
     if (windows) {
       const written = await file.stat({ bigint: true });
       const named = await lstat(path, { bigint: true });
-      if (!named.isSymbolicLink() && named.dev === written.dev && named.ino === written.ino) {
+      if (!named.isSymbolicLink() && sameFileIdentity(named, written)) {
         // Windows publishes content-write ChangeTime on close; retain only the same object's ACL memo.
         await file.close();
         file = undefined;
@@ -125,7 +126,7 @@ async function append(dir: string, line: string): Promise<void> {
 async function namesOpenedFile(path: string, file: Awaited<ReturnType<typeof open>>): Promise<boolean> {
   const opened = await file.stat({ bigint: true });
   const named = await lstat(path, { bigint: true });
-  return !named.isSymbolicLink() && named.isFile() && named.dev === opened.dev && named.ino === opened.ino;
+  return !named.isSymbolicLink() && named.isFile() && sameFileIdentity(named, opened);
 }
 
 /**

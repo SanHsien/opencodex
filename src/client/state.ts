@@ -1,3 +1,4 @@
+import { sameFileIdentity } from "../lib/file-identity";
 import { closeSync, constants, fstatSync, lstatSync, openSync, readFileSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import {
@@ -44,7 +45,7 @@ function readPendingMarker(path: string, unsafeMessage: string): string {
   try {
     const opened = fstatSync(fd, { bigint: true });
     if (!opened.isFile() || opened.nlink !== 1n || opened.size !== 65n
-      || opened.dev !== lexical.dev || opened.ino !== lexical.ino) {
+      || !sameFileIdentity(opened, lexical)) {
       throw new Error(unsafeMessage);
     }
     return readFileSync(fd, "utf8");

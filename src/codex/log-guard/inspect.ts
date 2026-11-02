@@ -1,3 +1,5 @@
+import { statFileIdentity, fileIdentityKey } from "../../lib/file-identity";
+// Exact identity boundary: bigint dev/ino are serialized into the existing inspection fingerprint.
 import { statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -85,7 +87,7 @@ type CanonicalTargetState = "missing" | "file" | "unusable";
 
 function canonicalTargetState(path: string): CanonicalTargetState {
   try {
-    return statSync(path).isFile() ? "file" : "unusable";
+    return statFileIdentity(path).isFile() ? "file" : "unusable";
   } catch (error) {
     return (error as NodeJS.ErrnoException | undefined)?.code === "ENOENT" ? "missing" : "unusable";
   }
@@ -93,7 +95,7 @@ function canonicalTargetState(path: string): CanonicalTargetState {
 
 function fileSize(path: string): number {
   try {
-    const stat = statSync(path);
+    const stat = statFileIdentity(path);
     return stat.isFile() ? stat.size : 0;
   } catch {
     return 0;
@@ -139,8 +141,7 @@ function inspectionCacheKey(databasePath: string): string {
       // millisecond still invalidates.
       const stat = statSync(path, { bigint: true });
       return [
-        stat.dev,
-        stat.ino,
+        fileIdentityKey(stat),
         stat.size,
         stat.mtimeNs,
         stat.ctimeNs,

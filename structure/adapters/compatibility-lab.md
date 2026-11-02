@@ -1,5 +1,7 @@
 # Compatibility Lab
 
+Scratch roots, artifact descriptors, public mutation locks, private files and community fingerprints use the shared exact file identity helper. Numeric metadata for file modes, byte budgets and modification times does not carry identity.
+
 ## Core isolation and synchronous activation
 
 The protected core request-path files carry no load-time import chain into Lab runtime code:

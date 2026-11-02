@@ -1,3 +1,4 @@
+// Exact identity boundary: standalone Node updater cannot load file-identity.ts; marker comparison already uses bigint stats.
 /**
  * Transactional npm self-update: stage -> verify -> swap -> rollback (#1942 / #1849).
  *

@@ -2,7 +2,7 @@
 
 Dashboard page contracts, usage accounting and request metrics, and the management settings that
 back individual dashboard surfaces. Serving, authentication boundaries, and `/api/*` ownership are
-in [GUI and management API](gui-and-management-api.md). Model-price editing and estimate selection follow [pricing](pricing.md).
+in [GUI and management API](gui-and-management-api.md). Usage ledger revisions and history ingestion/indexing compare exact decimal device/inode fields through the shared file identity helper. Retention checks both device and inode before copying the open ledger. Revision cache keys preserve their existing delimiters. Model-price editing and estimate selection follow [pricing](pricing.md).
 
 ## UX boundary
 

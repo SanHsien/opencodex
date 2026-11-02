@@ -728,3 +728,33 @@ Dependabot #10、#11、#12 都是 `zip` 4.6.1，只由 updater 帶入。改為 `
 **保守決定**：保留夜間排程；兩個持續失敗與 fork 的測試契約有關，不符合「與 fork 無關才停用」的既定條件。本輪僅交付未提交的修正，不推送、不觸發 workflow。`ROADMAP.md` 原列保留，待維護者提交後由下一次實際 schedule 的九個 Windows shards 與 aggregate `ci` 全部 success 才能刪列；本機通過不能代替這項遠端驗收。
 
 **本機先紅後綠**（Windows、Bun 1.4.4）：原樹執行 `bun run test -- tests/ci-workflows/ci-bun-crash-classifier.test.ts tests/lib/stall-timeout.test.ts tests/server/codex-agent-role-routes.test.ts`，exit 1，`26 pass / 1 fail / 1 error`（缺失 job TypeError、故障注入 `denied = 0`）。修正後使用 CI 的 60s test timeout 驗證，結果見 `REVIEW.md`。另一次未帶 timeout 的 npm 單檔本機執行碰到 Bun 預設 5s test timeout；該條件不同於 CI，不能用它歸因夜間 15s／30s 子程序逾時。
+
+## 2026-11-03：Upstream check PR／issue 分類；commit 軸仍待審
+
+開工確認最新 [Upstream check run 41430272684](https://github.com/SanHsien/opencodex/actions/runs/41430272684) 為 failure，HEAD 為 `91a176f94bb20c3059ba6f870a0d8958b4b11abb`。本機 strict 檢查另列出 209 筆新 commit（上游 main `684ad75d254ae96a9971387d09ae428b96ada9c2`）、15 筆 closed-unmerged PR、0 筆新 open platform issue。逐筆讀取下表 PR 本文與留言後，PR 水位由 7794 推到 8086；issue 無新增，水位保持 7860，不能虛增。
+
+2026-11-03 僅分類，沒有採用產品 diff。`reviewed_through` 保持 `88aaa754566d119b6b8fc898f8fb47602387d82e`，`integrated_tag` 保持 v2.93.0，`integrated_through` 不變；`reviewed_date` 保持 2026-10-28（它跟著 commit 軸推進）。最新 stable 已為 v2.96.0，但整版整合屬另一個路線圖項目。strict 的 commit 軸仍為紅，不能以票單分類代替 commit 審查；原路線圖列保留，未達整列驗收。
+
+| PR | 判定與理由 |
+| --- | --- |
+| [#7843](https://github.com/lidge-jun/opencodex/pull/7843) atomic writer ACL timeout memo | 不另採原 PR：上游已由 #7891（c7f3928a21）重作並關閉原案；含額外子行程退出保護，隨 stable 整合，避免覆蓋較完整版本。 |
+| [#7863](https://github.com/lidge-jun/opencodex/pull/7863) Hermes／Command Code alias | 不另採：作者確認由 #7867（3b8414d3d）取代；原分支後續修正不等於上游已接受，隨正式版本整合。 |
+| [#7879](https://github.com/lidge-jun/opencodex/pull/7879) protected-tree 路徑元件 | 不另採：上游明示重複於 #7884（463a0ee0b），隨 stable 取正式修正。 |
+| [#7895](https://github.com/lidge-jun/opencodex/pull/7895) TensorFold tool rejection | 暫不採：closed、未合併；涉及翻譯 adapter 的終止與用量語意，沒有足夠依據把未接受實作帶入 fork，等上游正式方案。 |
+| [#7906](https://github.com/lidge-jun/opencodex/pull/7906) Claude CLI schema offline fixtures | 不採：closed、未合併、intake: hygiene-blocked，且沒有有效需求說明；不能把 fixture 分支當正式修正。 |
+| [#7932](https://github.com/lidge-jun/opencodex/pull/7932) Windows test timing | 暫不採：closed、未合併；調整管理回應與 stream fixture 的時間預算，未證明對本 fork 目前 shard 2／7 問題有效，不藉此放寬測試。 |
+| [#7933](https://github.com/lidge-jun/opencodex/pull/7933) release 2.94.0 | 不採：上游明示被 #7940 的新 frozen tip 取代；fork 只按 stable tag diff 整合，不重放上游 promotion PR。 |
+| [#7953](https://github.com/lidge-jun/opencodex/pull/7953) Azure include | 不另採：上游 carry #7988（d389699c96）已落 dev；隨 stable 取正式版本。 |
+| [#7962](https://github.com/lidge-jun/opencodex/pull/7962) CR-delimited sidecar SSE | 不另採：上游 carry #7989（d42b9b1b23）已落 dev；隨 stable 取正式版本。 |
+| [#7969](https://github.com/lidge-jun/opencodex/pull/7969) Meta Muse tool catalog | 不另採：carry #7985（1e1620f3d9）另修歷史 catalog 驗證邊界；原 PR 不如正式版本完整，隨 stable 整合。 |
+| [#7971](https://github.com/lidge-jun/opencodex/pull/7971) routed slug | 不另採：carry #7979（d82d7ee739）另保留 retained-id 優先序；隨 stable 取正式版本。 |
+| [#8028](https://github.com/lidge-jun/opencodex/pull/8028) Claude session pool affinity | 不採原機制：上游 #8094（b14a35afe）改用 principal-scoped 私有身分，避免把 session headers 帶往其他讀取路徑；等包含該 carry 的 stable。只有 x-session-id 的直接 Responses 路徑仍未涵蓋。 |
+| [#8056](https://github.com/lidge-jun/opencodex/pull/8056) Anthropic Ultra quota | 不另採：原 PR closed、未合併；main 已有 #8055（e972776ec）的 quota／subscription names 正式實作，隨 stable 整合，不疊加競爭版本。 |
+| [#8073](https://github.com/lidge-jun/opencodex/pull/8073) T3 Code 文件 | 不採：作者明示暫不繼續整合並關閉；保留正式文件，避免把個別部署觀察當通用契約。 |
+| [#8086](https://github.com/lidge-jun/opencodex/pull/8086) LLMTR free directory | 暫不採：closed、未合併；免費配額與供應商入口尚未成為上游正式目錄，不在 fork 自行增加。 |
+
+Windows 指定 issue 複查（讀取 issue 本文與維護者留言）：
+
+- [#7771](https://github.com/lidge-jun/opencodex/issues/7771)：仍 open。#7973（db7bdc5e3d）只完成拒絕原因診斷；Task Scheduler wrapper 存活／重啟與 Desktop taking-over 死路仍未解，不能記為已修復。
+- [#7808](https://github.com/lidge-jun/opencodex/issues/7808)：closed，#7824（07161c5b95）在 dev 拒絕 Windows 無磁碟代號根路徑；尚未整合至本 fork 的 v2.93.0 基底。
+- [#7810](https://github.com/lidge-jun/opencodex/issues/7810)：closed；#7823（95cfa30ec7）修 long-TEMP recovery，#7852（fb22d055e0）隔離 Windows Known Folder fixture。上游已完整修復，尚待 stable 整合進 fork；不再沿用「純環境性失敗」歸因。

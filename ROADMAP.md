@@ -7,6 +7,7 @@
 
 `opencodex` 是 `lidge-jun/opencodex` 的 Windows-only 維護 fork（本機 provider proxy＋ChatGPT／Codex 帳號池），產品基底為上游 `v2.93.0`（`package.json` 為 2.94.0、整合 tag 為 v2.93.0）加 fork overlay（`FORK.md`、`tools/upstream_baseline.json`）。最近 release 是 v2.93.0（2026-10-27）。
 健康（歷史快照）：open PR 0、Dependabot 與 code scanning 告警 0，CodeQL、Fork maintenance、Upstream check 曾於 2026-10-29 查為 success；issues 在 GitHub 上已停用，open issue 數是「未查到」，不是 0。2026-11-02 複查 Cross-platform CI：最新 schedule run 41354967821 failure（Windows shard 2、7），shard 9 success；本機修正尚未提交，仍待修正後 schedule 驗收。與上游「No common ancestor」是 2026-09-27 刻意壓縮歷史的結果，不是缺陷（`FORK.md`「分支與 remote」）。
+上游分類（2026-11-03）：15 筆新 closed-unmerged PR 已逐筆判定，PR 水位 8086；無新 platform issue，issue 水位仍為 7860。strict 仍因 209 筆未審 commit exit 1；最新上游 stable 為 v2.96.0，產品整合仍停在 v2.93.0。分類列保留待完整驗收。
 安全告警：2026-10-31 查 Dependabot 0（#10、#11、#12 已由 `f314d92c5` 修復並關閉）。
 
 ## 近期：可以直接動手
@@ -14,6 +15,7 @@
 | 項目 | 為什麼 | 驗收方式 | 建議執行者 | 證據 |
 | --- | --- | --- | --- | --- |
 | 查明夜間 `Cross-platform CI` 的 Windows shard 紅燈 | 已完成本機分類與測試修正：shard 2 的 job 名單過期、shard 7 的故障注入過期；`stall-timeout` 全過；shard 9 是 npm 子程序逾時，後續 schedule 已綠。push 不跑完整 Windows shards，不能作為對照綠燈 | 逐項分類與本機修正已完成；仍待維護者提交後下一次 schedule 的九個 Windows shards 與 aggregate `ci` success，達標才刪列 | 維護者 | `docs/fork/DECISIONS.md` 2026-11-02 條目；`REVIEW.md` 本機證據；run 41354967821 |
+| PR 水位改用 closedAt 或逐筆清單 | `reviewed_pr_through` 是單一數字，上游目前仍 open 的 53 筆 PR（編號 7795–8086）日後若未合併就關閉，永遠不會被列出（`collectUnmergedPullRequests`） | 基準推進時仍 open、之後未合併關閉的 PR 仍會被回報；附回歸測試 | Codex | `tools/check-upstream-updates.ts:239-263` |
 
 ## 中期：等條件成立再做
 

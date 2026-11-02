@@ -129,3 +129,24 @@ WINDOWS DEV CHECK GREEN
 驗證範圍：完整 fork gate 依 `tools/dev_check.ps1` 執行；未執行全部 2622 份 `.test.ts` 產品套件。本輪僅修測試契約，相關四檔已聚焦覆蓋；完整套件採 fresh-process batches、每批最高 600s 與整輪最高 120 分鐘，對兩份測試修正成本不成比例。完整 Windows 九分片覆蓋與修正後 schedule 成功仍留待 CI，不宣稱已通過。
 
 原始本機日誌在 gitignored `.tmp/windows-nightly/`（`baseline.log`、`focused-green.log`、`role-final.log`、`npm-baseline.log`、`dev-check.log`、`typecheck.log`、`privacy.log`）；歷史 Actions 失敗日誌以 run ID 命名保存在同處。
+
+## 2026-11-03：Upstream PR／issue 分類驗收（未完成整列）
+
+基準 HEAD：`91a176f94bb20c3059ba6f870a0d8958b4b11abb`，detached HEAD；開工 `git status --porcelain` 與 `git diff --stat` 皆空，沒有未提交半成品。逐筆判定與 Windows issue 複查已同步寫入 `docs/fork/UPSTREAM.md`、`docs/fork/DECISIONS.md`，PR 水位 7794 → 8086，issue 無新增所以維持 7860。
+
+| 指令 | exit code | 結尾輸出／結果 |
+| --- | --- | --- |
+| `bun tools/check-upstream-updates.ts --strict --output .tmp/upstream-triage/before.md` | 1 | 209 upstream commits、15 closed-unmerged PR、0 新 platform issue。 |
+| `bun tools/check-upstream-updates.ts --strict --output .tmp/upstream-triage/after.md` | 1 | `209 upstream commit(s) require review.`；PR `None since that number.`、issue `No new platform issues since that number.` |
+| `pwsh -NoProfile -File tools/dev_check.ps1` | 1 | `35 pass / 1 fail`、127 expect calls；`product code outside the allowlist contains no Hangul` 超過既有 60000ms（77556.77ms），未輸出內容違規；gate 在該步停止。 |
+| `bun test tests/ci-workflows/fork-hygiene.test.ts -t 'product code outside the allowlist contains no Hangul'` | 0 | 僅重跑失敗案例：`1 pass / 35 filtered out / 0 fail`，2 expect calls，1.71s。未改 timeout 或測試。 |
+| `bun tools/check-links.ts` | 0 | 補跑 gate 尚未執行的連結步驟：10 份文件，0 份有斷掉的相對連結。 |
+| `git diff --check` | 0 | 無輸出。 |
+
+完整 fork gate 曾執行但首次逾時，不宣稱原指令 exit 0；其 35 個通過案例不重跑，唯一失敗案例與剩餘連結步驟已補驗通過。本輪只有維護紀錄與 baseline JSON，不是產品 bug 修正，先紅後綠回歸測試不適用；strict 的 1 → 1 也不是 bug 紅綠測試。未跑完整產品套件或 typecheck：沒有 TypeScript、產品行為或測試策略變更；完整產品套件對此分類工作成本不成比例，未將既有歷史結果算作本輪通過。
+
+尚未達到整列驗收：209 筆 commit 未審，不能推進 `reviewed_through` 或把 strict 變綠；`ROADMAP.md` 原列保留。是否另開 commit 審查或 stable 整合工作，由維護者決定。本輪沒有改變原有 strict 失敗規則。
+
+本機原始報告與日誌：gitignored `.tmp/upstream-triage/` 的 `before.md`、`after.md`、`before.log`、`after.log`、`dev-check.log`、`hangul-recheck.log`、`links.log`、`privacy.log`。GitHub PR 本文與留言快照亦留於同處，不納入提交。
+
+隱私補驗：`bun run privacy:scan` exit 0，結尾 `Privacy scan passed`（在 240 秒整輪上限前完成，沒有終止或重跑）。五個修改檔另直接呼叫同一 `scanText`，exit 0、`Changed-file privacy scan: 5 files, 0 findings`；本段回註後僅重驗 `REVIEW.md`。最終對帳驗證 15 筆 PR 在兩份文件皆存在，PR 水位等於本輪最大號碼，commit／產品整合／issue 水位保持原值；exit 0。`git diff --check` 無輸出。無新增產品或測試檔案，沒有需要同步的中英雙語產品頁面；根目錄沒有 `CHANGELOG.md`，本次維護結果記於此處與兩份 fork 紀錄。

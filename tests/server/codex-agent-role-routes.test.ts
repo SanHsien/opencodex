@@ -294,20 +294,20 @@ describe("/api/codex-agent-roles", () => {
   });
 
   test("a filesystem failure is reported without its path", async () => {
-    // getCodexHome() canonicalizes CODEX_HOME, so the route reads the real path. On macOS the
-    // temp root sits under /var, a symlink to /private/var: matching the spelled path would never
-    // fire, the write would succeed, and the test would prove nothing about the failure branch.
+    // Fail the final atomic rename: bounded reads now translate open failures into a safe 409.
+    // getCodexHome() canonicalizes CODEX_HOME; match the real destination (including macOS /var
+    // aliases) so this injection exercises the raw filesystem error and its redacted 500 response.
     const canonicalRoot = realpathSync.native(root);
     const rolePath = join(canonicalRoot, "codex", "agents", "explorer.toml");
-    const nativeRead = fs.readFileSync;
+    const nativeRename = fs.renameSync;
     let denied = 0;
-    const spy = spyOn(fs, "readFileSync").mockImplementation(((path: fs.PathOrFileDescriptor, options?: unknown) => {
-      if (path === rolePath) {
+    const spy = spyOn(fs, "renameSync").mockImplementation(((source, destination) => {
+      if (destination === rolePath) {
         denied += 1;
-        throw Object.assign(new Error(`EACCES: permission denied, open '${rolePath}'`), { code: "EACCES" });
+        throw Object.assign(new Error(`EACCES: permission denied, rename '${rolePath}'`), { code: "EACCES" });
       }
-      return nativeRead(path, options as BufferEncoding);
-    }) as never);
+      return nativeRename(source, destination);
+    }) as typeof fs.renameSync);
     try {
       const failed = await put("explorer", "m5");
       expect(denied).toBeGreaterThan(0);
@@ -315,6 +315,7 @@ describe("/api/codex-agent-roles", () => {
       expect(failed.body).toEqual({ error: "could not write the role file", code: "write_failed" });
       expect(JSON.stringify(failed.body)).not.toContain(root);
       expect(JSON.stringify(failed.body)).not.toContain(canonicalRoot);
+      expect(readFileSync(rolePath, "utf8")).toBe(ROLE);
     } finally {
       spy.mockRestore();
     }

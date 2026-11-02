@@ -54,7 +54,8 @@ describe("the Bun crash classifier is shared", () => {
   const workflow = read(".github", "workflows", "ci.yml");
 
   const jobs = (Bun.YAML.parse(workflow) as { jobs: Record<string, { steps: Array<{ run?: string }> }> }).jobs;
-  const lanes = Object.fromEntries(["test", "platform-macos", "macos-control", "platform-windows"].map(name => [
+  // This fork retains only the Windows batch lane; missing retained jobs must still fail.
+  const lanes = Object.fromEntries(["platform-windows"].map(name => [
     name, jobs[name]!.steps.map(step => step.run ?? "").filter(run => run.includes("scripts/ci/run-bun-test-batches.sh")).join("\n"),
   ]));
 
@@ -83,7 +84,7 @@ describe("the Bun crash classifier is shared", () => {
     }
     expect(batchScript).toContain("bun-crash-signatures.sh");
     expect(batchScript).toContain('is_bun_runtime_crash "$status" "$log_file"');
-    expect(workflow.match(/run: bash scripts\/ci\/run-bun-test-batches\.sh/g)).toHaveLength(4);
+    expect(workflow.match(/run: bash scripts\/ci\/run-bun-test-batches\.sh/g)).toHaveLength(1);
   });
 
   test("the thread-numbered panic form is the anchor nowhere", () => {

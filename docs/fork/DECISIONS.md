@@ -712,3 +712,19 @@ commit，均 defer 至 stable promotion。open platform `#4200`（remote-hub doc
 ## 2026-10-31：`tauri-plugin-updater` 關閉 `zip` feature
 
 Dependabot #10、#11、#12 都是 `zip` 4.6.1，只由 updater 帶入。改為 `default-features = false, features = ["rustls-tls"]`，不升級 updater：2.14.1 才改 `zip ^9`，但需要 `tauri ^2.12`，本 fork 釘 `=2.11.6`。桌面更新維持停用（`endpoints: []`、`createUpdaterArtifacts: false`）。整合上游時保留此設定；日後重新啟用桌面更新或升到 tauri 2.12 以上時重新評估。
+
+
+## 2026-11-02：夜間 Windows shard 紅燈分類；保留排程與失敗硬閘門
+
+**範圍與證據**：調查 [40968258056](https://github.com/SanHsien/opencodex/actions/runs/40968258056)、[41137391838](https://github.com/SanHsien/opencodex/actions/runs/41137391838)，並比對目前 HEAD `888f2d075f5fc08a594aa80196025be90a96f7b6` 的 [41354967821](https://github.com/SanHsien/opencodex/actions/runs/41354967821)。同 commit 的 push [41098559653](https://github.com/SanHsien/opencodex/actions/runs/41098559653) 沒有執行 Windows 完整九分片，不能拿它的 success 排除夜間缺陷。
+
+| 項目 | 判定與決定 |
+| --- | --- |
+| shard 2：`ci-bun-crash-classifier.test.ts` | 真實的測試契約過期。Windows-only 移除 `test`、`platform-macos`、`macos-control` 後，測試仍直接讀其 `steps`，造成載入時 TypeError。名單與呼叫數改為唯一保留的 `platform-windows`；不使用跳過缺失 job 的方式，保留簽章不得內嵌、共同 classifier 必須被呼叫及不得重試成綠燈的斷言。 |
+| shard 7：`codex-agent-role-routes.test.ts` | 真實的故障注入過期。角色檔已用 bounded reader，`readFileSync` spy 不再觸發；改攔截最終 `renameSync`，讓測試繼續驗證原有 raw filesystem error → HTTP 500、固定錯誤碼、路徑遮蔽，並驗證原角色檔保持不變。開檔被拒由 bounded reader 轉成安全的 409，不能用它替代原有 500 測試。產品讀寫與安全保護不變。 |
+| `stall-timeout.test.ts` | 非失敗來源。兩個指定 run 中八個案例全部 pass，本機也通過；不改 resolver、預算或 watchdog。原路線圖將同批次的通過檔誤列為失敗檔。 |
+| shard 9：`codex-cli-update-plan.test.ts` | run 41137391838 的兩個 real npm probe 分別在 15s／30s 發生 `cmd.exe ETIMEDOUT`，不是 stall timeout。判為暫時環境／子程序執行逾時，確切底層原因未證實；目前 HEAD 的下一輪 41354967821 shard 9 success，本機以 CI 相同 `--timeout 60000` 跑此檔通過。保留子程序 deadline、離線與 HOME 隔離斷言，不增加重試、不把逾時視為通過、不改產品碼。 |
+
+**保守決定**：保留夜間排程；兩個持續失敗與 fork 的測試契約有關，不符合「與 fork 無關才停用」的既定條件。本輪僅交付未提交的修正，不推送、不觸發 workflow。`ROADMAP.md` 原列保留，待維護者提交後由下一次實際 schedule 的九個 Windows shards 與 aggregate `ci` 全部 success 才能刪列；本機通過不能代替這項遠端驗收。
+
+**本機先紅後綠**（Windows、Bun 1.4.4）：原樹執行 `bun run test -- tests/ci-workflows/ci-bun-crash-classifier.test.ts tests/lib/stall-timeout.test.ts tests/server/codex-agent-role-routes.test.ts`，exit 1，`26 pass / 1 fail / 1 error`（缺失 job TypeError、故障注入 `denied = 0`）。修正後使用 CI 的 60s test timeout 驗證，結果見 `REVIEW.md`。另一次未帶 timeout 的 npm 單檔本機執行碰到 Bun 預設 5s test timeout；該條件不同於 CI，不能用它歸因夜間 15s／30s 子程序逾時。

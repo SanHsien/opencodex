@@ -108,3 +108,24 @@ WINDOWS DEV CHECK GREEN
 4. 重新評估 `fork-release-windows.yml` 是否改鎖 Bun 版本（若上游針對 `#7207` 確認 Bun 1.4.4 誤判結論）。
 
 逐項紀錄見 [`docs/fork/UPSTREAM.md`](docs/fork/UPSTREAM.md)、[`docs/fork/DECISIONS.md`](docs/fork/DECISIONS.md)、[`docs/fork/DEVELOPMENT.md`](docs/fork/DEVELOPMENT.md)。
+
+
+## 2026-11-02：夜間 Windows CI 本機修正驗證
+
+基準 HEAD：`888f2d075f5fc08a594aa80196025be90a96f7b6`（detached HEAD）；本輪僅修改兩份測試與維護文件，沒有暫存、提交、推送或變更 workflow／產品碼。分類與保留排程的理由見 `docs/fork/DECISIONS.md` 同日條目。最新 schedule [41354967821](https://github.com/SanHsien/opencodex/actions/runs/41354967821) 的 shard 2、7 failure、9 success；尚未包含本機修正，路線圖保留待遠端驗收列。
+
+| 指令 | exit code | 結尾輸出／結果 |
+| --- | --- | --- |
+| `bun run test -- tests/ci-workflows/ci-bun-crash-classifier.test.ts tests/lib/stall-timeout.test.ts tests/server/codex-agent-role-routes.test.ts`（修正前） | 1 | `26 pass / 1 fail / 1 error`；job 名單 TypeError、`denied = 0`。 |
+| `bun run test -- --timeout 60000 tests/ci-workflows/ci-bun-crash-classifier.test.ts tests/lib/stall-timeout.test.ts tests/server/codex-agent-role-routes.test.ts tests/codex-integration/codex-cli-update-plan.test.ts`（修正後） | 0 | `88 pass / 1 skip / 0 fail`，505 expect calls，89 tests across 4 files。 |
+| `bun run test -- --timeout 60000 tests/server/codex-agent-role-routes.test.ts`（補上原檔不變斷言後） | 0 | `17 pass / 0 fail`，134 expect calls。 |
+| `bun run typecheck` | 0 | `$ bun x tsc --noEmit`，無診斷。 |
+| `pwsh -NoProfile -File tools/dev_check.ps1` | 0 | `36 pass / 0 fail`、10 份文件連結零錯誤、`WINDOWS DEV CHECK GREEN`。 |
+| `bun run privacy:scan` | 0 | `Privacy scan passed`；回註後的 `REVIEW.md` 另以同一 `scanText` 掃描。 |
+| `bun scripts/file-size-ratchet.ts` | 0 | `file-size ratchet passed`。 |
+
+先紅後綠沿用兩個既有失敗案例，不新增鏡像測試。最終修正驗證共同 classifier、不得重試成綠燈、角色寫入失敗的 500／固定錯誤碼／路徑遮蔽與原檔保持不變。npm 子程序使用既有 15s／30s 上限，Bun test timeout 與 CI 同為 60s；未改上限或加重試。一次額外的 npm 單檔診斷未帶 `--timeout`，exit 1、`55 pass / 1 skip / 1 fail`，觸發本機 Bun 預設 5s test timeout，不能把此不同條件當成夜間子程序逾時的根因。
+
+驗證範圍：完整 fork gate 依 `tools/dev_check.ps1` 執行；未執行全部 2622 份 `.test.ts` 產品套件。本輪僅修測試契約，相關四檔已聚焦覆蓋；完整套件採 fresh-process batches、每批最高 600s 與整輪最高 120 分鐘，對兩份測試修正成本不成比例。完整 Windows 九分片覆蓋與修正後 schedule 成功仍留待 CI，不宣稱已通過。
+
+原始本機日誌在 gitignored `.tmp/windows-nightly/`（`baseline.log`、`focused-green.log`、`role-final.log`、`npm-baseline.log`、`dev-check.log`、`typecheck.log`、`privacy.log`）；歷史 Actions 失敗日誌以 run ID 命名保存在同處。

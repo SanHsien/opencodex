@@ -6,14 +6,14 @@
 ## 現況
 
 `opencodex` 是 `lidge-jun/opencodex` 的 Windows-only 維護 fork（本機 provider proxy＋ChatGPT／Codex 帳號池），產品基底為上游 `v2.93.0`（`package.json` 為 2.94.0、整合 tag 為 v2.93.0）加 fork overlay（`FORK.md`、`tools/upstream_baseline.json`）。最近 release 是 v2.93.0（2026-10-27）。
-健康：open PR 0、Dependabot 與 code scanning 告警 0，`main` 上 Cross-platform CI、CodeQL、Fork maintenance、Upstream check 最近一次皆 success（2026-10-29 `gh` 查詢）；issues 在 GitHub 上已停用，open issue 數是「未查到」，不是 0。與上游「No common ancestor」是 2026-09-27 刻意壓縮歷史的結果，不是缺陷（`FORK.md`「分支與 remote」）。
+健康（歷史快照）：open PR 0、Dependabot 與 code scanning 告警 0，CodeQL、Fork maintenance、Upstream check 曾於 2026-10-29 查為 success；issues 在 GitHub 上已停用，open issue 數是「未查到」，不是 0。2026-11-02 複查 Cross-platform CI：最新 schedule run 41354967821 failure（Windows shard 2、7），shard 9 success；本機修正尚未提交，仍待修正後 schedule 驗收。與上游「No common ancestor」是 2026-09-27 刻意壓縮歷史的結果，不是缺陷（`FORK.md`「分支與 remote」）。
 安全告警：2026-10-31 查 Dependabot 0（#10、#11、#12 已由 `f314d92c5` 修復並關閉）。
 
 ## 近期：可以直接動手
 
 | 項目 | 為什麼 | 驗收方式 | 建議執行者 | 證據 |
 | --- | --- | --- | --- | --- |
-| 查明夜間 `Cross-platform CI` 的 Windows shard 紅燈 | 2026-10-29、10-30 兩晚 schedule 都紅（run 40968258056、41137391838），同 commit 的 push 是綠的；失敗含 `tests/ci-workflows/ci-bun-crash-classifier.test.ts`、`tests/lib/stall-timeout.test.ts`（shard 2、7、9） | 逐項分清是環境或真缺陷；修掉或寫明理由；下一次 schedule 的 `Cross-platform CI` success | Antigravity | `gh run view 41137391838 -R SanHsien/opencodex --log-failed` |
+| 查明夜間 `Cross-platform CI` 的 Windows shard 紅燈 | 已完成本機分類與測試修正：shard 2 的 job 名單過期、shard 7 的故障注入過期；`stall-timeout` 全過；shard 9 是 npm 子程序逾時，後續 schedule 已綠。push 不跑完整 Windows shards，不能作為對照綠燈 | 逐項分類與本機修正已完成；仍待維護者提交後下一次 schedule 的九個 Windows shards 與 aggregate `ci` success，達標才刪列 | 維護者 | `docs/fork/DECISIONS.md` 2026-11-02 條目；`REVIEW.md` 本機證據；run 41354967821 |
 
 ## 中期：等條件成立再做
 

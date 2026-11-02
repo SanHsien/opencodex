@@ -5,6 +5,10 @@ description: 供應商項目、認證、端點、模型目錄、配額、context
 
 供應商告訴 opencodex 模型在哪裡、它使用哪種 wire adapter，以及請求如何被認證。
 
+## Runcrate 免費供應商目錄項目
+
+Runcrate 已列入免費供應商目錄，透過 OpenAI 相容的 `https://api.runcrate.ai/v1` 端點連線，需要 API 金鑰。目錄預載六個有有限免費額度的開放模型，也會探索完整付費目錄。免費額度要求 GitHub 帳號至少建立 30 天，受每個 session 與每週限制，並由 workspace 共用。其他探索到的模型須付費。當免費額度用完或免費容量忙碌時，有餘額的 workspace 會繼續產生付費流量；沒有餘額則停止請求，直到額度或容量恢復。使用前請確認 [Runcrate 免費方案條款](https://www.runcrate.ai/inference/free)。
+
 ## DeepSeek: tokens versus image bytes
 
 DeepSeek documents a separate [48 MiB request-body limit](https://api-docs.deepseek.com/guides/files_api/).

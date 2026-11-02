@@ -777,3 +777,25 @@ Windows 指定 issue 複查（讀取 issue 本文與維護者留言）：
 採用原作者程式碼的提交須保留：
 
 上游 #7781 的 JUN Co-authored-by trailer（由 `git show --format=full dd8bf1d65` 取得；保留在提交訊息，不寫入產品文件）。
+
+
+## 2026-11-03：Runcrate 目錄採用；structural tool turns 延後完整審查
+
+採用上游 #7726（`42549ba1b`）的完整目錄變更，維持實驗性、需 key、hybrid discovery。
+免費 seed 與付費 live catalog 分開說明，保留帳號年齡、共用額度及有餘額時轉付費的限制。
+API root 由 [官方 Chat Completions 文件](https://www.runcrate.ai/docs/models/chat-completions)
+核對；免費條款頁未能由查證工具取得，保留上游 2026-10-27 快照日期，不宣稱重新驗證免費資格。
+
+| 邊界／檔案 | 判定 |
+| --- | --- |
+| `src/providers/free-directory.ts` | 只增 Runcrate 的群組、OpenAI Chat endpoint、模型 seeds 與有界免費額度說明。沒有 credential 讀寫／log、OAuth、帳號池、權限或自動更新變更；不新增 canonical registry entry。 |
+| `scripts/test-layout/layout.json`／`layout-providers.json`、`tests/fixtures/test-layout-expected.json` | 僅登錄新的 sibling test；不改執行器、安裝、release 或 CI 權限。保留所有 fork 原有映射。 |
+| `tests/providers/free-directory-runcrate.test.ts` | 驗目錄投影、需要 key、免費／付費限制、live discovery 與 canonical credential destination 隔離。日期驗格式，沒有依賴套件版本斷言，也不呼叫外部服務。 |
+| 英／繁中 providers 說明與 `structure/providers-and-adapters.md` | 同步目錄用途與計費限制，不宣稱整個 catalog 免費；其餘 owning docs 的 runtime、subagent、transport、Anthropic pool、xAI 合約未變。 |
+
+#7561（`f94e95ce5`）新增 durable principal 與簽章結構 membership；僅完成 scope 與三個
+身分／membership 模組的初讀，尚未完成整個 31 檔 diff 與 ingress／adapter 驗收，判 defer。
+它是獨立 opt-in 功能，不是 Runcrate 的依賴；不混合採用部分身分鏈，也不前移 scalar 水位。
+延後項與後續逐筆游標統一記在 `ROADMAP.md`。
+
+作者歸屬：#7726 原作者 Nirupam Bhowmick，上游另帶 JUN co-author；兩筆 trailer 保留在採用提交訊息。

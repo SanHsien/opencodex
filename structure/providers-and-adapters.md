@@ -192,6 +192,7 @@ rewrite rules and the routed-id settlement.
 
 | Path | Responsibility |
 | --- | --- |
+| `src/providers/free-directory.ts` | Runcrate is directory-only, key-required OpenAI Chat with six free-allowance seeds and hybrid discovery of the paid catalog. Its note bounds account eligibility, shared session/weekly allowance and paid continuation; it adds no canonical credential destination. |
 | `src/providers/registry.ts` | Compatibility facade; canonical provider presets for CLI, dashboard, OAuth, key providers, and metadata live in `src/providers/registry/entries-core.ts` and `entries-extended.ts`, with model seeds in `model-seeds.ts`. |
 | `src/providers/registry/model-ids.ts` | Classifies every `ProviderRegistryEntry` field by what its KEYS mean for selector decoding, and derives the native model ids an entry names. The classification is exhaustive by construction: a new registry field fails typecheck until its keys are given a meaning, which is what stops an identity-bearing map from being silently left out of decoding. Imported directly rather than through the facade, which is at its file-size cap. |
 | `src/providers/derive.ts`, `src/providers/routed-config.ts` | Preset enrichment and runtime routing. Provider-wide input modalities stay runtime-only: renamed rows inherit them only at the canonical fixed-key URL and adapter, excluding custom destinations and aliases. Explicit provider and per-model declarations retain precedence. Vision eligibility and request routing share this fallback. |

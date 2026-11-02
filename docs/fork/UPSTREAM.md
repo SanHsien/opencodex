@@ -1166,3 +1166,25 @@ Windows 指定 issue 複查（讀取 issue 本文與維護者留言）：
 停止點是 `dd8bf1d65`，下一筆為 `f94e95ce5`（structural tool turns）。這是逐筆審查的停止點，**不是可推進的 main 水位**：`git merge-base --is-ancestor v2.93.0 dd8bf1d65` exit 1，`dd8bf1d65..v2.93.0` 尚有 189 筆歷史 commit。把 scalar 水位改成該來源分支 SHA 會使檢查器重報舊項目。因此 `reviewed_through`、`reviewed_date`、`integrated_tag`、`integrated_through` 全部保持；其餘 207 筆仍需審查，strict 仍列出 209 筆（包含已在本節記錄的兩筆）。PR／issue 水位也不變。完整 tag 整合須接續審查並保留 Windows-only 刪除清單。
 
 安全邊界逐檔判定與回歸證據見 `DECISIONS.md`、`REVIEW.md` 同日區段。
+
+
+## 2026-11-03：獨立整合區段（#7561 defer、#7726 adopt）
+
+GitHub release 清單複查最新 stable 為 v2.96.0（2026-11-01），符合 stable 整合觸發條件。
+以 `083465382` 為 fork 基準，接續前節的兩筆判定：
+
+| Commit | 判定 | 範圍與理由 |
+| --- | --- | --- |
+| `f94e95ce5`（#7561） | defer | 31 檔、885 行新增，包含 Responses 結構重排、durable principal、HMAC membership、ingress 與 adapter 投影。已讀 scope 清單、`src/server/auth-cors.ts` 與兩個 turn-membership 模組；尚未完成其餘完整 diff／安全審查與跨 ingress 回歸，不採部分身分鏈、不計為完成程式碼審查。補審範圍只在 `ROADMAP.md` 追蹤。 |
+| `42549ba1b00a7fe792f0c1d87771845ca538c472`（#7726） | adopt | 完整讀取五檔 diff；採用 Runcrate 目錄、獨立測試與兩份 layout 登錄及 fixture。測試的驗證日期改驗 ISO 日期格式，避免釘住會更新的快照日期；模型 id 仍驗正式六筆 seed。同步英／繁中使用說明及 structure 合約。 |
+
+這是可獨立成立的目錄區段，沒有重放整版產品。先核對 Windows-only 刪除清單：
+此 commit 沒有新增已移除平台路徑／workflow、語系或安裝腳本，所有 fork overlay 保留。
+官方 Chat Completions 文件確認 API root；免費額度資料沿用上游 2026-10-27 的驗證快照，
+不把它改寫為 2026-11-03 的免費條款 live 驗證。沒有呼叫付費推論或使用登入資料。
+
+逐筆游標到 `42549ba1b`；下一筆是 `15b38cb0e`。`f94e95ce5` 的 defer 另行保留，
+不能因游標向前就當作採用或完整審查完成。兩個來源 SHA 都不是目前 main scalar 的可替代基準，
+且本段沒有整合完整 stable tag，因此 `reviewed_through`／`reviewed_date`、`integrated_tag`／
+`integrated_through` 全部不變；PR／issue 水位也不變。整版整合列保留。
+驗證結果見 `REVIEW.md`，逐檔邊界判定見 `DECISIONS.md` 同日區段。

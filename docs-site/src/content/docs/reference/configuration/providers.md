@@ -8,6 +8,10 @@ description: Provider entries, authentication, endpoints, model catalogs, quotas
 A provider tells opencodex where a model lives, which wire adapter it speaks, and how requests are
 authenticated.
 
+## Runcrate free-directory entry
+
+Runcrate is available in the free-provider directory through the OpenAI-compatible `https://api.runcrate.ai/v1` endpoint and requires an API key. The directory seeds six open models with a limited free allowance and also discovers the full paid catalog. The allowance requires a GitHub account at least 30 days old, is limited per session and per week, and is shared by the workspace. Other discovered models are paid. When the allowance is exhausted or free capacity is busy, a workspace with credit continues as paid traffic; without credit, requests stop until allowance or capacity returns. Check [Runcrate's free terms](https://www.runcrate.ai/inference/free) before use.
+
 ## DeepSeek: tokens versus image bytes
 
 DeepSeek documents a separate [48 MiB request-body limit](https://api-docs.deepseek.com/guides/files_api/).

@@ -170,3 +170,42 @@ WINDOWS DEV CHECK GREEN
 完整套件採 repo 的資源例外：僅前三批就耗時 510.5 秒，相較五檔獨立修正成本不成比例，故保留已通過批次，採用聚焦回歸與 fork gate。沒有把中止改稱成功，也沒有縮短測試器的 600 秒單批／120 分鐘整體時限。廣域產品測試覆蓋仍有限制，不能據此宣稱 stable 整版驗收完成。
 
 逐檔安全審查：ACL barrier 沒有被繞過；timeout 回傳 false 而不回復，非 timeout 錯誤仍拋出；CLI／management apply 與 native toggle 三個呼叫點保留既有 mode persistence、changed 判斷、權限與 transition 邊界。其餘 fork overlay 未重放。原作者 trailer 由上游 commit 取得並保留在採用程式碼的提交訊息。
+
+
+## 2026-11-03：Runcrate 獨立整合區段驗證
+
+基準 HEAD：`08346538259d94acab39fa42a6ce55540bac5f62`。採用上游 `42549ba1b`
+的目錄資料與獨立測試，補英／繁中說明、structure 合約及 fork 判定紀錄。
+`f94e95ce5` 僅完成 scope 與三個身分／membership 模組初讀，判 defer，沒有套用。
+完整 stable 整合尚未成立，baseline 各水位保持原值；路線圖保留整版驗收與補審範圍。
+
+| 指令 | Exit code | 結尾輸出／證據 |
+| --- | --- | --- |
+| `bun test tests/test-layout.test.ts tests/test-layout-tooling.test.ts --timeout=60000`（修改配置前） | 0 | `29 pass / 0 fail`，579 expect calls。 |
+| `bun test tests/providers/free-directory-runcrate.test.ts --timeout=60000`（僅加測試、產品修正前） | 1 | `0 pass / 1 fail`；目錄查詢為 undefined，`toMatchObject` 要求 non-null object。 |
+| `bun test tests/providers/free-directory-runcrate.test.ts tests/providers/provider-registry-parity.test.ts tests/test-layout.test.ts tests/test-layout-tooling.test.ts --timeout=60000`（產品修正後） | 0 | `94 pass / 0 fail`，3421 expect calls，4 檔。 |
+| `bun run typecheck` | 0 | `$ bun x tsc --noEmit`，無型別診斷。 |
+| `bun run structure:check`（修正文件後） | 0 | `structure/ SSOT checks passed`。 |
+| `bun scripts/file-size-ratchet.ts`（修正文件後） | 0 | `file-size ratchet passed`。 |
+| `pwsh -NoProfile -File tools/dev_check.ps1` | 0 | `36 pass / 0 fail`，10 份文件零斷鏈，`WINDOWS DEV CHECK GREEN`；605.74s 含等待完整套件的 user lock。 |
+| `bun install --frozen-lockfile`、`bun run build`（`docs-site/`） | 0、0 | 371 installs／484 packages，no changes；最終建置 147 pages、20711 internal links，`[build] Complete!`。 |
+| `bun run privacy:scan` | 0 | `Privacy scan passed`；回註與新檔另外以相同 `scanText` 覆蓋。 |
+| `bun tools/check-upstream-updates.ts --strict --output .tmp/stable-runcrate/upstream.md` | 1 | `209 upstream commit(s) require review.`；無新 closed-unmerged PR／platform issue。不將兩筆獨立判定當成 scalar 已推進。 |
+| `bun run test -- --timeout=60000`，`OCX_TEST_FULL_SUITE_TIMEOUT_SECONDS=600` | 124（incomplete） | 2623 檔／163 fresh-process batches；前三批 exit 0，298＋262＋398＝958 pass、0 fail、48 檔，耗時 137.3＋41.5＋284.2＝463.0s。第 4 批使用剩餘 136s 後逾時，`no retry because the full-suite deadline is exhausted`，`error: script "test" exited with code 124`。 |
+
+完整產品套件採 repo 的資源例外：此變更只有一份目錄資料來源，過往相同完整套件前三批
+已耗 510.5 秒；為此獨立區段預先設定具名 600 秒整體資源預算，單批設定仍為 600 秒，
+每個 test timeout 為 60000ms，最後一批受剩餘整體預算約束。這不是 assertion failure，
+也不是完整通過；保留前三批證據，不重跑。聚焦測試已覆蓋新目錄、canonical registry
+隔離及 layout 登錄；其餘完整產品套件與 stable 整版驗收沒有由此取得通過證據。
+
+實作時兩項文件檢查曾為紅：structure 初稿 606 行超過 600 行，且引用 index 尚未收錄的新測試；
+改為既有責任表的一列，600 行並移除該引用。file-size 初稿英文 providers 頁 2006 行，
+縮至 2000 行仍被門檻拒絕，最終將相同段落整理為 1999 行通過；未提高任何 baseline。
+文件建置在最後排版固定後重新執行。新測試驗日期格式而非硬編快照日期，沒有套件版本斷言。
+沒有根目錄 `CHANGELOG.md`，維護結果記錄於此與 fork 判定文件。
+
+原始日誌：gitignored `.tmp/stable-runcrate/`（`layout-before.log`、`red.log`、`green.log`、
+`typecheck.log`、`structure-final.log`、`ratchet-final.log`、`dev-check.log`、`docs-install.log`、
+`docs-build-settled.log`、`privacy.log`、`upstream.log`、`full.log`）；最終工作樹與新檔 hash
+清冊為同目錄的 `evidence.json`。上游作者與共同作者 trailer 保留在採用提交訊息。

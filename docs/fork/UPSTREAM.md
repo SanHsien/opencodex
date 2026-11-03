@@ -1339,7 +1339,7 @@ Windows-only 刪除清單、英／繁中語系、官方 workflow guard、fork �
 | `b09c9302c4832a12c17da5f57f5d2240fe20f817` test(codex): retain bounded Windows plan refusal diagnostics (#7937) | 需要採用的修正 | defer | 標題雖為 test，亦更動 Windows plan provenance 產品碼；依賴 8178745ba，不歸純測試。 |
 | `524c019c7b82384aa7574ce4dfd11abe380d2cb9` fix(combos): fail over when a target rejects a request for context length (#7892) | 需要採用的修正 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
 | `8a6cea9c168666733d97dd8172cbe6296b1b0104` fix(advisor): support manual consultations during web search (#7858) | 依賴／跨模組大功能 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
-| `f4eef7b23ef2154d6d004077c5522d754a72c0d5` fix(search): consume the final Responses data line at EOF (#7873) | 需要採用的修正 | defer | 需要採用的 Responses EOF 尾列解析；與 504417f0e／d42b9b1b2 同檔相疊，先核對前置差異並補回歸。 |
+| `f4eef7b23ef2154d6d004077c5522d754a72c0d5` fix(search): consume the final Responses data line at EOF (#7873) | 需要採用的修正 | 已審：採用 | 完整 diff 已審；`src/web-search/parse.ts:311-319` 僅在正常 EOF flush decoder／data 尾列，保留 byte／decoded cap 與讀取失敗邊界；`tests/web-search/web-search-eof.test.ts:21-84` 驗完成、失敗、分片 Unicode、缺 terminal 與上限。不依賴 504417f0e 或 d42b9b1b2，詳見獨立修正證據。 |
 | `fc17ac23a118e37c43c5981f59fe2430ce3ccb83` test(windows): resolve the atomic-write fixture root before matching cleanup paths (#7945) | 測試／依賴功能 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
 | `9b78a16f4fe0c300527e6b183052407269bb941d` test(windows): budget hosted fixture phases without weakening contracts (#7946) | 純測試 | skip | 僅調整 `tests/claude-integration/claude-native-passthrough.test.ts` 等測試 fixture／斷言／預算；產品不變，保留 fork 現有回歸，不整批覆蓋測試。 |
 | `26224ad6c4bae6f3a31f768be450d4ce4a17bea8` test(codebuddy): feed the abort fixture's stdout once (#7948) | 純測試 | skip | 僅調整 `tests/providers/codebuddy-adapter.test.ts` 等測試 fixture／斷言／預算；產品不變，保留 fork 現有回歸，不整批覆蓋測試。 |
@@ -1405,7 +1405,7 @@ Windows-only 刪除清單、英／繁中語系、官方 workflow guard、fork �
 | `468e635abd1d88f5fcb8ae3b274b9f3ac764b448` fix(grok): honor disable and shutdown during startup sync (#8017) | 需要採用的修正 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
 | `2ee32ab25f40a8eef1e99311abd4011ca9e5bbb5` fix(qoder): bound CN PNG raster dimensions (#8021) | 需要採用的修正 | defer | Qoder CN raster 上限依賴 1112f5b95 新 image-input 模組，待共用投影與影像邊界一起審。 |
 | `afafe6d360120f315aeba48122274400942cdc89` fix(cli): preserve server-issued batch for role suggestion --apply (#8022) | 需要採用的修正 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
-| `2f7f1d113ec061e5e08e1a46228240a0ac3064e1` fix(responses): strip rejected reasoning toggle from native passthrough (#8025) | 需要採用的修正 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `2f7f1d113ec061e5e08e1a46228240a0ac3064e1` fix(responses): strip rejected reasoning toggle from native passthrough (#8025) | 需要採用的修正 | 已審：採用 | 完整 diff 已審；能力正規化拒絕已解析 toggle 時，`src/server/responses/core-normalize.ts:349-359` 同步移除 raw reasoning.enabled，保留 summary；`tests/responses/reasoning-effort-summary-default.test.ts:114-132` 先紅後綠。不增加 import 或未採用 commit 的介面依賴。 |
 | `67bdeb03a3a3e6d3b59435527d4bf5b6a232b731` fix(adapters): strip safety_identifier at the canonical ChatGPT forward destination (#8030) | 需要採用的修正 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
 | `e972776eced1b266692b780263828635f47b2754` fix(anthropic): support Ultra quota windows and show subscription names (#8055) | 依賴／跨模組大功能 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
 | `d5708c37c0235194c1d7bdba63bdc587099f6fcf` test(messaging): observe descriptor closure without probing reused fd numbers (#8058) | 純測試 | skip | 僅調整 `tests/codex-integration/messaging-remote-store.test.ts` 等測試 fixture／斷言／預算；產品不變，保留 fork 現有回歸，不整批覆蓋測試。 |
@@ -1423,3 +1423,16 @@ Windows-only 刪除清單、英／繁中語系、官方 workflow guard、fork �
 未建立每筆 fork 檔案:行號與觸發條件的連續前綴，故不前移 scalar；strict exit 1 是預期缺口。
 `integrated_tag = v2.93.0` 與 integrated／PR／issue 其餘水位保持。
 後續採用順序與 structural tool turns 補審統一由 `ROADMAP.md` 追蹤。
+
+## 2026-11-03：兩筆獨立修正的完整 diff 與 fork 證據
+
+比對基準為 fork `06aa61fb01e600b1f8b1d42bfad4a997b5e78e79`。以 `git show <sha>` 讀取兩筆全部變更，沒有整檔覆蓋 fork runtime，也沒有帶入韓文文件或其他平台專用檔案。
+
+| Commit | 依賴檢查與採用範圍 | fork 觸發條件與防線 |
+| --- | --- | --- |
+| `2f7f1d113` | 三檔完整 diff：core-normalize、Responses 結構文件、既有 reasoning 測試。fork 已有 normalizeThinkingOptions、stripEmptyLadderEffort、raw body 與 native clamp 分支；沿用原 hunk，不需任何新增 import／介面。 | 自訂 gateway-object 的目的模型拒絕已解析 thinking toggle 時，options 清除了開關而 raw body 仍有 enabled。`src/server/responses/core-normalize.ts:349-359` 同步清除並在空物件時移除 reasoning；`tests/responses/reasoning-effort-summary-default.test.ts:114-132` 證明保留 summary。native snapshot effort clamp 與既有隱私處理維持原路徑。 |
+| `f4eef7b23` | 七檔完整 diff：parser、測試、雙 layout 登錄、結構文件、英／韓文件。只重放 EOF hunk 與測試，登錄現有 layout 並同步英／繁中。fork 已有 reader、decoder、sseFieldValue、handle 及兩種 cap；504417f0e 的形狀／逐 part 累積重構不參與 EOF 接線，d42b9b1b2 的 CR 分隔不屬前置依賴，兩者均不混入。 | `src/web-search/parse.ts:311-319` 只在 reader.read 的 done 消費尾列；同一 handle 計算 decoded 上限、完成與錯誤。`tests/web-search/web-search-eof.test.ts:21-84` 涵蓋兩種完成事件、DONE、三種失敗、逐 byte UTF-8、缺 terminal、無效 JSON、wire cap、decoded cap、讀取失敗。上限中止不 flush；既有 malformed frame 記錄只含長度／分類，不新增內容記錄。 |
+
+驗證：兩筆各自紅燈 exit 1；套用後五檔 113 pass／0 fail，相關 31 檔 477 pass／0 fail。完整命令與 gate 結果見 `REVIEW.md` 的同日獨立修正段。Windows-only 與隱私防線另由 fork gate／privacy scan 驗證。
+
+這兩筆不構成從 `88aaa754` 起的連續已審前綴；`reviewed_through`、`reviewed_date`、`integrated_through`、`integrated_tag` 全部保持原值，完整 stable 整合列保留在 `ROADMAP.md`。作者與 co-author 以 `git show -s --format='%an <%ae>%n%(trailers)' <sha>` 原始 metadata 為準；整合提交須保留相應作者歸屬。

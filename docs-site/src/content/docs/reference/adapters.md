@@ -158,6 +158,8 @@ be configured on a separately named custom or self-hosted Ollama provider with
 
 ## `openai-responses`
 
+Final route capability normalization removes rejected reasoning effort and toggle fields from native passthrough bodies when parsed into options, including custom `gateway-object` destinations. Other reasoning members, such as `summary`, are preserved.
+
 **Targets:** the OpenAI **Responses API**. **`passthrough: true`** — normally forwards the raw request
 body and response, with narrow compatibility rewrites for routed gateways.
 **Auth:** canonical OpenAI `forward` relays only the safe caller-header allowlist; noncanonical

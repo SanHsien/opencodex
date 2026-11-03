@@ -818,3 +818,9 @@ Windows catalog 實體 file symlink 測試在能力探測遇 EPERM 時 skip；�
 
 兩筆上游作者皆 JUN，均帶 JUN 的 Co-authored-by trailer；完整作者行由 git show 的提交 metadata 查詢，不複製個人信箱到產品文件。
 驗收命令與紅綠結果見 `REVIEW.md` 的新段落；全版 stable 整合與其餘候選保留於路線圖。
+
+## 2026-11-03：採用兩筆獨立 Responses 修正
+
+採用 `2f7f1d113` 的 rejected reasoning toggle 清理與 `f4eef7b23` 的正常 EOF 尾列解析。完整上游 diff 與 fork 檔案／行號證據見 `UPSTREAM.md` 的同日獨立修正段，紅綠測試見 `REVIEW.md`。兩者均可沿用 fork 現有介面，不帶入 504417f0e 的多項 parser 重構或 d42b9b1b2 的 CR 分隔改動；只維持英文／繁中說明。EOF 不是完成訊號，wire／decoded cap 與讀取失敗不放寬；native snapshot effort clamp 與 payload 去敏記錄維持原狀。
+
+採用獨立 commit 不代表其間 commit 已審，scalar reviewed／integrated 水位維持 `88aaa754`／v2.93.0。完整 stable 的其餘驗收依 `ROADMAP.md` 繼續追蹤。重新評估條件為完整 tag diff 重放或相關 parser／能力正規化合約改變。

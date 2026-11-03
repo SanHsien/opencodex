@@ -403,3 +403,37 @@ Tunnel 失敗的直接原因是等待外部 Windows ACL 程序超過 flush 上�
 另外一批 20 檔聚焦集合為 433 pass / 22 skip / 0 fail，exit 0。歷史 workspace 大 ID 對照為 0 pass / 1 fail（exit 1，錯誤接受相鄰大 ID root）；helper 修正後 5 pass / 0 fail（exit 0）。primitive shape 斷言從 true !== false（exit 1）到 exit 0，證明拒絕非 primitive coercion。這些是歷史證據；目前四檔綠燈另見上表。先前 source-state checkpoint 的全部 SHA-256 在續接修改前核對一致，包含既有改動與新增檔案。
 
 Stable 整合其餘逐筆審查、全版 tag diff 與 Windows-only 重放仍有驗收缺口；ROADMAP 的整合列保留。
+
+## 2026-11-03：兩筆獨立 Responses 修正驗收
+
+基準：`06aa61fb01e600b1f8b1d42bfad4a997b5e78e79`；Windows、Bun 1.4.4。採用 `2f7f1d113` 的 rejected reasoning toggle 清理、`f4eef7b23` 的正常 EOF 尾列解析。兩筆完整上游 diff、依賴與 fork 檔案／行號判定見 `docs/fork/UPSTREAM.md`；英／繁中產品文件同步。產品整合與 reviewed 水位保持原值。
+
+### 紅綠回歸
+
+先只新增測試，產品碼維持基準，再套用兩筆最小修正。
+
+| 命令 | 紅燈 exit／結尾 | 綠燈證據 |
+| --- | --- | --- |
+| `bun scripts/test.ts tests/responses/reasoning-effort-summary-default.test.ts` | 1；27 pass／1 fail，62 expect calls；第 131 行 raw reasoning 多出 enabled: true | 下列五檔與 31 檔集合均通過該案 |
+| `bun scripts/test.ts tests/web-search/web-search-eof.test.ts` | 1；4 pass／8 fail，13 expect calls；尾列的完成、失敗、文字與 decoded limit 未被處理 | 下列五檔與 31 檔集合均通過全部 12 案 |
+| `bun scripts/test.ts tests/responses/reasoning-effort-summary-default.test.ts tests/web-search/web-search-eof.test.ts tests/web-search/web-search-parse.test.ts tests/test-layout.test.ts tests/test-layout-tooling.test.ts` | — | exit 0；113 pass／0 fail，753 expect calls，113 tests across 5 files |
+
+### 閘門與相關覆蓋
+
+| 命令 | Exit code | 結尾輸出 |
+| --- | --- | --- |
+| `bun scripts/test.ts tests/test-layout.test.ts tests/test-layout-tooling.test.ts`（登錄前基準） | 0 | 29 pass／0 fail；579 expect calls |
+| `pwsh -NoProfile -File tools/dev_check.ps1` | 0 | 36 pass／0 fail；10 份文件無斷鏈；WINDOWS DEV CHECK GREEN |
+| `bun run typecheck` | 0 | bun x tsc --noEmit；無型別錯誤 |
+| `bun run test:changed` | 1 | git merge-base failed while validating changed mode: exit 1；壓縮 fork 與 dev 無共同祖先，沒有執行選測 |
+| `bun scripts/test.ts tests/web-search tests/responses/sse-decoder.test.ts tests/responses/responses-reasoning-summary-passthrough.test.ts tests/responses/responses-reasoning-effort-downgrade.test.ts tests/responses/chat-inbound-reasoning-none.test.ts tests/responses/reasoning-effort-summary-default.test.ts --timeout=60000` | 0 | 477 pass／0 fail；1724 expect calls；477 tests across 31 files |
+| `bun run structure:check` | 0 | structure/ SSOT checks passed |
+| `bun run privacy:scan` | 0 | Privacy scan passed |
+| `bun scripts/test.ts tests/ci-workflows/file-size-ratchet.test.ts` | 1 | 8 pass／1 fail；repository 掃描超過預設 5000ms；不是大小超標斷言 |
+| `bun scripts/test.ts tests/ci-workflows/file-size-ratchet.test.ts --test-name-pattern='file-size ratchet: repository' --timeout=60000` | 0 | 1 pass／8 filtered out／0 fail；6 expect calls |
+| `cd docs-site; bun install --frozen-lockfile` | 0 | Checked 371 installs across 484 packages (no changes) |
+| `cd docs-site; bun run build` | 0 | checked 20711 internal links across 147 pages；147 page(s) built；Complete! |
+
+結構文件首次超過 600 行預算，將新增句子合併到既有段落後通過，沒有調高預算或 baseline。ratchet 首次逾時後只重跑失敗的 repository 案例，沿用 repo 的 60000ms 測試預算，八個通過案例不重跑。
+
+此為完整 fork dev check 加明確相關測試覆蓋；沒有執行全產品 `bun run test`。依 `src/AGENTS.md` 的實作期驗證規則，以聚焦檔案及相關 31 檔補足不能運作的 test:changed；不把這些結果視為全產品套件或九個 Windows CI shards 的通過證據。

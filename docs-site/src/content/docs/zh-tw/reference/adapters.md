@@ -108,6 +108,8 @@ index 的引數片段時，仍會保留身分：這些片段會被組裝成一�
 
 ## `openai-responses`
 
+最終路由的能力正規化會從原生 passthrough body 移除已解析至 options、但目的模型不支援的 reasoning effort 與開關欄位，也適用於自訂 `gateway-object` 目的地。`summary` 等其他 reasoning 成員會保留。
+
 **目標：** OpenAI **Responses API**。**`passthrough: true`** —— 一般會轉發原始請求 body 與
 回應，對路由過的 gateway 有少量相容性改寫。
 **認證：** 正典 OpenAI 的 `forward` 只會中繼安全的呼叫端 header allowlist；非正典的

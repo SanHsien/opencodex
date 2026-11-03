@@ -57,3 +57,7 @@ routing. Do not infer an exact account from caller-supplied account headers, pro
 selection, connection identity, or other ambient state; concurrent threads could cross-route
 credentials. Extending exact routing to those endpoints requires an opaque client correlation that
 can be bound server-side to a previously validated selector.
+
+## Responses sidecar EOF
+
+At clean response-body EOF, `src/web-search/parse.ts` consumes a final `data:` line even without its trailing newline. The existing event handler owns completion, failure, citations and decoded-text accounting for that line; EOF alone is not completion. A byte-limit stop or failed read does not flush the pending line.

@@ -283,3 +283,5 @@ Claude Code OAuth fingerprint precedent, but should be soak-tested with the
 intended account and workload.
 
 See the [Configuration reference](/reference/configuration/server/#sidecars) for every field.
+
+The OpenAI search and vision sidecars read a final completion or failure event even when the server closes the body without a trailing newline. An unfinished response or one stopped by a size limit still reports an error.

@@ -30,6 +30,7 @@ bun tools/check-upstream-updates.ts --strict
 
 舊 baseline 沒有截止日欄位時維持原本的數字水位過濾，並排除逐筆清單（缺清單視為空）；
 這條相容路徑仍無法捕捉水位以下後來關閉的 PR，因此出貨 baseline 必須帶截止日。
+對真實上游（約 1883 筆 closed-unmerged PR）而言，未加日期篩選的 `is:unmerged` 查詢必定填滿 1000 筆頁面，所以舊路徑一律以「Not checked」（exit 2）結束：安全失敗，既不會灌出大量項目，也不會靜默通過。
 查詢失敗或結果達 1000 筆上限仍報「Not checked」、exit 2；不可把截斷當成沒有待審。
 性質測試讀取真實 baseline，驗證查詢帶日期篩選、索取 `closedAt`，且歷史資料超過上限時仍能完成近期 PR 軸。
 

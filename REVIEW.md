@@ -486,6 +486,7 @@ closed-unmerged PR，上游 1883 筆超過 1000 筆上限，PR 軸固定回傳�
 
 舊 baseline 缺截止日時沿用數字水位；缺逐筆清單視為空清單。新截止日須是有效 UTC 日期，
 逐筆清單須是正整數陣列。滿頁仍 fail closed，避免把截斷回應寫成沒有待審。
+對真實上游（約 1883 筆 closed-unmerged PR）而言，未加日期篩選的 `is:unmerged` 查詢必定填滿 1000 筆頁面，所以舊路徑一律以「未檢查」（exit 2）結束：安全失敗，既不會灌出大量項目，也不會靜默通過（已讀 `tools/check-upstream-updates.ts` 確認）。
 
 ### 回歸與實際查詢
 

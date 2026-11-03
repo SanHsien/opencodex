@@ -1,5 +1,5 @@
 import { describe, expect, spyOn, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -399,17 +399,22 @@ describe("upstream checker", () => {
 
   test("cutoff validation rejects invalid dates and accepts legacy baselines", () => {
     mkdirSync(join(ROOT, ".tmp"), { recursive: true });
-    const file = join(mkdtempSync(join(ROOT, ".tmp", "upstream-baseline-")), "baseline.json");
-    const { reviewed_pr_closed_before, reviewed_pr_numbers, ...legacy } = loadBaseline();
-    writeFileSync(file, JSON.stringify(legacy));
-    expect(loadBaseline(file)).toEqual(legacy);
-    for (const cutoff of ["2026-02-30", "2026-10-28T00:00:00Z", "", 42]) {
-      writeFileSync(file, JSON.stringify({ ...legacy, reviewed_pr_closed_before: cutoff }));
-      expect(() => loadBaseline(file)).toThrow("reviewed_pr_closed_before");
-    }
-    for (const numbers of [[0], [-1], [1.5], "499"]) {
-      writeFileSync(file, JSON.stringify({ ...legacy, reviewed_pr_numbers: numbers }));
-      expect(() => loadBaseline(file)).toThrow("reviewed_pr_numbers");
+    const dir = mkdtempSync(join(ROOT, ".tmp", "upstream-baseline-"));
+    try {
+      const file = join(dir, "baseline.json");
+      const { reviewed_pr_closed_before, reviewed_pr_numbers, ...legacy } = loadBaseline();
+      writeFileSync(file, JSON.stringify(legacy));
+      expect(loadBaseline(file)).toEqual(legacy);
+      for (const cutoff of ["2026-02-30", "2026-10-28T00:00:00Z", "", 42]) {
+        writeFileSync(file, JSON.stringify({ ...legacy, reviewed_pr_closed_before: cutoff }));
+        expect(() => loadBaseline(file)).toThrow("reviewed_pr_closed_before");
+      }
+      for (const numbers of [[0], [-1], [1.5], "499"]) {
+        writeFileSync(file, JSON.stringify({ ...legacy, reviewed_pr_numbers: numbers }));
+        expect(() => loadBaseline(file)).toThrow("reviewed_pr_numbers");
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
     }
   });
 

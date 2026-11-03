@@ -16,6 +16,28 @@ bun tools/check-upstream-updates.ts --strict
 工具以 `tools/upstream_baseline.json` 的 `reviewed_through` 為起點，列出所有未審查提交。
 有新提交或檢查失敗時，`--strict` 回傳非零；排程 workflow 也會因此明確失敗。
 
+## PR 關閉截止日與逐筆清單（2026-11-03 起）
+
+`reviewed_pr_closed_before = 2026-10-28`（UTC）與 `reviewed_pr_through = 8086` 組成歷史覆蓋範圍：
+編號不超過水位且在截止日前關閉的 PR 不報；截止日當天及之後關閉的 PR 一律報，
+除非已在 `reviewed_pr_numbers`。合併 PR 由 release commit 軸處理。
+查詢使用 `--search "is:unmerged closed:>=2026-10-28"` 並要求 `closedAt`，避免列舉全部歷史 PR。
+
+截止日依據是 `12c5057c3`（2026-10-28）與下方同日兩批分類，當時 PR 水位到 7794；
+`f24f0532c`（2026-11-03）另分類 15 筆至 8086，這 15 筆保留在逐筆清單。
+選較早的截止日補抓當時仍 open、後來關閉的舊編號 PR，不把 11 月 3 日前的所有關閉事件視為已審。
+截止日不是每次執行自動前移的日期；分類後先記錄逐筆判定與理由，再只把對應編號加入清單。
+
+舊 baseline 沒有截止日欄位時維持原本的數字水位過濾，並排除逐筆清單（缺清單視為空）；
+這條相容路徑仍無法捕捉水位以下後來關閉的 PR，因此出貨 baseline 必須帶截止日。
+查詢失敗或結果達 1000 筆上限仍報「Not checked」、exit 2；不可把截斷當成沒有待審。
+性質測試讀取真實 baseline，驗證查詢帶日期篩選、索取 `closedAt`，且歷史資料超過上限時仍能完成近期 PR 軸。
+
+2026-11-03 實跑（fork 基準 `13e0f0e453fb`）：`bun tools/check-upstream-updates.ts --strict`
+完整列出 2 筆待審 PR：#7614（owned Windows CLI child lifetime）、#7618（separate Windows metadata toolchains）；
+另有 209 筆待審 commit、0 筆新 platform issue，exit 1。PR 軸已檢查，沒有截斷；
+紅燈來自實際待審項目，這兩筆尚未分類，不加入已審清單。
+
 ## 審查清冊
 
 每次只做一次批次審查：

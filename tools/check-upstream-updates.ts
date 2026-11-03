@@ -33,8 +33,12 @@ export type Baseline = {
   reviewed_date: string;
   /** Highest upstream issue number already triaged; only higher ones are reported. */
   reviewed_issue_through?: number;
-  /** Highest upstream pull request number already triaged; only higher ones are reported. */
+  /** Legacy number watermark, paired with the closure cutoff when present. */
   reviewed_pr_through?: number;
+  /** UTC date: only older closures at or below the number watermark are covered. */
+  reviewed_pr_closed_before?: string;
+  /** Exact pull requests with recorded triage verdicts, independent of closure order. */
+  reviewed_pr_numbers?: number[];
 };
 
 export type Ticket = {
@@ -74,6 +78,19 @@ export function loadBaseline(path = BASELINE_PATH): Baseline {
   }
   if (String(baseline.reviewed_through).length !== FULL_SHA_LENGTH) {
     throw new UpstreamCheckError("reviewed_through must be a full 40-character SHA");
+  }
+  if (baseline.reviewed_pr_numbers !== undefined && (
+    !Array.isArray(baseline.reviewed_pr_numbers) ||
+    baseline.reviewed_pr_numbers.some(number => !Number.isSafeInteger(number) || number <= 0)
+  )) {
+    throw new UpstreamCheckError("reviewed_pr_numbers must be an array of positive safe integers");
+  }
+  const cutoff = baseline.reviewed_pr_closed_before;
+  if (cutoff !== undefined && (
+    typeof cutoff !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(cutoff) ||
+    !Number.isFinite(Date.parse(cutoff)) || new Date(cutoff).toISOString().slice(0, 10) !== cutoff
+  )) {
+    throw new UpstreamCheckError("reviewed_pr_closed_before must be a valid YYYY-MM-DD UTC date");
   }
   return baseline;
 }
@@ -182,29 +199,20 @@ export interface RawPullRequest {
   number: number;
   title: string;
   mergedAt?: string | null;
+  closedAt?: string | null;
   labels?: { name: string }[];
 }
 
 export const PULL_REQUEST_LIST_LIMIT = 1000;
 
-/**
- * Filter unmerged pull requests above the watermark.
- *
- * When the list returned is a full page and the oldest pull request is still
- * newer than the watermark, older unreviewed pull requests were cut off (truncated).
- * In this case, report undefined and notify via message callback / stderr rather than
- * returning a partial list that appears complete.
- */
+/** Apply the closure cutoff and exact triage IDs. A full result fails closed. */
 export function filterUnmergedPullRequests(
   parsed: RawPullRequest[],
-  watermark: number,
+  baseline: Pick<Baseline, "reviewed_pr_numbers" | "reviewed_pr_through" | "reviewed_pr_closed_before">,
   limit = PULL_REQUEST_LIST_LIMIT,
   onMessage?: (message: string) => void,
 ): Ticket[] | undefined {
-  if (
-    parsed.length >= limit &&
-    Math.min(...parsed.map((row) => row.number)) > watermark
-  ) {
+  if (parsed.length >= limit) {
     const msg = `pull request list was truncated at limit ${limit}; older unreviewed pull requests were cut off`;
     if (onMessage) {
       onMessage(msg);
@@ -213,8 +221,15 @@ export function filterUnmergedPullRequests(
     }
     return undefined;
   }
+  const reviewed = new Set(baseline.reviewed_pr_numbers ?? []);
+  const watermark = baseline.reviewed_pr_through ?? 0;
+  const cutoff = baseline.reviewed_pr_closed_before;
   return parsed
-    .filter((item) => item.number > watermark && !item.mergedAt)
+    .filter((item) => !reviewed.has(item.number) && !item.mergedAt)
+    .filter((item) => item.number > watermark || (cutoff !== undefined && (
+      !item.closedAt || !Number.isFinite(Date.parse(item.closedAt)) ||
+      Date.parse(item.closedAt) >= Date.parse(cutoff)
+    )))
     .sort((left, right) => left.number - right.number)
     .map((item) => ({
       number: item.number,
@@ -223,19 +238,7 @@ export function filterUnmergedPullRequests(
     }));
 }
 
-/**
- * Upstream pull requests that were closed **without merging**, above the watermark.
- *
- * The fork's reason for not tracking pull requests at all was that upstream's
- * work arrives here through releases on `main` anyway. That holds for merged
- * pull requests and only for those: one closed without merging never becomes a
- * commit, so it never arrives, and `reviewed_pr_through` sat in the baseline
- * with nothing reading it while that whole class went unwatched.
- *
- * Narrowing to unmerged keeps the check from crying wolf for the same reason
- * `TRACKED_ISSUE_LABEL` does: upstream closes far fewer pull requests unmerged
- * than it merges, and those are the ones a person here still has to judge.
- */
+/** Closed-unmerged PRs without an exact triage verdict, including older PR numbers. */
 export function collectUnmergedPullRequests(
   baseline: Baseline,
   rawPullRequests?: RawPullRequest[],
@@ -249,7 +252,9 @@ export function collectUnmergedPullRequests(
     if (!slug) return undefined;
     const result = Bun.spawnSync(
       ["gh", "pr", "list", "--repo", slug, "--state", "closed",
-       "--limit", String(PULL_REQUEST_LIST_LIMIT), "--json", "number,title,mergedAt,labels"],
+       "--search", baseline.reviewed_pr_closed_before
+         ? `is:unmerged closed:>=${baseline.reviewed_pr_closed_before}` : "is:unmerged", "--limit", String(PULL_REQUEST_LIST_LIMIT),
+       "--json", "number,title,mergedAt,closedAt,labels"],
       { stdout: "pipe", stderr: "pipe" },
     );
     if (result.exitCode !== 0) return undefined;
@@ -259,8 +264,7 @@ export function collectUnmergedPullRequests(
       return undefined;
     }
   }
-  const watermark = Number(baseline.reviewed_pr_through ?? 0);
-  return filterUnmergedPullRequests(parsed, watermark, PULL_REQUEST_LIST_LIMIT, onMessage);
+  return filterUnmergedPullRequests(parsed, baseline, PULL_REQUEST_LIST_LIMIT, onMessage);
 }
 
 /** The pull request section: the closed-unmerged ones, or why they were not asked for. */
@@ -269,11 +273,14 @@ export function renderPullRequestSection(
   pullRequests: Ticket[] | undefined,
   reason?: string,
 ): string[] {
-  const watermark = baseline.reviewed_pr_through ?? 0;
+  const reviewedCount = baseline.reviewed_pr_numbers?.length ?? 0;
   const lines = [
     "## Upstream pull requests closed without merging",
     "",
-    `Triaged through \`#${watermark}\`.`,
+    `Exact triage list: ${reviewedCount} PR(s) in \`reviewed_pr_numbers\`.`,
+    baseline.reviewed_pr_closed_before
+      ? `Legacy coverage: PRs <= #${baseline.reviewed_pr_through ?? 0} closed before ${baseline.reviewed_pr_closed_before} (UTC).`
+      : `Legacy number watermark: #${baseline.reviewed_pr_through ?? 0}; no closure cutoff configured.`,
     "",
   ];
   if (pullRequests === undefined) {
@@ -293,7 +300,7 @@ export function renderPullRequestSection(
     return lines;
   }
   if (pullRequests.length === 0) {
-    lines.push("None since that number. Merged pull requests arrive with releases.", "");
+    lines.push("No untriaged closed-unmerged pull requests. Merged pull requests arrive with releases.", "");
     return lines;
   }
   lines.push(
@@ -309,8 +316,8 @@ export function renderPullRequestSection(
   }
   lines.push(
     "",
-    "Record the verdict in `docs/fork/UPSTREAM.md`, then raise `reviewed_pr_through`",
-    "so the same pull request is never re-triaged.",
+    "Record the verdict in `docs/fork/UPSTREAM.md`, then add only that PR number to",
+    "`reviewed_pr_numbers`. Never suppress a numeric range: older open PRs may close later.",
     "",
   );
   return lines;
@@ -501,7 +508,7 @@ export function main(args = Bun.argv.slice(2)): number {
   // Windows, so it fails the weekly check the same way a new commit does. So
   // does a pull request upstream closed without merging: that one never becomes
   // a commit, so the release stream will never bring it here.
-  // Clearing either means triaging it and raising the watermark, not muting.
+  // Clear issues by their watermark and PRs by dated coverage or exact triage IDs.
   if (
     options.strict
     && (commits.length > 0 || (issues?.length ?? 0) > 0 || (pullRequests?.length ?? 0) > 0)

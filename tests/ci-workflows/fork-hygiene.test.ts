@@ -1,5 +1,5 @@
-import { describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { describe, expect, spyOn, test } from "bun:test";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -228,7 +228,7 @@ describe("upstream checker", () => {
 
     expect(section).toContain("closed without merging");
     expect(section).toContain("#11");
-    expect(section).toContain("#9");
+    expect(section).toContain("reviewed_pr_numbers");
   });
 
   test("ticket fields stay inside one Markdown table cell", () => {
@@ -277,7 +277,7 @@ describe("upstream checker", () => {
       reviewed_pr_through: 500,
     };
 
-    // A full page of items where the oldest is still newer than the watermark
+    // Any full result may omit older PRs that closed after the legacy snapshot.
     const fullPage = Array.from({ length: PULL_REQUEST_LIST_LIMIT }, (_, index) => ({
       number: 501 + index,
       title: `PR #${501 + index}`,
@@ -294,7 +294,7 @@ describe("upstream checker", () => {
     expect(message).toContain("truncated");
 
     let filterMessage = "";
-    const filterResult = filterUnmergedPullRequests(fullPage, 500, PULL_REQUEST_LIST_LIMIT, (msg) => {
+    const filterResult = filterUnmergedPullRequests(fullPage, {}, PULL_REQUEST_LIST_LIMIT, (msg) => {
       filterMessage = msg;
     });
     expect(filterResult).toBeUndefined();
@@ -305,12 +305,73 @@ describe("upstream checker", () => {
     expect(section).toContain("truncated");
   });
 
-  test("the shipped baseline carries both ticket numbers", () => {
-    // A recorded number that nothing reads is not a check.
-    const baseline = loadBaseline();
+  test("a PR open at the old watermark is reported when it later closes unmerged", () => {
+    const baseline = {
+      repo: "https://github.com/example/product.git", branch: "main",
+      reviewed_through: "a".repeat(40), reviewed_date: "2026-08-29",
+      reviewed_pr_through: 500, reviewed_pr_closed_before: "2026-08-29", reviewed_pr_numbers: [501],
+    };
+    expect(collectUnmergedPullRequests(baseline, [])).toEqual([]);
+    baseline.reviewed_pr_through = 600;
+    const closed = [
+      { number: 499, title: "closed later", closedAt: "2026-08-30T00:00:00Z", mergedAt: null },
+      { number: 498, title: "closed before cutoff", closedAt: "2026-08-28T23:59:59Z", mergedAt: null },
+      { number: 497, title: "closed on cutoff", closedAt: "2026-08-29T00:00:00Z", mergedAt: null },
+      { number: 501, title: "already triaged", mergedAt: null },
+      { number: 502, title: "merged", mergedAt: "2026-08-30T00:00:00Z" },
+      { number: 601, title: "new closed PR", mergedAt: null },
+    ];
+    expect(collectUnmergedPullRequests(baseline, closed)?.map(pr => pr.number)).toEqual([497, 499, 601]);
+    const { reviewed_pr_numbers, ...withoutList } = baseline;
+    expect(collectUnmergedPullRequests(withoutList, closed)?.map(pr => pr.number)).toEqual([497, 499, 501, 601]);
+    const { reviewed_pr_closed_before, ...legacy } = withoutList;
+    expect(collectUnmergedPullRequests(legacy, closed)?.map(pr => pr.number)).toEqual([601]);
+    baseline.reviewed_pr_numbers.push(497, 499, 601);
+    expect(collectUnmergedPullRequests(baseline, closed)).toEqual([]);
+  });
 
-    expect(typeof baseline.reviewed_pr_through).toBe("number");
+  test("a full page cannot prove coverage even below the legacy watermark", () => {
+    let message = "";
+    const baseline = {
+      repo: "https://github.com/example/product.git", branch: "main",
+      reviewed_through: "a".repeat(40), reviewed_date: "2026-08-29",
+      reviewed_pr_through: PULL_REQUEST_LIST_LIMIT + 1,
+    };
+    const page = Array.from({ length: PULL_REQUEST_LIST_LIMIT }, (_, index) => ({
+      number: index + 1, title: "closed", mergedAt: null,
+    }));
+    expect(collectUnmergedPullRequests(baseline, page, msg => { message = msg; })).toBeUndefined();
+    expect(message).toContain("truncated");
+  });
+
+  test("the shipped baseline bounds PR enumeration instead of permanently returning not-checked", () => {
+    const baseline = loadBaseline();
+    expect(baseline.reviewed_pr_closed_before).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     expect(typeof baseline.reviewed_issue_through).toBe("number");
+    const recent = [{ number: (baseline.reviewed_pr_through ?? 0) + 1, title: "recent",
+      closedAt: `${baseline.reviewed_pr_closed_before}T00:00:00Z`, mergedAt: null }];
+    const historical = Array.from({ length: PULL_REQUEST_LIST_LIMIT + 1 }, (_, i) => ({
+      number: i + 1, title: "historical", closedAt: "2000-01-01T00:00:00Z", mergedAt: null,
+    }));
+    let query: string[] = [];
+    const spawn = spyOn(Bun, "spawnSync").mockImplementation(((args: string[]) => {
+      query = args;
+      const search = args[args.indexOf("--search") + 1];
+      const limit = Number(args[args.indexOf("--limit") + 1]);
+      const rows = search.includes(`closed:>=${baseline.reviewed_pr_closed_before}`)
+        ? recent : [...recent, ...historical];
+      return { exitCode: 0, stdout: Buffer.from(JSON.stringify(rows.slice(0, limit))) };
+    }) as typeof Bun.spawnSync);
+    let result;
+    try {
+      result = collectUnmergedPullRequests(baseline, undefined, () => {});
+    } finally {
+      spawn.mockRestore();
+    }
+    expect(query[query.indexOf("--search") + 1]).toBe(`is:unmerged closed:>=${baseline.reviewed_pr_closed_before}`);
+    expect(query[query.indexOf("--json") + 1].split(",")).toContain("closedAt");
+    expect(Number(query[query.indexOf("--limit") + 1])).toBeGreaterThan(recent.length);
+    expect(result?.map(pr => pr.number)).toEqual(recent.map(pr => pr.number));
   });
 
   test("renderMarkdown reports no new commits", () => {
@@ -334,6 +395,22 @@ describe("upstream checker", () => {
     const report = renderMarkdown(baseline, [], "git fetch failed");
     expect(report).toContain("Check failed");
     expect(report).toContain("git fetch failed");
+  });
+
+  test("cutoff validation rejects invalid dates and accepts legacy baselines", () => {
+    mkdirSync(join(ROOT, ".tmp"), { recursive: true });
+    const file = join(mkdtempSync(join(ROOT, ".tmp", "upstream-baseline-")), "baseline.json");
+    const { reviewed_pr_closed_before, reviewed_pr_numbers, ...legacy } = loadBaseline();
+    writeFileSync(file, JSON.stringify(legacy));
+    expect(loadBaseline(file)).toEqual(legacy);
+    for (const cutoff of ["2026-02-30", "2026-10-28T00:00:00Z", "", 42]) {
+      writeFileSync(file, JSON.stringify({ ...legacy, reviewed_pr_closed_before: cutoff }));
+      expect(() => loadBaseline(file)).toThrow("reviewed_pr_closed_before");
+    }
+    for (const numbers of [[0], [-1], [1.5], "499"]) {
+      writeFileSync(file, JSON.stringify({ ...legacy, reviewed_pr_numbers: numbers }));
+      expect(() => loadBaseline(file)).toThrow("reviewed_pr_numbers");
+    }
   });
 
   test("loadBaseline rejects a missing file", () => {

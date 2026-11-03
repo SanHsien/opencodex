@@ -15,6 +15,8 @@
 
 2026-10-27 起已切斷通往上游的更新路徑（`src/update/fork-source.mjs` 封鎖所有 registry 自更新），release 下載與說明導向 `SanHsien/opencodex`；2026-10-28 起已完成 Windows-only 檔案層級精簡，徹底移除 macOS 與 Linux 專屬目錄、打包腳本、CI jobs 與專用測試，共用程式碼內的平台分支則予保留以維持同步相容性。
 
+2026-11-03 複查（fork 基準 `13e0f0e453fb`）：strict exit 1，明列 209 筆待審 commit、2 筆待審 PR（#7614、#7618）、0 筆新 platform issue；PR 軸完整檢查，沒有撞上限。上游審查尚未完成，不能把本機 fork gate 綠燈視為 strict 綠燈。
+
 ## 現況優先架構與防線
 
 | 領域 | 狀態 | 說明與護欄 |
@@ -48,7 +50,9 @@
 - `reviewed_through`: `88aaa754566d119b6b8fc898f8fb47602387d82e`
 - `reviewed_date`: `2026-10-28`
 - `reviewed_issue_through`: 7860
-- `reviewed_pr_through`: 7794
+- `reviewed_pr_through`: 8086
+- `reviewed_pr_closed_before`: `2026-10-28`（UTC）
+- `reviewed_pr_numbers`: 15 筆有逐筆判定的 PR
 
 每週一由 `.github/workflows/upstream-check.yml` 排程執行 `tools/check-upstream-updates.ts`，未審查的 commit、未合併關閉的 PR 與 `platform` issue 會自動回報。上游後續釋出更新的 stable tag 時，依 [`docs/fork/UPSTREAM.md`](docs/fork/UPSTREAM.md) 的重放程序整合。
 
@@ -470,3 +474,34 @@ Stable 整合其餘逐筆審查、全版 tag diff 與 Windows-only 重放仍有�
 | `cd docs-site; bun run build` | 0 | checked 20711 internal links across 147 pages；147 page(s) built；Complete! |
 
 八檔集合中的 layout、file-size ratchet、identity、autorestore 與新增回歸均無失敗；三個 cmd 案例以原版 migration 對照仍全部失敗，不歸因於時間容差修正，也沒有改測試以掩蓋。完整 fork dev check 通過，產品測試集合有明確既有失敗，不能視為全產品綠燈。依 `src/AGENTS.md` 的實作期規則，以明列相關檔案補足無共同祖先而不可用的 test:changed，沒有執行全產品套件。原生 Unix 執行未涵蓋；Windows-only fork 驗收的是同一 migration 函式與真實檔案操作在還原式替身下的行為。
+
+## 2026-11-03：closed-unmerged PR 改用關閉截止日與逐筆清單
+
+基準：`13e0f0e453fbd7bce077a825a5bc0eca4f047756`。原逐筆清單方案查全部歷史
+closed-unmerged PR，上游 1883 筆超過 1000 筆上限，PR 軸固定回傳未檢查；不能視為完成。
+改以 `reviewed_pr_closed_before = 2026-10-28`（UTC）篩選查詢並索取 `closedAt`。
+編號 <= 8086 且在截止日前關閉才由歷史覆蓋排除；當天及之後關閉須逐筆登錄才排除。
+日期依 `12c5057c3` 與同日審查紀錄決定；11 月 3 日分類的 15 筆保留逐筆清單，
+不把它們的分類日期外推成全部 PR 已審截止日。commit／issue／integrated 水位保持原值。
+
+舊 baseline 缺截止日時沿用數字水位；缺逐筆清單視為空清單。新截止日須是有效 UTC 日期，
+逐筆清單須是正整數陣列。滿頁仍 fail closed，避免把截斷回應寫成沒有待審。
+
+### 回歸與實際查詢
+
+| 命令 | Exit code | 結尾輸出／結果 |
+| --- | --- | --- |
+| 修正前：`bun test tests/ci-workflows/fork-hygiene.test.ts --test-name-pattern 'upstream checker'` | 1 | 15 pass、2 fail、21 filtered out、45 expect calls |
+| 修正後同一命令（含新增日期驗證） | 0 | 18 pass、0 fail、21 filtered out、62 expect calls |
+| `pwsh -NoProfile -File tools/dev_check.ps1` | 0 | 39 pass、0 fail、147 expect calls；10 份文件零斷鏈；WINDOWS DEV CHECK GREEN |
+| `bun run typecheck` | 0 | bun x tsc --noEmit；無型別錯誤 |
+| `bun tools/check-upstream-updates.ts --strict` | 1 | 209 upstream commit(s) require review；2 pull request(s) still to triage；No new platform issues since #7860 |
+
+紅燈一是截止日前關閉的 #498 被錯報；二是真實 baseline 缺截止日，不能保證 PR 查詢不永久滿頁。
+綠燈包含 #499 截止後關閉仍報、#498 截止前不報、截止日當天包含、已審與 merged PR 不報、
+舊 baseline 相容路徑、日期／逐筆清單驗證與滿頁拒絕。性質測試使用真實 baseline，
+以超過上限的歷史資料模擬回應，檢查實際 query 日期篩選與 `closedAt` 欄位，並確認結果可完整列舉。
+
+實際 strict 列出 #7614、#7618，PR 軸已檢查且未截斷；兩筆仍待分類，沒有加入已審清單。
+exit 1 是待審項目紅燈，不是工具失敗（exit 2）。查詢只讀取上游，沒有修改遠端資料。
+變更限 fork 工具與文件；完整 fork gate 與型別檢查涵蓋本項，大型產品 runtime／GUI／跨平台套件未執行。

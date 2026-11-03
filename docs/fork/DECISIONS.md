@@ -824,3 +824,11 @@ Windows catalog 實體 file symlink 測試在能力探測遇 EPERM 時 skip；�
 採用 `2f7f1d113` 的 rejected reasoning toggle 清理與 `f4eef7b23` 的正常 EOF 尾列解析。完整上游 diff 與 fork 檔案／行號證據見 `UPSTREAM.md` 的同日獨立修正段，紅綠測試見 `REVIEW.md`。兩者均可沿用 fork 現有介面，不帶入 504417f0e 的多項 parser 重構或 d42b9b1b2 的 CR 分隔改動；只維持英文／繁中說明。EOF 不是完成訊號，wire／decoded cap 與讀取失敗不放寬；native snapshot effort clamp 與 payload 去敏記錄維持原狀。
 
 採用獨立 commit 不代表其間 commit 已審，scalar reviewed／integrated 水位維持 `88aaa754`／v2.93.0。完整 stable 的其餘驗收依 `ROADMAP.md` 繼續追蹤。重新評估條件為完整 tag diff 重放或相關 parser／能力正規化合約改變。
+
+## 2026-11-03：bigint identity 的持久化相容性
+
+決定在 `src/codex/shim-migration.ts` 的持久化 journal 比對容許時間轉換捨入差，不變更共用 `identityStats()` 的時間來源，也不額外以 pathname 做第二次 numeric stat。容差為 `min(0.001 ms, Number.EPSILON * max(abs(left), abs(right)))`，只接受有限數字；同一執行中的 journal 檢查與復原後檢查仍用嚴格時間相等。dev／ino 必須精確相等，mode、size 與 symlink target 必須完全相同。這讓舊版 numeric stat 記錄的中斷遷移可在 bigint 版續做，同時拒絕 0.01ms 或更大的時間差與其他 metadata／身分變更。
+
+持久化 dev／ino 的十進位字串保留完整身分；新版只接受精確字串或安全範圍內的舊整數，不猜測已捨入的大整數。降版不相容是刻意保留的 fail-closed 邊界：舊版可能因字串形狀或嚴格數字比較拒絕新版 journal／overlay／其他所有權紀錄。降版前先以新版完成中斷遷移／復原；不要把字串強轉 Number、刪除復原證據或放寬 inode 比對來繞過拒絕。
+
+`src/routing/history/ingest.ts` 的 `sourceMtimeMs` 是可重建 SQLite 投影的來源 metadata；時間浮點尾數變動可能多觸發一次 reindex，不改寫 canonical usage JSONL、不遷移帳號資料。維持既有精確 freshness 比對，避免把 journal 的相容容差擴散到歷史索引。重新評估條件為 journal 時間格式、numeric stat 轉換或持久化 identity schema 改變；Unix 分支的跨版續做以 Windows 上真實檔案／hard link 搭配還原式平台與 stat 替身驗證，原生 Unix 執行不屬於 Windows-only fork 的本機驗收。

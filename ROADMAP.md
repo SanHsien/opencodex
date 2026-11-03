@@ -17,11 +17,12 @@
 
 獨立修正（2026-11-03；fork 基準 `06aa61fb01e6`）：已採用 `2f7f1d113` 的 rejected reasoning toggle 清理與 `f4eef7b23` 的 Responses EOF 尾列解析；逐筆 fork 證據見 `docs/fork/UPSTREAM.md`。整版 stable 與其餘逐筆審查仍有缺口，integrated／reviewed 水位保持 `88aaa754`。
 
+持久化相容性（2026-11-03；fork 基準 `c81a0113cbd4`）：舊式 Unix migration journal 的時間比較只容許 numeric／bigint 轉換捨入差，執行中觀察仍嚴格相等；十進位 identity 的降版限制與 history index 一次性重建影響見 `docs/fork/DECISIONS.md` 同日決策。
+
 ## 近期：可以直接動手
 
 | 項目 | 為什麼 | 驗收方式 | 建議執行者 | 證據 |
 | --- | --- | --- | --- | --- |
-| 釐清 bigint identity 對既有持久化值的影響 | `src/lib/file-identity.ts` 的 `identityStats()` 以 `Number(xNs)/1e6` 算 `mtimeMs`，與一般 `statSync().mtimeMs` 的浮點尾數不同；`src/codex/shim-migration.ts` 的 migration journal 存 `mtimeMs`，舊版寫入、新版續做時 `same()` 會判不同而拒絕（fail-closed，只在中斷中的 migration 跨版升級時發生）；`src/routing/history/ingest.ts` 的 `sourceMtimeMs` 會多觸發一次 reindex；持久化 identity 改存十進位字串後，降版會被舊版拒絕 | 決定 journal 比對用同一來源的時間值或容許精度差，加跨版續做的回歸測試；在 docs/fork/DECISIONS.md 記錄降版不相容 | Codex | `src/lib/file-identity.ts`；`src/codex/shim-migration.ts:15,30`；`src/routing/history/ingest.ts:87` |
 | 查明夜間 `Cross-platform CI` 的 Windows shard 紅燈 | 已完成本機分類與測試修正：shard 2 的 job 名單過期、shard 7 的故障注入過期；`stall-timeout` 全過；shard 9 是 npm 子程序逾時，後續 schedule 已綠。push 不跑完整 Windows shards，不能作為對照綠燈 | 逐項分類與本機修正已完成；以修正後 schedule 的九個 Windows shards 與 aggregate `ci` success，達標才刪列 | 維護者 | `docs/fork/DECISIONS.md` 2026-11-02 條目；`REVIEW.md` 本機證據；run 41354967821 |
 | PR 水位改用 closedAt 或逐筆清單 | `reviewed_pr_through` 是單一數字，上游目前仍 open 的 53 筆 PR（編號 7795–8086）日後若未合併就關閉，永遠不會被列出（`collectUnmergedPullRequests`） | 基準推進時仍 open、之後未合併關閉的 PR 仍會被回報；附回歸測試 | Codex | `tools/check-upstream-updates.ts:239-263` |
 | 整合上游下一個 stable 版（`v2.93.0` 之後）：逐筆 fork 審查與重放 | 分類盤點尚缺 fork 檔案:行號與觸發條件，產品基底為 v2.93.0 | 依序處理：① #8019 全域 identity 補審（含 6c86d0fad、51030653f） ② `8eb970d9d` native Messages stream 提前結束誤記 200 ③ `e04aae068`／`ba880dfae`／`007dbfd89` 多帳號 session／device／installation ID 隔離 ④ `67bdeb03a` canonical forward 的 safety_identifier 400 ⑤ #7810 fixture `fb22d055e`、#7808 路徑 `07161c5b9` ⑥ ACL memo `c7f3928a2` ⑦ EOF／CR 配套 `d42b9b1b2` ⑧ `f94e95ce5` durable principal／HMAC scope／ingress；每筆完整 diff、fork 證據與聚焦測試，安全邊界逐檔判定；全版 tag diff 與 Windows-only 重放驗收後才推 integrated，逐筆證據完整的連續前綴才推 reviewed | Codex | `docs/fork/UPSTREAM.md` 205 筆分類清冊；`REVIEW.md` 2026-11-03 精度／路徑驗收 |

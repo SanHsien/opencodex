@@ -437,3 +437,36 @@ Stable 整合其餘逐筆審查、全版 tag diff 與 Windows-only 重放仍有�
 結構文件首次超過 600 行預算，將新增句子合併到既有段落後通過，沒有調高預算或 baseline。ratchet 首次逾時後只重跑失敗的 repository 案例，沿用 repo 的 60000ms 測試預算，八個通過案例不重跑。
 
 此為完整 fork dev check 加明確相關測試覆蓋；沒有執行全產品 `bun run test`。依 `src/AGENTS.md` 的實作期驗證規則，以聚焦檔案及相關 31 檔補足不能運作的 test:changed；不把這些結果視為全產品套件或九個 Windows CI shards 的通過證據。
+
+
+## 2026-11-03：bigint identity 持久化相容性驗收
+
+基準：`c81a0113cbd42e7a3ca40bbcc363d17b2591cd42`；Windows、Bun 1.4.4。`src/codex/shim-migration.ts` 只對持久化 journal 比對允許 numeric stat／bigint stat 的浮點捨入差；同一次執行中的觀察與復原檢查仍要求時間嚴格相等。精確 dev／ino、mode、size、symlink target 檢查保留。history index 保持可重建投影的 freshness 語意，降版限制見 `docs/fork/DECISIONS.md`。英文／繁中使用說明同步，`structure/runtime.md` 記錄比較合約。
+
+### 先紅後綠與拒絕邊界
+
+`tests/codex-integration/codex-shim-migration-time.test.ts` 使用真實暫存檔、hard link 與 journal；還原式平台／stat 替身讓 Windows 也實際執行 Unix migration 分支。固定奈秒時間同時產生舊 numeric stat 與新 helper 的不同捨入結果；測試不釘依賴版本。安全數字與十進位 identity 各測疏散前／疏散後續做，並確認 native entry 復原且 backup／quarantine／journal 清除。另測 1ms、0.01ms 時間差、inode、unsafe integer、mode、size、symlink target 與非有限時間均拒絕並保留證據。
+
+| 命令／範圍 | Exit code | 結尾／觀察 |
+| --- | --- | --- |
+| `bun scripts/test.ts tests/codex-integration/codex-shim-migration-time.test.ts --timeout=60000`，以 HEAD 原版 migration 搭配新增測試 | 1 | 8 pass／4 fail；48 expect calls；四個跨版續做案例拒絕，其他八案通過 |
+| 同一回歸檔，套用修正後的下列八檔集合 | 見集合 | 12 個回歸案例全部通過；集合的 3 fail 全屬下述既有 cmd 案例 |
+| 登錄新測試前的 layout／tooling／回歸三檔集合 | 1 | 37 pass／2 fail；633 expect calls；兩個失敗指出缺少 explicit membership 與 fixture entry，兩處均補齊 |
+
+首次替身以已捨入 numeric inode 建 key，導致 numeric／bigint 觀察分配不同測試 ID；改為兩者均從原生 bigint inode 建 key 後，重新以 HEAD 原版取得上述 8 pass／4 fail，避免把替身缺陷當作產品紅燈。
+
+### 閘門與相關覆蓋
+
+| 命令 | Exit code | 結尾輸出 |
+| --- | --- | --- |
+| `pwsh -NoProfile -File tools/dev_check.ps1` | 0 | 36 pass／0 fail；127 expect calls；10 份文件、0 份斷鏈；WINDOWS DEV CHECK GREEN |
+| `bun run typecheck` | 0 | bun x tsc --noEmit；無型別錯誤 |
+| `bun run test:changed` | 1 | git merge-base failed while validating changed mode: exit 1；壓縮 fork 與 dev 無共同祖先，未執行選測 |
+| `bun scripts/test.ts tests/codex-integration/codex-shim-migration-time.test.ts tests/codex-integration/codex-shim.test.ts tests/codex-integration/codex-shim-autorestore.test.ts tests/lib/file-identity.test.ts tests/lib/file-identity-callers.test.ts tests/test-layout.test.ts tests/test-layout-tooling.test.ts tests/ci-workflows/file-size-ratchet.test.ts --timeout=60000` | 1 | 262 pass／8 skip／3 fail；1537 expect calls；273 tests across 8 files |
+| HEAD 原版 migration：`bun scripts/test.ts tests/codex-integration/codex-shim.test.ts --test-name-pattern='Windows cmd shim restores the caller token' --timeout=60000` | 1 | 0 pass／101 filtered out／3 fail；3 expect calls；同樣在第 1204 行因 cmd 找不到 driver.cmd 失敗 |
+| `bun run structure:check` | 0 | structure/ SSOT checks passed |
+| `bun run privacy:scan` | 0 | Privacy scan passed |
+| `cd docs-site; bun install --frozen-lockfile` | 0 | Checked 371 installs across 484 packages (no changes) |
+| `cd docs-site; bun run build` | 0 | checked 20711 internal links across 147 pages；147 page(s) built；Complete! |
+
+八檔集合中的 layout、file-size ratchet、identity、autorestore 與新增回歸均無失敗；三個 cmd 案例以原版 migration 對照仍全部失敗，不歸因於時間容差修正，也沒有改測試以掩蓋。完整 fork dev check 通過，產品測試集合有明確既有失敗，不能視為全產品綠燈。依 `src/AGENTS.md` 的實作期規則，以明列相關檔案補足無共同祖先而不可用的 test:changed，沒有執行全產品套件。原生 Unix 執行未涵蓋；Windows-only fork 驗收的是同一 migration 函式與真實檔案操作在還原式替身下的行為。

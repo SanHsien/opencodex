@@ -26,8 +26,14 @@ function identity(path: string): Identity | null {
     throw error;
   }
 }
-function same(left: Identity | null, right: Identity | null): boolean {
-  return !!left && !!right && sameFileIdentity(left, right) && left.mode === right.mode && left.size === right.size && left.mtimeMs === right.mtimeMs && left.link === right.link;
+function same(left: Identity | null, right: Identity | null, persisted = false): boolean {
+  // Numeric stat and Number(mtimeNs)/1e6 can differ by one rounding step.
+  // Bound compatibility to floating-point error, never a whole millisecond.
+  const sameTime = !!left && !!right && Number.isFinite(left.mtimeMs) && Number.isFinite(right.mtimeMs)
+    && (left.mtimeMs === right.mtimeMs || (persisted
+      && Math.abs(left.mtimeMs - right.mtimeMs) <= Math.min(0.001,
+        Number.EPSILON * Math.max(Math.abs(left.mtimeMs), Math.abs(right.mtimeMs)))));
+  return !!left && !!right && sameFileIdentity(left, right) && left.mode === right.mode && left.size === right.size && sameTime && left.link === right.link;
 }
 /** Drop a journal this run created before any migration step, never a replacement at that path. */
 function discardCreatedJournal(journal: string, created: { dev: bigint; ino: bigint }): void {
@@ -109,26 +115,26 @@ export function migrateLegacyUnixShim(state: ShimState): UnixShimMigrationResult
           throw error;
         } finally { closeSync(fd); }
       }
-      if (!same(current, record.wrapper) || !same(saved, record.saved)) return refused("Migration inputs changed; preserving all generations.");
+      if (!same(current, record.wrapper, true) || !same(saved, record.saved, true)) return refused("Migration inputs changed; preserving all generations.");
       if (evacuated) {
-        if (!same(evacuated, record.wrapper)) return refused("Migration quarantine changed; preserving it.");
+        if (!same(evacuated, record.wrapper, true)) return refused("Migration quarantine changed; preserving it.");
       } else {
         // A hard link is exclusive publication: unlike rename it never overwrites quarantine.
         linkSync(original, quarantine);
       }
-      if (!same(identity(original), record.wrapper) || !same(identity(quarantine), record.wrapper)
-        || !same(identity(backup), record.saved)) return refused("Migration inputs changed before evacuation.");
+      if (!same(identity(original), record.wrapper, true) || !same(identity(quarantine), record.wrapper, true)
+        || !same(identity(backup), record.saved, true)) return refused("Migration inputs changed before evacuation.");
       unlinkSync(original);
       current = null;
-    } else if (evacuated && (!record || !same(evacuated, record.wrapper) || !binding(quarantine, backup))) {
+    } else if (evacuated && (!record || !same(evacuated, record.wrapper, true) || !binding(quarantine, backup))) {
       return refused("Migration quarantine ownership is uncertain; preserving the recovery record.");
     }
     if (!current) {
       if (!saved) return repair();
-      if (!same(identity(backup), record?.saved ?? saved)) return refused("Legacy backup changed; retry after the package manager finishes.");
+      if (!same(identity(backup), record?.saved ?? saved, !!record)) return refused("Legacy backup changed; retry after the package manager finishes.");
       try {
         restoreWithoutReplacing(backup, original, () => {
-          if (!same(identity(backup), record?.saved ?? saved)) throw new Error("Legacy backup replaced during publication");
+          if (!same(identity(backup), record?.saved ?? saved, !!record)) throw new Error("Legacy backup replaced during publication");
           const restored = identity(original);
           if (saved.link !== undefined ? restored?.link !== saved.link : !same(restored, saved)) {
             throw new Error("Native entry changed during restoration");
@@ -143,7 +149,7 @@ export function migrateLegacyUnixShim(state: ShimState): UnixShimMigrationResult
     const native = isExecutableCodexCandidate(original) ? stableShimPathProbe(original) : null;
     if (!native || native.prefix.includes(SHIM_MARKER)) return repair();
     if (record && identity(quarantine)) {
-      if (!same(identity(quarantine), record.wrapper) || !binding(quarantine, backup)) return refused("Migration quarantine changed during restoration.");
+      if (!same(identity(quarantine), record.wrapper, true) || !binding(quarantine, backup)) return refused("Migration quarantine changed during restoration.");
       unlinkSync(quarantine);
     }
     if (journalIdentity && same(identity(journal), journalIdentity)) unlinkSync(journal);

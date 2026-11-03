@@ -760,6 +760,10 @@ Add that source line after other PATH setup in your shell startup file to activa
 OpenCodex does not edit that file or change the parent shell. Legacy in-place Unix shims are not
 auto-migrated; run `ocx codex-shim install` explicitly to migrate them.
 
+中斷中的舊式 Unix 遷移可在升級 bigint 檔案身分後續做：journal 比對只容許微秒以內的
+時間轉換捨入差，仍檢查檔案身分、mode、size 與 symlink target。舊版可能拒絕含十進位
+字串身分的所有權紀錄；降版前請先完成復原。
+
 Use `ocx codex-shim status` to inspect it. On macOS and Linux, `ocx codex-shim uninstall`
 removes the private overlay files and leaves native Codex intact. Windows keeps in-place
 script wrappers; uninstall restores the saved launcher. See the

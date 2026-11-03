@@ -832,3 +832,12 @@ Windows catalog 實體 file symlink 測試在能力探測遇 EPERM 時 skip；�
 持久化 dev／ino 的十進位字串保留完整身分；新版只接受精確字串或安全範圍內的舊整數，不猜測已捨入的大整數。降版不相容是刻意保留的 fail-closed 邊界：舊版可能因字串形狀或嚴格數字比較拒絕新版 journal／overlay／其他所有權紀錄。降版前先以新版完成中斷遷移／復原；不要把字串強轉 Number、刪除復原證據或放寬 inode 比對來繞過拒絕。
 
 `src/routing/history/ingest.ts` 的 `sourceMtimeMs` 是可重建 SQLite 投影的來源 metadata；時間浮點尾數變動可能多觸發一次 reindex，不改寫 canonical usage JSONL、不遷移帳號資料。維持既有精確 freshness 比對，避免把 journal 的相容容差擴散到歷史索引。重新評估條件為 journal 時間格式、numeric stat 轉換或持久化 identity schema 改變；Unix 分支的跨版續做以 Windows 上真實檔案／hard link 搭配還原式平台與 stat 替身驗證，原生 Unix 執行不屬於 Windows-only fork 的本機驗收。
+
+## 2026-11-03：docs-site 的 sharp 下限提高到 0.35.5
+
+**決定**：`docs-site/package.json` 的直接依賴 `sharp` 由 `^0.35.4` 改為 `^0.35.5`，`docs-site/bun.lock` 隨之解析為 `sharp@0.35.5`（預建 libvips 為 `1.3.4`，內含 librsvg 2.63.2）。
+理由是 sharp 安全公告 GHSA-wq5f-xc86-pv6w（CVE-2026-96889，內含的 librsvg 記憶體安全問題，glibc Linux 上特定條件可導致 RCE）將受影響範圍定為 `< 0.35.5`。
+`astro` 7.4.5 自身仍宣告 `sharp ^0.35.4`，所以升 astro 解不了；sharp 本來就是 docs-site 的直接依賴，直接抬高下限即可，不需要 `overrides`。
+
+**與上游的差異**：這是 fork 對上游 `docs-site/package.json` 的一行差異。移除條件為上游（或 astro）的鎖定解析到 sharp `>= 0.35.5`，屆時可還原成上游寫法。
+**重新評估條件**：sharp 發布新的安全公告，或 docs-site 開始處理不受信任的 SVG 輸入（目前只在建置時處理 repo 內的圖片）。

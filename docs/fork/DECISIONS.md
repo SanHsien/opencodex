@@ -925,3 +925,28 @@ Windows catalog 實體 file symlink 測試在能力探測遇 EPERM 時 skip；�
 **水位**：`reviewed_pr_numbers` 加入 7614、7618；`reviewed_issue_through` 7860 → 8161（水位以上只有 #8161 一筆 open `platform` issue）。`reviewed_pr_through`、`reviewed_pr_closed_before`、`reviewed_through`、`reviewed_date`、`integrated_*` 全部不動。
 
 **為什麼 `Upstream check` workflow 仍會紅**：`tools/check-upstream-updates.ts` 在 `--strict` 下只要 `commits.length > 0`、新 issue 或待審 PR 任一不為零就回 1（`main()` 末段），`.github/workflows/upstream-check.yml` 再把 step 失敗轉成 job 失敗。PR 軸與 issue 軸清空後，剩下的 254 筆 commit（`88aaa754..cab7eb7d0`，v2.97.0）仍會讓它回 1；只有 stable 整合列完成、`reviewed_through` 推進到已審的連續前綴後才會轉綠。這是設計如此，不是工具壞；不為了轉綠而放寬判定或把 `reviewed_through` 推到沒有逐筆證據的位置。
+
+## 2026-11-05：`safety_identifier`、fixture 命名空間隔離、無磁碟代號路徑（`67bdeb03a`、`fb22d055e`、`07161c5b9`）
+
+維護者政策：上游做法合法可用即採用，只判技術適配、Windows 適用性與安全回歸。逐筆事實見 `docs/fork/UPSTREAM.md` 同日節。
+
+**決定一（`67bdeb03a` 採用）**：canonical ChatGPT 轉送目的地丟棄 `safety_identifier`，其餘目的地（官方 API key 面、第三方閘道）保留，因為它是公開的 OpenAI 平台參數。紅燈：`responses-forward-prompt-envelope.test.ts` 在舊程式 11 pass／2 fail（`Object.hasOwn(body,"safety_identifier")` 為 true）；綠燈：13 pass／0 fail。
+
+**決定二（`fb22d055e` 採用、一檔不適用）**：fixture 子行程的 `%LOCALAPPDATA%` 命名空間隔離。`sibling-home-client-sync` 的「lone custom-home start」案例單獨跑，HEAD 版本兩次都逾時失敗（37 s、30 s，`expect(...).toBe` 失敗），套用後兩次通過（19.9 s、24.3 s）。`cli-start-auxiliary-bind` 不適用（見 UPSTREAM 同日節，觸發條件：採用 `a4e4cda1d`）。
+
+**決定三（`07161c5b9` 採用）**：Windows 的 client 路徑覆寫必須帶磁碟代號或 UNC。這是行為收緊：過去被接受的 `\Users\x`、`/x` 會依行程目前磁碟解析，背景 proxy 與前景 client 可能指到不同檔案；現在以 `ClientPathError` 拒絕。紅燈：新增的 `client-path.test.ts` 在舊 `src/clients` 為 8 pass／31 fail；綠燈 39 pass／0 fail。
+
+**安全邊界逐檔判定**（上游等價保護與 fork 現況一致就採上游）：
+
+| 檔案 | 判定 | 理由 |
+| --- | --- | --- |
+| `src/adapters/openai-responses/canonical-forward.ts` | 採用 | 只改 canonical-only 丟棄清單；不碰憑證、標頭、ACL 或轉送目的地判斷（`isCanonicalOpenAiForwardProvider` 未動），非 canonical 路徑位元組不變，`access_programs` 等既有 strip 測試仍綠 |
+| `src/clients/client-path.ts`、`src/clients/gentle-shell-path.ts`、`src/clients/config-export.ts`、`src/clients/config-export/agent-clients.ts`、`src/clients/config-export/qoder.ts` | 採用 | 路徑驗證只收緊不放寬：Windows 的 `isAbsolute` 接受的集合是 `isAbsoluteClientPath` 的超集；Command Code home 在不合格時回落到 `homedir()`（原行為）；不改寫入、備份、鎖或 ACL 流程 |
+| `tests/helpers/fixture-windows-runtime-preload.ts`、`tests/helpers/fixture-namespace-owner.ts` | 採用（原樣） | 防線方向是保護真實 home：fixture home 與 local-appdata 必須在擁有者根之內、不與受保護樹重疊（含大小寫與 symlink 別名）、nonce 相符，否則在 `mkdir` 與 mock 註冊之前拒絕；31 個測試釘住每個拒絕分支。依賴的 `src/lib/test-home-guard.ts` 未改 |
+| `src/lib/test-home-guard.ts`、`src/codex/windows-local-appdata.ts` | 不變 | 上游這三筆沒有修改它們；preload 只呼叫既有匯出 |
+
+**測試證據（每檔單獨 `bun test <file> --timeout=60000`）**：全 0 fail 的檔案——`responses-forward-prompt-envelope` 13、`responses-canonical-only-top-level-fields` 5、`client-path` 39、`omo-client` 9、`prime-client` 7、`client-config-export-new-clients` 34、`minimax-clients` 19、`zcode-client` 19（2 skip）、`management-client-config-route` 43、`fixture-windows-runtime-preload` 31、`test-layout` 2、`test-layout-tooling` 27、`structure-ssot` 51、`fork-hygiene` 39，以及其餘走路徑解析點的 18 個既有檔。`tsc --noEmit` 與 `privacy:scan` 通過。
+
+**本機環境失敗（HEAD 同樣失敗，與本次改動無關）**：`catalog-auto-review-row` 的「retained-sync」案例在 `finally` 清理 `.tmp\…` 時 `EBUSY: resource busy or locked, rm`（HEAD 版本 1 fail、套用後 1–2 fail，同一個 EBUSY 簽章，斷言本身通過）；`sibling-home-client-sync` 整檔跑時約 20–30 秒的重案例（HEAD 版為「lone custom-home start」與「registry-only discovered owner」，套用後為「secondary ensure parent」）會碰到 30 秒測試逾時，單獨跑 `secondary ensure parent` 為 18 s 通過。這些是本機慢速檔案系統／防毒負載造成的逾時與鎖，需在非虛擬化 Windows 終端複驗。
+
+水位：`reviewed_through`、`reviewed_date`、`integrated_*`、PR、issue 全部不動。

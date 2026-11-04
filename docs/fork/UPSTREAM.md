@@ -1246,7 +1246,7 @@ Windows-only 刪除清單、英／繁中語系、官方 workflow guard、fork �
 均不重放。發版封裝六筆另外比對 promotion tree 與 frozen tip，再比 merge tree 與 promotion，
 三組 `git diff --shortstat` 都是空，故不把 merge 當作另一批產品修正。
 
-分類狀態合計（2026-11-04）：defer 52、只分類、未審 104、skip 42、adopt 1、已審：採用 6（含 2026-11-03 兩筆與本日四筆）；候選 skip／defer 不代表已完成 fork 等價審查。
+分類狀態合計（2026-11-04）：defer 52、只分類、未審 104、skip 42、adopt 1、已審：採用 6（含 2026-11-03 兩筆與本日四筆）；候選 skip／defer 不代表已完成 fork 等價審查。2026-11-05 另有 `67bdeb03a`、`fb22d055e`、`07161c5b9` 三筆改為已審：採用（本行合計未重算，逐筆以各列為準）。
 
 | Commit（主旨） | 類別 | 判定 | 一句理由 |
 | --- | --- | --- | --- |
@@ -1300,7 +1300,7 @@ Windows-only 刪除清單、英／繁中語系、官方 workflow guard、fork �
 | `4bf5728ff3e18697d2a990d64785fc6f20948152` fix(dsh): export a known output limit as `maxTokens` (#7763) | 需要採用的修正 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
 | `e1976daf13fe2221d0dbf761f32d72b063d8f330` fix(advisor): preserve captured caller admission scope (#7718) | 依賴／跨模組大功能 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
 | `1997c69c5c10a467ed9c6322b9d2ceb308bbb37a` fix(openai-chat): keep captured usage on an invalid negotiated completion (#7849) | 需要採用的修正 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
-| `fb22d055e0dc39e076dec9272052fb298409ec19` test: isolate Windows fixture children from the account-wide runtime namespace (#7852) | 需要採用的修正（測試隔離） | defer | Windows fixture namespace 隔離對 #7810 有關，屬需要採用的測試修正，須先核對現有 fixture 防線。 |
+| `fb22d055e0dc39e076dec9272052fb298409ec19` test: isolate Windows fixture children from the account-wide runtime namespace (#7852) | 需要採用的修正（測試隔離） | 已審：採用（兩個測試檔適配、一個不適用） | 2026-11-05 補審，見文末同日節：preload／owner helper 與 catalog 測試原樣採用，`sibling-home-client-sync` 手動適配，`cli-start-auxiliary-bind` 不適用（依賴 `a4e4cda1d`）。 |
 | `8178745ba4d3ba3af780a30af3944f4221c38eeb` feat(codex): add proof-bound Windows CLI update planning (#7596) | 依賴／跨模組大功能 | defer | 依賴 4118b90ba 的更新基礎；Windows proof-bound planning 必須和 protected store／apply 交易成套驗收。 |
 | `4cdcb50d9d318302777840cb5906feae66d37edd` perf(tooling): use Bun 1.4.4 native type checking (#7632) | CI／工具鏈 | defer | 改型別檢查器與 package 工具鏈，分類為工具鏈而非純效能修正，須另驗三個工作區型別檢查。 |
 | `a18de03d4dfc76c72da062a3c98f9000161a1ddf` feat(clients): add T3 Code as an export and integration client (#7529) | 依賴／跨模組大功能 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
@@ -1315,7 +1315,7 @@ Windows-only 刪除清單、英／繁中語系、官方 workflow guard、fork �
 | `3ca99278d9da20e56f3c3d28f07b7fc83e2d4f24` fix(router,combos): hop and cool provider on upstream account quota exhaustion (#7625) | 需要採用的修正 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
 | `4db877256697ee4599655d52bff203b386e4d886` fix(gui): avoid quota refresh failures from paused accounts (#7628) | 需要採用的修正 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
 | `f209d4283b86f5ba29a22ee2922dc4f62c298f58` feat(dashboard): revocable server-side remembered device sessions (#7593) | 依賴／跨模組大功能 | defer | 持久 GUI session 改認證與撤銷機制，須核對 fork 的 consent／dashboard session 防線後整體採用。 |
-| `07161c5b951ac94e602e9829536ac711b9bcc03a` fix(clients): reject drive-less rooted Windows path overrides (#7824) | 需要採用的修正 | defer | 需要採用的 Windows 無磁碟代號根路徑拒絕；跨多個 client exporter，須保留全部合法路徑與回歸。 |
+| `07161c5b951ac94e602e9829536ac711b9bcc03a` fix(clients): reject drive-less rooted Windows path overrides (#7824) | 需要採用的修正 | 已審：採用（T3 Code 與多語系文件不適用） | 2026-11-05 補審，見文末同日節：`isAbsoluteClientPath` 共用判斷式已套到 fork 現有的全部 client 路徑解析點。 |
 | `cd26e920c3528161c3dd06e18ba9995c82b73926` test: stop restarting the proxy per row in the bearer admission matrix (#7866) | 純測試 | skip | 僅調整 `tests/codex-integration/bearer-admission-routed-provider.test.ts` 等測試 fixture／斷言／預算；產品不變，保留 fork 現有回歸，不整批覆蓋測試。 |
 | `7a1565bb968b343f68eddd6ea266222fcfd95ff1` fix(cli): recheck live ownership before journal recovery (#7851) | 依賴／跨模組大功能 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
 | `63820c415f8c13faaff73dc7f6775b8a0c32357b` feat(codex): add protected Windows CLI update job storage (#7626) (#7626) | 依賴／跨模組大功能 | defer | 依賴 4118b90ba／8178745ba，protected store 與 Windows ACL 不可拆開驗收。 |
@@ -1444,7 +1444,7 @@ Windows-only 刪除清單、英／繁中語系、官方 workflow guard、fork �
 | `2ee32ab25f40a8eef1e99311abd4011ca9e5bbb5` fix(qoder): bound CN PNG raster dimensions (#8021) | 需要採用的修正 | defer | Qoder CN raster 上限依賴 1112f5b95 新 image-input 模組，待共用投影與影像邊界一起審。 |
 | `afafe6d360120f315aeba48122274400942cdc89` fix(cli): preserve server-issued batch for role suggestion --apply (#8022) | 需要採用的修正 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
 | `2f7f1d113ec061e5e08e1a46228240a0ac3064e1` fix(responses): strip rejected reasoning toggle from native passthrough (#8025) | 需要採用的修正 | 已審：採用 | 完整 diff 已審；能力正規化拒絕已解析 toggle 時，`src/server/responses/core-normalize.ts:349-359` 同步移除 raw reasoning.enabled，保留 summary；`tests/responses/reasoning-effort-summary-default.test.ts:114-132` 先紅後綠。不增加 import 或未採用 commit 的介面依賴。 |
-| `67bdeb03a3a3e6d3b59435527d4bf5b6a232b731` fix(adapters): strip safety_identifier at the canonical ChatGPT forward destination (#8030) | 需要採用的修正 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `67bdeb03a3a3e6d3b59435527d4bf5b6a232b731` fix(adapters): strip safety_identifier at the canonical ChatGPT forward destination (#8030) | 需要採用的修正 | 已審：採用 | 2026-11-05 補審，見文末同日節：fork 的 `stripUnsupportedForwardParams` 同構，canonical 目的地補丟 `safety_identifier`；非 canonical 保留。 |
 | `e972776eced1b266692b780263828635f47b2754` fix(anthropic): support Ultra quota windows and show subscription names (#8055) | 依賴／跨模組大功能 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
 | `d5708c37c0235194c1d7bdba63bdc587099f6fcf` test(messaging): observe descriptor closure without probing reused fd numbers (#8058) | 純測試 | skip | 僅調整 `tests/codex-integration/messaging-remote-store.test.ts` 等測試 fixture／斷言／預算；產品不變，保留 fork 現有回歸，不整批覆蓋測試。 |
 | `98bd8c07bdb999e883c68c89e1a932c3598912bb` test(cli): await sibling startup signal instead of polling deadline (#8062) | 純測試 | skip | 僅調整 `tests/cli/cli-start-journal-order.test.ts` 等測試 fixture／斷言／預算；產品不變，保留 fork 現有回歸，不整批覆蓋測試。 |
@@ -1570,3 +1570,20 @@ fork 自己的發現（上游沒有）：`codex-home-owner.ts:74`、`bounded-fil
 **行為變更**：pool 帳號對上游看到的 `x-codex-installation-id` 由 Codex CLI 自己的值改成該帳號專屬值；Direct 與原生主帳號不變。secret 無法安全讀寫時（例如 config home 在不支援 ACL 的磁碟、icacls 失敗）pool 送出回 503 而不是靜默沿用 caller 的 ID。這是上游刻意的 fail-closed 設計。
 
 **測試**：見 `docs/fork/DECISIONS.md` 同日條目。
+
+## 2026-11-05：canonical forward 的 `safety_identifier`、Windows fixture 命名空間隔離、無磁碟代號根路徑（`67bdeb03a`、`fb22d055e`、`07161c5b9`）
+
+三筆的上游 diff 都以 `git show <sha>` 讀全（3／8／26 檔），fork 基底 `eea76a63b`。`67bdeb03a` 作者 Harsha Vardhan（GitHub noreply 信箱）；`fb22d055e`、`07161c5b9` 作者 JUN，`Co-authored-by` trailer 為上游 `lidge-jun`；信箱以 `git show -s --format='%an <%ae>' <sha>` 為準，不抄進文件（`privacy:scan` 會擋）。`reviewed_through`、`integrated_*`、PR／issue 水位全部不動（這三筆不是連續前綴）。
+
+| 筆 | 判定 | 上游事實 | fork 證據 |
+| --- | --- | --- | --- |
+| `67bdeb03a`（#8030） | **採用** | canonical-only 丟棄清單由 `metadata`、`max_output_tokens` 加上 `safety_identifier`（上游 `src/adapters/openai-responses/canonical-forward.ts:110-112`）；droid 的 BYOK 會依模型名稱附帶該欄位，ChatGPT Codex 後端以嚴格 allowlist 回 400 `Unsupported parameter: safety_identifier`。其餘 100 餘行是上游 formatter 重排，不重放 | 重放前 `src/adapters/openai-responses/canonical-forward.ts:83` 是 `canonical ? ["metadata","max_output_tokens"] : ["metadata"]`，唯一呼叫點 `src/adapters/openai-responses/passthrough.ts:272` 以 `isCanonicalOpenAiForwardProvider(provider)` 傳入。重放後 `canonical-forward.ts:88-92`；`tests/responses/responses-forward-prompt-envelope.test.ts` 兩個案例改釘「canonical 丟 `user`＋`safety_identifier`、其他目的地兩者都保留」。`tests/responses/responses-canonical-only-top-level-fields.test.ts:89-95`（第三方 key 閘道保留 `safety_identifier`）不變且仍綠 |
+| `fb22d055e`（#7852）preload／owner helper、catalog 測試 | **採用**（原樣） | `tests/helpers/fixture-namespace-owner.ts`（nonce 標記檔）、`tests/helpers/fixture-windows-runtime-preload.ts`（子行程 preload：fixture home 必須在受保護樹之外、擁有者 nonce 相符，才把 `resolveWindowsLocalAppData` 指向 fixture 私有目錄）、`tests/ci-workflows/fixture-windows-runtime-preload.test.ts`（31 案）、`catalog-auto-review-row` 的子行程改走 preload | fork 的依賴齊全：`src/codex/windows-local-appdata.ts:79` 的 `resolveWindowsLocalAppData`、`src/lib/test-home-guard.ts:125,130,135,176,243,434`（preload 呼叫的 guard 匯出）。重放前 `tests/codex-integration/catalog-auto-review-row.test.ts` 與 v2.93.0 逐位元相同，子行程直接讀帳戶共用的 `%LOCALAPPDATA%` 命名空間 |
+| `fb22d055e` `sibling-home-client-sync` | **採用（手動適配）** | 「lone custom-home start」的 `start`／`ensure` 子行程加 `--preload` 與 owner 環境變數 | 上游補丁因中間的 `a4e4cda1d`（本表判 skip）而無法套用：fork 的 `tests/cli/sibling-home-client-sync.test.ts:402-430` 用 `reservation` 預留埠並傳 `--port`。手動把同樣的兩處 spawn 改為 preload＋`createFixtureNamespaceOwner(fx.root)`，其餘不動。重放前（HEAD 版本）該案例逾時失敗兩次，重放後通過兩次，見 `DECISIONS.md` 同日條目 |
+| `fb22d055e` `cli-start-auxiliary-bind` | **不適用** | 把對「被佔住的 public canary」的 `fetch` 改為 `directLocalHttpFetch`，避免環境 `HTTP(S)_PROXY` 代答 | fork 的 `tests/cli/cli-start-auxiliary-bind.test.ts:53-54` 沒有該 `fetch`（只做 `Bun.serve` 重綁再停止），canary 是 `a4e4cda1d`（#7847，上游測試重構）才加入。觸發條件：之後若採用 `a4e4cda1d`，同時補上這個探測 |
+| `07161c5b9`（#7824）client 路徑 | **採用** | `src/clients/client-path.ts` 新增 `isAbsoluteClientPath(raw, platform)`（Windows 要求磁碟代號或 UNC，拒絕 `\Users\x`、`/x` 這類依賴目前磁碟的根路徑），`absoluteClientPath` 多一個 `platform` 參數；所有原本直接呼叫 `isAbsolute` 的 client 路徑解析點改走它 | 重放前 `src/clients/client-path.ts:28`、`src/clients/config-export.ts:398`（DSH）、`:473`（ZCode bootstrap）、`:495`（Command Code，`win32.isAbsolute`）、`src/clients/gentle-shell-path.ts:14`、`src/clients/config-export/agent-clients.ts:18`、`src/clients/config-export/qoder.ts:19` 都用 `node:path.isAbsolute`，在 Windows 接受 `\Users\x`。重放後全部改用 `isAbsoluteClientPath`（`client-path.ts:25`）；Qoder／WorkBuddy 的 resolver 收斂成 `absoluteClientPath`。新增 `tests/clients/client-path.test.ts`（39 案，跨平台語意在任何主機驗證），既有 6 個測試檔的假路徑改為有磁碟代號的值 |
+| `07161c5b9` T3 Code、五語系文件 | **不適用** | `t3code.ts` 的 `T3CODE_HOME`、`t3code-client-lifecycle.test.ts`；fr／ja／ko／ru／tr／zh-cn 的 integrations 文件 | fork 沒有 `src/clients/config-export/t3code.ts` 與該測試（`git apply --check` 回 No such file）；docs-site 只保留英文與 zh-tw。英文與 zh-tw 的說明段已加。觸發條件：整合到引入 T3 Code client 的上游提交時，`t3code.ts` 的 `absoluteClientPath(..., platform)` 一併帶入 |
+
+**手動調整**：`scripts/test-layout/layout-clients.json`、`tests/fixtures/test-layout-expected.json`、`structure/clients/integrations.md`（fork 的 module 列較短，把上游新增句併入同一列）、`src/clients/gentle-shell-path.ts` 三處在 `git apply` 失敗後手動套用，內容與上游相同。
+
+**行為變更**：Windows 上 `QODER_CONFIG_DIR`、`QODERCN_CONFIG_DIR`、`WORKBUDDY_CONFIG_DIR`／`CODEBUDDY_CONFIG_DIR`、`PI_CODING_AGENT_DIR` 等覆寫值，過去接受的 `\Users\x`、`/x` 現在以 `ClientPathError` 拒絕（訊息提示用磁碟代號或 UNC）；canonical ChatGPT 目的地不再收到 `safety_identifier`。安全邊界逐檔判定與測試證據見 `docs/fork/DECISIONS.md` 同日條目。

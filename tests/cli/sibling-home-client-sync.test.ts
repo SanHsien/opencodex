@@ -15,6 +15,7 @@ import {
 } from "../../src/lib/local-management-attestation";
 import { removeTreeWithRetry } from "../helpers/remove-tree";
 import { helperPath, repoPath } from "../helpers/repo-root";
+import { createFixtureNamespaceOwner } from "../helpers/fixture-namespace-owner";
 import { captureStartupChildOutput, STARTUP_OUTPUT_TAIL_CHARS } from "../helpers/startup-child-output";
 
 const originalEnv = { ...process.env };
@@ -401,6 +402,7 @@ test("a secondary ensure parent preserves shared Grok, Codex and Claude agent by
 
 test("a lone custom-home start still syncs Grok and prunes its own Claude roster", async () => {
   const fx = fixture();
+  const namespaceOwner = createFixtureNamespaceOwner(fx.root);
   const reservation = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response("reserved") });
   const port = reservation.port;
   reservation.stop(true);
@@ -413,8 +415,8 @@ test("a lone custom-home start still syncs Grok and prunes its own Claude roster
     checkForUpdates: false, clientIntegrations: { codex: false, grok: true, "claude-desktop": false },
     claudeCode: { injectAgents: false, systemEnv: false }, providers: {}, defaultProvider: "openai",
   }));
-  const child = Bun.spawn([process.execPath, repoPath("src/cli/index.ts"), "start", "--port", String(port)], {
-    cwd: fx.root, env: { ...process.env, NO_PROXY: "127.0.0.1,localhost" }, stdout: "pipe", stderr: "pipe",
+  const child = Bun.spawn([process.execPath, "--preload", helperPath("fixture-windows-runtime-preload.ts"), repoPath("src/cli/index.ts"), "start", "--port", String(port)], {
+    cwd: fx.root, env: { ...process.env, ...namespaceOwner, NO_PROXY: "127.0.0.1,localhost" }, stdout: "pipe", stderr: "pipe",
   });
   trackChild(child);
   const runtime = await waitForRuntime(join(fx.ocx, "runtime-port.json"), child);
@@ -424,8 +426,8 @@ test("a lone custom-home start still syncs Grok and prunes its own Claude roster
   expect(readFileSync(grokPath, "utf8")).toContain(`127.0.0.1:${port}`);
   expect(existsSync(claudePath)).toBe(false);
   writeFileSync(claudePath, "---\ngenerated-by: opencodex\n---\nstale roster\n");
-  const ensure = Bun.spawn([process.execPath, repoPath("src/cli/index.ts"), "ensure"], {
-    cwd: fx.root, env: { ...process.env, NO_PROXY: "127.0.0.1,localhost" }, stdout: "pipe", stderr: "pipe",
+  const ensure = Bun.spawn([process.execPath, "--preload", helperPath("fixture-windows-runtime-preload.ts"), repoPath("src/cli/index.ts"), "ensure"], {
+    cwd: fx.root, env: { ...process.env, ...namespaceOwner, NO_PROXY: "127.0.0.1,localhost" }, stdout: "pipe", stderr: "pipe",
   });
   trackChild(ensure);
   await finishChildOutput(ensure);

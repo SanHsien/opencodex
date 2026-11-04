@@ -144,7 +144,7 @@ describe("canonical ChatGPT forward prompt envelope", () => {
 
 
 describe("canonical forward user metadata boundary", () => {
-  test.each(["gpt-5.3-codex-spark", "gpt-5.6-luna"])("strips only top-level user for %s", model => {
+  test.each(["gpt-5.3-codex-spark", "gpt-5.6-luna"])("strips top-level user and safety_identifier for %s", model => {
     const raw = {
       model, user: "synthetic-client", prompt_cache_key: "synthetic-cache",
       safety_identifier: "synthetic-safety", stream: true,
@@ -157,7 +157,7 @@ describe("canonical forward user metadata boundary", () => {
     const body = outboundBody(canonicalForward, raw);
     expect(Object.hasOwn(body, "user")).toBe(false);
     expect(body.prompt_cache_key).toBe(raw.prompt_cache_key);
-    expect(body.safety_identifier).toBe(raw.safety_identifier);
+    expect(Object.hasOwn(body, "safety_identifier")).toBe(false);
     expect(body.input).toEqual(raw.input);
     expect(body.tools).toEqual(raw.tools);
     expect(raw).toEqual(snapshot);
@@ -181,9 +181,12 @@ describe("canonical forward user metadata boundary", () => {
     { ...canonicalForward, baseUrl: "https://gateway.example/v1" },
     { ...canonicalForward, baseUrl: "https://chatgpt.com.example/backend-api/codex" },
     { ...canonicalForward, authMode: "key" as const },
-  ])("does not strip user from a different destination: %j", provider => {
-    const body = outboundBody(provider, { model: "model", user: "synthetic-client", input: "hello" });
+  ])("does not strip user or safety_identifier from a different destination: %j", provider => {
+    const body = outboundBody(provider, {
+      model: "model", user: "synthetic-client", safety_identifier: "synthetic-safety", input: "hello",
+    });
     expect(body.user).toBe("synthetic-client");
+    expect(body.safety_identifier).toBe("synthetic-safety");
   });
   test("normalizes the canonical trailing slash without changing field-absent requests", () => {
     const provider = { ...canonicalForward, baseUrl: canonicalForward.baseUrl + "/" };

@@ -77,10 +77,18 @@ export function stripStatefulResponsesParams(body: unknown): unknown {
  * self-hosted or third-party gateway may honour it — dropping it there silently
  * removes the cap. Only the canonical ChatGPT backend rejects it outright, so only
  * `canonical` callers strip it.
+ *
+ * `safety_identifier` is the third canonical-only drop: a public OpenAI-platform
+ * parameter some BYOK clients (droid's registry-matched models) attach from the
+ * model name alone. The official API-key surface accepts it, but the canonical
+ * ChatGPT backend rejects it with the same strict-allowlist envelope, so only
+ * `canonical` callers strip it.
  */
 export function stripUnsupportedForwardParams(body: unknown, canonical: boolean): unknown {
   if (!isPlainObject(body)) return body;
-  const drop = canonical ? (["metadata", "max_output_tokens"] as const) : (["metadata"] as const);
+  const drop = canonical
+    ? (["metadata", "max_output_tokens", "safety_identifier"] as const)
+    : (["metadata"] as const);
   if (!drop.some(key => Object.hasOwn(body, key))) return body;
   const next: Record<string, unknown> = { ...body };
   for (const key of drop) delete next[key];

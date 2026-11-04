@@ -882,3 +882,15 @@ Windows catalog 實體 file symlink 測試在能力探測遇 EPERM 時 skip；�
 **決定四（`8eb970d9d` 採用）**：native Messages stream 在 clean EOF 但沒有 terminal 時，不再記 200／補完成，改為失敗 turn（502、`api_error` frame、`streamAborted`）。這會讓過去被當成完成的半截回應對客戶端可見為錯誤，是刻意的行為變更；相容 provider 若省略 `message_stop`，只要最後一個完整 message event 帶非 error `stop_reason` 即仍算完成，`anthropicEofTolerance` provider 保留內容式 EOF。
 
 水位：`reviewed_through`、`reviewed_date`、`integrated_*`、PR、issue 全部保持原值；四筆審查不構成連續前綴。作者歸屬：四筆上游作者為 JUN，trailer 保留於採用提交訊息。
+
+## 2026-11-04：Upstream check PR／issue 軸清空；commit 軸仍紅
+
+**決定一（#7614、#7618 不另採）**：兩筆都是上游已關閉、未合併的 Windows updater stack 子分支（作者 luvs01），關閉理由是內容已全部併入 #7648（`c655484d9`，`dev`）。fork 沒有 `src/codex/windows-cli-child*.ts`、`cli-windows-plan-provenance.ts`、`cli-update-apply`／`cli-update-job*`，`src/codex/cli-update-plan.ts:501-502` 在 Windows 一律拒絕 plan，所以缺少這些檔案沒有行為缺口。不引用 PR 分支版本，因為上游明示不要並行落地兩個版本，且 #7618 的拒絕測試不能原樣套在 #7648 的 verified-authority 契約上。處理點是整合列：updater 鏈（#7586→#7596→#7626→#7648）整合時以 `c655484d9` 最終版整體審。逐筆事實與檔案:行號見 `UPSTREAM.md` 2026-11-04 節。
+
+**決定二（#8161 不適用）**：macOS Keychain 的 `security` 被 timeout 殺掉而觸發 Apple securityd 當機，fork 的三個讀取點（`src/oauth/local-token-detect.ts:78,114`、`src/claude/auth-detect.ts:207`）都以 `process.platform !== "darwin"` 早退，Windows 不會 spawn `security`。不構成 fork 受影響的安全問題，不開路線圖列。重新評估條件：fork 重新支援 macOS。
+
+**決定三（#7771 新症狀延後）**：2026-11-02／11-04 的新留言指出 `ocx service restart` 可在舊 serving 行程仍活著時回報成功。fork 的對應程式（`src/service/repair.ts:259`、`src/service/windows-ops.ts:842-848`、`src/service/health.ts:59-78,160`）與上游描述同構，成因是只驗證「有 OpenCodex 在回應」而非「新 runtime 取代了舊 runtime」。尚未在本機重現、上游也無修正，所以不在 fork 單獨 patch（避免與上游即將的 restart 驗證設計分歧）。觸發條件：上游修正合併，或本機實際遇到重啟後舊 PID 存活；屆時升為路線圖近期列。
+
+**水位**：`reviewed_pr_numbers` 加入 7614、7618；`reviewed_issue_through` 7860 → 8161（水位以上只有 #8161 一筆 open `platform` issue）。`reviewed_pr_through`、`reviewed_pr_closed_before`、`reviewed_through`、`reviewed_date`、`integrated_*` 全部不動。
+
+**為什麼 `Upstream check` workflow 仍會紅**：`tools/check-upstream-updates.ts` 在 `--strict` 下只要 `commits.length > 0`、新 issue 或待審 PR 任一不為零就回 1（`main()` 末段），`.github/workflows/upstream-check.yml` 再把 step 失敗轉成 job 失敗。PR 軸與 issue 軸清空後，剩下的 254 筆 commit（`88aaa754..cab7eb7d0`，v2.97.0）仍會讓它回 1；只有 stable 整合列完成、`reviewed_through` 推進到已審的連續前綴後才會轉綠。這是設計如此，不是工具壞；不為了轉綠而放寬判定或把 `reviewed_through` 推到沒有逐筆證據的位置。

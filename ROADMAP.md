@@ -7,7 +7,7 @@
 
 `opencodex` 是 `lidge-jun/opencodex` 的 Windows-only 維護 fork（本機 provider proxy＋ChatGPT／Codex 帳號池），產品基底為上游 `v2.93.0`（`package.json` 為 2.94.0、整合 tag 為 v2.93.0）加 fork overlay（`FORK.md`、`tools/upstream_baseline.json`）。最近 release 是 v2.93.0（2026-10-27）。
 健康（歷史快照）：open PR 0、Dependabot 與 code scanning 告警 0，CodeQL、Fork maintenance、Upstream check 曾於 2026-10-29 查為 success；issues 在 GitHub 上已停用，open issue 數是「未查到」，不是 0。2026-11-02 複查 Cross-platform CI：最新 schedule run 41354967821 failure（Windows shard 2、7），shard 9 success；此快照不包含後續修正的 schedule 驗收。與上游「No common ancestor」是 2026-09-27 刻意壓縮歷史的結果，不是缺陷（`FORK.md`「分支與 remote」）。
-上游分類（2026-11-03）：15 筆新 closed-unmerged PR 已逐筆判定，PR 水位 8086；無新 platform issue，issue 水位仍為 7860。strict 仍因 209 筆未審 commit exit 1；最新上游 stable 為 v2.96.0，產品整合仍停在 v2.93.0。分類列保留待完整驗收。
+上游分類（2026-11-04）：PR 軸與 issue 軸已清空——#7614、#7618 判不另採（被上游 #7648 取代）、#8161 判不適用（macOS 專屬），`reviewed_pr_numbers` 共 17 筆、issue 水位 8161；#7771 的新症狀（`ocx service restart` 在舊行程存活時仍報成功）判延後並寫明觸發條件。strict 仍因 254 筆未審 commit（`88aaa754..cab7eb7d0`，即上游 v2.97.0）exit 1，`Upstream check` workflow 只有在 stable 整合列推進 `reviewed_through` 後才會轉綠；產品整合仍停在 v2.93.0。判定見 `docs/fork/UPSTREAM.md` 與 `DECISIONS.md` 2026-11-04 條目。
 獨立整合區段（2026-11-03）：`42549ba1b` 的 Runcrate 目錄資料與英／繁中說明已採用；`f94e95ce5` 的 structural tool turns 判 defer，須補完整 diff 與安全邊界審查。產品整合 tag 與 commit scalar 水位保持原值，整版 stable 驗收尚未達標。
 安全告警：2026-10-31 查 Dependabot 0（#10、#11、#12 已由 `f314d92c5` 修復並關閉）。2026-11-04 CodeQL 新增的 #602、#603（`js/file-system-race`）逐筆判 false positive 並 dismiss，查 `code-scanning/alerts?state=open` 為 0；判定與理由見 `docs/fork/DECISIONS.md` 2026-11-04 條目。
 
@@ -19,7 +19,7 @@
 
 持久化相容性（2026-11-03；fork 基準 `c81a0113cbd4`）：舊式 Unix migration journal 的時間比較只容許 numeric／bigint 轉換捨入差，執行中觀察仍嚴格相等；十進位 identity 的降版限制與 history index 一次性重建影響見 `docs/fork/DECISIONS.md` 同日決策。
 
-PR 追蹤（2026-11-03；fork 基準 `13e0f0e453fb`）：以 `reviewed_pr_closed_before = 2026-10-28`（UTC）搭配 PR 水位 8086，截止日後關閉的舊編號 PR 仍回報；已有判定的 15 筆保留在 `reviewed_pr_numbers`。實跑 strict 完整列出 2 筆待審 PR（#7614、#7618）、209 筆待審 commit、0 筆新 platform issue，exit 1；沒有截斷或未檢查的 PR 軸。PR／issue 分類仍由中期分類列追蹤。
+PR 追蹤（2026-11-03；fork 基準 `13e0f0e453fb`）：以 `reviewed_pr_closed_before = 2026-10-28`（UTC）搭配 PR 水位 8086，截止日後關閉的舊編號 PR 仍回報；已有判定的 17 筆（2026-11-04 加入 #7614、#7618）保留在 `reviewed_pr_numbers`。2026-11-04 實跑 strict：開工時待審 PR 2 筆（#7614、#7618）、新 platform issue 1 筆（#8161），皆已分類、254 筆待審 commit，exit 1；沒有截斷或未檢查的 PR 軸。PR／issue 分類仍由中期分類列追蹤。
 
 ## 近期：可以直接動手
 
@@ -33,7 +33,7 @@ PR 追蹤（2026-11-03；fork 基準 `13e0f0e453fb`）：以 `reviewed_pr_closed
 | 項目 | 觸發條件 | 驗收方式 | 建議執行者 | 證據 |
 | --- | --- | --- | --- | --- |
 | 整合上游下一個 stable 版（`v2.93.0` 之後） | 上游出現更新的 stable tag（查：`gh release list --repo lidge-jun/opencodex --limit 5`） | 依 `docs/fork/UPSTREAM.md` 的 tag diff 重放法（單一 parent、不 merge 上游）；先套 Windows-only 刪除清單；`tools/upstream_baseline.json` 的 `integrated_tag`／`integrated_through` 推進；`dev_check.ps1`、`bun test tests/ci-workflows/fork-hygiene.test.ts` 綠；`Upstream check` workflow success；安全邊界檔案逐檔判定寫進 `docs/fork/DECISIONS.md` | Claude Opus | `docs/fork/UPSTREAM.md:1116`（Windows-only 刪除清單）、`:1066`（上次整合紀錄）；`FORK.md` 分支與 remote；從 `15b38cb0e` 接續逐筆判定；另補審 defer 的 `f94e95ce5` 全部 diff、持久 principal／簽章 scope 與 ingress 回歸；完成整個可追溯區段後才推進 scalar 水位 |
-| 分類 Upstream check 列出的新 PR／issue | `Upstream check` workflow（`.github/workflows/upstream-check.yml`）轉 failure；failure 代表上游有未審項目，不是工具壞 | 每筆在 `docs/fork/UPSTREAM.md` 與 `DECISIONS.md` 記判定與理由；將逐筆 PR 編號加入 `reviewed_pr_numbers`／推進 `reviewed_issue_through`；`bun tools/check-upstream-updates.ts --strict` exit 0。順便複查 Windows 相關上游 issue（`#7771`、`#7808`、`#7810`）是否已有上游修正 | Claude Sonnet | `docs/fork/UPSTREAM.md:1077,1108`；`tools/upstream_baseline.json` |
+| 分類 Upstream check 列出的新 PR／issue | `Upstream check` workflow（`.github/workflows/upstream-check.yml`）轉 failure；failure 代表上游有未審項目，不是工具壞 | 每筆在 `docs/fork/UPSTREAM.md` 與 `DECISIONS.md` 記判定與理由；將逐筆 PR 編號加入 `reviewed_pr_numbers`／推進 `reviewed_issue_through`，使報告的 PR 與 issue 兩節為空（2026-11-04 已達成）；`--strict` exit 0 另外要求 commit 軸清空，由上面的 stable 整合列達成，本列不代為推進 `reviewed_through`。順便複查 Windows 相關上游 issue（`#7771`、`#7808`、`#7810`）是否已有上游修正 | Claude Sonnet | `docs/fork/UPSTREAM.md:1077,1108`；`tools/upstream_baseline.json` |
 | 處理新出現的安全告警 | 查詢出現 open 項目：`gh api "repos/SanHsien/opencodex/dependabot/alerts?state=open"`、`gh api "repos/SanHsien/opencodex/code-scanning/alerts?state=open"` | 逐筆修正或附可在程式碼驗證的理由 dismiss，不批量關閉；對照 `docs/fork/DECISIONS.md` 2026-10-28 與 2026-11-04 條目（CodeQL 對「lstat→open→fstat 身分比對」寫法的重複標記已判 false positive；新告警先查 fd 上是否有身分比對或 O_EXCL）；兩個查詢 state=open 皆無輸出；Cargo.lock 項目由維護者逐筆確認 | Claude Opus | `docs/fork/DECISIONS.md:702-710`；`.github/dependabot.yml` 的 `fleet-waiver: security_fixes` 註解 |
 | 重新評估 `fork-release-windows.yml` 是否改鎖 Bun 版本 | 上游對 `#7207`（防毒誤判 bun）得出「Bun 1.4.4 本身被誤判」的結論 | 在 `docs/fork/DECISIONS.md` 新增決定；若改鎖，`fork-release-windows.yml` 以該版 Bun 在 Windows 建出 MSI 並通過 `dev_check.ps1` | Claude Opus | `docs/fork/DECISIONS.md:629`（決定三）；`.github/workflows/fork-release-windows.yml` |
 | 停用夜間排程 | 夜間 `Cross-platform CI` 改測 main 之後仍連續紅燈，且失敗原因與本 fork 無關（`docs/fork/DECISIONS.md` 決定四已記此觸發條件） | `ci.yml` 的 `schedule` 在本 fork 不再執行；`DECISIONS.md` 記停用理由與重新啟用條件；下一輪 Actions 沒有新的 schedule 紅燈 | Claude Sonnet | `docs/fork/DECISIONS.md:631`；`.github/workflows/ci.yml:415-430` |

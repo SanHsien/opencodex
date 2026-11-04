@@ -52,7 +52,7 @@ git fetch --no-tags upstream main "+refs/tags/*:refs/upstream-tags/*"
 2026-11-03 實跑（fork 基準 `13e0f0e453fb`）：`bun tools/check-upstream-updates.ts --strict`
 完整列出 2 筆待審 PR：#7614（owned Windows CLI child lifetime）、#7618（separate Windows metadata toolchains）；
 另有 209 筆待審 commit、0 筆新 platform issue，exit 1。PR 軸已檢查，沒有截斷；
-紅燈來自實際待審項目，這兩筆尚未分類，不加入已審清單。
+紅燈來自實際待審項目，這兩筆當時尚未分類，不加入已審清單（2026-11-04 已逐筆判定並加入，見文末同日節）。
 
 ## 審查清冊
 
@@ -1518,3 +1518,32 @@ fork 自己的發現（上游沒有）：`codex-home-owner.ts:74`、`bounded-fil
 上游 diff 共 8 檔（src 3、structure 1、tests 3、layout 登錄 1）：其中 6 檔乾淨套用，2 個 layout 登錄（`layout-clients.json`、`test-layout-expected.json`；後者是測試側 fixture）因 fork 內容與上游不同，手動對應。
 安全邊界：記錄與計費的 200 只留給客戶端已收到 terminal（`message_stop`／upstream `error` event）或最後 message event 為非 error `stop_reason` 且沒有被截斷的尾端；其餘 clean EOF 與重置同等處理（502、`terminalStatus: failed`、`api_error` frame）。
 事件名與 payload `type` 必須一致才算證據；`anthropicEofTolerance` provider 保留內容式 EOF；done 讀取在 client abort 後算 499 cancel。
+
+## 2026-11-04：Upstream check PR／issue 軸分類（#7614、#7618、#8161）
+
+開工 `bun tools/check-upstream-updates.ts --strict`（fork 基準 `9d0efeb52`；上游 main `cab7eb7d0332ae0ebb4289d7c6bac1de666b6e40` 即 v2.97.0，2026-11-03 發布）列出：2 筆 closed-unmerged PR（#7614、#7618）、1 筆新 `platform` issue（#8161）、254 筆待審 commit（2026-11-03 為 209 筆，差額是 v2.96.0 之後到 v2.97.0 的新 commit），exit 1。本節只處理 PR 軸與 issue 軸；commit 軸（含 v2.97.0 新增的 45 筆）屬 `ROADMAP.md` 的 stable 整合列，`reviewed_through`、`reviewed_date`、`integrated_tag`、`integrated_through` 全部保持原值。
+
+水位變動：`reviewed_pr_numbers` 加入 7614、7618（`reviewed_pr_through` 維持 8086、`reviewed_pr_closed_before` 維持 2026-10-28）；`reviewed_issue_through` 7860 → 8161。工具只列「open 且帶 `platform` 標籤」的 issue，這次水位以上只有 #8161 一筆，7861–8160 之間沒有待審項目，所以不是跳號推進。
+
+| PR | 上游事實 | fork 證據 | 判定與觸發條件 |
+| --- | --- | --- | --- |
+| [#7614](https://github.com/lidge-jun/opencodex/pull/7614) owned Windows CLI child lifetime | closed 2026-10-28、未合併（作者 luvs01，96 檔 +7897/−335，含整條 updater stack）。新增 Windows x64 helper `src/codex/windows-cli-child.ts`／`-native.ts`／`-pipe.ts`：以 Job object 擁有行程樹、suspended 建立、STARTUPINFOEXW 限制繼承 handle、overlapped named pipe 讀輸出。PR 本文自述「No production consumer imports this helper yet, and Windows apply remains disabled」。維護者關閉理由：branch 的每個 commit 都在 #7648 內，已以 `c655484d9` 落 `dev`。`git show --stat c655484d9` 含這三檔（+260／+119／+87）與 fixtures；v2.96.0 tree 的 `windows-cli-child.ts:72`（`class WindowsCliChild`）、`:193,197`（`CreateJobObjectW`）同在。 | `src/codex/` 沒有任何 `windows-cli-child*.ts`，也沒有 `cli-update-apply`／`cli-update-job*`（只有 `cli-update-plan.ts`）；`src/codex/cli-update-plan.ts:501-502` 在 win32 一律回 `windows_inspection_deferred` 拒絕，不 spawn 任何 installer／npm 子行程。沒有 consumer，缺這個 helper 目前不造成行為缺口。 | 不另採：被 #7648（`c655484d9`）取代，該 commit 已在上方 205 筆清冊列為 defer（updater 鏈），隨整合列處理；上游明示不要並行落地兩個版本，所以不引用 PR 分支。觸發條件：#7586→#7596→#7626→#7648 這條鏈整合時，以 `c655484d9` 的最終版整體審 Job object、handle 繼承、ACL 邊界，並在非虛擬化 Windows 終端驗收。 |
+| [#7618](https://github.com/lidge-jun/opencodex/pull/7618) separate Windows metadata toolchains | closed 2026-10-28、未合併（luvs01，20 檔 +252/−60，src 只動 `src/codex/cli-windows-plan-provenance.ts` +14/−5）。唯一的 src hunk：`if (pathNode) return fallback;` 改為 `if (pathNode && !deps.arch) return fallback;`，content proof 標籤 `windows-npm-read-only-plan-v2` → `v3`；意思是 PATH 解析出的獨立 Node/npm 只在 launcher 架構錨點存在時才當作 metadata 載具。PR 本文：預設 Windows 路徑仍 `target_unresolved` 拒絕、不 spawn npm metadata；並註明「read-only refusal tests here must not be copied unchanged over #7648's distinct verified-authority contract」。關閉理由同上（被 #7648 取代）；v2.96.0 `cli-windows-plan-provenance.ts:181,186` 已含 `pathNode && !deps.arch` → `refuse("launcher-arch")`。 | `cli-windows-plan-provenance.ts` 在 v2.93.0 基底不存在（`git cat-file -e refs/upstream-tags/v2.93.0:src/codex/cli-windows-plan-provenance.ts` 失敗），fork 沒有對應檔；Windows plan 由 `src/codex/cli-update-plan.ts:501-502` 直接拒絕。 | 不另採，理由與觸發條件同 #7614。整合時不得把本 PR 的 `codex-cli-windows-plan.test.ts` 與 drift-worker 測試單獨移植，須對照 #7648 的最終契約。 |
+
+| Issue | 上游事實 | fork 證據 | 判定與觸發條件 |
+| --- | --- | --- | --- |
+| [#8161](https://github.com/lidge-jun/opencodex/issues/8161) macOS：5 秒 timeout 殺掉被 Keychain 解鎖提示卡住的 `security`，造成 securityd 當機與無限密碼提示 | open（2026-11-04 開，標籤 bug／account-pool／platform／service，回報版本 2.97.0／macOS 27）。`readClaudeKeychain`、`readClaudeKeychainAsync`、`keychainProbe` 在 login keychain 鎖定時以 5 秒 timeout 殺掉 `security`，觸發 Apple securityd 的 mutex race。回報者建議 keychain 鎖定時略過讀取，或不要殺阻塞中的子行程。尚無維護者回覆或修正 PR。 | 三個讀取點在 fork 都先以 `process.platform !== "darwin"` 早退：`src/oauth/local-token-detect.ts:78`、`:114`，`src/claude/auth-detect.ts:207`，Windows 上永不 spawn `security`。`src/claude/intercept/picker-trust.ts:17` 的 `/usr/bin/security` 只在 darwin 分支，`:69` win32 走 PowerShell runner。`src/oauth/meta-muse-keychain.ts:22-24` 沒有平台判斷，但 Windows 上 spawn 失敗只會落成 `keychain-unreadable`，且 issue 明示此檔不在範圍（120 秒 timeout，不殺使用者輸入密碼中的提示）。 | 不適用：fork 只支援 Windows，故障是 Apple securityd 的 macOS 專屬行為，fork 的執行路徑不會觸及。不是 fork 受影響的安全問題，不開 ROADMAP 近期列。重新評估條件：fork 重新支援 macOS，或這三個讀取點被改成跨平台。 |
+
+### 監控中的 issue 複查（2026-11-04，讀 issue 與留言）
+
+| Issue | 現況 | 與 2026-11-03 相比 | fork 對應 |
+| --- | --- | --- | --- |
+| #7771 Windows desktop 卡在 taking-over | 仍 open；2026-11-02 與 11-04 有新留言（kevin3669 回報 npm 2.96.0 的 `ocx service restart` 顯示「restarted and serving」，但舊 serving PID 與 wrapper 沒換；另一位貢獻者以 `dev` `72e80d280d` 靜態閱讀確認同一成因）。留言明說不是 taking-over 的重現，是同一個 wrapper 生命週期問題的另一面，尚無修正 PR。 | 有變動：新增一個獨立症狀。 | **fork 同構、未修**：`src/service/repair.ts:259` 只呼叫 `stopWindows`，`src/service/windows-ops.ts:842-848` 的 `stopWindows` 吞掉非 benign 的 `/end` 錯誤；`repair.ts:378` 之後直接 `/run`；`src/service/health.ts:59-78` 的 `confirmServiceServing` 只問該埠是否有任何 OpenCodex 在回應，`health.ts:160` 就印「service … and serving」。舊 listener 活著時會被當成成功。這是 Windows 主戰場的真實缺陷，但尚未在本機實測重現。判定：延後，不在 fork 自行 patch。觸發條件：上游修正或 PR 合併（隨整合列 `db7bdc5e3`／wrapper 生命週期相關 commit 一併審），或本機實際遇到重啟後舊 PID 存活，屆時升為 ROADMAP 近期列。 |
+| #7808 | closed（2026-10-28），修正 `07161c5b9` | 無變動 | 仍在 ROADMAP 整合列 ③，未整合。 |
+| #7810 | closed（2026-10-28），修正 `95cfa30ec`（已採用）、`fb22d055e`（defer） | 無變動 | 同上。 |
+| #7815 config-root ACL 與 writer 重疊 | 仍 open；維護者以 #7826（`6bc511d1b`）、#7869（`fdc6dd82d`）、#7998（`19ab11394`）部分處理，同步 writer API 仍未涵蓋 | 新增 #7998 部分修正（10-30） | 三筆在清冊皆為 defer，隨整合列的 ACL 鏈一併審。 |
+| #7827 | closed（2026-10-28），修正對應 `7a1565bb9`（#7851） | 狀態由 open 轉 closed | 清冊為「只分類、未審」，隨整合列。 |
+| #7834 | closed（2026-10-29），修正 `c7f3928a2`（#7891） | 狀態由 open 轉 closed | ROADMAP 整合列 ④。 |
+| #7854 | closed（2026-10-29），修正 `d588ca9d2`（#7885，僅測試暖機） | 狀態由 open 轉 closed | 清冊為「只分類、未審」，隨整合列。 |
+
+這些「closed」只代表上游已修，fork 尚未整合（基底仍是 v2.93.0），不可記為 fork 已修復。

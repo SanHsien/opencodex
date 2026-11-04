@@ -856,7 +856,7 @@ API root 由 [官方 Chat Completions 文件](https://www.runcrate.ai/docs/model
 #7561（`f94e95ce5`）新增 durable principal 與簽章結構 membership；僅完成 scope 與三個
 身分／membership 模組的初讀，尚未完成整個 31 檔 diff 與 ingress／adapter 驗收，判 defer。
 它是獨立 opt-in 功能，不是 Runcrate 的依賴；不混合採用部分身分鏈，也不前移 scalar 水位。
-延後項與後續逐筆游標統一記在 `ROADMAP.md`。
+延後項與後續逐筆游標統一記在 `ROADMAP.md`。（2026-11-05 更新：`f94e95ce5` 已完整審查並重放，見文末「structural tool turns 的安全邊界逐檔判定」；此段保留當時判定。）
 
 作者歸屬：#7726 原作者 Nirupam Bhowmick，上游另帶 JUN co-author；兩筆 trailer 保留在採用提交訊息。
 
@@ -966,3 +966,22 @@ Windows catalog 實體 file symlink 測試在能力探測遇 EPERM 時 skip；�
 | layout／fixture 對應表及英／繁中文件 | 採用 | 僅登錄新測試與同步已驗證行為，不改 runtime、安裝、workflow、權限或憑證。韓文文件因 fork 不含該語系判不適用 |
 
 回歸證據：舊碼指 fork HEAD 原始 runtime 加新測試；ACL 7 pass／16 fail → 23 pass／0 fail，EOF／CR 17 pass／6 fail → 23 pass／0 fail。既有 config 193 pass／6 skip／0 fail；其餘指令與限制見 `REVIEW.md` 同日節。若日後改動 destination normalization、ACL reap barrier 或 SSE terminal／limit 順序，需重新驗證這些性質。integrated／reviewed scalar 與 PR／issue 水位不動。
+
+## 2026-11-05：structural tool turns 的安全邊界逐檔判定（`f94e95ce5`）
+
+依據：上游 `f94e95ce5` 完整 31 檔 diff；fork 基準 `7b3c6ec1d`。維護政策是合法可用即採用，只依技術適配、Windows 適用性與安全回歸判定。整筆重放，功能預設關閉（需 `OPENCODEX_RESPONSE_TURN_SIGNING_KEY`）。fork 在此之前沒有 durable principal、簽章 item ID 或提早 tool 完成機制，所以每一項都是新增的防線，沒有被取代的 fork 版本；「不弱於 fork」的比較對象是 fork 既有的 `contextPrincipalId`／`linkIngress`／provider-opaque ownership，這三者全部不改。
+
+| 安全邊界檔案 | 判定 | 威脅與核對 |
+| --- | --- | --- |
+| `src/server/auth-cors.ts` `resolveDurableReplayPrincipal`（`:517`） | 採用 | 威脅：他人（或同機另一憑證）偽造或重用別人的簽章 ID 取得重排權。對策：只認 `x-opencodex-api-key`，不吃 thread-id／User-Agent／loopback／upstream bearer；憑證須通過既有 `resolveDataPlaneAdmissionSecret`；admission 非 loopback 時 kind 與 keyId 必須一致（`configured` 另比 keyId）；簽章金鑰長度不是 32 bytes 一律拒絕；principal 是 HMAC(金鑰, 憑證)，不含明文，憑證或金鑰輪替即換 scope。不弱於 fork：`linkIngress` 白名單（`:461`）下，admission 與此處解的是同一個 dedicated header（`:646,673` 優先序），白名單外的 key 或 environment token 在 admission 階段已被拒，kind／keyId 比對再擋不一致；loopback 路徑與 `resolveContextPrincipal`（`:500`）同樣接受任何有效 key，沒有放寬。測試 `data-plane-admission-identity.test.ts` +3 案（穩定 scope、不含明文、缺 admission／錯 key／無 key／bearer only／named admission 不一致／短金鑰皆拒、輪替換 scope），28 pass |
+| `src/responses/turn-membership.ts` | 採用 | 威脅：偽造 `*_ocxt1_*` item ID 讓不屬於同回合的 call／result 被重排，或藉重排混入他人歷史。對策：ID 內含 key id、nonce、序號、kind 碼與 HMAC-SHA256 前 16 bytes，HMAC 綁定 principal＋thread＋header 並有 domain-separation 字串；`timingSafeEqual` 前先驗長度；任何以保留前綴開頭卻驗證失敗的 item 使整個輸入原樣返回（fail closed）；群組內序號須嚴格遞增、call_id 唯一、每個 call 恰一個型別相符的結果、span 內不得夾入其他 item，否則原樣返回；上限 65,536 items、8 把金鑰、金鑰長度 32-64；建構時複製金鑰 bytes，呼叫端清空 Buffer 不影響。僅證明「分組」，不證明 payload、完成狀態、執行權限；不產生、不寫碟、不從歷史恢復金鑰。測試 53 案 |
+| `src/server/responses/turn-membership.ts` | 採用 | 威脅：金鑰格式錯誤或 parent／sibling thread 混入。對策：嚴格 regex＋base64url 往返比對＋32 bytes；只取請求自己的 `thread-id`，缺少即不啟用；未設定即 `undefined`，整條路徑不改輸入 |
+| `src/server/responses/request-prepare.ts`（`:471,1652`） | 採用 | 在 `parseRequest` 之前只做重排；`completedToolBlocks` 僅對 responses 入口、串流、非 compaction 的已驗證請求為真，客戶端 JSON 無法自行設定 |
+| `src/server/responses/adapter-delivery.ts`（`:134`）、`adapter-dispatch.ts`（`:340,657`）、`request-transport.ts`（`:913`） | 採用 | 威脅：把簽章 ID 套到原生／sidecar／compaction／advisor 等其他擁有者的 output。對策：僅 openai-chat 活動 adapter、非 chat／anthropic 入站、非 compaction／advisor／client encoder、且回應標頭協商成功才建工廠；continuation 與 sidecar 路徑不傳 context。三個 buildRequest 站點一致傳旗標，缺旗標則提早送出關閉 |
+| `src/bridge/sse.ts` | 採用 | 七處 item ID 改走工廠，無工廠時為原 `prefix_uuid`；同一 item 的 added／delta／done／completed 取得同一 ID（ingress 測試逐框驗證）。不改 reasoning envelope、budget、heartbeat |
+| `src/adapters/openai-chat.ts`、`openai-chat/completed-tool-blocks.ts`、`serialized-tool-call-content.ts` | 採用 | 威脅：上游或偽造標記讓同一 tool call 被執行兩次，或提早送出未完成的呼叫。對策：需 per-exchange context＋provider 設定標頭＋回應標頭三者齊備；標記必須同 index、同非空 call ID、無 function 欄位、不得重複，違者以 error 終止；提早送出只限名稱非空、arguments 為字串且解析成不含 `input` 的物件、非 freeform、前方無 held 文字或 reasoning；已送出的呼叫不重送。無 context 時建請求會刪除協商標頭。測試 +12 案（含 24 個反序標記、後續錯誤保留已關閉呼叫） |
+| `src/adapters/base.ts`、`required-tool-result.ts`、`unique-tool-call-ids.ts` | 採用 | 只轉送新增的第四參數；call ID 重鑄與必要工具結果守衛不變 |
+| 其餘 wrapper（`workbuddy.ts`、`anthropic-progress.ts`、`zed.ts`、web-search loop） | 不適用／不需改 | 不轉送 context，故永不啟用提早完成；這是保守方向 |
+| 測試、layout 對應表、`structure/`、docs-site | 採用 | 只登錄新測試並描述已驗證契約；英文與 zh-tw 的 `headers?` 列加實驗性警語。無 runtime、安裝、workflow、權限或憑證變更 |
+
+Windows 適用性：只用 `node:crypto` 與環境變數，不碰檔案系統、路徑或 ACL；測試在本機 Windows 通過，未出現 symlink EPERM 或 MSIX 路徑差異。未解決風險：若未來把 `OPENCODEX_RESPONSE_TURN_SIGNING_KEY` 注入服務環境，金鑰會進入行程環境，須比照其他 secret 避免寫入 log；本 fork 預設不設。紅綠與 gate 見 `UPSTREAM.md` 同日節。

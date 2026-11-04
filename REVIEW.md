@@ -180,7 +180,7 @@ WINDOWS DEV CHECK GREEN
 
 基準 HEAD：`08346538259d94acab39fa42a6ce55540bac5f62`。採用上游 `42549ba1b`
 的目錄資料與獨立測試，補英／繁中說明、structure 合約及 fork 判定紀錄。
-`f94e95ce5` 僅完成 scope 與三個身分／membership 模組初讀，判 defer，沒有套用。
+`f94e95ce5` 僅完成 scope 與三個身分／membership 模組初讀，判 defer，沒有套用。（2026-11-05 更新：已完整審查並重放，見 `docs/fork/UPSTREAM.md` 同日節。）
 完整 stable 整合尚未成立，baseline 各水位保持原值；路線圖保留整版驗收與補審範圍。
 
 | 指令 | Exit code | 結尾輸出／證據 |

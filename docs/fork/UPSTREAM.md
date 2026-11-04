@@ -1213,7 +1213,7 @@ GitHub release 清單複查最新 stable 為 v2.96.0（2026-11-01），符合 st
 
 | Commit | 判定 | 範圍與理由 |
 | --- | --- | --- |
-| `f94e95ce5`（#7561） | defer | 31 檔、885 行新增，包含 Responses 結構重排、durable principal、HMAC membership、ingress 與 adapter 投影。已讀 scope 清單、`src/server/auth-cors.ts` 與兩個 turn-membership 模組；尚未完成其餘完整 diff／安全審查與跨 ingress 回歸，不採部分身分鏈、不計為完成程式碼審查。補審範圍只在 `ROADMAP.md` 追蹤。 |
+| `f94e95ce5`（#7561） | defer（2026-11-05 已改採用，見文末同日節；此列保留當時判定） | 31 檔、885 行新增，包含 Responses 結構重排、durable principal、HMAC membership、ingress 與 adapter 投影。已讀 scope 清單、`src/server/auth-cors.ts` 與兩個 turn-membership 模組；尚未完成其餘完整 diff／安全審查與跨 ingress 回歸，不採部分身分鏈、不計為完成程式碼審查。補審範圍只在 `ROADMAP.md` 追蹤。 |
 | `42549ba1b00a7fe792f0c1d87771845ca538c472`（#7726） | adopt | 完整讀取五檔 diff；採用 Runcrate 目錄、獨立測試與兩份 layout 登錄及 fixture。測試的驗證日期改驗 ISO 日期格式，避免釘住會更新的快照日期；模型 id 仍驗正式六筆 seed。同步英／繁中使用說明及 structure 合約。 |
 
 這是可獨立成立的目錄區段，沒有重放整版產品。先核對 Windows-only 刪除清單：
@@ -1607,3 +1607,26 @@ fork 基準 `6f7bfbe46999df18c43af8e7bcee50b651d2419d`。兩筆 `git show` 完�
 | `d42b9b1b2` 韓文 `ko/guides/sidecars.md` | 不適用 | fork 只保留英文與 zh-tw，該檔不存在；不恢復已移除語系，若恢復韓文時再帶入相同說明 |
 
 `structure/INDEX.md` 所列相關 runtime、native-reasoning-retention、fallback-policy、anthropic-progress、providers-and-adapters 已覆核；其局部說明仍正確，不複製 config／search 的權威契約。安全邊界逐檔判定見 `DECISIONS.md` 同日「ACL memo／CR」節，實測紅綠與 gate 見 `REVIEW.md`。完整 stable tag 重放與連續 commit 審查尚未完成，因此不推進 integrated／reviewed 水位。
+
+## 2026-11-05：`f94e95ce5` structural tool turns（durable principal／HMAC membership／ingress）
+
+fork 基準 `7b3c6ec1d`。`git show f94e95ce5` 的 31 檔完整 diff 已讀；原 defer 的理由是「尚未讀完整 diff 與跨 ingress 回歸」，現已補齊。作者 Platinum-Scripts，共同作者 JUN；兩者的 trailer 取自 `git show -s --format='%an <%ae>' f94e95ce5` 與原提交訊息，保留在整合提交，文件不寫信箱。`git apply --check` 顯示所有 `src/`、`tests/`、`docs-site/`、`structure/manifest.json` hunk 無衝突（最多偏移 25 行），唯二需手工合併的是 `structure/INDEX.md`（fork 有 codex-installation-identity 列，依字母序併入）與 `tests/fixtures/test-layout-expected.json`（單行 JSON，插入新測試）。整筆重放，無部分採用。
+
+功能性質：**預設關閉**。只有行程環境變數 `OPENCODEX_RESPONSE_TURN_SIGNING_KEY`（`dr_turn_v1_` 加 43 字 base64url，解出恰好 32 bytes）存在，且請求帶有效的 `x-opencodex-api-key`、自己的 `thread-id`，才啟用簽章輸出 item ID 與入口重排；另需 provider 設定 `x-opencodex-tool-completion: block-stop-v1` 並由上游回同值標頭，才會提早送出已完成的 tool call。fork 未設定這些，行為與重放前逐位元相同（`tests/bridge`＋`tests/adapters/openai` 40 檔 972 pass／0 fail）。唯一例外（上游刻意設計）：金鑰未設定時，`src/adapters/openai-chat.ts:104` 會從送出的 header 副本移除 provider 設定裡的 `x-opencodex-tool-completion`，provider 設定本身不變；格式錯誤的金鑰會讓功能靜默關閉、不記警告。
+
+| 上游檔案 | 判定 | fork 證據 |
+| --- | --- | --- |
+| `src/responses/turn-membership.ts`（新，111 行） | 採用 | `TurnTokenCodec` `:56`；tag 驗證 `:89` 以 `timingSafeEqual` 比較等長 16 bytes；`normalizeGroups` `:18`。fork 無對應功能，無衝突 |
+| `src/server/responses/turn-membership.ts`（新） | 採用 | env 金鑰格式與長度驗證、僅取請求自己的 `thread-id`（不用 parent／session cohort）、未啟用回 `undefined` |
+| `src/server/auth-cors.ts` `resolveDurableReplayPrincipal` | 採用 | `:517`。用既有 `resolveDataPlaneAdmissionSecret`（`:449`）驗證 dedicated header，不改既有 `resolveContextPrincipal`（`:500`）。fork 獨有的 `linkIngress` 白名單（`:461`）不被削弱：link 入口的 admission 由 dedicated header 先決（`:646,673`），此處再解同一 header，要求 kind 與 keyId 相同，否則拒絕 |
+| `src/server/responses/request-prepare.ts` | 採用 | 解析前呼叫 `normalize`（`:471`）；`completedToolBlocks` 僅在 `responses` 入口、串流且非 compaction 時為真（`:1652`） |
+| `src/server/responses/adapter-delivery.ts`、`adapter-dispatch.ts`、`request-transport.ts` | 採用 | 簽章 ID 工廠僅在 openai-chat 串流、非 chat／anthropic 入站、非 compaction／advisor／client encoder 且回應標頭協商成功時建立（`adapter-delivery.ts:134`）；initial、retry、queued rebuild 都傳同一旗標（`adapter-dispatch.ts:340,657`、`request-transport.ts:913`）。continuation 與 sidecar 路徑未傳 context，等於不啟用 |
+| `src/bridge/sse.ts` | 採用 | 七處 `uuid()` 改為 `outputItemId(...)`（`:417,446,469,937,992,1051,1111`），未提供工廠時回退原 `prefix_uuid`，輸出不變 |
+| `src/adapters/base.ts`、`openai-chat.ts`、`openai-chat/completed-tool-blocks.ts`（新）、`required-tool-result.ts`、`serialized-tool-call-content.ts`、`unique-tool-call-ids.ts` | 採用 | 沒有 per-exchange context 時 `buildRequest` 刪除協商標頭（`openai-chat.ts:105`）；`completedToolBlocksEnabled`（`:295`）要求 context、provider 標頭、回應標頭三者齊備且非 inline-think 模型；錯誤序列直接終止（`:511-512`）；`hasHeldEvents` 避免工具超前於暫存文字。fork 的 `workbuddy.ts:49`、`anthropic-progress.ts:60`、`zed.ts` 等其他 wrapper 不轉送 context，故永遠不啟用，這是刻意的保守（上游也未改） |
+| `tests/responses/turn-membership.test.ts`、`turn-membership-ingress.test.ts`、`tests/server/data-plane-admission-identity.test.ts`、`tests/adapters/openai/openai-chat-parallel-stream.test.ts`、`tests/helpers/*` | 採用（原樣） | 見下方紅綠；ingress 測試走實際 `handleResponses`，不 mock 目標模組 |
+| `scripts/test-layout/layout-replay.json`、`tests/fixtures/test-layout-expected.json` | 採用（fixture 手工合併） | 兩個新測試登錄為 `responses`；`tests/test-layout*.test.ts` 2／27 pass |
+| `structure/**`、docs-site `providers.md` | 採用（INDEX 手工合併） | 新增 `providers/completed-tool-blocks.md`、`transports/response-turn-membership.md`；`bun run structure:check` 通過。docs-site 英文 `headers?` 列加實驗性說明，zh-tw 同列（該列本就是英文原文）同步加上 |
+
+紅綠：先只放入測試檔（舊 runtime）——`turn-membership.test.ts` 0 pass／1 fail（模組不存在）、`turn-membership-ingress.test.ts` 0／1、`data-plane-admission-identity.test.ts` 0／1（缺 `resolveDurableReplayPrincipal` 匯出）、`openai-chat-parallel-stream.test.ts` 46 pass／5 fail（五個 negotiated block-stop 案例：提早送出、重複標記終止、跨 index／ID 偽造、24 個反序標記、後續錯誤保留已關閉呼叫）。重放後 53／2／28（原 25）／51（原 39）全部 pass、0 fail。
+
+仍不推進任何水位：`tools/upstream_baseline.json` 不動。全版 tag diff（含 `d9e0c057881` 之類依賴本筆的 additional_tools 變更）與 Windows-only 重放驗收是另一項工作，記在 `ROADMAP.md`。

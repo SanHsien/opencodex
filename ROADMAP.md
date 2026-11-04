@@ -8,7 +8,7 @@
 `opencodex` 是 `lidge-jun/opencodex` 的 Windows-only 維護 fork（本機 provider proxy＋ChatGPT／Codex 帳號池），產品基底為上游 `v2.93.0`（`package.json` 為 2.94.0、整合 tag 為 v2.93.0）加 fork overlay（`FORK.md`、`tools/upstream_baseline.json`）。最近 release 是 v2.93.0（2026-10-27）。
 健康（歷史快照）：open PR 0、Dependabot 與 code scanning 告警 0，CodeQL、Fork maintenance、Upstream check 曾於 2026-10-29 查為 success；issues 在 GitHub 上已停用，open issue 數是「未查到」，不是 0。2026-11-02 複查 Cross-platform CI：最新 schedule run 41354967821 failure（Windows shard 2、7），shard 9 success；此快照不包含後續修正的 schedule 驗收。與上游「No common ancestor」是 2026-09-27 刻意壓縮歷史的結果，不是缺陷（`FORK.md`「分支與 remote」）。
 上游分類（2026-11-04）：PR 軸與 issue 軸已清空——#7614、#7618 判不另採（被上游 #7648 取代）、#8161 判不適用（macOS 專屬），`reviewed_pr_numbers` 共 17 筆、issue 水位 8161；#7771 的新症狀（`ocx service restart` 在舊行程存活時仍報成功）判延後並寫明觸發條件。strict 仍因 254 筆未審 commit（`88aaa754..cab7eb7d0`，即上游 v2.97.0）exit 1，`Upstream check` workflow 只有在 stable 整合列推進 `reviewed_through` 後才會轉綠；產品整合仍停在 v2.93.0。判定見 `docs/fork/UPSTREAM.md` 與 `DECISIONS.md` 2026-11-04 條目。
-獨立整合區段（2026-11-03）：`42549ba1b` 的 Runcrate 目錄資料與英／繁中說明已採用；`f94e95ce5` 的 structural tool turns 判 defer，須補完整 diff 與安全邊界審查。產品整合 tag 與 commit scalar 水位保持原值，整版 stable 驗收尚未達標。
+獨立整合區段（2026-11-03）：`42549ba1b` 的 Runcrate 目錄資料與英／繁中說明已採用；`f94e95ce5` 的 structural tool turns 已於 2026-11-05 整筆重放（預設關閉的 opt-in 功能，逐檔判定見 `DECISIONS.md`）。產品整合 tag 與 commit scalar 水位保持原值，整版 stable 驗收尚未達標。
 安全告警：2026-10-31 查 Dependabot 0（#10、#11、#12 已由 `f314d92c5` 修復並關閉）。2026-11-04 CodeQL 新增的 #602、#603（`js/file-system-race`）逐筆判 false positive 並 dismiss，查 `code-scanning/alerts?state=open` 為 0；判定與理由見 `docs/fork/DECISIONS.md` 2026-11-04 條目。
 
 分類清冊（2026-11-03；fork 基準 `d8b305993`，上游 tag `684ad75d2`）：205 筆僅完成分類盤點；樣板理由已改標「只分類、未審」。reviewed 水位為 `88aaa754`（2026-10-28），產品 integrated 為 v2.93.0；完整 stable 整合與逐筆 fork 證據仍有缺口。
@@ -28,7 +28,7 @@ PR 追蹤（2026-11-03；fork 基準 `13e0f0e453fb`）：以 `reviewed_pr_closed
 | 項目 | 為什麼 | 驗收方式 | 建議執行者 | 證據 |
 | --- | --- | --- | --- | --- |
 | 查明夜間 `Cross-platform CI` 的 Windows shard 紅燈 | 已完成本機分類與測試修正：shard 2 的 job 名單過期、shard 7 的故障注入過期；`stall-timeout` 全過；shard 9 的 npm 測試在 10-30、11-03 兩次 schedule 因固定 15s／30s 逾時失敗（已改用 `COLD_SPAWN_BUDGET_MS`，待遠端驗收；run 41354967821 的 shard 9 綠燈只是單次未卡住，不算修好）。push 不跑 Windows shards（`.github/workflows/ci.yml:577-578`），不能作為對照綠燈 | 逐項分類與本機修正已完成；以修正後 schedule 的九個 Windows shards 與 aggregate `ci` success，達標才刪列 | 維護者 | `docs/fork/DECISIONS.md` 2026-11-02 條目；`REVIEW.md` 本機證據；run 41354967821 |
-| 整合上游下一個 stable 版（`v2.93.0` 之後）：逐筆 fork 審查與重放 | 分類盤點尚缺 fork 檔案:行號與觸發條件，產品基底為 v2.93.0 | ① `f94e95ce5` durable principal／HMAC scope／ingress：讀完整 diff，對照 fork 檔案:行號與觸發條件逐筆判定，安全邊界逐檔記錄並補聚焦回歸；MSIX coordinator 測試須於非虛擬化 Windows 終端複驗。全版 tag diff 與 Windows-only 重放驗收後才推 integrated，逐筆證據完整的連續前綴才推 reviewed | Codex | `docs/fork/UPSTREAM.md` 205 筆分類清冊；`REVIEW.md` 2026-11-03 精度／路徑驗收 |
+| 整合上游下一個 stable 版（`v2.93.0` 之後）：逐筆 fork 審查與重放 | 分類盤點尚缺 fork 檔案:行號與觸發條件，產品基底為 v2.93.0 | `f94e95ce5` 已於 2026-11-05 整筆重放並逐檔判定（`docs/fork/UPSTREAM.md`、`DECISIONS.md` 同日節），本列不再追蹤。剩餘：MSIX coordinator 測試須於非虛擬化 Windows 終端複驗；`d9e0c057881`（additional_tools，依賴 `f94e95ce5` 的工具回放）等其餘 defer 項需逐筆決定。全版 tag diff 與 Windows-only 重放驗收後才推 integrated，逐筆證據完整的連續前綴才推 reviewed | Codex | `docs/fork/UPSTREAM.md` 205 筆分類清冊；`REVIEW.md` 2026-11-03 精度／路徑驗收 |
 
 ## 中期：等條件成立再做
 

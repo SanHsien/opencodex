@@ -80,6 +80,15 @@ export const SPAWN_BUDGET_MS = 45_000;
  */
 export const COLD_SPAWN_BUDGET_MS = process.platform === "win32" ? 90_000 : SPAWN_BUDGET_MS;
 
+/**
+ * Runs the real npm CLI once (offline, isolated config). npm's own cold start on a Windows CI
+ * runner stalled past the old fixed 15s/30s limits on the 2026-10-30 and 2026-11-03 schedule
+ * runs; no assertion depends on the budget, it only decides when a stalled npm counts as a
+ * failure. Pass it as the test timeout and spawn with `NPM_SPAWN_BUDGET_MS - 5_000`, so the
+ * spawn's own timeout fires and is reported before the test runner kills the test.
+ */
+export const NPM_SPAWN_BUDGET_MS = process.platform === "win32" ? 90_000 : SPAWN_BUDGET_MS;
+
 /** Binds a real server or opens a real socket, including restart-and-reconnect flows. */
 export const SERVER_BUDGET_MS = 30_000;
 

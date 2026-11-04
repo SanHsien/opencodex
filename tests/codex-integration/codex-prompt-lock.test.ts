@@ -430,7 +430,7 @@ describe("owner evidence and namespace guards", () => {
     const path = lockPath(); writeFileSync(path, JSON.stringify(record()));
     const fs = require("node:fs") as typeof import("node:fs");
     assertUnsafe(path, { ...deps, lstat: p => {
-      const stat = fs.lstatSync(p);
+      const stat = fs.lstatSync(p, { bigint: true });
       if (p === path) Object.defineProperty(stat, "uid", { value: (process.getuid?.() ?? 0) + 1 });
       return stat;
     } });
@@ -457,7 +457,7 @@ describe("owner evidence and namespace guards", () => {
     const body = JSON.stringify({ ...record(), ticket: 1 }); writeFileSync(entry, body);
     const foreign = kind === "directory" ? dir : entry;
     const injected = { ...ownerDefaults, ...deps, lstat: (p: string) => {
-      const stat = fs.lstatSync(p);
+      const stat = fs.lstatSync(p, { bigint: true });
       if (p === foreign) Object.defineProperty(stat, "uid", { value: (process.getuid?.() ?? 0) + 1 });
       return stat;
     } };

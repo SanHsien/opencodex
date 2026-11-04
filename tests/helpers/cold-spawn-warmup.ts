@@ -248,6 +248,7 @@ async function runModuleGraphWarmup(options: ColdSpawnWarmup, deadlineMs: number
     throw new Error(
       `[cold-spawn-warmup] graph=${options.graph} loaded nothing in ${elapsedMs}ms `
       + `(exitCode=${String(result.exitCode)}, specifiers=${specifiers.length}). `
+      + `failures: ${report === undefined ? "no report" : JSON.stringify(report.failures).slice(0, 1200)}. `
       + `stderr: ${result.stderr.trim().slice(0, 600)}`,
     );
   }

@@ -38,6 +38,14 @@
 
 **處置**：#602、#603 以 `false positive` dismiss，理由（含檔案：行號）寫在 GitHub 的 dismiss 說明（上限 280 字元）。查詢 `code-scanning/alerts?state=open` 回到 0 筆。
 
+## 2026-11-04：CodeQL #604（`js/insufficient-password-hash`）判 false positive
+
+**位置**：`src/adapters/client-fingerprint.ts:70`（告警建立於 `107bb8066` 時為 `:40`），`claudeCodeSessionId` 內的 `createHash("sha256")`。
+
+**判定理由**：輸入是 `claude-code-session:<token>[:conv:<key>]`，`<token>` 為高熵的 API key 或 OAuth 綁定值，不是人選的密碼。輸出只被改寫成 UUIDv4 形狀放進 `X-Claude-Code-Session-Id` header（`:66-75`；沒有 token 時退回固定字串 `opencodex-anon`，不涉及秘密），讓並行對話拿到不同但可重現的 id；不儲存、不拿來驗證任何憑證。CodeQL 規則防的是「可猜的密碼被快速雜湊後遭字典攻擊」，對高熵 token 換成慢速 KDF 不增加保護，只增加每個請求的延遲。
+
+**處置**：以 `false positive` dismiss，理由寫在 GitHub 的 dismiss 說明。不改產品碼。
+
 ## 2026-11-04：上游 tag 放 `refs/upstream-tags/`，不進本機 `refs/tags/`
 
 **問題**：`tests/ci-workflows/release-version-line.test.ts` 讀本機 `git tag --list 'v*'`，要求 `package.json` 版本不落後最高 release tag。`UPSTREAM.md` 的同步流程用 `git fetch upstream --tags` 把上游 tag 拉進本機 tag 命名空間；本機有上游 `v2.94.0`～`v2.96.0` 時，`package.json` 還在 `2.94.0`，測試報 `package.json version 2.94.0 is BEHIND the highest release tag v2.96.0`。CI 不抓上游 tag 所以綠，本機紅。上游每次發版都會重現。

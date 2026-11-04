@@ -256,7 +256,7 @@ test("a peer released between directory scan and evidence capture is not unsafe"
   let reads = 0;
   const acquired = tryAcquire(path, { ...deps, lstat: p => {
     if (p === peer && ++reads === 2) fs.unlinkSync(peer);
-    return fs.lstatSync(p);
+    return fs.lstatSync(p, { bigint: true });
   } });
   expect(acquired.ok).toBe(true);
   if (acquired.ok) expect(release(acquired.handle)).toBe(true);

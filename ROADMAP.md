@@ -25,7 +25,7 @@ PR 追蹤（2026-11-03；fork 基準 `13e0f0e453fb`）：以 `reviewed_pr_closed
 
 | 項目 | 為什麼 | 驗收方式 | 建議執行者 | 證據 |
 | --- | --- | --- | --- | --- |
-| 查明夜間 `Cross-platform CI` 的 Windows shard 紅燈 | 已完成本機分類與測試修正：shard 2 的 job 名單過期、shard 7 的故障注入過期；`stall-timeout` 全過；shard 9 是 npm 子程序逾時，後續 schedule 已綠。push 不跑完整 Windows shards，不能作為對照綠燈 | 逐項分類與本機修正已完成；以修正後 schedule 的九個 Windows shards 與 aggregate `ci` success，達標才刪列 | 維護者 | `docs/fork/DECISIONS.md` 2026-11-02 條目；`REVIEW.md` 本機證據；run 41354967821 |
+| 查明夜間 `Cross-platform CI` 的 Windows shard 紅燈 | 已完成本機分類與測試修正：shard 2 的 job 名單過期、shard 7 的故障注入過期；`stall-timeout` 全過；shard 9 的 npm 測試在 10-30、11-03 兩次 schedule 因固定 15s／30s 逾時失敗（已改用 `COLD_SPAWN_BUDGET_MS`，待遠端驗收；run 41354967821 的 shard 9 綠燈只是單次未卡住，不算修好）。push 不跑 Windows shards（`.github/workflows/ci.yml:577-578`），不能作為對照綠燈 | 逐項分類與本機修正已完成；以修正後 schedule 的九個 Windows shards 與 aggregate `ci` success，達標才刪列 | 維護者 | `docs/fork/DECISIONS.md` 2026-11-02 條目；`REVIEW.md` 本機證據；run 41354967821 |
 | 整合上游下一個 stable 版（`v2.93.0` 之後）：逐筆 fork 審查與重放 | 分類盤點尚缺 fork 檔案:行號與觸發條件，產品基底為 v2.93.0 | 依序處理（2026-11-04 已完成 #8019 補審、`8eb970d9d`、`e04aae068`／`ba880dfae`／`007dbfd89` 多帳號 ID 隔離（含同日後補的 profile 對齊、JSON refresh、`version` 轉發），見 `docs/fork/UPSTREAM.md` 同日節；`MSIX` 虛擬化使 coordinator 相關測試在 Claude 桌面內無法原生執行，需在非虛擬化 Windows 終端複驗）：① `67bdeb03a` canonical forward 的 safety_identifier 400 ② #7810 fixture `fb22d055e`、#7808 路徑 `07161c5b9` ③ ACL memo `c7f3928a2` ④ EOF／CR 配套 `d42b9b1b2` ⑤ `f94e95ce5` durable principal／HMAC scope／ingress；每筆完整 diff、fork 證據與聚焦測試，安全邊界逐檔判定；全版 tag diff 與 Windows-only 重放驗收後才推 integrated，逐筆證據完整的連續前綴才推 reviewed | Codex | `docs/fork/UPSTREAM.md` 205 筆分類清冊；`REVIEW.md` 2026-11-03 精度／路徑驗收 |
 
 ## 中期：等條件成立再做

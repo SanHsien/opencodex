@@ -8,6 +8,7 @@ import { delimiter, dirname, join } from "node:path";
 import { npmInvocation } from "../../src/update/npm-invocation.mjs";
 
 import { scanCodexAppServerProcesses } from "../../src/codex/app-server-processes";
+import { NPM_SPAWN_BUDGET_MS } from "../helpers/test-budget";
 import {
   inspectCodexCliInstall,
   type CodexCliInstallProvenanceDeps,
@@ -816,7 +817,7 @@ describe("registry configuration isolation", () => {
             : [...args, "--version", "--offline"];
           for (const key of Object.keys(env)) if (key.toLowerCase() === "node_disable_compile_cache") delete env[key];
           const result = spawnSync(bin, probeArgs, { ...options, env,
-            timeout: 15_000, windowsHide: true, encoding: "utf8" });
+            timeout: NPM_SPAWN_BUDGET_MS - 5_000, windowsHide: true, encoding: "utf8" });
           expect(result.error).toBeUndefined(); expect(result.status, result.stderr).toBe(0);
           expect(result.stdout.trim()).toMatch(/^\d+\.\d+\.\d+/);
           observedCache = env.NODE_COMPILE_CACHE;
@@ -836,7 +837,7 @@ describe("registry configuration isolation", () => {
       else process.env.NODE_COMPILE_CACHE = previous;
       rmSync(root, { recursive: true });
     }
-  });
+  }, NPM_SPAWN_BUDGET_MS);
 
   test.skipIf(process.platform === "win32")("real npm accepts both isolated config paths without any registry access", () => {
     // POSIX uses a flat argv. Windows planning remains deferred; its quoted command
@@ -896,7 +897,7 @@ describe("registry configuration isolation", () => {
         const field = queriedField(call);
         if (realRan) return { status: 0, stdout: RESOLVE_OUTPUTS[field as keyof typeof RESOLVE_OUTPUTS] ?? "", stderr: "" };
         const env = { ...(options.env as NodeJS.ProcessEnv), HOME: fakeHome, USERPROFILE: fakeHome, npm_config_offline: "true" };
-        const result = spawnSync(bin, args, { ...options, env, timeout: 30_000, windowsHide: true, encoding: "utf8" });
+        const result = spawnSync(bin, args, { ...options, env, timeout: NPM_SPAWN_BUDGET_MS - 5_000, windowsHide: true, encoding: "utf8" });
         realRan = true;
         // A spawn that never started (ENOENT, timeout kill) proves nothing; require
         // a real process exit so the residue assertions actually bound npm's writes.
@@ -921,5 +922,5 @@ describe("registry configuration isolation", () => {
     } finally {
       rmSync(fakeHome, { recursive: true, force: true });
     }
-  });
+  }, NPM_SPAWN_BUDGET_MS);
 });

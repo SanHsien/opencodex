@@ -107,6 +107,35 @@ function makeFixture({ includeExec = false, includeLegacy = false } = {}) {
 }
 
 describe("Codex history provider sync", () => {
+  test("descriptor guard rejects a rollout whose file ID changes by one above numeric precision", () => {
+    const fixture = makeFixture();
+    noopSnapshotArtifacts.add(join(fixture.dbPath, ".."));
+    const id = 9_007_199_254_740_992n;
+    const realLstat = fs.lstatSync, realFstat = fs.fstatSync, realOpen = fs.openSync, realClose = fs.closeSync;
+    let armed = false;
+    const rolloutFds = new Set<number>();
+    const open = spyOn(fs, "openSync").mockImplementation(((path, flags, mode) => {
+      const fd = realOpen(path, flags, mode);
+      if (path === fixture.rollout) rolloutFds.add(fd);
+      return fd;
+    }) as typeof fs.openSync);
+    const close = spyOn(fs, "closeSync").mockImplementation((fd => { rolloutFds.delete(fd); realClose(fd); }) as typeof fs.closeSync);
+    const lstat = spyOn(fs, "lstatSync").mockImplementation(((path, options) => {
+      const stat = options?.bigint ? realLstat(path, { bigint: true }) : realLstat(path);
+      return path === fixture.rollout && armed ? Object.assign(Object.create(Object.getPrototypeOf(stat)), stat,
+        { ino: options?.bigint ? id : Number(id) }) : stat;
+    }) as typeof fs.lstatSync);
+    const fstat = spyOn(fs, "fstatSync").mockImplementation(((fd, options) => {
+      const stat = options?.bigint ? realFstat(fd, { bigint: true }) : realFstat(fd);
+      return armed && rolloutFds.has(fd) ? Object.assign(Object.create(Object.getPrototypeOf(stat)), stat,
+        { ino: options?.bigint ? id + 1n : Number(id + 1n) }) : stat;
+    }) as typeof fs.fstatSync);
+    setHistoryAppendHooksForTests({ beforeWrite: () => { armed = true; } });
+    try {
+      expect(syncCodexHistoryProvider("opencodex", fixture.dbPath, fixture.backupPath))
+        .toMatchObject({ failed: true, integrityCode: "history_rollout_identity_changed" });
+    } finally { close.mockRestore(); open.mockRestore(); fstat.mockRestore(); lstat.mockRestore(); }
+  });
   test.each(["{broken", "null", "[]", "42", '"text"'])("invalid first record %s is a structured integrity failure", (first) => {
     const fixture = makeFixture();
     noopSnapshotArtifacts.add(join(fixture.dbPath,".."));
@@ -1307,6 +1336,24 @@ describe("history lock retry", () => {
 });
 
 describe("Design B migration helpers", () => {
+  test("no-op snapshot rejects a database whose file ID changes by one above numeric precision", () => {
+    const fixture = makeFixture();
+    const backup = historyBackupPathFor(fixture.dbPath);
+    noopSnapshotArtifacts.add(join(fixture.dbPath, ".."));
+    noopSnapshotArtifacts.add(backup);
+    const id = 9_007_199_254_740_992n;
+    const real = fs.statSync;
+    let replaced = false;
+    const stat = spyOn(fs, "statSync").mockImplementation(((path, options) => {
+      const result = options?.bigint ? real(path, { bigint: true }) : real(path);
+      const ino = id + (replaced ? 1n : 0n);
+      return path === fixture.dbPath ? Object.assign(Object.create(Object.getPrototypeOf(result)), result,
+        { ino: options?.bigint ? ino : Number(ino) }) : result;
+    }) as typeof fs.statSync);
+    setAfterNoopPendingCountForTests(() => { replaced = true; });
+    try { expect(snapshotCodexHistoryNoop(fixture.dbPath, backup)).toMatchObject({ kind: "unknown", reason: "snapshot-race" }); }
+    finally { setAfterNoopPendingCountForTests(undefined); stat.mockRestore(); }
+  });
   test("strict no-op snapshots distinguish absence from manifest uncertainty", () => {
     const dir = join(tmpdir(), `ocx-history-noop-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}`);
     mkdirSync(dir, { recursive: true });

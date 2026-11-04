@@ -8,7 +8,7 @@ import { removeTreeWithRetry } from "../helpers/remove-tree";
 
 // Exercise the Unix recovery algorithm on Windows too, using real files/hard links.
 // Only platform/ownership and timestamp observations are substituted, then restored.
-function recover(options: { evacuated?: boolean; strings?: boolean; change?: string } = {}) {
+function recover(options: { evacuated?: boolean; strings?: boolean; change?: string; previousRounding?: boolean } = {}) {
   const root = fs.mkdtempSync(join(tmpdir(), "ocx-migration-time-"));
   const original = join(root, "codex");
   const backup = `${original}.opencodex-real`;
@@ -22,7 +22,8 @@ function recover(options: { evacuated?: boolean; strings?: boolean; change?: str
   const realLstat = fs.lstatSync;
   const realFstat = fs.fstatSync;
   const ns = 1700000000000001100n;
-  // The pre-bigint numeric stat conversion and the exact-stat helper round differently.
+  // The runtime's numeric stat conversion (statTimeMs) and the earlier Number(ns) / 1e6 helper round
+  // differently, so a journal written by a build that used the earlier helper can differ by one step.
   const legacyMs = Number(ns / 1000000000n) * 1000 + Number(ns % 1000000000n) / 1e6;
   const currentMs = Number(ns) / 1e6;
   expect(legacyMs).not.toBe(currentMs);
@@ -53,7 +54,7 @@ function recover(options: { evacuated?: boolean; strings?: boolean; change?: str
       const stat = fs.lstatSync(path);
       return { dev: options.strings ? String(stat.dev) : stat.dev,
         ino: options.strings ? String(stat.ino) : stat.ino,
-        mode: stat.mode, size: stat.size, mtimeMs: legacyMs };
+        mode: stat.mode, size: stat.size, mtimeMs: options.previousRounding ? currentMs : legacyMs };
     };
     const record = { original, backup, wrapper: identity(original), saved: identity(backup) };
     switch (options.change) {
@@ -106,4 +107,15 @@ for (const strings of [false, true]) {
 }
 for (const change of ["time", "submillisecond", "ino", "unsafe", "mode", "size", "link", "invalid"]) {
   test(`preserves recovery artifacts when ${change} differs beyond conversion rounding`, () => recover({ change }));
+}
+
+for (const evacuated of [false, true]) {
+  test(`resumes a journal written with the earlier bigint millisecond rounding (evacuated=${evacuated})`, () => {
+    recover({ previousRounding: true, evacuated });
+  });
+}
+for (const change of ["time", "submillisecond"]) {
+  test(`preserves recovery artifacts when an earlier-rounding journal also differs by ${change}`, () => {
+    recover({ previousRounding: true, change });
+  });
 }

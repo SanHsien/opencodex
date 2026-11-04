@@ -808,6 +808,21 @@ describe("install content binding", () => {
     expect(report.installContentDigest).toBeNull();
   });
 
+  test("an observed identity that numeric precision cannot represent never counts as unchanged", async () => {
+    // The injected stat seam is numeric; 2^53 has adjacent file IDs that collide as a Number, so
+    // two identical-looking observations prove nothing. The largest exactly representable ID still binds.
+    const digestFor = async (ino: number) => {
+      const fs = virtualManagedNpmGlobal();
+      const stat = fs.stat;
+      return (await inspectCodexCliInstall(virtualInspectionDeps(fs, {
+        observeInstallContent: true,
+        stat: (path: string) => path === VIRTUAL_BACKING_BINARY ? { ...(stat(path) as object), ino } : stat(path),
+      }))).installContentDigest;
+    };
+    expect(await digestFor(Number.MAX_SAFE_INTEGER)).toMatch(/^[0-9a-f]{64}$/);
+    expect(await digestFor(Number.MAX_SAFE_INTEGER + 1)).toBeNull();
+  });
+
   test("the package-vendor fallback binds when no resolve hit exists and globals are fully probed", async () => {
     const fs = virtualPosixFs({
       [VIRTUAL_LAUNCHER]: { link: VIRTUAL_ENTRYPOINT },

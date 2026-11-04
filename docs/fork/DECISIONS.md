@@ -827,7 +827,7 @@ Windows catalog 實體 file symlink 測試在能力探測遇 EPERM 時 skip；�
 
 ## 2026-11-03：bigint identity 的持久化相容性
 
-決定在 `src/codex/shim-migration.ts` 的持久化 journal 比對容許時間轉換捨入差，不變更共用 `identityStats()` 的時間來源，也不額外以 pathname 做第二次 numeric stat。容差為 `min(0.001 ms, Number.EPSILON * max(abs(left), abs(right)))`，只接受有限數字；同一執行中的 journal 檢查與復原後檢查仍用嚴格時間相等。dev／ino 必須精確相等，mode、size 與 symlink target 必須完全相同。這讓舊版 numeric stat 記錄的中斷遷移可在 bigint 版續做，同時拒絕 0.01ms 或更大的時間差與其他 metadata／身分變更。
+決定在 `src/codex/shim-migration.ts` 的持久化 journal 比對容許時間轉換捨入差，不變更共用 `identityStats()` 的時間來源，也不額外以 pathname 做第二次 numeric stat。容差為 `min(0.001 ms, Number.EPSILON * max(abs(left), abs(right)))`，只接受有限數字；同一執行中的 journal 檢查與復原後檢查仍用嚴格時間相等。dev／ino 必須精確相等，mode、size 與 symlink target 必須完全相同。這讓舊版 numeric stat 記錄的中斷遷移可在 bigint 版續做，同時拒絕 0.01ms 或更大的時間差與其他 metadata／身分變更。（2026-11-04 已由「2026-11-04：#8019 identity 補審與 native Messages stream 提前結束」決定一取代：`identityStats()` 改用 `statTimeMs`；shim-migration 的持久化容差保留。）
 
 持久化 dev／ino 的十進位字串保留完整身分；新版只接受精確字串或安全範圍內的舊整數，不猜測已捨入的大整數。降版不相容是刻意保留的 fail-closed 邊界：舊版可能因字串形狀或嚴格數字比較拒絕新版 journal／overlay／其他所有權紀錄。降版前先以新版完成中斷遷移／復原；不要把字串強轉 Number、刪除復原證據或放寬 inode 比對來繞過拒絕。
 
@@ -841,3 +841,15 @@ Windows catalog 實體 file symlink 測試在能力探測遇 EPERM 時 skip；�
 
 **與上游的差異**：這是 fork 對上游 `docs-site/package.json` 的一行差異。移除條件為上游（或 astro）的鎖定解析到 sharp `>= 0.35.5`，屆時可還原成上游寫法。
 **重新評估條件**：sharp 發布新的安全公告，或 docs-site 開始處理不受信任的 SVG 輸入（目前只在建置時處理 repo 內的圖片）。
+
+## 2026-11-04：#8019 identity 補審與 native Messages stream 提前結束
+
+**決定一（採用 `statTimeMs`，取代 2026-11-03「不變更 `identityStats()` 時間來源」）**：`src/lib/file-identity.ts` 新增 `statTimeMs(ns)`（整秒×1e3＋奈秒餘數／1e6，即 runtime 數字 stat 的公式），`identityStats()` 與 `src/oauth/store.ts` 改用。理由是實測 `Number(ns)/1e6` 與數字 `mtimeMs` 在約四分之一的真實檔案上不等，持久化或數字觀察的比對因此失準。`src/codex/shim-migration.ts` 的持久化容差保留：舊版（以 `Number(ns)/1e6` 寫入）的 journal 仍可續做，並新增測試覆蓋。`structure/runtime.md` 同步。歷史索引的 `sourceMtimeMs` 只是顯示 metadata（`request-history-routes.ts`），不參與 freshness 比對，不受影響。重新評估條件：runtime 改變數字 stat 的毫秒公式。
+
+**決定二（`*Ms` 截斷）**：`BigIntStats` 的 `*Ms` 是截斷毫秒；`codex-home-owner.ts`、`lib/bounded-file-read.ts`、`adapters/codebuddy/mcp-server.ts` 的讀取穩定性檢查改比 `*Ns`，避免同一毫秒內同大小的改寫漏檢。`state-lock.ts`／`ownership-mutation-lease.mjs` 的 `*Ms` 只做 stale 年齡判斷，不改。
+
+**決定三（不重放的部分）**：`cli-update-artifacts.ts`、`shim-wrapper-write.ts`（皆屬 #7586／#7648 updater 鏈，defer）；上游注入 stat 縫改 bigint 與 `ShimPathFingerprint.identity` 欄位（fork 設計不同、正式路徑已等價）；guard 測試 declarationBody 修正。觸發條件：updater 鏈整合時一併重放並重評注入縫。
+
+**決定四（`8eb970d9d` 採用）**：native Messages stream 在 clean EOF 但沒有 terminal 時，不再記 200／補完成，改為失敗 turn（502、`api_error` frame、`streamAborted`）。這會讓過去被當成完成的半截回應對客戶端可見為錯誤，是刻意的行為變更；相容 provider 若省略 `message_stop`，只要最後一個完整 message event 帶非 error `stop_reason` 即仍算完成，`anthropicEofTolerance` provider 保留內容式 EOF。
+
+水位：`reviewed_through`、`reviewed_date`、`integrated_*`、PR、issue 全部保持原值；四筆審查不構成連續前綴。作者歸屬：四筆上游作者為 JUN，trailer 保留於採用提交訊息。

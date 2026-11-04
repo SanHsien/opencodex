@@ -1231,7 +1231,7 @@ Windows-only 刪除清單、英／繁中語系、官方 workflow guard、fork �
 均不重放。發版封裝六筆另外比對 promotion tree 與 frozen tip，再比 merge tree 與 promotion，
 三組 `git diff --shortstat` 都是空，故不把 merge 當作另一批產品修正。
 
-分類狀態合計（2026-11-03）：defer 55、只分類、未審 106、skip 42、adopt 1、部分採用；全域未審完 1；候選 skip／defer 不代表已完成 fork 等價審查。
+分類狀態合計（2026-11-04）：defer 52、只分類、未審 104、skip 42、adopt 1、已審：採用 6（含 2026-11-03 兩筆與本日四筆）；候選 skip／defer 不代表已完成 fork 等價審查。
 
 | Commit（主旨） | 類別 | 判定 | 一句理由 |
 | --- | --- | --- | --- |
@@ -1333,7 +1333,7 @@ Windows-only 刪除清單、英／繁中語系、官方 workflow guard、fork �
 | `06ec878822f21ad0497e9be202534efe8266d7ab` test(service): stabilize native recovery fixture compilation (#7930) | 測試／依賴功能 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
 | `386c3bbadba06e19f50124fce9373e212cb789d3` docs: lead with one local gateway for every coding tool (#7925) | 純 docs／文件登錄 | skip | 僅文件或其 layout／structure 登錄（`README.md`）；不重放上游多語系或以其驗收聲明取代 fork 證據。 |
 | `d2a3186d38978c072d678200c76b70514eeefe38` fix(gui): show provider connection and model tests on the served dashboard (#7922) | 需要採用的修正 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
-| `8eb970d9dcd63d119c9a9d20de4c18a27ca542c2` fix(claude): fail native Messages streams that end before message_stop (#7928) | 需要採用的修正 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
+| `8eb970d9dcd63d119c9a9d20de4c18a27ca542c2` fix(claude): fail native Messages streams that end before message_stop (#7928) | 需要採用的修正 | 已審：採用 | 完整 diff（8 檔）已審並重放。baseline `src/server/messages-shared.ts` 的 `tapAnthropicSseForLog` 在讀到 done 時無條件 `finalize(200)`（HEAD :218-224），上游 clean EOF 的半截 turn 被記成 200 且客戶端沒有 terminal；重放後 `:278-325` 依 terminalSeen／lastDeliveredStop／tailClean／`eofTolerant` 判定，其餘記 502＋`api_error` frame。`src/server/messages-native.ts:881-884` 帶入 `anthropicEofTolerance`；`src/claude/outbound.ts` 的 non-stream fold 改為 CRLF／CR 正規化與 data-only frame 命名。`tests/claude-integration/messages-native-clean-eof.test.ts` 先紅（27 fail）後綠（104 pass）。細節見下方 2026-11-04 節。 |
 | `9c33e4658b7b180ec8dd20f0e6a21daf3699f76e` ci(macos): split suite across four weighted shards (#7926) | CI／非 Windows 測試 | skip | macOS 四分片屬 fork 明確移除的 CI 功能面，不重放 workflow 或 runner。 |
 | `da721e33a30a46c12a5e2f1414fb1b6b842c6c1e` docs: record runtime-verified client results on the support page (#7927) | 純 docs／文件登錄 | skip | 僅文件或其 layout／structure 登錄（`docs-site/src/content/docs/fr/reference/client-support.md`）；不重放上游多語系或以其驗收聲明取代 fork 證據。 |
 | `dc75a3e5115ad4be10a33617600c93c8fcdfe7c5` fix(cursor): parse model variants without delimiter backtracking (#7938) | 需要採用的修正 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
@@ -1416,10 +1416,10 @@ Windows-only 刪除清單、英／繁中語系、官方 workflow guard、fork �
 | `8e58c9683d7d1e0fd2dbb3604cf05dca62b02b99` test(cli): name the pinned-port holder when a sibling misses its deadline (#8003) | 純測試 | skip | 僅調整 `tests/cli/cli-start-journal-order.test.ts` 等測試 fixture／斷言／預算；產品不變，保留 fork 現有回歸，不整批覆蓋測試。 |
 | `3cab4a74e4eec15ee5ff3bdd59dcab8ede938372` test(anthropic): await the admitted provider quota cache write (#8004) | 需要採用的修正 | defer | 標題為 test 但改 account-quota-disk.ts，依賴 19ab11394 的 admitted write 合約。 |
 | `c34d26ff2bde9516517fe7fd58c2bcda70ca5e03` test(claude): report the hardened local-CA ACL in the first-party apply suite (#8016) | 純測試 | skip | 僅調整 `tests/claude-integration/claude-desktop-first-party.test.ts` 等測試 fixture／斷言／預算；產品不變，保留 fork 現有回歸，不整批覆蓋測試。 |
-| `86b72a689c21b97b0a425303e64b54ccceeb530a` fix: compare file identity with bigint stat (#8019) | Windows identity 精度修正 | 部分採用；全域驗收未完成 | fork 全域 bigint identity 擴展至 Codex catalog／workspace／CLI／Lab；以共用 file-identity helper 比對、格式化與保存精確 ID。逐檔比對點、Node standalone 邊界、metadata 例外及聚焦回歸見 REVIEW.md「全域 file identity」。Windows coordinator 原始實作亦被判 path is redirected，受影響測試未全綠，故不宣稱整筆完成；其他 commit 與 scalar 水位保持。 |
-| `6c86d0fad2e1690358bf1adbe5e3687f9cc28bc8` fix: compare Codex and remote workspace file identity with bigint stat (#8023) | 依賴／跨模組大功能 | defer | 依賴 86b72a689 的 bigint helper，Codex／workspace identity 防線須成組審查。 |
+| `86b72a689c21b97b0a425303e64b54ccceeb530a` fix: compare file identity with bigint stat (#8019) | Windows identity 精度修正 | 已審：採用（identity 範圍） | fork 全域 bigint identity（86 個 caller）沿用，2026-11-04 補審見下節：後續 `6c86d0fad`／`51030653f` 的 identity 部分在 fork 有等價實作並補上缺的 adjacent-ID 行為測試；發現並修正 3 處 bigint `*Ms` 截斷到毫秒的穩定性比對（改比 `*Ns`）。先前記為 coordinator 的 path is redirected 紅燈，根因是本機 Claude 桌面 MSIX 對 `%LOCALAPPDATA%\OpenCodex` 的虛擬化，不是 identity 缺陷。完整產品套件未跑，不宣稱全套綠燈。 |
+| `6c86d0fad2e1690358bf1adbe5e3687f9cc28bc8` fix: compare Codex and remote workspace file identity with bigint stat (#8023) | 依賴／跨模組大功能 | 已審：採用（部分重放） | 29 檔完整 diff 已審：identity 比對在 fork 皆有等價（見下節逐檔表）；採用 `statTimeMs` 精確毫秒公式（`src/lib/file-identity.ts:46,58`、`src/oauth/store.ts:436`）並移植 adjacent-ID 行為測試。`shim-wrapper-write.ts` 不存在（屬 c655484d9 鏈，延後）、`ShimPathFingerprint.identity` 欄位與 guard 的 declarationBody 修正不適用於 fork 設計。 |
 | `c618c77b1e81aa8952422e2d3657439ed6d5f8fe` test: select injected stat targets by canonical path (#8029) | 測試／依賴功能 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
-| `51030653fcf95e83c491388ec3eb5f0fbc613198` fix: compare CLI install and update artifact identity with bigint stat (#8031) | 依賴／跨模組大功能 | defer | 依賴 86b72a689 與 Windows updater 鏈，install／artifact 身分比對不可孤立重放。 |
+| `51030653fcf95e83c491388ec3eb5f0fbc613198` fix: compare CLI install and update artifact identity with bigint stat (#8031) | 依賴／跨模組大功能 | 已審：採用（等價）；artifact 檔不適用 | `cli-install-provenance.ts` 的正式讀取路徑在 fork 已用 bigint helper（`:513-531`、`:875-888`），無需改碼。`src/codex/cli-update-artifacts.ts` 在 baseline 不存在（#7586 `4118b90ba`，defer），該檔 hunk 與 `codex-cli-update-artifacts` 測試待該鏈整合時一併重放。注入 stat 縫（僅測試用）維持數字，fork 以 fail-closed 測試釘住。 |
 | `c68885b5f16a2a36d8eaa9877ffcae7235128c1b` test: give the Windows apply x64 fixture compile the shared spawn budget (#8032) | 測試／依賴功能 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
 | `63de499e1add6bd05e3baaeecd16402fa65d0095` chore(release): open dev at 2.96.0 before releasing 2.95.0 (#8033) | 純版本號 | skip | 只推進上游 package／Cargo／Tauri 版本；未整合整版產品，不宣稱 fork 已升至該版本。 |
 | `eb6f1e52c1bbe9229499459b4dc357793d82f0c1` feat(messaging): add opt-in MCP tools for stored Codex queues (#7999) | 依賴／跨模組大功能 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
@@ -1459,3 +1459,47 @@ Windows-only 刪除清單、英／繁中語系、官方 workflow guard、fork �
 驗證：兩筆各自紅燈 exit 1；套用後五檔 113 pass／0 fail，相關 31 檔 477 pass／0 fail。完整命令與 gate 結果見 `REVIEW.md` 的同日獨立修正段。Windows-only 與隱私防線另由 fork gate／privacy scan 驗證。
 
 這兩筆不構成從 `88aaa754` 起的連續已審前綴；`reviewed_through`、`reviewed_date`、`integrated_through`、`integrated_tag` 全部保持原值，完整 stable 整合列保留在 `ROADMAP.md`。作者與 co-author 以 `git show -s --format='%an <%ae>%n%(trailers)' <sha>` 原始 metadata 為準；整合提交須保留相應作者歸屬。
+
+## 2026-11-04：#8019 全域 identity 補審與 Messages stream 提前結束
+
+fork 基準 `14964e312`。以 `git show` 讀 `86b72a689`／`6c86d0fad`／`51030653f`／`8eb970d9d` 全部 diff（含測試）。逐筆游標到 `8eb970d9d`；**不是連續已審前綴**（清冊其餘仍為未審／defer），
+`reviewed_through`／`reviewed_date`／`integrated_*`／PR／issue 水位全部保持。
+
+### `6c86d0fad`（#8023）與 `51030653f`（#8031）：fork 檔案:行號對照
+
+fork 的設計與上游不同：共用 `identityStats()`（`src/lib/file-identity.ts:52-61`）回傳數字 metadata＋同一次 bigint 觀察的 exact dev／ino，所有 caller 經 `sameFileIdentity()`／`fileIdentityKey()` 比對。逐檔判定：
+
+| 上游檔案 | fork 證據 | 判定 |
+| --- | --- | --- |
+| codex-home-owner | `src/codex/codex-home-owner.ts:60-74` bigint＋`sameFileIdentity` | 等價；`:74` 原比 bigint `*Ms`（截斷毫秒）已改 `*Ns` |
+| coordinator-doctor | `src/codex/coordinator-doctor.ts:69,76,117` | 等價 |
+| history-provider | `src/codex/history-provider.ts:299-300,384-387,747` | 等價 |
+| bounded-config-reader | `src/codex/inject/bounded-config-reader.ts:25,41-42,55-60` | 等價 |
+| main-account | `src/codex/main-account.ts:177,287` | 等價 |
+| native-main-lock-file | `src/codex/native-main-lock-file.ts:71,87-91,114` | 等價 |
+| native-residue | `src/codex/native-residue.ts:103,127,149,500-504,594` | 等價 |
+| orca-auth-source | `src/codex/orca-auth-source.ts:29-49` | 等價 |
+| shim-fingerprint／shim-inspect／shim-restore-lock | fingerprint 直接持 bigint dev／ino；`src/codex/shim-inspect.ts:115,155`；`src/codex/shim-restore-lock.ts` 以 `sameFileIdentity(identity, current.fingerprint)` | 等價（不採上游 `identity` 欄位） |
+| shim-state-file | 委由 `src/lib/bounded-file-read.ts:82-114`；`:114` 原比 bigint `*Ms`，已改 `*Ns` | 等價＋修正 |
+| shim-wrapper-write | 檔案不存在（c655484d9 鏈）；fork 在 `src/codex/shim.ts:366-440` 有 bigint 等價（私有函式） | 不適用，鏈整合時再看 |
+| transition-state | `src/codex/transition-state.ts:528-552` `fileIdentityKey` | 等價 |
+| oauth/store | `src/oauth/store.ts:436` 改用 `statTimeMs` | 採用 |
+| workspace-executor | `src/remote-control/workspace-executor.ts:174-180,220-223,260` | 等價 |
+| state-lock | `src/service/state-lock.ts:81,99-130`；`:134` 的 `Number(bigint mtimeMs)` 只供 stale 年齡判斷 | 等價（上游僅換 ms 公式，無安全差異） |
+| file-identity `statTimeMs` | fork `identityStats` 原用 `Number(ns)/1e6`；實測 400 個 utimes 檔 103 個與數字 stat 的 `mtimeMs` 不等，公式 `statTimeMs` 0 個不等 | **採用**（`src/lib/file-identity.ts:46,58`） |
+| `cli-install-provenance.ts`（#8031） | 正式路徑 `src/codex/cli-install-provenance.ts:513-531,875-888` 用 helper；注入縫 `:549,810-830` 為數字，`sameFileIdentity` 對不安全整數 fail closed | 等價；不改注入縫 |
+| `cli-update-artifacts.ts`（#8031） | baseline 無此檔（4118b90ba 在 v2.93.0 之後、v2.96.0 之內，defer） | 不適用；觸發條件：#7586／#7596／#7626／#7648 鏈整合 |
+| guard 測試 declarationBody 修正 | fork 的 `scopes` 無物件型別回傳的宣告；全檔 guard 另有 `identityCallers` | 不適用 |
+
+fork 自己的發現（上游沒有）：`codex-home-owner.ts:74`、`bounded-file-read.ts:114`、`adapters/codebuddy/mcp-server.ts:74-75` 對 `BigIntStats` 比 `*Ms`（bigint，截斷到毫秒），讀取穩定性檢查的時間粒度比原本的數字 stat 粗；改比 `*Ns`。codebuddy 為獨立子行程，無法 spy，僅靠 code review。
+
+測試：`tests/lib/file-identity.test.ts`（statTimeMs、journal／config／local file 的 adjacent-ID、次毫秒時間變動）、
+`codex-shim-windows-revision`（probe／state read／restore lock）、`codex-history-provider`（2）、`codex-main-account-refresh`、`codex-native-residue`、`native-main-owner-lifetime`、`remote-workspace`、
+`codex-coordinator-doctor`、`codex-transition-state`、`codex-cli-install-provenance`（注入縫 fail closed）、`codex-shim-migration-time`（舊毫秒捨入 journal 容差仍受測）。
+把 `sameFileIdentity`／`fileIdentityKey` 改成 `Number()` 比對的突變，會使 stable lock、main-account、residue、remote-workspace、shim 三案、coordinator、transition 等測試轉紅（history no-op snapshot 與 provenance 注入縫案例未做突變驗證）。coordinator／transition 兩個測試在本機因 MSIX 虛擬化無法原生執行，僅在暫時繞過路徑檢查（已還原）下驗證，詳見 `REVIEW.md`。
+
+### `8eb970d9d`（#7928）
+
+上游 diff 共 8 檔（src 3、structure 1、tests 3、layout 登錄 1）：其中 6 檔乾淨套用，2 個 layout 登錄（`layout-clients.json`、`test-layout-expected.json`；後者是測試側 fixture）因 fork 內容與上游不同，手動對應。
+安全邊界：記錄與計費的 200 只留給客戶端已收到 terminal（`message_stop`／upstream `error` event）或最後 message event 為非 error `stop_reason` 且沒有被截斷的尾端；其餘 clean EOF 與重置同等處理（502、`terminalStatus: failed`、`api_error` frame）。
+事件名與 payload `type` 必須一致才算證據；`anthropicEofTolerance` provider 保留內容式 EOF；done 讀取在 client abort 後算 499 cancel。

@@ -37,6 +37,16 @@ export function storedFileIdentity(id: FileIdentity): StoredFileIdentity {
   return { dev: String(id.dev), ino: String(id.ino) };
 }
 
+/**
+ * A bigint *Ns timestamp as the runtime's own numeric *Ms: whole seconds times 1e3 plus the
+ * nanosecond remainder over 1e6. Number(ns) / 1e6 rounds differently (about a quarter of real
+ * Windows mtimes differ), so a bigint observation would not compare equal to a numeric or
+ * persisted one for the same file.
+ */
+export function statTimeMs(ns: bigint): number {
+  return Number(ns / 1_000_000_000n) * 1e3 + Number(ns % 1_000_000_000n) / 1e6;
+}
+
 /** Preserve numeric metadata APIs while taking identity from the SAME bigint observation. */
 export type IdentityStats = Omit<Stats, "dev" | "ino"> & FileIdentity;
 export function identityStats(exact: BigIntStats): IdentityStats {
@@ -45,7 +55,7 @@ export function identityStats(exact: BigIntStats): IdentityStats {
   for (const key of ["mode", "nlink", "uid", "gid", "rdev", "size", "blksize", "blocks", "atimeMs", "mtimeMs", "ctimeMs", "birthtimeMs"] as const) {
     result[key] = Number(exact[key]);
   }
-  for (const key of ["atime", "mtime", "ctime", "birthtime"] as const) result[`${key}Ms`] = Number(exact[`${key}Ns`]) / 1e6;
+  for (const key of ["atime", "mtime", "ctime", "birthtime"] as const) result[`${key}Ms`] = statTimeMs(exact[`${key}Ns`]);
   return result;
 }
 export const statFileIdentity = (path: PathLike): IdentityStats => identityStats(statSync(path, { bigint: true }));

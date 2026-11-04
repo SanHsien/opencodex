@@ -27,7 +27,8 @@ function identity(path: string): Identity | null {
   }
 }
 function same(left: Identity | null, right: Identity | null, persisted = false): boolean {
-  // Numeric stat and Number(mtimeNs)/1e6 can differ by one rounding step.
+  // A journal written while the helper derived ms as Number(mtimeNs)/1e6 can differ from statTimeMs
+  // (the numeric stat's own value) by one rounding step.
   // Bound compatibility to floating-point error, never a whole millisecond.
   const sameTime = !!left && !!right && Number.isFinite(left.mtimeMs) && Number.isFinite(right.mtimeMs)
     && (left.mtimeMs === right.mtimeMs || (persisted

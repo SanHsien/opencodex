@@ -71,7 +71,7 @@ export function readCodexHomeJournal(journalPath: string): CodexHomeJournalInspe
     }
     const after = lstatSync(journalPath, { bigint: true });
     if (BigInt(length) !== opened.size || !after.isFile() || !sameFileIdentity(after, opened)
-      || after.size !== opened.size || after.mtimeMs !== opened.mtimeMs || after.ctimeMs !== opened.ctimeMs) return { kind: "unknown" };
+      || after.size !== opened.size || after.mtimeNs !== opened.mtimeNs || after.ctimeNs !== opened.ctimeNs) return { kind: "unknown" };
     const journal: unknown = JSON.parse(bytes.subarray(0, length).toString("utf8"));
     return validJournal(journal) ? { kind: "read", journal } : { kind: "unknown" };
   } catch (error) {

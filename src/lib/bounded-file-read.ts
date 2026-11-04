@@ -111,7 +111,7 @@ export function readBoundedRegularFile(path: string, maxBytes: number): BoundedF
     // Mode and owner are compared too (v2.88 hardening of the shim state reader): a chmod/chown
     // between the lexical stat, the open and the last byte is not a trustworthy read.
     if (!sameIdentity(before, after) || !hasTrustedIdentity(after) || before.size !== after.size
-      || before.mtimeMs !== after.mtimeMs || before.ctimeMs !== after.ctimeMs
+      || before.mtimeNs !== after.mtimeNs || before.ctimeNs !== after.ctimeNs
       || before.mode !== after.mode || before.uid !== after.uid
       || lexicalBefore.mode !== before.mode || lexicalBefore.uid !== before.uid
       || lexicalAfter.isSymbolicLink() || !lexicalAfter.isFile()

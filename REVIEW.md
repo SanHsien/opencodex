@@ -221,7 +221,7 @@ WINDOWS DEV CHECK GREEN
 107 筆樣板理由先撤銷審查狀態；其中 docs hint 改 skip，三筆已知分類錯誤更正。
 205 筆清冊的 SHA 以 `git log --reverse --topo-order --format=%H v2.93.0..v2.96.0`
 扣除既有四筆後，比對表格每列第一欄：順序完全相同、無重複、無缺漏；
-初次精度／路徑驗收快照的狀態為 skip 42、defer 55、只分類未審 106、adopt 1、部分採用 1。分類不等於已審查。
+初次精度／路徑驗收快照的狀態為 skip 42、defer 55、只分類未審 106、adopt 1、部分採用 1（2026-11-04 已改判，見文末同日段）。分類不等於已審查。
 
 紅綠回歸：
 
@@ -244,7 +244,7 @@ WINDOWS DEV CHECK GREEN
 安全邊界自審：bigint 直接來自 stat options，不從 Number 放大；POSIX mode／uid、bounded read、exclusive publication、已持有 descriptor 與釋放前的再次身分檢查保持。long-TEMP 只轉換 ACL 參數，原 memo key 與備份／digest／atomic rename 不變。
 
 初次驗收快照中，`86b72a689` 是部分採用：`rg -n '\.ino\b|\.dev\b|lstatSync|fstatSync' src` 仍能找到
-Codex／workspace／CLI／Lab 等需要逐點確認的數值 identity 觀察，包含上游後續 `6c86d0fad`／`51030653f` 範圍。
+Codex／workspace／CLI／Lab 等需要逐點確認的數值 identity 觀察，包含上游後續 `6c86d0fad`／`51030653f` 範圍（2026-11-04 已補審，見文末同日段）。
 不能把指定三個憑證點與上游初始 patch 的修正稱作全 repo identity 驗收完成。
 `95cfa30ec` 已採用並有紅綠證據；全版 stable 整合計畫保留，沒有推進 integrated 水位。
 完整產品套件未跑：此驗收採聚焦集合，包含 OAuth 跨進程鎖與文件/layout gates；不能把它們稱為完整產品回歸通過。
@@ -364,7 +364,7 @@ Catalog path／self-heal／reanchor／scheduler 集合：修正前 147 pass / 2 
 
 Workspace 大 ID 行為回歸：使用 HEAD 原始 workspace executor 的 scratch 對照，以基準 executor 重放 `tests/lib/file-identity.test.ts` 的 `workspace rejects` 案例，exit 1，實際錯誤接受替換後 root（ok=true）；`bun test tests/lib/file-identity.test.ts --timeout=60000` exit 0，5 pass / 0 fail。保存身分欄位的 primitive shape 斷言亦有先紅後綠（assertion exit 1 → 0），拒絕 coercion，同時接受精確 decimal string 與安全 legacy integer。
 
-全域驗收未達標：更廣的 caller 消費端測試包含 coordinator/history 的 unsafe-path、既有非 catalog file symlink EPERM、以及 POSIX fixture／Windows shim 案例失敗。coordinator 的單一對照案例以 HEAD 原始 doctor 實作執行仍 exit 1：預期 zero-byte、實際 unsafe，reason 為 the coordinator path is redirected；本次 bigint 修改不是該案例的必要條件。6 個已結束的擴大批次均 exit 1，沒有以 timeout 或中止批次作通過證據。完整產品套件與其餘受影響測試沒有通過證據，故保留 ROADMAP 全域驗收與 stable 整合計畫，86b72a689 仍列部分採用。
+全域驗收未達標：更廣的 caller 消費端測試包含 coordinator/history 的 unsafe-path、既有非 catalog file symlink EPERM、以及 POSIX fixture／Windows shim 案例失敗。coordinator 的單一對照案例以 HEAD 原始 doctor 實作執行仍 exit 1：預期 zero-byte、實際 unsafe，reason 為 the coordinator path is redirected；本次 bigint 修改不是該案例的必要條件。6 個已結束的擴大批次均 exit 1，沒有以 timeout 或中止批次作通過證據。完整產品套件與其餘受影響測試沒有通過證據，故保留 ROADMAP 全域驗收與 stable 整合計畫，86b72a689 仍列部分採用（2026-11-04 已改判，見文末同日段）。
 
 範圍維持全域 exact identity 與 catalog symlink 權限處理；其他 client/CLI 的測試 skip 擴充已撤回，未擴大產品修復。安全邊界自審保留 bounded descriptor read、exclusive publication、POSIX ownership/mode、ACL 與 mutation lock 的既有條件；JSON 身分保存使用 decimal string。
 
@@ -506,3 +506,23 @@ closed-unmerged PR，上游 1883 筆超過 1000 筆上限，PR 軸固定回傳�
 實際 strict 列出 #7614、#7618，PR 軸已檢查且未截斷；兩筆仍待分類，沒有加入已審清單。
 exit 1 是待審項目紅燈，不是工具失敗（exit 2）。查詢只讀取上游，沒有修改遠端資料。
 變更限 fork 工具與文件；完整 fork gate 與型別檢查涵蓋本項，大型產品 runtime／GUI／跨平台套件未執行。
+
+## 2026-11-04：#8019 identity 補審與 Messages clean-EOF 驗收
+
+基準 `14964e312`；Windows、Bun 1.4.4。判定與逐檔證據在 `docs/fork/UPSTREAM.md`、`DECISIONS.md` 同日節。沒有 commit／push，水位不動。
+
+環境根因：此桌面環境的 `%LOCALAPPDATA%\OpenCodex` 被 MSIX 虛擬化到 `Packages\Claude_*\LocalCache\Local`，`realpathSync.native` 與 coordinator 路徑不同，`samePathIdentity` 判 redirected；coordinator-doctor／transition-state／residue 部分／home-owner-lifecycle 在此環境整檔紅（與本次改動無關）。暫時繞過該比對（已還原，`git diff` 對 `user-identity.ts` 為空）後 `codex-coordinator-doctor`＋`codex-transition-state` 為 35 pass／1 skip／0 fail，含新增案例。
+
+| 指令 | 結果 |
+| --- | --- |
+| `bun test tests/claude-integration/messages-native-clean-eof.test.ts tests/claude-integration/claude-messages-endpoint.test.ts --timeout=60000`（僅加測試） | exit 1，77 pass／27 fail |
+| 同上（套用 src 後） | exit 0，104 pass／0 fail |
+| Messages 相關 11 檔（passthrough、messages-native、outbound、devin-output-order、rate-limit-headers、anthropic-eof-tolerance、direct-encoders-messages、sse-unspaced、request-log-generation-window、test-layout×2） | exit 0，414 pass／0 fail |
+| identity 集合 A（22 檔，含 file-identity、bounded-file-read、shim 各檔、provenance、history、home-owner、oauth、layout） | 651 pass／30 skip／8 fail；8 fail 皆環境：symlink EPERM×4（home-owner）、MSIX×4 |
+| identity 集合 B（18 檔） | 466 pass／18 skip／3 fail；3 fail 為既有 `Windows cmd shim restores the caller token`（REVIEW 前段已記基準同樣失敗） |
+| `bun test tests/lib/file-identity.test.ts`（基準源碼＋新測試） | 8 pass／4 fail（statTimeMs×2、次毫秒×2）；套用後 12 pass／0 fail |
+| `bun test tests/codex-integration/codex-shim-migration-time.test.ts` | 16 pass／0 fail；停用容差突變後新案例 2 fail |
+| `bun run typecheck`、`bun scripts/file-size-ratchet.ts` | exit 0、exit 0 |
+| `bun run structure:check` | 新測試未追蹤時 exit 1（檢查讀 git index）；`git add -N` 後 exit 0，已還原 index |
+
+未執行：`tools\dev_check.ps1`、`privacy:scan`、docs-site 建置、完整產品套件。

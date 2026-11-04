@@ -71,8 +71,8 @@ async function readCatalogBounded(path: string): Promise<Buffer> {
     if (
       !sameFileIdentity(before, after)
       || before.size !== after.size
-      || before.mtimeMs !== after.mtimeMs
-      || before.ctimeMs !== after.ctimeMs
+      || before.mtimeNs !== after.mtimeNs
+      || before.ctimeNs !== after.ctimeNs
       || after.size !== BigInt(offset)
     ) {
       throw new Error("tool catalog changed while being read");

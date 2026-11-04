@@ -526,3 +526,35 @@ exit 1 是待審項目紅燈，不是工具失敗（exit 2）。查詢只讀取�
 | `bun run structure:check` | 新測試未追蹤時 exit 1（檢查讀 git index）；`git add -N` 後 exit 0，已還原 index |
 
 未執行：`tools\dev_check.ps1`、`privacy:scan`、docs-site 建置、完整產品套件。
+
+## 2026-11-05：ACL memo／CR 分隔重放驗收
+
+基準 `6f7bfbe46999df18c43af8e7bcee50b651d2419d`；Windows、Bun 1.4.4。完整 diff 與逐檔判定見 `docs/fork/UPSTREAM.md`、`DECISIONS.md` 同日節。採用 `c7f3928a2`、`d42b9b1b2`；未擴大至 `f94e95ce5`，baseline 所有水位不變。
+
+紅綠流程：先只寫上游回歸，runtime 保持 HEAD；取得下表 red 後，才適配 atomic writer 與 parser。所有表中的 `bun test <file>` 都是各檔獨立行程、加 `--timeout=60000`、stdin 導向 `/dev/null`（Git Bash；Python runner 使用等價 DEVNULL）。新斷言釘住行為與時間界線，不依賴套件版本。
+
+| 指令 | Exit code | 結尾輸出／判定 |
+| --- | --- | --- |
+| `bun test tests/windows/windows-atomic-write-acl-rearm.test.ts --timeout=60000`（HEAD runtime＋新測試） | 1 | 7 pass、16 fail、111 expect calls；後續 write 被 timeout memo 拒絕、re-arm／cleanup／retained-child admission 失敗 |
+| 同上（修正 runtime） | 0 | 23 pass、0 fail、221 expect calls |
+| `bun test tests/web-search/web-search-eof.test.ts --timeout=60000`（HEAD runtime＋新測試） | 1 | 17 pass、6 fail、25 expect calls；CR／mixed 文字與引用、失敗訊息、terminal 即時取消失敗 |
+| 同上（修正 runtime） | 0 | 23 pass、0 fail、27 expect calls |
+| `bun test tests/server/config.test.ts --timeout=60000` | 0 | 193 pass、6 skip、0 fail、918 expect calls |
+| `bun test tests/windows/windows-secret-acl.test.ts --timeout=60000` | 0 | 173 pass、0 fail、869 expect calls |
+| `bun test tests/windows/windows-atomic-replace.test.ts --timeout=60000` | 0 | 12 pass、0 fail、27 expect calls |
+| `bun test tests/web-search/web-search-parse.test.ts --timeout=60000` | 0 | 44 pass、0 fail、97 expect calls |
+| `bun test tests/test-layout.test.ts --timeout=60000` | 0 | 2 pass、0 fail、3 expect calls |
+| `bun test tests/test-layout-tooling.test.ts --timeout=60000` | 0 | 27 pass、0 fail、576 expect calls |
+| `bun test tests/ci-workflows/fork-hygiene.test.ts --timeout=60000` | 0 | 39 pass、0 fail、147 expect calls |
+| `pwsh -NoProfile -File tools/dev_check.ps1` | 0 | Fork hygiene 39 pass／0 fail；10 份文件零斷鏈；WINDOWS DEV CHECK GREEN |
+| `bun run typecheck` | 0 | bun x tsc --noEmit；無型別錯誤 |
+| `bun run privacy:scan` | 0 | Privacy scan passed |
+| `bun run structure:check` | 0 | structure/ SSOT checks passed |
+| `bun scripts/file-size-ratchet.ts` | 0 | file-size ratchet passed |
+| `cd docs-site; bun install --frozen-lockfile` | 0 | Checked 371 installs across 484 packages (no changes) |
+| `cd docs-site; bun run build` | 0 | 149 pages；20907 internal links checked；Complete! |
+| `bun run test:changed` | 1 | git merge-base failed while validating changed mode: exit 1；選測前停止，沒有測試結果 |
+
+驗證限制：`--changed=dev` 依 `scripts/test.ts:337` 選到 `upstream/dev`（`0c32c8132`）；壓縮歷史 fork 與該 ref 無共同祖先，`test:changed` 無法建立比較基準；`git merge-base HEAD upstream/dev` 也為 exit 1，與工作樹內容無關。不改分支、不接回上游歷史、不將它稱為通過。以單檔 focused regression 覆蓋兩個直接修改的 runtime 模組、既有 ACL／atomic／parser 與 source-oracle layout，另跑完整 fork dev check；未跑完整產品套件（atomic writer 為廣泛共用 leaf，完整產品回歸與跨平台證據不由這組 focused tests 代表）。
+
+config 測試首次等待 user test lock：owner PID 57096 在同時查得為 `DismHost.exe`，等待者是該測試的 `bun.exe` PID 59308。只停止該等待者，之後各檔順序執行並明設 `OCX_TEST_NO_QUEUE=1`，未更動現有 lock、其他行程或 home／ACL guard。此設定也用於其餘既有測試與 dev check，僅略過測試排隊。沒有把 symlink EPERM 或 MSIX coordinator 失敗列為例外；相關結果沒有新增失敗。

@@ -60,4 +60,4 @@ can be bound server-side to a previously validated selector.
 
 ## Responses sidecar EOF
 
-At clean response-body EOF, `src/web-search/parse.ts` consumes a final `data:` line even without its trailing newline. The existing event handler owns completion, failure, citations and decoded-text accounting for that line; EOF alone is not completion. A byte-limit stop or failed read does not flush the pending line.
+`src/web-search/parse.ts` accepts CR, LF and CRLF line endings, including mixed endings and CRLF split across chunks. At clean response-body EOF, it consumes a final `data:` line even without its trailing newline. The existing event handler owns completion, failure, citations and decoded-text accounting for that line; EOF alone is not completion. A byte-limit stop or failed read does not flush the pending line. `tests/web-search/web-search-eof.test.ts` covers line endings, immediate terminal cancellation, EOF behavior and limit boundaries.

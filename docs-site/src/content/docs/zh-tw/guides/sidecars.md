@@ -214,4 +214,4 @@ OpenCodex 對 `web_search` 的攔截，同時 Codex 整合會把 `web_search = "
 如果更想直接改檔案，仍可在 `config.json` 中把 `enabled` 設為 `false`。Anthropic OAuth 搜尋和圖像描述沿用現有 Claude Code OAuth fingerprint 先例，但仍應使用目標帳號和實際負載充分 soak test。所有欄位見
 [設定參考](/zh-tw/reference/configuration/server/#sidecar)。
 
-OpenAI 搜尋與 Vision 邊車即使遇到伺服器未加尾換行就關閉回應 body，仍會讀取最後的完成或失敗事件。未完成或因大小上限而中止的回應仍會回報錯誤。
+OpenAI 搜尋與 Vision 邊車支援 CR、LF、CRLF、混合換行，以及跨網路區塊的 CRLF。即使遇到伺服器未加尾換行就關閉回應 body，仍會讀取最後的完成或失敗事件。未完成或因大小上限而中止的回應仍會回報錯誤。

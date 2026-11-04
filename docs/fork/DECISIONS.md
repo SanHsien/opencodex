@@ -950,3 +950,19 @@ Windows catalog 實體 file symlink 測試在能力探測遇 EPERM 時 skip；�
 **本機環境失敗（HEAD 同樣失敗，與本次改動無關）**：`catalog-auto-review-row` 的「retained-sync」案例在 `finally` 清理 `.tmp\…` 時 `EBUSY: resource busy or locked, rm`（HEAD 版本 1 fail、套用後 1–2 fail，同一個 EBUSY 簽章，斷言本身通過）；`sibling-home-client-sync` 整檔跑時約 20–30 秒的重案例（HEAD 版為「lone custom-home start」與「registry-only discovered owner」，套用後為「secondary ensure parent」）會碰到 30 秒測試逾時，單獨跑 `secondary ensure parent` 為 18 s 通過。這些是本機慢速檔案系統／防毒負載造成的逾時與鎖，需在非虛擬化 Windows 終端複驗。
 
 水位：`reviewed_through`、`reviewed_date`、`integrated_*`、PR、issue 全部不動。
+
+## 2026-11-05：ACL memo／CR 的安全邊界逐檔判定
+
+依據：`c7f3928a2`、`d42b9b1b2` 完整公開 diff；fork 基準 `6f7bfbe46999`。維護政策是上游方案合法可用即採用，依技術、Windows 適用性及安全回歸判定，不另設產品政策門檻。
+
+| 安全邊界檔案 | 判定 | 核對證據與理由 |
+| --- | --- | --- |
+| `src/config/atomic-write.ts` | 採用，依 fork writer 適配 | `:230,270,293` 的空暫存檔仍在寫入 secret 前 required harden；`:331,477` 的發布前 harden 仍必須成功。`:37-55` 只對尚未 reap 的 retained child 阻止同目的地 admission，不阻止健康重疊；以 canonical parent＋basename、Windows 小寫 key 統一目的地。`:366,503` 先切 cleanup 模式，`:395,539` finally 保留其他 writer 的所有權並等實際 reap 才釋放。保留 descriptor/path bigint identity、symlink/no-follow、原目的地內容、殘留檔與 scrub 錯誤分類。23 個注入 clock／runner 案例全部通過，含 denial、重複 cooldown、不同目的地、多 writer／多 retained child |
+| `src/lib/windows-secret-acl.ts` | 不變，沿用現有機制 | `:83` 的五分鐘常數、`:563` 的實際 child 回收 barrier、`:1033-1035` 的單次復原及重設窗均已存在。writer 只是明確 opt in；不放寬 ACL、不吞 permission-denied、不增加背景 timer |
+| `src/lib/windows-user-principal.ts` | 不變 | 新測試在 teardown 還原 sync／async principal runner 後才 reset principal cache；不把 fixture SID 帶入後續 native ACL 測試 |
+| `src/web-search/parse.ts` | 採用 | `:323-324` 只換 line splitter；`:310-318` clean EOF 才 flush、`:319-321` wire byte cap、`:329-346` decoded／terminal／wire 中止規則均未改。CRLF 分在兩個 chunk 時空行無 data field；單 byte UTF-8 不破壞 TextDecoder 狀態。23 案包含最後一行、超限不 flush、傳輸失敗不 flush、CR 失敗訊息與 terminal 立即取消 |
+| `tests/server/config.test.ts`、`tests/windows/windows-atomic-write-acl-rearm.test.ts` | 採用 | required＋destination＋retry opt-in 的精準斷言，以及五個 call sites、cleanup、retained child 的行為回歸；未以 mock 取代測試目標 writer 的 default hardener |
+| `tests/web-search/web-search-eof.test.ts` | 採用 | 追加上游 11 個 line-ending 案例，保留既有 12 個 EOF／limit 案例；未降低 byte／decoded 上限 |
+| layout／fixture 對應表及英／繁中文件 | 採用 | 僅登錄新測試與同步已驗證行為，不改 runtime、安裝、workflow、權限或憑證。韓文文件因 fork 不含該語系判不適用 |
+
+回歸證據：舊碼指 fork HEAD 原始 runtime 加新測試；ACL 7 pass／16 fail → 23 pass／0 fail，EOF／CR 17 pass／6 fail → 23 pass／0 fail。既有 config 193 pass／6 skip／0 fail；其餘指令與限制見 `REVIEW.md` 同日節。若日後改動 destination normalization、ACL reap barrier 或 SSE terminal／limit 順序，需重新驗證這些性質。integrated／reviewed scalar 與 PR／issue 水位不動。

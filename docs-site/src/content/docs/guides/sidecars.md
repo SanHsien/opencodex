@@ -284,4 +284,4 @@ intended account and workload.
 
 See the [Configuration reference](/reference/configuration/server/#sidecars) for every field.
 
-The OpenAI search and vision sidecars read a final completion or failure event even when the server closes the body without a trailing newline. An unfinished response or one stopped by a size limit still reports an error.
+The OpenAI search and vision sidecars accept CR, LF and CRLF line endings, including mixed endings and CRLF split across network chunks. They read a final completion or failure event even when the server closes the body without a trailing newline. An unfinished response or one stopped by a size limit still reports an error.

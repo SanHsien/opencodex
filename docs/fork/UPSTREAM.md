@@ -1587,3 +1587,23 @@ fork 自己的發現（上游沒有）：`codex-home-owner.ts:74`、`bounded-fil
 **手動調整**：`scripts/test-layout/layout-clients.json`、`tests/fixtures/test-layout-expected.json`、`structure/clients/integrations.md`（fork 的 module 列較短，把上游新增句併入同一列）、`src/clients/gentle-shell-path.ts` 三處在 `git apply` 失敗後手動套用，內容與上游相同。
 
 **行為變更**：Windows 上 `QODER_CONFIG_DIR`、`QODERCN_CONFIG_DIR`、`WORKBUDDY_CONFIG_DIR`／`CODEBUDDY_CONFIG_DIR`、`PI_CODING_AGENT_DIR` 等覆寫值，過去接受的 `\Users\x`、`/x` 現在以 `ClientPathError` 拒絕（訊息提示用磁碟代號或 UNC）；canonical ChatGPT 目的地不再收到 `safety_identifier`。安全邊界逐檔判定與測試證據見 `docs/fork/DECISIONS.md` 同日條目。
+
+## 2026-11-05：ACL memo 復原與 Responses CR 分隔（`c7f3928a2`、`d42b9b1b2`）
+
+fork 基準 `6f7bfbe46999df18c43af8e7bcee50b651d2419d`。兩筆 `git show` 完整 diff 已讀（7／5 檔）；依技術可用性、Windows 適用性及安全回歸採用。兩筆作者皆為 JUN；`c7f3928a2` 另列 JohnnyXu、`d42b9b1b2` 另列 oocheol 的共同作者 trailer。整合提交用的信箱從 `git show -s --format='%an <%ae>' <sha>` 與原提交 trailers 取得，不寫入文件。`f94e95ce5` 不在此區段；`tools/upstream_baseline.json` 完全不動。
+
+| 提交／上游檔案 | 判定 | fork 證據與觸發條件 |
+| --- | --- | --- |
+| `c7f3928a2` `src/config/atomic-write.ts` | 採用（適配既有 writer） | 重放前 `:205,245,268,303,446` 的五個 harden 呼叫均未 opt in，首次逾時會讓後續同目的地寫入被 timeout memo 永久拒絕。重放後 `:230,270,293,331,477` 明確 opt in；`:37-55` 追蹤 resolved destination 的所有暫存檔，只有保留未回收 ACL child 時拒絕新寫入；`:366,503` 的 cleanup 不消耗復原，`:395,539` 在實際 child reap 後釋放 admission。fork 的 bigint file identity、no-follow、owner manifest 與 residual-temp 流程保留，不帶入上游後續 exclusive publication 擴充 |
+| `c7f3928a2` `tests/windows/windows-atomic-write-acl-rearm.test.ts` | 採用（原樣） | 23 案涵蓋 sync／streamed／async、五個 harden 呼叫、重設時間界線、denied、清理、健康重疊、多個 retained child 及實際回收後復原；runner 與 clock 均為確定性注入 |
+| `c7f3928a2` `tests/server/config.test.ts` | 採用 | `:3443-3447` 保留 required 與 destination 的精準斷言，加上 `retryTimedOutOnce: true` |
+| `c7f3928a2` `scripts/test-layout/layout.json`、`tests/fixtures/test-layout-expected.json` | 採用 | 兩份對應表均在既有 `windows-acl-start-cost` 後登錄新檔；layout 與 tooling guard 分別 2／27 pass |
+| `c7f3928a2` `structure/config.md` | 採用（適配現有段落） | `:73` 說明 admission、五分鐘復原及 fail-closed；以 suite 名稱描述回歸涵蓋範圍 |
+| `c7f3928a2` 英文 `troubleshooting/windows-acl-timeouts.md` | 採用 | 原樣新增使用者說明，並新增同名 zh-tw 翻譯；不更改 ACL 時間常數、不新增 timer |
+| `d42b9b1b2` `src/web-search/parse.ts` | 採用 | 重放前 `:323` 只按 LF split，CR-only 事件黏成同一行，可能漏掉文字／引用／terminal，甚至多讀一次 transport。重放後 `:323-324` 採用上游的 CR／LF／CRLF regex；跨 chunk CRLF 只多出會被忽略的空行。既有 clean EOF、wire／decoded 上限及取消 reader 不變 |
+| `d42b9b1b2` `tests/web-search/web-search-eof.test.ts` | 採用（新增區塊原樣） | `:86-143` 驗證四種 line ending、一個 chunk／單 byte UTF-8 chunk、引用、失敗訊息、缺 terminal 與立即取消；原 EOF／size limit 案例保留 |
+| `d42b9b1b2` `structure/data-planes/search.md` | 採用（適配現有段落） | `:63` 的 EOF 契約加上 line ending 與 cancellation 說明 |
+| `d42b9b1b2` 英文 `guides/sidecars.md` | 採用 | `:287` 加上 CR／LF／CRLF 與跨 chunk 說明，zh-tw `:217` 同步 |
+| `d42b9b1b2` 韓文 `ko/guides/sidecars.md` | 不適用 | fork 只保留英文與 zh-tw，該檔不存在；不恢復已移除語系，若恢復韓文時再帶入相同說明 |
+
+`structure/INDEX.md` 所列相關 runtime、native-reasoning-retention、fallback-policy、anthropic-progress、providers-and-adapters 已覆核；其局部說明仍正確，不複製 config／search 的權威契約。安全邊界逐檔判定見 `DECISIONS.md` 同日「ACL memo／CR」節，實測紅綠與 gate 見 `REVIEW.md`。完整 stable tag 重放與連續 commit 審查尚未完成，因此不推進 integrated／reviewed 水位。

@@ -137,6 +137,28 @@ describe("catalog write audit (#6529)", () => {
     expect(first!.opencodexHome).toBe(redactUserPath(realpathSync.native(opencodexHome)));
   });
 
+  test("a file that appears between the absence check and the open is never adopted or written", () => {
+    // Pins O_EXCL on the create branch (the property that makes the lstat -> open pair race-safe).
+    // The first lstat of the audit path reports absence, then an empty owner-looking file is there.
+    writeFileSync(auditPath(), "", { mode: 0o600 });
+    const realLstat = fs.lstatSync;
+    let hidden = false;
+    const lstat = spyOn(fs, "lstatSync").mockImplementation(((path: fs.PathLike, options?: unknown) => {
+      if (!hidden && String(path) === auditPath()) {
+        hidden = true;
+        throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+      }
+      return (realLstat as (p: fs.PathLike, o?: unknown) => unknown)(path, options);
+    }) as typeof fs.lstatSync);
+    const harden = spyOn(secretAcl, "hardenSecretPath");
+    try {
+      expect(appendUnderK()).toBe("skipped");
+      expect(hidden).toBe(true);
+      expect(readFileSync(auditPath(), "utf8")).toBe("");
+      expect(harden).not.toHaveBeenCalled();
+    } finally { harden.mockRestore(); lstat.mockRestore(); }
+  });
+
   test("keeps the newest records once the file passes its budget", () => {
     const filler = `${JSON.stringify({ filler: "x".repeat(200) })}\n`;
     const count = Math.ceil(CATALOG_AUDIT_MAX_BYTES / filler.length) + 10;

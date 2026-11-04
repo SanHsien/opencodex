@@ -1,5 +1,20 @@
 # 維護決策
 
+## 2026-11-04：CodeQL #602、#603（`js/file-system-race`）判 false positive，補一條 O_EXCL 釘住測試
+
+**範圍**：2026-11-02 在 `3e40d628` 新出現的兩筆（這兩個檔案自該 commit 以來沒有改動）。與 2026-10-28 條目的判定一致：CodeQL 看到「lstat → open」就標，看不到之後的 fstat 身分比對。逐筆讀過資料流，兩筆都沒有「檢查後換檔仍被信任」的路徑。
+
+| 告警 | 位置 | 判定 | 可在程式碼驗證的理由 |
+| --- | --- | --- | --- |
+| #602 | `src/claude/intercept/proxy-auth.ts:49` | false positive | `:45` lstat 要求自己擁有的一般檔、大小 43～45；`:49` 以 `O_NOFOLLOW｜O_NONBLOCK` 開檔；`:51-54` fstat 必須同為自己擁有的一般檔，且 bigint dev／ino 與 `:45` 的 lstat 相等（`sameFileIdentity`）；有界讀取後 `:67-68` 再比對大小與 mtime，`:69-70` 重驗路徑與父目錄身分才回傳 token。檔案或連結在中間被換掉，身分不符即拋錯，內容不被採信。Windows 沒有 `O_NOFOLLOW`，靠的是 `:53` 的身分比對，不是旗標 |
+| #603 | `src/codex/catalog/write-audit.ts:129` | false positive | Windows：任何已存在的檔案在 `:125` 就被拒絕（`regularPrivateFile` 在 Windows 恆為 false），所以 `:129` 只會是 `O_CREAT｜O_EXCL` 建立一個不存在的路徑，路徑被搶先建立就 EEXIST；`:133-140` 再確認 fd 與路徑身分相同才加固 ACL。POSIX：`O_NOFOLLOW` 加 `:142` fstat 與 lstat 的 dev／ino／size／mtime／ctime 全等，`:146` 讀取後再比一次。任何不符回傳 `"skipped"`，審計本來就是 best-effort，不影響 catalog 結果 |
+
+**不改產品碼的理由**：兩處的缺口（換檔）已由 fd 上的身分比對封住；再改成別的寫法只會換個 CodeQL 看得懂的形狀，不增加保護。#597（`link/diagnostics`）當時只靠 `O_NOFOLLOW`，在 Windows 不成立所以改為修正；這兩處在 Windows 靠的是 fd 身分比對與 `O_EXCL`，不依賴 `O_NOFOLLOW`。
+
+**釘住性質**：`#602` 已有 `tests/claude-integration/claude-intercept-proxy-auth.test.ts`「adjacent NTFS IDs above 2^53 cannot substitute the credential」（fd 與 lstat 身分不同即回 null）。`#603` 原本沒有任何測試釘住 `O_EXCL`，新增 `tests/codex-integration/codex-catalog-write-audit.test.ts`「a file that appears between the absence check and the open is never adopted or written」：lstat 第一次回報不存在、隨後路徑上出現一個空檔，必須回 `"skipped"`、檔案維持空、不呼叫 `hardenSecretPath`。驗證：把 `O_CREAT | O_EXCL` 暫時改成 `O_CREAT`，該測試紅（Expected `"skipped"`，Received `"created"`），還原後綠。
+
+**處置**：#602、#603 以 `false positive` dismiss，理由（含檔案：行號）寫在 GitHub 的 dismiss 說明（上限 280 字元）。查詢 `code-scanning/alerts?state=open` 回到 0 筆。
+
 ## 2026-11-04：上游 tag 放 `refs/upstream-tags/`，不進本機 `refs/tags/`
 
 **問題**：`tests/ci-workflows/release-version-line.test.ts` 讀本機 `git tag --list 'v*'`，要求 `package.json` 版本不落後最高 release tag。`UPSTREAM.md` 的同步流程用 `git fetch upstream --tags` 把上游 tag 拉進本機 tag 命名空間；本機有上游 `v2.94.0`～`v2.96.0` 時，`package.json` 還在 `2.94.0`，測試報 `package.json version 2.94.0 is BEHIND the highest release tag v2.96.0`。CI 不抓上游 tag 所以綠，本機紅。上游每次發版都會重現。

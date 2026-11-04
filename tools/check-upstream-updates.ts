@@ -111,7 +111,7 @@ export function runGit(args: string[], cwd: string): string {
 export function fetchUpstream(baseline: Baseline, repoDir: string): string {
   const ref = `${UPSTREAM_REF_PREFIX}/${baseline.branch}`;
   runGit(
-    ["fetch", "--quiet", baseline.repo, `+refs/heads/${baseline.branch}:${ref}`],
+    ["fetch", "--quiet", "--no-tags", baseline.repo, `+refs/heads/${baseline.branch}:${ref}`],
     repoDir,
   );
   return ref;

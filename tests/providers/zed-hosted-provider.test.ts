@@ -526,3 +526,29 @@ describe("Zed OAuth identity", () => {
       .toBe("zed-user-7 zed-access-token");
   });
 });
+
+test("a current tool_search_output stays current after a replayed wrapper is lifted", async () => {
+  const responses = [jsonResponse({ token: "llm-token-1" }),
+    jsonResponse({ models: [{ id: "gpt-6.1-sol", provider: "open_ai" }] })];
+  globalThis.fetch = (async () => responses.shift()!) as typeof globalThis.fetch;
+  const provider: OcxProviderConfig = { adapter: "zed", authMode: "oauth",
+    baseUrl: "https://zed-proxy.example.test/v1/", apiKey: "access-token" };
+  const lookup = { type: "function", name: "lookup", parameters: { type: "object", properties: {} } };
+  const parsed = parseRequest({
+    model: "gpt-6.1-sol",
+    input: [
+      { type: "additional_tools", tools: [{ type: "function", name: "old_tool", parameters: { type: "object", properties: {} } }] },
+      { type: "tool_search_output", call_id: "search", status: "completed", execution: "client", tools: [lookup] },
+      { type: "message", role: "user", content: [{ type: "input_text", text: "now" }] },
+    ],
+    tools: [],
+    stream: true,
+  });
+  parsed._zedAuthContext = { userId: "user-1" };
+  parsed._replayPrefixLen = 1;
+  const adapter = withTestTranslatorBudget(createZedAdapter(provider));
+  const request = await adapter.buildRequest(parsed);
+  const body = JSON.parse(request.body).provider_request;
+  expect(JSON.stringify(body.input)).not.toContain("old_tool");
+  expect(body.tools.map((tool: { name?: string }) => tool.name)).toEqual(["lookup"]);
+});

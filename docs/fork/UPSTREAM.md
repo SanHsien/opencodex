@@ -1418,7 +1418,7 @@ Windows-only 刪除清單、英／繁中語系、官方 workflow guard、fork �
 | `ba0556d001dbca25aaef46680a56fd3150c4b19c` fix(codex): retire a pool account's carried 5-hour window when WHAM shows none (#7980) | 需要採用的修正 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
 | `03d8bd0ce9dd707e1cfb0ac678b4a53f02f813d1` fix(claude): keep web_search native when no sidecar backend can run (#7991) | 需要採用的修正 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
 | `8063be23e47822240b45c0456f3243102d4a0d9d` fix(providers): keep the quota report cache when pool readings are only restamped (#7992) | 需要採用的修正 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
-| `d9e0c057881200d32b0398c5a1bc38144c1da73e` fix(responses): promote additional_tools to top-level tools for xAI and strict gateways (#7983) | 依賴／跨模組大功能 | defer | 45 檔 additional_tools／namespace／destination 聯動，含認證入口，須先核對與 f94e95ce5 等工具回放變更的相依性。 |
+| `d9e0c057881200d32b0398c5a1bc38144c1da73e` fix(responses): promote additional_tools to top-level tools for xAI and strict gateways (#7983) | 依賴／跨模組大功能 | defer（2026-11-05 已逐檔改判，見文末同日節；保留原盤點） | 45 檔 additional_tools／namespace／destination 聯動，含認證入口，須先核對與 f94e95ce5 等工具回放變更的相依性。 |
 | `a022a67fd8152045268405145d73ef696ff5afdd` fix(claude): prune generated agents when the Claude integration is turned off (#7993) | 需要採用的修正 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
 | `227811fd70886f78a379ca478be84f2368fa3cb8` fix(history): bound the integrity check wait (#7997) | 需要採用的修正 | defer | 依賴 572467f21 的 integrity worker，等待上限要和 worker 生命週期合測。 |
 | `9922f8159a9e5327fcc4ead930c309faa57755ec` test(history): corrupt the health index through a cold connection (#8000) | 測試／依賴功能 | 只分類、未審 | 僅依主旨與 stat 分類，尚無 fork 對應檔案:行號與觸發條件；原候選分類不構成採用或略過判定。 |
@@ -1630,3 +1630,13 @@ fork 基準 `7b3c6ec1d`。`git show f94e95ce5` 的 31 檔完整 diff 已讀；�
 紅綠：先只放入測試檔（舊 runtime）——`turn-membership.test.ts` 0 pass／1 fail（模組不存在）、`turn-membership-ingress.test.ts` 0／1、`data-plane-admission-identity.test.ts` 0／1（缺 `resolveDurableReplayPrincipal` 匯出）、`openai-chat-parallel-stream.test.ts` 46 pass／5 fail（五個 negotiated block-stop 案例：提早送出、重複標記終止、跨 index／ID 偽造、24 個反序標記、後續錯誤保留已關閉呼叫）。重放後 53／2／28（原 25）／51（原 39）全部 pass、0 fail。
 
 仍不推進任何水位：`tools/upstream_baseline.json` 不動。全版 tag diff（含 `d9e0c057881` 之類依賴本筆的 additional_tools 變更）與 Windows-only 重放驗收是另一項工作，記在 `ROADMAP.md`。
+
+## 2026-11-05：`d9e0c057881` additional_tools／current catalog 隔離
+
+fork 基準 `688b04a0e3a00a417e0b7492b8d682ed07d1b174`。已讀上游 45 檔完整 diff，逐檔採用／改寫／不適用與 fork 行號見 `DECISIONS.md` 同日節。依賴 `f94e95ce5` 已重放；此項只讀取內部 replay prefix，不修改 durable principal／簽章 scope。
+
+採用官方 xAI／OpenCode Go 的工具目錄提升、forward 明確 opt-in、任何 provider 都可用 `promoteAdditionalTools: true` 明確啟用（含 forward）、historical/live symbol provenance、discovery 合併前過濾、namespace 分離去重，以及管理 API 的 validation／carry／DTO。fork 缺少 Zed 提升前置流程，補入最小 helper／caller；Meta catalog 專屬 hunk 因模組不存在判不適用。六個已刪語系不恢復；英文／繁中保留 keychain 原位，僅同步本設定及 carry 契約。
+
+上游作者 JUN，共同作者 Omar；歸屬取自 `git show -s --format='%an <%ae>' d9e0c057881` 與原提交 Co-authored-by；整合提交須保留這兩人的 Co-authored-by 歸屬，文件不寫 email。紅綠與逐檔測試／fork gate 證據見 `REVIEW.md` 同日節。
+
+`tools/upstream_baseline.json` 完全不動；integrated／reviewed、PR／issue 水位維持原值。這筆的審查不代表其餘 defer 項或完整 stable 區段已通過。

@@ -287,6 +287,7 @@ Codex-login 供應商上列出的每個裸 `gpt-*` id（此處為 **GPT-6-Nova**
 | `xaiResponsesXSearch?` | `boolean` | Disabled by default. On an xAI Responses destination, append the provider-hosted `x_search` declaration only when a live `web_search` tool survives final request normalization. Existing declarations are not duplicated, caller `tool_choice`/`allowed_tools` selectors are never widened, and this is separate from the web-search sidecar's `search.xSearch` options. |
 | `modelPreferHostedTools?` | `Record<string,string[]>` | Exact-model opt-in for non-forward Responses gateways that reserve a hosted-tool namespace. Currently accepts only `["image_generation"]`; a matching model must use the `openai-responses` wire and support that hosted tool. It removes colliding client `image_gen` declarations and rewrites their selectors to preserve caller tool choice. For OpenAI API virtual `-pro` models, the selected public ID is matched first and the resolved base wire-model ID is a fallback. `modelAdapters` resolves the public ID first, then the base ID; the second resolution determines the final wire. Other models retain normal alias behavior. |
 | `annotateEmptyToolOutputs?` | `boolean` | Replace a present-but-empty tool result with a short marker before it reaches the model, so a blank result is not read as a missing one. Applies to blank strings and text-only part arrays; image, file, and encrypted parts are never touched. Defaults to `true` for DeepSeek from the built-in registry and is otherwise unset. Set `false` to opt a provider out — an explicit `false` is preserved across later edits that omit the field. `PATCH /api/providers?name=<provider>` accepts `true`, `false`, or `null` to clear the override and return to registry-default behavior. |
+| `promoteAdditionalTools?` | `boolean` | 將 Codex Desktop 的 `additional_tools` 輸入項目提升至頂層 `tools`，並從 `input` 移除包裝。OpenCode Go 與 xAI（`api.x.ai`、`cli-chat-proxy.grok.com`）在非 forward 模式自動啟用（設為 `false` 也不會關閉這個自動提升）；`authMode: "forward"` 必須明確設為 `true`，其他拒絕私有輸入項目的嚴格閘道也可選用。歷史目錄只供回放，不授予當前工具權限。`PATCH /api/providers?name=<provider>` 接受布林值或 `null`（清除覆寫）。 |
 | `unsupportedHostedTools?` | `string[]` | Hosted tool declarations this Responses destination rejects, so they are stripped from `tools`, from client-loaded `additional_tools`, and from `tool_choice` instead of being forwarded and rejected upstream. Use it for an OpenAI-compatible gateway with a narrower capability set — one that accepts plain Responses requests and `function` tools but returns HTTP 400 for hosted `web_search` — so a text-only prompt is not failed by a capability it never needed. Accepts only hosted tool type names (`web_search`, `web_search_preview`, `file_search`, `computer_use_preview`, `computer_use`, `code_interpreter`, `image_generation`, `image_gen`, `mcp`, `tool_search`, `local_shell`, `x_search`); an unrecognized name is rejected rather than silently ignored. Spelling variants of one capability are aliased, so `["web_search"]` also denies `web_search_preview`. A provider cannot both deny a hosted tool here and prefer it in `modelPreferHostedTools`. Xiaomi MiMo Responses destinations (`xiaomimimo.com` and its subdomains, including `api.xiaomimimo.com` and `token-plan-cn.xiaomimimo.com`) automatically strip `web_search` and `web_search_preview` while preserving function tools; no declaration is needed for these hosts. This is independent of `supportsResponsesCustomTools`; set both for a gateway that also rejects native custom tools. `PATCH /api/providers?name=<provider>` accepts an array or `null` to clear it. |
 | `reasoningEffortMap?` | `Record<string, string>` | Provider-wide wire aliases for reasoning labels. Map a label to `"__omit__"` to drop the reasoning field from the upstream request entirely: `reasoning_effort` on an OpenAI-compatible wire, and Ollama's native `think` field on the Ollama native adapter (#2356). |
 | `modelReasoningEffortMap?` | `Record<string, Record<string, string>>` | Per-model wire aliases for reasoning labels. Map a label to `"__omit__"` to drop the reasoning field from the upstream request entirely. |
@@ -402,17 +403,17 @@ and `modelContextWindows` for that exact id when needed. Unknown ids are not gue
 
 ### 儲存供應商時會保留什麼
 
-以既有供應商的名稱呼叫 `POST /api/providers`，會以根據請求建立的列取代已儲存的列。儀表板的新增/編輯表單無法傳送所有欄位，因此儲存時會保留請求省略的部分已儲存欄位。其中八個記錄的是某個上游的行為：`preserveReasoningContentModels`, `requiresReasoningPlaceholderModels`, `foldDeveloperRoleToSystem`, `reasoningWireFormat`, `omitReasoningEffortWithToolsModels`, `retryOn429`, `transientRetryOn5xx`, `retryOnReset`。
+以既有供應商的名稱呼叫 `POST /api/providers`，會以根據請求建立的列取代已儲存的列。儀表板的新增/編輯表單無法傳送所有欄位，因此儲存時會保留請求省略的部分已儲存欄位。下列設定記錄的是某個上游的行為：`preserveReasoningContentModels`, `preserveResponsesReasoningContent`, `promoteAdditionalTools`, `requiresReasoningPlaceholderModels`, `foldDeveloperRoleToSystem`, `reasoningWireFormat`, `omitReasoningEffortWithToolsModels`, `retryOn429`, `transientRetryOn5xx`, `retryOnReset`。
 
-| 儲存 | 八項設定 | 已儲存的 `apiKeyPool` |
+| 儲存 | 相容性設定 | 已儲存的 `apiKeyPool` |
 | --- | --- | --- |
 | 目的地相同，欄位省略 | 保留已儲存的值，包括明確的 `[]` 或 `false` | 保留 |
 | 新目的地，欄位省略 | 不保留；可能套用新目的地的登錄檔預設值 | 不保留 |
 | 請求中傳送了該欄位 | 請求中的值 | 請求中的值 |
 
-目的地指轉接器、base URL（比較協定與主機時不分大小寫，忽略結尾斜線），以及請求有指定時的驗證模式。把供應商移到其他目的地時，描述舊上游的八項設定和為舊上游核發的金鑰池都不會帶過去。儲存絕不會把舊列的其餘部分合併進新列。
+目的地指轉接器、base URL（比較協定與主機時不分大小寫，忽略結尾斜線），以及請求有指定時的驗證模式。把供應商移到其他目的地時，描述舊上游的相容性設定和為舊上游核發的金鑰池都不會帶過去。儲存絕不會把舊列的其餘部分合併進新列。
 
-`PATCH /api/providers?name=<provider>` 只修改它指定的欄位，無論目的地為何都保留其他所有已儲存欄位。它接受全部八項設定，`null` 表示清除。對於兩個推理清單，空陣列會作為明確的退出選項儲存，而不會被刪除。
+`PATCH /api/providers?name=<provider>` 只修改它指定的欄位，無論目的地為何都保留其他所有已儲存欄位。它接受全部相容性設定，`null` 表示清除。對於兩個推理清單，空陣列會作為明確的退出選項儲存，而不會被刪除。
 
 ### 逐供應商 egress
 

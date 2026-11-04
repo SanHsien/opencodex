@@ -1,3 +1,6 @@
 {
+  "xai-loaded-tool-provenance.test.ts": "providers/xai",
+  "xai-replay-provenance.test.ts": "providers/xai",
+  "xai-additional-tools.test.ts": "providers/xai",
   "free-directory-runcrate.test.ts": "providers"
 }

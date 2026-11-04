@@ -985,3 +985,66 @@ Windows catalog 實體 file symlink 測試在能力探測遇 EPERM 時 skip；�
 | 測試、layout 對應表、`structure/`、docs-site | 採用 | 只登錄新測試並描述已驗證契約；英文與 zh-tw 的 `headers?` 列加實驗性警語。無 runtime、安裝、workflow、權限或憑證變更 |
 
 Windows 適用性：只用 `node:crypto` 與環境變數，不碰檔案系統、路徑或 ACL；測試在本機 Windows 通過，未出現 symlink EPERM 或 MSIX 路徑差異。未解決風險：若未來把 `OPENCODEX_RESPONSE_TURN_SIGNING_KEY` 注入服務環境，金鑰會進入行程環境，須比照其他 secret 避免寫入 log；本 fork 預設不設。紅綠與 gate 見 `UPSTREAM.md` 同日節。
+
+## 2026-11-05：additional_tools 提升與回放權限逐檔判定（`d9e0c057881`）
+
+基準 `688b04a0e3a00a417e0b7492b8d682ed07d1b174`；依賴 `f94e95ce5` 已在該 HEAD 重放。已讀上游完整 45 檔 diff，按技術適配、Windows 適用性與安全回歸判定，合法可用的實作採用。作者 JUN、共同作者 Omar；提交歸屬資料由原提交取得，文件不保存信箱。下列行號指此項適配後的 fork。
+
+```text
+原始 input -> 複製並標記 historical/live -> 修復／重排／工具 lowering
+                                               |
+                     current discovery/catalog -> tools -> JSON（無 symbol）
+                     historical catalog        -> 只供回放，不授權 current tool
+```
+
+| 上游檔案（完整清單） | 判定 | fork 對照 | 技術／安全理由 |
+| --- | --- | --- | --- |
+| `docs-site/src/content/docs/fr/reference/configuration/providers.md` | 不適用 | `FORK.md:20` | fork 只留英文與繁中，不恢復已刪語系。 |
+| `docs-site/src/content/docs/ja/reference/configuration/providers.md` | 不適用 | `FORK.md:20` | fork 只留英文與繁中，不恢復已刪語系。 |
+| `docs-site/src/content/docs/ko/reference/configuration/providers.md` | 不適用 | `FORK.md:20` | fork 只留英文與繁中，不恢復已刪語系。 |
+| `docs-site/src/content/docs/reference/configuration/keychain.md` | 不適用 | `docs-site/src/content/docs/reference/configuration/providers.md:1593` | 這是既有 keychain 說明搬頁，非 additional_tools 前置需求；保留英文／繁中原位置與 anchor，避免新增單語文件及無關搬移。 |
+| `docs-site/src/content/docs/reference/configuration/providers.md` | 改寫 | `docs-site/src/content/docs/reference/configuration/providers.md:376` | 同步英／繁中設定、forward 邊界、歷史目錄權限與 save carry；依 fork 欄位清單移除易過時的固定數字，keychain 原位保留。 |
+| `docs-site/src/content/docs/ru/reference/configuration/providers.md` | 不適用 | `FORK.md:20` | fork 只留英文與繁中，不恢復已刪語系。 |
+| `docs-site/src/content/docs/tr/reference/configuration/providers.md` | 不適用 | `FORK.md:20` | fork 只留英文與繁中，不恢復已刪語系。 |
+| `docs-site/src/content/docs/zh-cn/reference/configuration/providers.md` | 不適用 | `FORK.md:20` | fork 只留英文與繁中，不恢復已刪語系。 |
+| `docs-site/src/content/docs/zh-tw/reference/configuration/providers.md` | 改寫 | `docs-site/src/content/docs/zh-tw/reference/configuration/providers.md:290` | 同步英／繁中設定、forward 邊界、歷史目錄權限與 save carry；依 fork 欄位清單移除易過時的固定數字，keychain 原位保留。 |
+| `scripts/test-layout/layout-providers.json` | 改寫 | `scripts/test-layout/layout-providers.json:1` | 只在 fork 現有 mapping 增補三個新測試，保留原有 Runcrate row，不帶入其他待審功能的登錄。 |
+| `src/adapters/openai-responses/muse-tool-catalog.ts` | 不適用 | `src/adapters/openai-responses/passthrough.ts:350` | fork 無 muse-tool-catalog 模組與 normalizeMuseToolCatalog 呼叫，故不引進整個 Meta catalog 功能；共用 discovery 過濾已採用並由既有 Meta 測試驗證。 |
+| `src/adapters/openai-responses/passthrough.ts` | 改寫 | `src/adapters/openai-responses/passthrough.ts:50` | 在 identity／input 修復前複製並標記來源；採用官方 xAI／Go 自動提升及 forward 明確 opt-in，保留 fork 的 usage、帳號 ID 隔離與未採用的 Meta 分支。 |
+| `src/adapters/openai-responses/prompt-cache.ts` | 採用 | `src/adapters/openai-responses/prompt-cache.ts:75` | 重建物件保留 symbol；刪除 prompt cache 私有欄位的原有遞迴預算不變。 |
+| `src/adapters/openai-responses/request-strips.ts` | 採用 | `src/adapters/openai-responses/request-strips.ts:274` | 抽出相同 private-item predicate；既有 destination 條件、未知項目保留行為不變。 |
+| `src/adapters/openai-responses/tool-output-recovery.ts` | 採用 | `src/adapters/openai-responses/tool-output-recovery.ts:354` | bridge 還原、外部 task、orphan replacement 與 synthetic output 逐一繼承來源，不以位置猜測。 |
+| `src/adapters/openai-responses/tool-schema.ts` | 採用 | `src/adapters/openai-responses/tool-schema.ts:199` | discovery 在合併前按來源過濾；歷史 discovery 不得啟用當前工具，也不覆蓋 live wrapper。 |
+| `src/adapters/opencode-go-additional-tools.ts` | 採用 | `src/adapters/opencode-go-additional-tools.ts:30` | HTTPS 官方 hostname／標準 port 比對；合法 wrapper 才提升，畸形 tools 保留原樣；原 Go export 保留相容性。 |
+| `src/adapters/routed-agent-messages.ts` | 採用 | `src/adapters/routed-agent-messages.ts:41` | 替換 agent message 保留 historical/live 標記；混合密文拒絕與內容轉換不變。 |
+| `src/adapters/xai-web-search.ts` | 採用 | `src/adapters/xai-web-search.ts:268` | hosted x_search 注入只認 current wrapper；歷史 x_search 不抑制當前搜尋，原 selector 限制不變。 |
+| `src/adapters/zed-additional-tools.ts` | 改寫 | `src/adapters/zed-additional-tools.ts:17` | fork 無此前置 helper，補入上游實作與必要 caller；只提升 current 目錄，已有頂層宣告優先，type/name 去重。 |
+| `src/adapters/zed.ts` | 改寫 | `src/adapters/zed.ts:75` | fork 尚無 pre-delegation lift，補入最小 clone＋lift，取代上游刪除不存在之第二次 lift 的 hunk；其餘 Zed stream／OAuth 流程保留。 |
+| `src/config/schema/leaf-validators.ts` | 採用 | `src/config/schema/leaf-validators.ts:362` | 只接受 optional boolean，沒有預設開啟自訂閘道。 |
+| `src/providers/model-rename-fields.ts` | 採用 | `src/providers/model-rename-fields.ts:32` | 明列非 model selector，rename 不改其值；exhaustive typecheck 覆蓋新增欄位。 |
+| `src/responses/custom-tool-compat.ts` | 採用 | `src/responses/custom-tool-compat.ts:235` | recursive clone 保留 symbol，不把 historical wrapper 誤當 current；既有 custom-call 修復契約不變。 |
+| `src/responses/item-provenance.ts` | 採用 | `src/responses/item-provenance.ts:1` | JSON 不可表達 symbol，不能由外部 payload 偽造；標記只屬本次請求投影，不取代 principal／HMAC membership，不寫入 JSON。 |
+| `src/responses/namespace-tool-compat.ts` | 採用 | `src/responses/namespace-tool-compat.ts:345` | historical/current 宣告分別建 plan 與 emitted set，歷史名稱不壓掉 current 宣告；alias／selector 邊界維持。 |
+| `src/server/auth-cors.ts` | 採用 | `src/server/auth-cors.ts:1090` | 欄位維持 editor policy；admin-token DTO 不新增 secret，data-plane admission／CORS／durable principal 完全不改。 |
+| `src/server/management/provider-overwrite-carry.ts` | 改寫 | `src/server/management/provider-overwrite-carry.ts:54` | 沿用 fork 的欄位清單，僅新增本設定；同 destination overwrite 保留省略值，destination 移動不 carry；PATCH boolean／null，POST 非 boolean 拒絕。 |
+| `src/server/management/provider-routes.ts` | 採用 | `src/server/management/provider-routes.ts:910` | GET 回傳 optional boolean，不序列化憑證；寫入仍走現有 editor、destination validation 與 atomic config。 |
+| `src/server/responses-undeclared-tool-guard.ts` | 採用 | `src/server/responses-undeclared-tool-guard.ts:140` | 內部標記優先於 stale prefix，current catalog 排除歷史 hosted-tool 權限；無 tag 呼叫端仍用 numeric prefix。 |
+| `src/server/responses/passthrough-dispatch.ts` | 採用 | `src/server/responses/passthrough-dispatch.ts:469` | JSON 後不可再按原 prefix 切 input；原 current wrappers 已先取授權，outbound 只補頂層 adapter 宣告，避免 historical discovery 授權執行。 |
+| `src/types/provider.ts` | 採用 | `src/types/provider.ts:444` | 明載 opt-in 與 forward 例外；沒有金鑰、端點或帳號池新路徑。 |
+| `structure/gui-and-management-api.md` | 改寫 | `structure/gui-and-management-api.md:278` | 依 fork 現有模組記錄 provenance、current catalog 與 management boolean 契約；沒有 Meta catalog 模組的段落不移入。 |
+| `structure/transports/responses-wire-shapes.md` | 改寫 | `structure/transports/responses-wire-shapes.md:160` | 依 fork 現有模組記錄 provenance、current catalog 與 management boolean 契約；沒有 Meta catalog 模組的段落不移入。 |
+| `structure/transports/responses.md` | 採用 | `structure/transports/responses.md:208` | 依 fork 現有模組記錄 provenance、current catalog 與 management boolean 契約；沒有 Meta catalog 模組的段落不移入。 |
+| `tests/adapters/routed-agent-messages.test.ts` | 採用 | `tests/adapters/routed-agent-messages.test.ts:1` | 保留上游回歸／fixture；逐檔獨立執行，驗證 actual outbound body、raw input 不變及歷史權限隔離，不釘依賴版本。 |
+| `tests/fixtures/test-layout-expected.json` | 採用 | `tests/fixtures/test-layout-expected.json:1` | 保留上游回歸／fixture；逐檔獨立執行，驗證 actual outbound body、raw input 不變及歷史權限隔離，不釘依賴版本。 |
+| `tests/providers/xai/xai-additional-tools.test.ts` | 採用 | `tests/providers/xai/xai-additional-tools.test.ts:1` | 保留上游回歸／fixture；逐檔獨立執行，驗證 actual outbound body、raw input 不變及歷史權限隔離，不釘依賴版本。 |
+| `tests/providers/xai/xai-loaded-tool-provenance.test.ts` | 採用 | `tests/providers/xai/xai-loaded-tool-provenance.test.ts:1` | 保留上游回歸／fixture；逐檔獨立執行，驗證 actual outbound body、raw input 不變及歷史權限隔離，不釘依賴版本。 |
+| `tests/providers/xai/xai-replay-provenance.test.ts` | 採用 | `tests/providers/xai/xai-replay-provenance.test.ts:1` | 保留上游回歸／fixture；逐檔獨立執行，驗證 actual outbound body、raw input 不變及歷史權限隔離，不釘依賴版本。 |
+| `tests/providers/zed-hosted-provider.test.ts` | 改寫 | `tests/providers/zed-hosted-provider.test.ts:530` | 相同行為案例適配 fork 既有 mock catalog fixture；HEAD runtime 先紅，新增 pre-delegation lift 後綠。 |
+| `tests/responses/openai-responses-passthrough.test.ts` | 採用 | `tests/responses/openai-responses-passthrough.test.ts:1` | 保留上游回歸／fixture；逐檔獨立執行，驗證 actual outbound body、raw input 不變及歷史權限隔離，不釘依賴版本。 |
+| `tests/responses/responses-muse-tool-choice.test.ts` | 不適用 | `tests/responses/responses-muse-tool-choice.test.ts:1` | 新增案例依賴 fork 不存在的 normalizeMuseToolCatalog；保留既有 Meta choice 回歸，以共用 loaded-tool 測試驗證來源過濾。 |
+| `tests/server/management-provider-compat-carry.test.ts` | 採用 | `tests/server/management-provider-compat-carry.test.ts:1` | 保留上游回歸／fixture；逐檔獨立執行，驗證 actual outbound body、raw input 不變及歷史權限隔離，不釘依賴版本。 |
+| `tests/server/server-xai-responses-streaming.test.ts` | 採用 | `tests/server/server-xai-responses-streaming.test.ts:1` | 保留上游回歸／fixture；逐檔獨立執行，驗證 actual outbound body、raw input 不變及歷史權限隔離，不釘依賴版本。 |
+
+安全覆核結論：只有本機 adapter 建立的 symbol 可作為這個投影的來源標記；它不等同 f94e95ce5 的 durable principal 或簽章工具分組證據。HTTP／WS 的 admission、CORS、key scope、bearer、帳號隔離、簽章與既有 undeclared-call guard 保持原邊界。管理欄位不擴權；只增加 editor 可設定的 optional boolean，跨 destination 不繼承。Zed helper／caller 是此項所需的最小適配，不帶入 stream、OAuth 或 diagnostic redesign。Windows 不需新 symlink、ACL、原生元件或相依套件。
+
+重新覆核條件：新增 input replacement／重排、改寫 serialization 邊界、改變 current catalog 收集或新增同名 provider overwrite 路徑時，須重新跑來源隔離、兩回合 undeclared-tool guard 與 management carry 測試。原 `tools/upstream_baseline.json` 所有水位保持不動；完整 stable 整合仍由 ROADMAP 追蹤。

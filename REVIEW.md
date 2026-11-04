@@ -558,3 +558,75 @@ exit 1 是待審項目紅燈，不是工具失敗（exit 2）。查詢只讀取�
 驗證限制：`--changed=dev` 依 `scripts/test.ts:337` 選到 `upstream/dev`（`0c32c8132`）；壓縮歷史 fork 與該 ref 無共同祖先，`test:changed` 無法建立比較基準；`git merge-base HEAD upstream/dev` 也為 exit 1，與工作樹內容無關。不改分支、不接回上游歷史、不將它稱為通過。以單檔 focused regression 覆蓋兩個直接修改的 runtime 模組、既有 ACL／atomic／parser 與 source-oracle layout，另跑完整 fork dev check；未跑完整產品套件（atomic writer 為廣泛共用 leaf，完整產品回歸與跨平台證據不由這組 focused tests 代表）。
 
 config 測試首次等待 user test lock：owner PID 57096 在同時查得為 `DismHost.exe`，等待者是該測試的 `bun.exe` PID 59308。只停止該等待者，之後各檔順序執行並明設 `OCX_TEST_NO_QUEUE=1`，未更動現有 lock、其他行程或 home／ACL guard。此設定也用於其餘既有測試與 dev check，僅略過測試排隊。沒有把 symlink EPERM 或 MSIX coordinator 失敗列為例外；相關結果沒有新增失敗。
+
+## 2026-11-05：additional_tools 與工具回放權限驗收（`d9e0c057881`）
+
+基準 `688b04a0e3a00a417e0b7492b8d682ed07d1b174`；Windows、Bun 1.4.4。上游完整 45 檔 diff 已讀，逐檔採用／改寫／不適用見 `docs/fork/DECISIONS.md`；`UPSTREAM.md` 同日節記錄來源。英文／繁中 provider 說明同步；ROADMAP 近期列只移除這筆，完整 stable 與 MSIX 複驗仍保留。`tools/upstream_baseline.json` 所有水位不變。
+
+紅綠方式：先加回歸測試及供測試建構輸入的獨立 `item-provenance.ts` helper，其餘 adapter／server runtime 保持 HEAD；取得 behavioral assertion failure 後才重放 runtime。下列每個測試檔都是獨立 `bun test <file> --timeout=60000` 行程，stdin 用 Python `subprocess.DEVNULL`（與 `/dev/null` 等價），沒有共用 Bun module cache。明設 `OCX_TEST_NO_QUEUE=1` 僅略過測試排隊，沒有停用 sandbox、ACL 或 home guard。每個測試 batch 上限 240 秒，實際最長 management 約 98 秒。
+
+| HEAD runtime＋新測試 | 結果 | 修正後結果 |
+| --- | --- | --- |
+| `tests/providers/xai/xai-loaded-tool-provenance.test.ts` | exit 1：6 pass／15 fail；歷史 discovery 混入 live catalog、兩回合 hosted-call authority 不符 | exit 0：21 pass／0 fail |
+| `tests/adapters/routed-agent-messages.test.ts` | exit 1：42 pass／1 fail；替換 message 丟失 provenance | exit 0：43 pass／0 fail |
+| `tests/responses/openai-responses-passthrough.test.ts` | exit 1：182 pass／3 fail；xAI wrapper 未提升至 tools | exit 0：185 pass／0 fail |
+| `tests/providers/zed-hosted-provider.test.ts` | exit 1：28 pass／1 fail；replayed wrapper 移除後 current discovery 未正確提升 | exit 0：29 pass／0 fail |
+| `tests/server/server-xai-responses-streaming.test.ts` | exit 1：5 pass／1 fail；實際送出的 input 仍有 wrapper | exit 0：6 pass／0 fail |
+| `tests/server/management-provider-compat-carry.test.ts` | 兩個 assertion failure：carry roster 不符、PATCH true 應 200 實為 400；red 探測 90 秒上限先到，整檔 incomplete，不作完整 red suite 統計 | exit 0：23 pass／0 fail（整檔約 98 秒） |
+
+新增 `xai-additional-tools` 涵蓋官方 host／lookalike、forward opt-in、custom gateway、schema boolean、歷史去重、reasoning／configuration_update 刪除與 raw input 不變。`xai-replay-provenance` 涵蓋 task／orphan／synthetic／bridge 替換及重排後 guard。symbol 不進 JSON，亦未加入 durable principal 或 HMAC scope。
+
+| 單檔命令（每列皆加 `--timeout=60000`） | Exit code | 結尾輸出 |
+| --- | --- | --- |
+| `bun test tests/adapters/routed-agent-messages.test.ts` | 0 | 43 pass；0 fail；144 expect() calls |
+| `bun test tests/providers/zed-hosted-provider.test.ts` | 0 | 29 pass；0 fail；106 expect() calls |
+| `bun test tests/responses/openai-responses-passthrough.test.ts` | 0 | 185 pass；0 fail；682 expect() calls |
+| `bun test tests/server/management-provider-compat-carry.test.ts` | 0 | 23 pass；0 fail；160 expect() calls |
+| `bun test tests/server/server-xai-responses-streaming.test.ts` | 0 | 6 pass；0 fail；61 expect() calls |
+| `bun test tests/providers/xai/xai-loaded-tool-provenance.test.ts` | 0 | 21 pass；0 fail；72 expect() calls |
+| `bun test tests/providers/xai/xai-replay-provenance.test.ts` | 0 | 10 pass；0 fail；35 expect() calls |
+| `bun test tests/providers/xai/xai-additional-tools.test.ts` | 0 | 23 pass；0 fail；56 expect() calls |
+| `bun test tests/responses/custom-tool-compat.test.ts` | 0 | 33 pass；0 fail；89 expect() calls |
+| `bun test tests/responses/namespace-tool-compat.test.ts` | 0 | 49 pass；0 fail；152 expect() calls |
+| `bun test tests/responses/responses-custom-tool-historical-replay.test.ts` | 0 | 5 pass；0 fail；22 expect() calls |
+| `bun test tests/responses/responses-undeclared-tool-guard.test.ts` | 0 | 101 pass；0 fail；252 expect() calls |
+| `bun test tests/responses/responses-undeclared-tool-guard-inbound.test.ts` | 0 | 11 pass；0 fail；50 expect() calls |
+| `bun test tests/providers/xai/xai-web-search.test.ts` | 0 | 14 pass；0 fail；36 expect() calls |
+| `bun test tests/providers/xai/xai-web-search-compat.test.ts` | 0 | 6 pass；0 fail；19 expect() calls |
+| `bun test tests/providers/opencode-go-grok46-responses.test.ts` | 0 | 42 pass；0 fail；104 expect() calls |
+| `bun test tests/providers/model-rename-migration.test.ts` | 0 | 51 pass；0 fail；248 expect() calls |
+| `bun test tests/responses/responses-muse-tool-choice.test.ts` | 0 | 8 pass；0 fail；33 expect() calls |
+| `bun test tests/test-layout.test.ts` | 0 | 2 pass；0 fail；3 expect() calls |
+| `bun test tests/test-layout-tooling.test.ts` | 0 | 27 pass；0 fail；576 expect() calls |
+| `bun test tests/server/data-plane-admission-identity.test.ts` | 0 | 28 pass；0 fail；73 expect() calls |
+
+共 8 個改動測試檔 340 pass／0 fail，10 個相關檔 320 pass／0 fail；layout／admission 另計。structure gate 透過 git index 辨識新檔。
+
+### 既有 Windows 環境失敗的乾淨 HEAD 對照
+
+以 `git archive HEAD` 在 gitignored scratch 匯出乾淨 `688b04a0e`，共用原有 node_modules；沒有切分支、重寫工作樹或修改產品碼。下列兩個測試及 `coordinator-doctor.ts`、`user-identity.ts`、`codex-home-owner.ts` 均逐 byte 等於 HEAD git blobs。
+
+| 命令（皆含 `--timeout=60000 --test-name-pattern '<名稱>'`） | 工作樹 | 乾淨 HEAD |
+| --- | --- | --- |
+| `bun test tests/codex-integration/codex-home-owner.test.ts`；名稱 `symlinked journal, directory journal and owner file are not authority` | exit 1：0 pass／1 fail／11 filtered out；file symlink EPERM | 同樣 exit 1：0 pass／1 fail／11 filtered out；相同 EPERM |
+| `bun test tests/codex-integration/codex-coordinator-doctor.test.ts`；名稱 `doctor classifies and explicitly backs up a stable zero-byte coordinator` | exit 1：0 pass／1 fail／7 filtered out；預期 zero-byte，實際 unsafe | 同樣 exit 1：0 pass／1 fail／7 filtered out；相同 unsafe |
+
+對 HEAD 的 doctor 案例另加一次可還原 diagnostic 輸出，reason 是 `the coordinator path is redirected`，與既有 MSIX 虛擬化環境限制相同；輸出後還原測試且再次核對 HEAD bytes。未略過、改綠或放寬這兩項，也沒有把它們算入通過數。
+
+### 閘門與限制
+
+| 命令 | Exit code | 結尾輸出／結果 |
+| --- | --- | --- |
+| `bun run typecheck` | 0 | bun x tsc --noEmit；無型別錯誤 |
+| `bun run structure:check` | 0 | structure/ SSOT checks passed |
+| `bun test tests/ci-workflows/fork-hygiene.test.ts --timeout=60000` | 0 | 39 pass／0 fail／147 expect calls |
+| `bun scripts/file-size-ratchet.ts` | 0 | file-size ratchet passed；英文 provider 頁初次 2000 行被拒後，以原段落重排降至 1998 行，未提高 baseline |
+| `cd docs-site; bun install --frozen-lockfile` | 0 | Checked 371 installs across 484 packages (no changes) |
+| `cd docs-site; bun run build` | 0 | 149 pages；20907 internal links checked；Complete! |
+| `bun run test:changed` | 1 | git merge-base failed while validating changed mode: exit 1；選測前停止 |
+| `bun run privacy:scan` | 0 | Privacy scan passed |
+| `pwsh -NoProfile -File tools/dev_check.ps1` | 0 | fork hygiene 39 pass／0 fail；10 份文件零斷鏈；WINDOWS DEV CHECK GREEN |
+
+`test:changed` 在壓縮歷史 fork 無共同祖先的限制仍存在；沒有繞過 ancestry 或將失敗描述成通過。依 `src/AGENTS.md` 的實作期規則與資源例外，用明列的 18 個工具／adapter／API／guard 測試及 layout／admission 補足選測，再跑完整 fork dev check。完整產品套件、非虛擬化 Windows coordinator 與跨平台 CI 不由這些 focused results 代表；完整 stable 整合計畫仍保留。
+
+文字完整性：所有 40 個改動檔案無 NUL／Unicode 控制字元（TAB／CR／LF 除外），原有檔案換行格式保持；`git diff --check` exit 0。

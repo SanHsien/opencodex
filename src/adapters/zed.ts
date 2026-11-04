@@ -5,6 +5,7 @@ import type { AnthropicCacheRetention } from "./anthropic/cache-retention";
 import { createGoogleAdapter } from "./google";
 import { createOpenAIChatAdapter } from "./openai-chat";
 import { createResponsesPassthroughAdapter } from "./openai-responses";
+import { liftZedAdditionalTools } from "./zed-additional-tools";
 import { createAdapterPhysicalSend } from "./physical-send";
 import type { AdapterEvent, OcxParsedRequest, OcxProviderConfig } from "../types";
 import { createTranslatorBudget, releaseTranslatedEvent, retainTranslatedEvent, type TranslatorBudget } from "../lib/translator-budget";
@@ -65,6 +66,28 @@ function forceStreaming(parsed: OcxParsedRequest): OcxParsedRequest {
   const rawBody = isRecord(parsed._rawBody) ? { ...parsed._rawBody, stream: true } : parsed._rawBody;
   return { ...parsed, stream: true, _rawBody: rawBody };
 }
+
+/**
+ * Promote the current turn's additional_tools before the Responses delegate repairs input.
+ * Repair can drop a replayed reasoning item and slide the wrapper under the original prefix
+ * length, which then hides the current catalog. The caller's raw body stays untouched.
+ */
+function promoteOpenAiToolsBeforeRepair(parsed: OcxParsedRequest): OcxParsedRequest {
+  if (!isRecord(parsed._rawBody)) return forceStreaming(parsed);
+  const raw = parsed._rawBody;
+  const copy: Record<string, unknown> = { ...raw, stream: true };
+  if (Array.isArray(raw.input)) {
+    copy.input = raw.input.map(item => (
+      isRecord(item) && item.type === "additional_tools" && Array.isArray(item.tools)
+        ? { ...item, tools: [...item.tools] }
+        : item
+    ));
+  }
+  if (Array.isArray(raw.tools)) copy.tools = [...raw.tools];
+  liftZedAdditionalTools(copy, parsed._replayPrefixLen ?? 0);
+  return { ...parsed, stream: true, _rawBody: copy };
+}
+
 
 function providerFromCatalog(catalog: Awaited<ReturnType<typeof resolveZedModels>> | undefined, model: string): ZedProvider {
   const raw = catalog?.rawById.get(model);
@@ -256,7 +279,7 @@ export function createZedAdapter(provider: OcxProviderConfig, cacheRetention?: A
      ...(incoming?.providerFetch ? { providerFetch: incoming.providerFetch } : {}),
      ...(incoming?.abortSignal ? { abortSignal: incoming.abortSignal } : {}),
     };
-    const built = await selected.buildRequest(forceStreaming(parsed), safeIncoming);
+    const built = await selected.buildRequest(zedProvider === "open_ai" ? promoteOpenAiToolsBeforeRepair(parsed) : forceStreaming(parsed), safeIncoming);
     let providerRequest: unknown;
     try { providerRequest = JSON.parse(built.body) as unknown; } catch { throw new Error("Zed delegate produced an invalid request body"); }
     if (zedProvider === "google" && isRecord(providerRequest)) delete providerRequest.safetySettings;

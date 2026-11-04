@@ -45,6 +45,7 @@ describe("Codex metadata integrity", () => {
       "thread-id",
       "chatgpt-account-id",
       "x-codex-parent-thread-id",
+      "version",
     ]) {
       expect(FORWARD_HEADERS).toContain(name);
     }
@@ -157,9 +158,11 @@ describe("Codex metadata integrity", () => {
         originator: "codex_cli_rs",
         session_id: "sess-real-2",
         "thread-id": "thread-real-2",
+        version: "0.154.0",
       }),
     });
     const sync = request as { headers: Record<string, string> };
+    expect(sync.headers.version).toBe("0.154.0");
     expect(sync.headers.authorization).toBe("Bearer caller-token");
     expect(sync.headers.originator).toBe("codex_cli_rs");
     expect(sync.headers.session_id).toBe("sess-real-2");
@@ -174,6 +177,7 @@ describe("Codex metadata integrity", () => {
       "x-codex-installation-id": callerInstallId,
       "x-codex-turn-metadata": turnMeta,
       "x-oai-attestation": "caller-device-attestation",
+      version: "0.154.0",
     });
     const headersA = headersForCodexAuthContext(inbound, poolAuthContext);
     const headersB = headersForCodexAuthContext(inbound, {
@@ -193,6 +197,7 @@ describe("Codex metadata integrity", () => {
       thread_id: "thread-keep",
     });
     expect(headersA.has("x-oai-attestation")).toBe(false);
+    expect(headersA.get("version")).toBe("0.154.0");
 
     // Passing already-materialized headers and client_metadata through passthrough adapter with _codexAccountOverride stays idempotent.
     const parsed = minimalParsed();
@@ -216,6 +221,7 @@ describe("Codex metadata integrity", () => {
     const built = await createResponsesPassthroughAdapter(providerWithOverride).buildRequest(parsed, { headers: headersA });
     expect(built.headers["x-codex-installation-id"]).toBe(idA);
     expect(built.headers["x-oai-attestation"]).toBeUndefined();
+    expect(built.headers.version).toBe("0.154.0");
     const sentBody = JSON.parse(built.body);
     expect(sentBody.client_metadata["x-codex-installation-id"]).toBe(idA);
     expect(JSON.parse(sentBody.client_metadata["x-codex-turn-metadata"]).installation_id).toBe(idA);

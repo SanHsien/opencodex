@@ -167,6 +167,7 @@ function readStoredGeneration(): number {
 type Harness = {
   sends: string[];
   refreshes: string[];
+  refreshWires: Array<{ contentType: string | null; accept: string | null; body: Record<string, unknown> }>;
   recoveryAuths: string[];
   backupAuths: string[];
   backupBodies: string[];
@@ -184,6 +185,7 @@ function installHarness(options: {
 } = {}): Harness {
   const sends: string[] = [];
   const refreshes: string[] = [];
+  const refreshWires: Harness["refreshWires"] = [];
   const recoveryAuths: string[] = [];
   const backupAuths: string[] = [];
   const backupBodies: string[] = [];
@@ -193,7 +195,10 @@ function installHarness(options: {
     const body = typeof init?.body === "string" ? init.body : "";
     const authorization = new Headers(init?.headers).get("authorization") ?? "";
     if (url.hostname === "auth.openai.com") {
-      refreshes.push(new URLSearchParams(String(init?.body)).get("refresh_token") ?? "");
+      const wire = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      const refreshHeaders = new Headers(init?.headers);
+      refreshWires.push({ contentType: refreshHeaders.get("content-type"), accept: refreshHeaders.get("accept"), body: wire });
+      refreshes.push(typeof wire.refresh_token === "string" ? wire.refresh_token : "");
       if (options.refresh) return options.refresh();
       return Response.json({
         access_token: "refreshed-access",
@@ -232,7 +237,7 @@ function installHarness(options: {
     }
     return Response.json({ id: "resp_replayed", object: "response", status: "completed", output: [] });
   }) as typeof fetch;
-  return { sends, refreshes, recoveryAuths, backupAuths, backupBodies, get canonicalAliasSends() { return canonicalAliasSends; } };
+  return { sends, refreshes, refreshWires, recoveryAuths, backupAuths, backupBodies, get canonicalAliasSends() { return canonicalAliasSends; } };
 }
 
 function recoveryComboConfig(): OcxConfig {
@@ -661,6 +666,35 @@ describe("ordinary pool 401 refresh and replay (#2887)", () => {
     // Quarantine is the other half of the report: the account must stay usable.
     expect(isAccountNeedsReauth(ACCOUNT_ID)).toBe(false);
     expect(readStoredGeneration()).toBe(4);
+  });
+
+  test("the pool refresh grant goes out as the official JSON body (#7840)", async () => {
+    const harness = installHarness();
+    const response = await handleResponses(
+      request("/v1/responses"),
+      config(),
+      { model: "", provider: "" } as RequestLogContext,
+    );
+
+    expect(response.status).toBe(200);
+    expect(harness.refreshWires).toEqual([{
+      contentType: "application/json",
+      accept: "application/json",
+      body: { client_id: "app_EMoamEEZ73f0CkXaXp7hrann", grant_type: "refresh_token", refresh_token: "refresh-grant" },
+    }]);
+  });
+
+  test("a pool refresh answer without an access_token is a failed refresh, never a stored credential", async () => {
+    const harness = installHarness({ refresh: () => Response.json({ refresh_token: "rotated-refresh", expires_in: 3600 }) });
+    const response = await handleResponses(
+      request("/v1/responses"),
+      config(),
+      { model: "", provider: "" } as RequestLogContext,
+    );
+
+    expect(response.status).not.toBe(200);
+    expect(harness.sends).toEqual(["Bearer rejected-access"]);
+    expect(readStoredGeneration()).toBe(3);
   });
 
   test("compact refreshes a time-valid stored credential once and replays the same account", async () => {

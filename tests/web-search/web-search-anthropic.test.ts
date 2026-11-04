@@ -20,6 +20,7 @@ import {
 } from "../../src/web-search";
 import { parseAnthropicSidecarSSE, runAnthropicWebSearch } from "../../src/web-search/anthropic-executor";
 import { CLAUDE_CODE_SYSTEM_INSTRUCTION } from "../../src/oauth/anthropic";
+import { CLAUDE_CLI_USER_AGENT } from "../../src/providers/claude-cli-identity";
 import type { OcxConfig, OcxProviderConfig } from "../../src/types";
 
 const routedProvider: OcxProviderConfig = { adapter: "openai-chat", baseUrl: "https://routed.test/v1", apiKey: "routed-key" };
@@ -320,6 +321,8 @@ describe("runAnthropicWebSearch request shape", () => {
     expect(c.headers["anthropic-version"]).toBe("2023-06-01");
     expect(c.headers["x-app"]).toBe("cli");
     expect(c.headers["x-claude-code-session-id"]).toBeDefined();
+    expect(c.headers["user-agent"]).toBe(CLAUDE_CLI_USER_AGENT);
+    expect(c.headers["anthropic-dangerous-direct-browser-access"]).toBe("true");
     expect(c.body.model).toBe("claude-sonnet-5");
     expect(c.body.max_tokens).toBe(8192);
     expect(c.body.thinking).toEqual({ type: "disabled" });

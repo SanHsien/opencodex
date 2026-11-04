@@ -30,6 +30,7 @@ import { stripResponsesOnlyEncryptedMarker } from "./responses-tool-schema";
 import { identifyRoutedModel } from "./identity";
 import { redactSecretString } from "../lib/redact";
 import { CLAUDE_CODE_HEADERS, claudeCodeSessionId } from "./client-fingerprint";
+import { CLAUDE_CLI_SDK_PACKAGE_VERSION, CLAUDE_CLI_USER_AGENT } from "../providers/claude-cli-identity";
 import { buildNonOpenAIToolCatalogNudgeForTools } from "./tool-catalog-nudge";
 import { decodeServerSentEvents } from "../lib/sse-decoder";
 import { isLikelyRealAnthropicThinkingSignature } from "../responses/reasoning-envelope";
@@ -556,7 +557,7 @@ export function anthropicBaseRequestHeaders(stream: boolean | undefined): Record
     "Content-Type": "application/json",
     "anthropic-version": ANTHROPIC_API_VERSION,
     "Accept": stream ? "text/event-stream" : "application/json",
-    "User-Agent": "@anthropic-ai/sdk/0.74.0",
+    "User-Agent": `@anthropic-ai/sdk/${CLAUDE_CLI_SDK_PACKAGE_VERSION}`,
   };
 }
 
@@ -585,6 +586,7 @@ export function resolveTranslatedAnthropicSessionKey(parsed: OcxParsedRequest, i
 export function applyAnthropicOAuthAuth(headers: Record<string, string>, accessToken: string, sessionKey?: string | null): void {
   headers["Authorization"] = `Bearer ${accessToken}`;
   headers["anthropic-beta"] = ANTHROPIC_OAUTH_BETA;
+  headers["User-Agent"] = CLAUDE_CLI_USER_AGENT;
   // Match the real Claude Code CLI request fingerprint: a valid OAuth token with an empty
   // header set is a non-first-party signature. (cch billing-header signing is intentionally
   // out of scope — brittle and version-coupled.)

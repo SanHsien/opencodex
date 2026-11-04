@@ -4,11 +4,16 @@
 
 **決定一（採用，重放最終狀態）**：Pool 帳號對上游的身分識別碼不再共用。Claude OAuth：`metadata.user_id.device_id` 由帳號 UUID 確定性衍生，`X-Claude-Code-Session-Id` 由 token＋對話 key 衍生（`e04aae068`）。Codex Pool：`x-codex-installation-id`、`x-codex-turn-metadata.installation_id`、`client_metadata` 內的兩個欄位一律換成該帳號專屬 ID，涵蓋 Responses HTTP／WebSocket、compact、context-history、search、images、live、audio live／dictation、live-sideband 幀、vision 與 web-search 兩個 sidecar（`007dbfd89`）；帳號切換時 `x-codex-turn-state` 標頭與 body 內欄位一併清除（`ba880dfae`）。`ba880dfae` 的 HMAC(caller ID) 衍生被 `007dbfd89` 的私有 secret 方案整套取代，中間版不落地。
 
-**決定二（刻意不採，延後）**：Claude Code 2.1.280 profile 對齊（UA、SDK 版本、Stainless 命名、`anthropic-dangerous-direct-browser-access`、beta 重分類）；JSON token refresh 與登入 `originator` 改 `codex_cli_rs`；`version` 標頭轉發。三者都不是 ID 隔離，各自改變對外 wire 契約或客戶端身分宣稱，隔離修正不該夾帶它們。證據與觸發條件見 `UPSTREAM.md` 同日節。
+**決定二（原判延後；2026-11-04 同日改判為採用，已重放）**：首輪把三項視為「不是 ID 隔離、各自改變對外 wire 契約或客戶端身分宣稱」而延後。理由：維護者 2026-11-04 指示：上游做法合法可用即採用，不延後。因此後補（上游 `e04aae068`、`ba880dfae`，fork 檔案：行號見 `UPSTREAM.md` 同日節）：
+- Claude Code 2.1.280 profile 對齊：OAuth 路徑 `User-Agent` 為 `claude-cli/2.1.280 (external, cli)`，key／相容路徑為 `@anthropic-ai/sdk/0.112.1`；`X-Stainless-Package-Version` 0.74.0→0.112.1、`X-Stainless-Runtime-Version` 固定 `v26.3.0`、`X-Stainless-OS`／`Arch` 改 SDK 命名（`Windows`、`x64`）、新增 `anthropic-dangerous-direct-browser-access: true`；`thinking-token-count`、`mid-conversation-tool-changes`、`advanced-tool-use`、`effort`、`extended-cache-ttl` 五個 beta 由「已知不轉送」改列「native client 可轉送」；vision 與 web-search 兩個 sidecar 的 UA 改 `claude-cli/…`。
+- pool／main／`chatgpt.ts` 的 token refresh 改送 JSON body（`Content-Type` 與 `Accept` 皆 `application/json`，欄位 `client_id`、`grant_type`、`refresh_token`）；authorization_code 交換維持 form-urlencoded。pool refresh 回應缺 `access_token`（或為空白字串）即拋錯，不寫入憑證。登入 `originator` 由 `opencodex` 改 `codex_cli_rs`。
+- `FORWARD_HEADERS` 新增 `version`，pool／main／direct 路徑把 Codex CLI 的 `version` 標頭轉送給上游。
 
 **決定三（不適用）**：`claude-messages.ts` 的 web-search 可用性探測分支與 `claude-installation-helper.test.ts`（fork 沒有該探測）；`MuseToolCatalogCompatibilityError` 分類；`resolveConnectTimeoutMs`。
 
 **行為變更與風險**：
+- 後補項（決定二）的對外效果：Anthropic 看到的 Claude Code／SDK 指紋整批前進到 2.1.280／0.112.1，`X-Stainless-Runtime-Version` 是固定字串而非本機 Node 版本；token 端點收到的 refresh 是 JSON 而非 form，登入頁面看到的 `originator` 是 `codex_cli_rs`。兩者都是「讓 opencodex 的請求更像官方客戶端」，不改變授權範圍；若 `auth.openai.com` 之後拒絕 JSON refresh，現有的失敗分類（`classifyChatgptRefreshFailure`）會把它記成 refresh 失敗而不是靜默成功。回復方式是還原這三個 refresh 呼叫點的 body／header，不涉及持久化資料。
+- 後補項的指紋值（`0.112.1`、`v26.3.0`、`2.1.280`）是上游釘的字串，fork 沒有對照真實 CLI 與 Anthropic 回應核對；沿用 `claude-cli-identity.ts` 的規則：升版時與 live GET 一起核對。
 - Pool 帳號看到的 installation ID 不再是 Codex CLI 自己的值；Direct 與原生主帳號不變。
 - secret 無法安全讀寫時 Pool 送出 503（fail closed），不沿用 caller 的 ID。Windows 要求 `<config home>/codex-installation-secret` 與其目錄先通過 required ACL 才寫入 key 位元組；config home 若在不支援 ACL 的磁碟，Pool 送出會持續 503。需要時的處置是把 config home 移到 NTFS，不是放寬檢查。
 - `chatgptAccountId` 為空白的 `codex-accounts.json` 紀錄不再被視為憑證（同檔其他帳號不受影響）。

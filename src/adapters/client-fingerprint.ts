@@ -12,18 +12,48 @@
  * intentionally NOT modeled — those are brittle and a wrong guess does more harm than the gap.
  */
 import { createHash } from "node:crypto";
+import {
+  CLAUDE_CLI_RUNTIME_VERSION,
+  CLAUDE_CLI_SDK_PACKAGE_VERSION,
+} from "../providers/claude-cli-identity";
 
-// ── Claude Code CLI (matches Claude Code 2.1.63 / @anthropic-ai/sdk 0.74.0) ──
+export function stainlessOsName(platform: string = process.platform): string {
+  switch (platform.toLowerCase()) {
+    case "darwin":
+      return "MacOS";
+    case "linux":
+      return "Linux";
+    case "win32":
+      return "Windows";
+    case "freebsd":
+      return "FreeBSD";
+    case "openbsd":
+      return "OpenBSD";
+    default:
+      return platform ? `Other:${platform}` : "Unknown";
+  }
+}
+
+export function stainlessArchName(arch: string = process.arch): string {
+  if (arch === "x64" || arch === "x86_64") return "x64";
+  if (arch === "arm64" || arch === "aarch64") return "arm64";
+  if (arch === "arm") return "arm";
+  if (arch === "ia32" || arch === "x32") return "x32";
+  return arch ? `other:${arch}` : "unknown";
+}
+
+// ── Claude Code CLI (matches Claude Code 2.1.280 / @anthropic-ai/sdk 0.112.1) ──
 export const CLAUDE_CODE_HEADERS: Record<string, string> = {
   "X-App": "cli",
+  "anthropic-dangerous-direct-browser-access": "true",
   "X-Stainless-Retry-Count": "0",
   "X-Stainless-Runtime": "node",
   "X-Stainless-Lang": "js",
   "X-Stainless-Timeout": "600",
-  "X-Stainless-Arch": process.arch,
-  "X-Stainless-OS": process.platform,
-  "X-Stainless-Package-Version": "0.74.0",
-  "X-Stainless-Runtime-Version": process.version.slice(1),
+  "X-Stainless-Arch": stainlessArchName(),
+  "X-Stainless-OS": stainlessOsName(),
+  "X-Stainless-Package-Version": CLAUDE_CLI_SDK_PACKAGE_VERSION,
+  "X-Stainless-Runtime-Version": CLAUDE_CLI_RUNTIME_VERSION,
 };
 
 /**

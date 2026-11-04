@@ -169,7 +169,7 @@ describe("ChatGPT OAuth refresh failure classification", () => {
 });
 
 describe("ChatGPT token fetch cancellation and deadlines", () => {
-  test("refresh keeps the form grant and composes the caller with a fresh 30s deadline", async () => {
+  test("refresh sends the official JSON grant and composes the caller with a fresh 30s deadline", async () => {
     const observed: AbortSignal[] = [];
     const deadlines: number[] = [];
     globalThis.setTimeout = ((fn, ms, ...args) => {
@@ -178,10 +178,16 @@ describe("ChatGPT token fetch cancellation and deadlines", () => {
     globalThis.fetch = (async (url: unknown, init?: RequestInit) => {
       expect(String(url)).toBe("https://auth.openai.com/oauth/token");
       expect(init?.method).toBe("POST");
-      expect(init?.headers).toEqual({ "Content-Type": "application/x-www-form-urlencoded" });
-      const body = new URLSearchParams(String(init?.body));
-      expect(body.get("grant_type")).toBe("refresh_token");
-      expect(body.get("refresh_token")).toBe("synthetic-refresh");
+      expect(init?.headers).toEqual({
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      });
+      const body = JSON.parse(String(init?.body)) as Record<string, string>;
+      expect(body).toEqual({
+        client_id: "app_EMoamEEZ73f0CkXaXp7hrann",
+        grant_type: "refresh_token",
+        refresh_token: "synthetic-refresh",
+      });
       observed.push(init!.signal!);
       return Response.json({ access_token: "at", refresh_token: "rt", expires_in: 3600 });
     }) as typeof fetch;
@@ -196,6 +202,21 @@ describe("ChatGPT token fetch cancellation and deadlines", () => {
     const reason = new DOMException("invalid_grant synthetic-private-token", "AbortError");
     caller.abort(reason);
     expect(observed.every(signal => !signal.aborted)).toBe(true);
+  });
+
+  test("browser login announces the codex_cli_rs originator while the code exchange stays form-encoded (#7840)", async () => {
+    const flow = new ChatGPTOAuthFlow({});
+    const { url } = await flow.generateAuthUrl("synthetic-state", "http://localhost:1455/auth/callback");
+    expect(new URL(url).searchParams.get("originator")).toBe("codex_cli_rs");
+    let exchange: { headers: Headers; body: URLSearchParams } | undefined;
+    globalThis.fetch = (async (_url: unknown, init?: RequestInit) => {
+      exchange = { headers: new Headers(init?.headers), body: new URLSearchParams(String(init?.body)) };
+      return Response.json({ access_token: "at", refresh_token: "rt", expires_in: 3600 });
+    }) as typeof fetch;
+    await flow.exchangeToken("synthetic-code", "synthetic-state", "http://localhost:1455/auth/callback");
+    expect(exchange?.headers.get("content-type")).toBe("application/x-www-form-urlencoded");
+    expect(exchange?.body.get("grant_type")).toBe("authorization_code");
+    expect(exchange?.body.get("code")).toBe("synthetic-code");
   });
 
   test("a pre-aborted refresh sanitizes the caller's reason", async () => {

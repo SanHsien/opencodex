@@ -4,8 +4,15 @@ import {
   CLAUDE_CODE_HEADERS,
   antigravityUserAgent,
   claudeCodeSessionId,
+  stainlessArchName,
+  stainlessOsName,
 } from "../../src/adapters/client-fingerprint";
 import { createAnthropicAdapter } from "../../src/adapters/anthropic";
+import {
+  CLAUDE_CLI_RUNTIME_VERSION,
+  CLAUDE_CLI_SDK_PACKAGE_VERSION,
+  CLAUDE_CLI_USER_AGENT,
+} from "../../src/providers/claude-cli-identity";
 import type { OcxParsedRequest, OcxProviderConfig } from "../../src/types";
 
 function parsed(overrides: Partial<OcxParsedRequest> = {}): OcxParsedRequest {
@@ -86,6 +93,25 @@ describe("client fingerprint — helpers", () => {
     expect(CLAUDE_CODE_HEADERS["X-App"]).toBe("cli");
     expect(CLAUDE_CODE_HEADERS["X-Stainless-Runtime"]).toBe("node");
     expect(CLAUDE_CODE_HEADERS["X-Stainless-Lang"]).toBe("js");
+    expect(CLAUDE_CODE_HEADERS["anthropic-dangerous-direct-browser-access"]).toBe("true");
+    expect(CLAUDE_CODE_HEADERS["X-Stainless-Package-Version"]).toBe(CLAUDE_CLI_SDK_PACKAGE_VERSION);
+    expect(CLAUDE_CODE_HEADERS["X-Stainless-Runtime-Version"]).toBe(CLAUDE_CLI_RUNTIME_VERSION);
+    expect(CLAUDE_CODE_HEADERS["X-Stainless-OS"]).toBe(stainlessOsName(process.platform));
+    expect(CLAUDE_CODE_HEADERS["X-Stainless-Arch"]).toBe(stainlessArchName(process.arch));
+  });
+
+  test("Stainless OS and arch use the SDK's names, not Node's, and the pinned SDK is 0.112.1", async () => {
+    expect(stainlessOsName("darwin")).toBe("MacOS");
+    expect(stainlessOsName("linux")).toBe("Linux");
+    expect(stainlessOsName("win32")).toBe("Windows");
+    expect(stainlessOsName("freebsd")).toBe("FreeBSD");
+    expect(stainlessOsName("aix")).toBe("Other:aix");
+    expect(stainlessArchName("x64")).toBe("x64");
+    expect(stainlessArchName("arm64")).toBe("arm64");
+    expect(stainlessArchName("ia32")).toBe("x32");
+    expect(stainlessArchName("riscv64")).toBe("other:riscv64");
+    expect(CLAUDE_CLI_SDK_PACKAGE_VERSION).toBe("0.112.1");
+    expect(CLAUDE_CLI_RUNTIME_VERSION).toBe("v26.3.0");
   });
 });
 
@@ -100,6 +126,9 @@ describe("client fingerprint — anthropic OAuth headers", () => {
     expect(headers["X-Stainless-Lang"]).toBe("js");
     expect(headers["X-Stainless-Retry-Count"]).toBe("0");
     expect(headers["X-Stainless-Timeout"]).toBe("600");
+    expect(headers["anthropic-dangerous-direct-browser-access"]).toBe("true");
+    expect(headers["X-Stainless-Package-Version"]).toBe("0.112.1");
+    expect(headers["X-Stainless-Runtime-Version"]).toBe("v26.3.0");
     expect(headers["anthropic-beta"]).toBeDefined();
     expect(headers["X-Claude-Code-Session-Id"]).toMatch(/^[0-9a-f]{8}-/);
     expect(headers["x-client-request-id"]).toMatch(/^[0-9a-f]{8}-/);
@@ -143,17 +172,18 @@ describe("client fingerprint — anthropic OAuth headers", () => {
   test("Accept + User-Agent fingerprint headers are sent on both OAuth and API-key paths", async () => {
     const oauth = (await createAnthropicAdapter(oauthProvider).buildRequest(parsed())).headers;
     const apiKey = (await createAnthropicAdapter(apiKeyProvider).buildRequest(parsed())).headers;
-    for (const headers of [oauth, apiKey]) {
-      // Non-stream request advertises a JSON Accept and the pinned first-party SDK UA.
-      expect(headers["Accept"]).toBe("application/json");
-      expect(headers["User-Agent"]).toBe("@anthropic-ai/sdk/0.74.0");
-    }
+    // Non-stream request advertises a JSON Accept. OAuth presents the Claude Code CLI UA;
+    // the API-key path keeps the pinned SDK UA.
+    expect(oauth["Accept"]).toBe("application/json");
+    expect(oauth["User-Agent"]).toBe(CLAUDE_CLI_USER_AGENT);
+    expect(apiKey["Accept"]).toBe("application/json");
+    expect(apiKey["User-Agent"]).toBe(`@anthropic-ai/sdk/${CLAUDE_CLI_SDK_PACKAGE_VERSION}`);
   });
 
   test("Accept negotiates SSE for a streaming request", async () => {
     const streaming = { ...parsed(), stream: true } as OcxParsedRequest;
     const { headers } = await createAnthropicAdapter(oauthProvider).buildRequest(streaming);
     expect(headers["Accept"]).toBe("text/event-stream");
-    expect(headers["User-Agent"]).toBe("@anthropic-ai/sdk/0.74.0");
+    expect(headers["User-Agent"]).toBe(CLAUDE_CLI_USER_AGENT);
   });
 });

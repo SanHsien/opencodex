@@ -126,14 +126,19 @@ afterEach(() => {
   setSyntheticWindowsPrincipalForTests(null);
 });
 
-function install401ThenRefreshHarness(): { sends: string[]; refreshes: string[] } {
+type RefreshWire = { contentType: string | null; accept: string | null; body: Record<string, unknown> };
+
+function install401ThenRefreshHarness(): { sends: string[]; refreshes: string[]; wires: RefreshWire[] } {
   const sends: string[] = [];
   const refreshes: string[] = [];
+  const wires: RefreshWire[] = [];
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(input instanceof Request ? input.url : String(input));
     if (url.hostname === "auth.openai.com") {
-      const refresh = new URLSearchParams(String(init?.body)).get("refresh_token") ?? "";
-      refreshes.push(refresh);
+      const wire = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      const refreshHeaders = new Headers(init?.headers);
+      wires.push({ contentType: refreshHeaders.get("content-type"), accept: refreshHeaders.get("accept"), body: wire });
+      refreshes.push(typeof wire.refresh_token === "string" ? wire.refresh_token : "");
       return Response.json({
         access_token: "refreshed-access",
         refresh_token: "rotated-refresh",
@@ -150,7 +155,7 @@ function install401ThenRefreshHarness(): { sends: string[]; refreshes: string[] 
     }
     return Response.json({ id: "resp_refreshed", object: "response", status: "completed", output: [] });
   }) as typeof fetch;
-  return { sends, refreshes };
+  return { sends, refreshes, wires };
 }
 
 describe("native main 401 refresh and replay", () => {
@@ -345,6 +350,22 @@ describe("native main 401 refresh and replay", () => {
       .toBe("rotated-refresh");
   });
 
+  test("the native main refresh grant goes out as the official JSON body (#7840)", async () => {
+    const harness = install401ThenRefreshHarness();
+    const response = await handleResponses(
+      request("/v1/responses"),
+      config(),
+      { model: "", provider: "" } as RequestLogContext,
+    );
+
+    expect(response.status).toBe(200);
+    expect(harness.wires).toEqual([{
+      contentType: "application/json",
+      accept: "application/json",
+      body: { client_id: "app_EMoamEEZ73f0CkXaXp7hrann", grant_type: "refresh_token", refresh_token: "refresh-grant" },
+    }]);
+  });
+
   test("compact refreshes and performs exactly one physical replay", async () => {
     const harness = install401ThenRefreshHarness();
     const response = await handleResponsesCompact(
@@ -371,7 +392,7 @@ describe("native main 401 refresh and replay", () => {
       globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = new URL(input instanceof Request ? input.url : String(input));
         if (url.hostname === "auth.openai.com") {
-          refreshes.push(new URLSearchParams(String(init?.body)).get("refresh_token") ?? "");
+          refreshes.push((JSON.parse(String(init?.body)) as { refresh_token?: string }).refresh_token ?? "");
           return Response.json({
             access_token: "refreshed-access",
             refresh_token: "rotated-refresh",
@@ -428,7 +449,7 @@ describe("native main 401 refresh and replay", () => {
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(input instanceof Request ? input.url : String(input));
       if (url.hostname === "auth.openai.com") {
-        refreshes.push(new URLSearchParams(String(init?.body)).get("refresh_token") ?? "");
+        refreshes.push((JSON.parse(String(init?.body)) as { refresh_token?: string }).refresh_token ?? "");
         return Response.json(refusal.body, { status: refusal.status });
       }
       if (!url.pathname.endsWith("/responses")) {
@@ -610,7 +631,7 @@ describe("native main 401 refresh and replay", () => {
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = new URL(input instanceof Request ? input.url : String(input));
       if (url.hostname === "auth.openai.com") {
-        refreshes.push(new URLSearchParams(String(init?.body)).get("refresh_token") ?? "");
+        refreshes.push((JSON.parse(String(init?.body)) as { refresh_token?: string }).refresh_token ?? "");
         return Response.json({ error: "token_invalidated" }, { status: 401 });
       }
       if (url.hostname === "fallback.test") {

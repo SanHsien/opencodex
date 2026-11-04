@@ -1,5 +1,19 @@
 # 維護決策
 
+## 2026-11-04：上游 tag 放 `refs/upstream-tags/`，不進本機 `refs/tags/`
+
+**問題**：`tests/ci-workflows/release-version-line.test.ts` 讀本機 `git tag --list 'v*'`，要求 `package.json` 版本不落後最高 release tag。`UPSTREAM.md` 的同步流程用 `git fetch upstream --tags` 把上游 tag 拉進本機 tag 命名空間；本機有上游 `v2.94.0`～`v2.96.0` 時，`package.json` 還在 `2.94.0`，測試報 `package.json version 2.94.0 is BEHIND the highest release tag v2.96.0`。CI 不抓上游 tag 所以綠，本機紅。上游每次發版都會重現。
+
+**證據**：`git ls-remote --tags origin` 只有 `v2.93.0`（fork 自己的 release tag，`c6360071`）；本機 `refs/tags/` 原有 313 筆，其中 306 筆 `v*` 不在 origin，全是上游 tag（另 6 筆 `compat-lab-*` 非 `v*`，未動），包含與 origin 同名但指向上游 commit 的 `v2.93.0`（`88aaa754`）。
+
+**決定**：
+- 上游 tag 一律抓進 `refs/upstream-tags/*`：`git fetch --no-tags upstream main "+refs/tags/*:refs/upstream-tags/*"`，並 `git config remote.upstream.tagOpt --no-tags`（每個 clone 設一次）。tag diff 重放法不變，只是把 tag 名寫成 `refs/upstream-tags/vX.Y.Z`。
+- 測試不放寬：它在 fork 的意義正是「不落後 fork 自己發過的 release tag」。放寬會讓真正的版本回退也過關。測試註解補一句範圍說明。
+- 本機整理只搬 ref：本機有、origin 沒有的 `v*` tag（306 筆）先 `git update-ref refs/upstream-tags/<tag> <物件>` 再 `git tag -d`；origin 已有的名稱（`v2.93.0`）不動，只在 `refs/upstream-tags/` 另存一份上游物件。
+- `tools/check-upstream-updates.ts` 不讀本機 tag（只用 `upstream/main` 與 GitHub API），不受影響。
+
+**新慣例**：不要再跑 `git fetch upstream --tags`；`refs/tags/` 只放 fork 自己的 release tag。
+
 ## 2026-10-23：stable 整合 v2.91.0（不帶入上游歷史）
 
 **決定**：在以 tag `v2.91.0`（`83ec4f75a4cc97030c2fa7857e05e2ce222f376f`）為起點的暫存 worktree 上重放 `git diff v2.88.0 main` 的 fork overlay（398 刪除、251 新增／修改走 3-way patch，其中 9 個衝突檔），

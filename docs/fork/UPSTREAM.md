@@ -14,6 +14,21 @@ bun tools/check-upstream-updates.ts --strict
 ```
 
 工具以 `tools/upstream_baseline.json` 的 `reviewed_through` 為起點，列出所有未審查提交。
+
+### 上游 tag 放 `refs/upstream-tags/`，不進本機 `refs/tags/`
+
+`tests/ci-workflows/release-version-line.test.ts` 讀本機 `git tag --list 'v*'`，斷言 `package.json` 版本不落後最高 release tag；
+那個「最高 tag」應該只指 fork 自己的 release tag。`git fetch upstream --tags` 會把上游 tag 混進去，上游一發版本機測試就紅（CI 不抓上游 tag 所以綠）。
+所以上游 tag 一律抓進獨立命名空間，並讓 `upstream` remote 不自動抓 tag：
+
+```powershell
+git config remote.upstream.tagOpt --no-tags          # 每個 clone 設一次
+git fetch --no-tags upstream main "+refs/tags/*:refs/upstream-tags/*"
+```
+
+之後引用上游 tag 一律寫 `refs/upstream-tags/vX.Y.Z`，例如 `git diff refs/upstream-tags/v2.93.0 refs/upstream-tags/v2.94.0`、
+`git worktree add <dir> refs/upstream-tags/v2.94.0`。不要再跑 `git fetch upstream --tags`。
+（此節之前的歷史條目寫的 `v2.x.y` 是當時本機 `refs/tags/` 裡的上游 tag，現在對應 `refs/upstream-tags/v2.x.y`。）
 有新提交或檢查失敗時，`--strict` 回傳非零；排程 workflow 也會因此明確失敗。
 
 ## PR 關閉截止日與逐筆清單（2026-11-03 起）
@@ -45,7 +60,7 @@ bun tools/check-upstream-updates.ts --strict
 
 1. 讀 commit 主旨與變更檔案。
 2. 判斷是否與 Windows gate、fork 文件、workflow guard 或測試衝突。
-3. 本 fork 刻意維持壓縮歷史、不帶入上游歷史（2026-10-06 確認），所以不 merge 上游：整版同步用 `git diff <integrated_tag> <新 tag>` 套到 `main`；只需要部分修正時 cherry-pick 或最小重做。同步完成後推進 `tools/upstream_baseline.json` 的 `integrated_through`／`integrated_tag`。
+3. 本 fork 刻意維持壓縮歷史、不帶入上游歷史（2026-10-06 確認），所以不 merge 上游：整版同步用 `git diff refs/upstream-tags/<integrated_tag> refs/upstream-tags/<新 tag>` 套到 `main`（tag 命名空間見上節）；只需要部分修正時 cherry-pick 或最小重做。同步完成後推進 `tools/upstream_baseline.json` 的 `integrated_through`／`integrated_tag`。
 4. 跑 `pwsh -NoProfile -File tools\dev_check.ps1`。產品檔有改再跑 `bun run typecheck` 與 `bun run test`。
 5. 在 `docs/fork/DECISIONS.md` 記錄採用／略過理由。
 6. 驗證完成後才把 baseline 推進到已審查的完整 40 字元 SHA。
@@ -111,7 +126,7 @@ fork 只 fetch `main`（需要時才 fetch `dev`）。下次重看分支的觸�
 （`f7f890ff72a5ccccadb5a935c1ea106922562cd2`）、PR `#3943` 與 platform issue `#3661`。下一次只做增量檢查：
 
 ```powershell
-git fetch upstream main --tags
+git fetch --no-tags upstream main "+refs/tags/*:refs/upstream-tags/*"
 bun tools/check-upstream-updates.ts --strict
 ```
 
@@ -239,8 +254,8 @@ first-parent 是四次穩定發版：
 下次同步：
 
 ```powershell
-git fetch upstream --tags
-git checkout -b fork/replay-v2.34.0 v2.34.0
+git fetch --no-tags upstream "+refs/tags/*:refs/upstream-tags/*"
+git checkout -b fork/replay-v2.34.0 refs/upstream-tags/v2.34.0
 # 重放 overlay：FORK/NOTICE/CLAUDE/SKILL/REVIEW、docs/fork、tools、
 # workflow guard、語系刪除、CodeQL、Dependabot。產品檔改吃上游版。
 ```
@@ -1049,7 +1064,7 @@ GUI 方面，`gui/src/i18n/zh-TW.ts` 與 fork 改過的 `gui/tests/{i18n-locales
 - fork 專屬：`NO_MODEL_ARG`（`src/claude/agents-inject.ts`）改為要求省略 Agent `model` 參數（上游 `#6358` `not_planned`）。
 - 新增上游 workflow `codex-queue-helpers.yml`：加官方 repo-only guard。
 - 本輪沒有新增 PR／issue 審查；水位維持 `reviewed_through = v2.76.0`、PR `#6507`、issue `#6504`。
-- 下次同步改走一般 merge：`git fetch upstream main --tags && bun tools/check-upstream-updates.ts --strict`。
+- 下次同步改走一般 merge：`git fetch --no-tags upstream main "+refs/tags/*:refs/upstream-tags/*" && bun tools/check-upstream-updates.ts --strict`。
 
 
 ## 2026-10-19：stable 整合 v2.88.0（`v2.76.0..v2.88.0`）
@@ -1084,7 +1099,7 @@ GUI 方面，`gui/src/i18n/zh-TW.ts` 與 fork 改過的 `gui/tests/{i18n-locales
 - 水位：`integrated_tag = v2.92.0`、`integrated_through`／`reviewed_through = 9f0d40a2…`、`reviewed_date = 2026-10-25`；`reviewed_pr_through = 7713`、`reviewed_issue_through = 7716`（本輪完成 PR 與 platform issue 軸補審）。
 - 檢查器修正：PR 清單上限 200 → 1000，且被截斷時回「未檢查」（原本會少列 206 筆）。
 - 排程 CI：無 `dev` 的 fork 改測 main head。
-- 下一次：`git fetch upstream main --tags && bun tools/check-upstream-updates.ts --strict`；`v2.93.0` 出版時一併重看 `#7527`／`#7659`。
+- 下一次：`git fetch --no-tags upstream main "+refs/tags/*:refs/upstream-tags/*" && bun tools/check-upstream-updates.ts --strict`；`v2.93.0` 出版時一併重看 `#7527`／`#7659`。
 
 ## 2026-10-27：stable 整合 v2.93.0（`v2.92.0..v2.93.0`）
 

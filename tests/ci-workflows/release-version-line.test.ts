@@ -23,6 +23,8 @@ const repoRoot = resolveRepoRoot();
  * Commit 32529c2b2 repaired precisely this by hand once, and nothing has enforced it
  * since. The assertion reads the local tag set rather than the npm registry, so it needs
  * no network and no edit at each release.
+ * Upstream (lidge-jun) tags live in refs/upstream-tags (see docs/fork/UPSTREAM.md), not in
+ * refs/tags, so they are outside this check: only this fork's own release tags count.
  * The durable repair now moves `dev` forward before the release instead of catching it
  * up afterward.
  *

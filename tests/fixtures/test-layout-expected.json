@@ -1411,5 +1411,16 @@
   ,"link-codex-settings-digest.test.ts": "clients", "link-apply-record.test.ts": "clients", "client-runtime-restart.test.ts": "clients", "link-parity-reporter.test.ts": "clients",
   "link-apply-restart.test.ts": "cli", "link-child-parity.test.ts": "server", "restart-replacement-not-ready.test.ts": "server",
   "hermes-profiles.test.ts": "clients", "hermes-profile-routes.test.ts": "clients"
-  ,"cli-sync-expect-link.test.ts": "cli"
+  ,"cli-sync-expect-link.test.ts": "cli",
+  "codex-installation-acl.test.ts": "codex-integration",
+  "codex-installation-id.test.ts": "codex-integration",
+  "codex-installation-wire.test.ts": "codex-integration",
+  "codex-installation-live-content.test.ts": "codex-integration",
+  "codex-installation-invalid-account.test.ts": "codex-integration",
+  "codex-installation-live-http.test.ts": "codex-integration",
+  "codex-installation-live-ws.test.ts": "codex-integration",
+  "codex-installation-sidecars.test.ts": "codex-integration",
+  "codex-installation-failover.test.ts": "responses",
+  "codex-installation-compact-empty.test.ts": "responses",
+  "codex-installation-turn-limit.test.ts": "responses"
 }

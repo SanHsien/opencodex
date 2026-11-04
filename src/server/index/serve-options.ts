@@ -1861,7 +1861,7 @@ export function createServeOptions(ctx: ServeOptionsContext) {
           upgraded = requestServer.upgrade(req, {
             ...(audioClient?.protocol ? { headers: { "sec-websocket-protocol": audioClient.protocol } } : {}),
             data: {
-              kind: "live-sideband",
+              kind: "live-sideband", authContext: resolved.authContext,
               liveUpstream: upstreamHandshake.socket,
               liveUpstreamUrl: resolved.upstreamWsUrl,
               liveUpstreamHeaders: resolved.headers,

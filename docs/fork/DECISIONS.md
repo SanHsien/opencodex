@@ -1,5 +1,23 @@
 # 維護決策
 
+## 2026-11-04：多帳號 session／device／installation ID 隔離（`e04aae068`、`ba880dfae`、`007dbfd89`）
+
+**決定一（採用，重放最終狀態）**：Pool 帳號對上游的身分識別碼不再共用。Claude OAuth：`metadata.user_id.device_id` 由帳號 UUID 確定性衍生，`X-Claude-Code-Session-Id` 由 token＋對話 key 衍生（`e04aae068`）。Codex Pool：`x-codex-installation-id`、`x-codex-turn-metadata.installation_id`、`client_metadata` 內的兩個欄位一律換成該帳號專屬 ID，涵蓋 Responses HTTP／WebSocket、compact、context-history、search、images、live、audio live／dictation、live-sideband 幀、vision 與 web-search 兩個 sidecar（`007dbfd89`）；帳號切換時 `x-codex-turn-state` 標頭與 body 內欄位一併清除（`ba880dfae`）。`ba880dfae` 的 HMAC(caller ID) 衍生被 `007dbfd89` 的私有 secret 方案整套取代，中間版不落地。
+
+**決定二（刻意不採，延後）**：Claude Code 2.1.280 profile 對齊（UA、SDK 版本、Stainless 命名、`anthropic-dangerous-direct-browser-access`、beta 重分類）；JSON token refresh 與登入 `originator` 改 `codex_cli_rs`；`version` 標頭轉發。三者都不是 ID 隔離，各自改變對外 wire 契約或客戶端身分宣稱，隔離修正不該夾帶它們。證據與觸發條件見 `UPSTREAM.md` 同日節。
+
+**決定三（不適用）**：`claude-messages.ts` 的 web-search 可用性探測分支與 `claude-installation-helper.test.ts`（fork 沒有該探測）；`MuseToolCatalogCompatibilityError` 分類；`resolveConnectTimeoutMs`。
+
+**行為變更與風險**：
+- Pool 帳號看到的 installation ID 不再是 Codex CLI 自己的值；Direct 與原生主帳號不變。
+- secret 無法安全讀寫時 Pool 送出 503（fail closed），不沿用 caller 的 ID。Windows 要求 `<config home>/codex-installation-secret` 與其目錄先通過 required ACL 才寫入 key 位元組；config home 若在不支援 ACL 的磁碟，Pool 送出會持續 503。需要時的處置是把 config home 移到 NTFS，不是放寬檢查。
+- `chatgptAccountId` 為空白的 `codex-accounts.json` 紀錄不再被視為憑證（同檔其他帳號不受影響）。
+- 降版安全：secret 檔只是閒置檔案。Claude 側沒有新檔。
+
+**驗證不自驗的範圍**：Windows 原生 ACL 案例（`codex-installation-acl.test.ts` 的 `native protected secret survives parent ACL propagation`）在本機 NTFS 實跑；因 fork 沒有 `verifySecretPathAcl`，以 `icacls` 輸出無繼承 ACE 作為「受保護 DACL」的判準（已確認未保護檔案會輸出 `(I)`）。
+
+**水位**：`reviewed_through`、`reviewed_date`、`integrated_*`、PR、issue 水位全部不動；本批不是連續前綴。作者歸屬：三筆上游作者為 JUN，trailer 保留於採用提交訊息。
+
 ## 2026-11-04：CodeQL #602、#603（`js/file-system-race`）判 false positive，補一條 O_EXCL 釘住測試
 
 **範圍**：2026-11-02 在 `3e40d628` 新出現的兩筆（這兩個檔案自該 commit 以來沒有改動）。與 2026-10-28 條目的判定一致：CodeQL 看到「lstat → open」就標，看不到之後的 fstat 身分比對。逐筆讀過資料流，兩筆都沒有「檢查後換檔仍被信任」的路徑。

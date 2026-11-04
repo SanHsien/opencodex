@@ -447,11 +447,11 @@ identity bundle without duplicate spelling; unconfigured names retain the observ
 Caller credentials, proxy/hop headers, arbitrary SDK names and betas are never part of the bundle.
 These are compatibility observations, not authorization or proof of client provenance. Missing
 identity, generated Responses, caller-forward and compatible destinations keep their contracts.
-The accepted native first-party behavior preserves one genuine Claude Code session id and its
-metadata device/session components across token refresh and an eligible account switch,
-matching a genuine client on a manual account switch. Consequently, accounts serving that session
-are linkable upstream. Pooled accounts use the native builder and shared Anthropic routing policy. Traffic without
-a genuine client identity retains per-credential synthesized session ids.
+The accepted native first-party behavior preserves a genuine Claude Code session id and its
+metadata session component across token refresh and an eligible account switch, while isolating
+`metadata.user_id.device_id` per serving account UUID. Pooled accounts use the native builder and
+shared Anthropic routing policy. Traffic without a genuine client identity derives deterministic
+per-conversation (or per-credential fallback) session ids.
 `tests/adapters/anthropic/anthropic-client-identity.test.ts` and
 `tests/claude-integration/messages-native-oauth.test.ts` cover header continuity through refresh
 and account switch, destination isolation, bounded parsing and credential exclusion.
@@ -468,7 +468,7 @@ credential replacement and provider UUID changes cannot authorize a stale send. 
 `count_tokens` select, refresh and write no accounts. The body retains the native preamble when
 recognized, otherwise gets the Claude Code identity block, with declared OAuth tool names.
 `src/adapters/anthropic/account-metadata.ts` copy-on-write aligns a valid JSON-string
-`metadata.user_id.account_uuid` with the provider UUID captured alongside the native binding.
+`metadata.user_id.account_uuid` and per-account `device_id` with the serving provider UUID.
 The local pool id is never used; malformed, absent and unknown metadata stays unchanged.
 Every rebuild starts from the source body; the binding also checks UUID equality before send.
 Conflicting provider credential headers fail before dispatch on every OAuth build, including

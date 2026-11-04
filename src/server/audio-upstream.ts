@@ -1,3 +1,4 @@
+import { CodexInstallationIdUnavailableError } from "../codex/installation-id";
 import { formatErrorResponse } from "../bridge";
 import {
   CodexAccountCooldownError,
@@ -170,6 +171,7 @@ export async function resolveAudioUpstream(
     return formatErrorResponse(400, "invalid_request_error", "Audio requires a connected ChatGPT account or OpenAI API provider");
   } catch (error) {
     releaseCodexAuthContextProbeLease(context);
+    if (error instanceof CodexInstallationIdUnavailableError) return formatErrorResponse(503, "server_busy", error.message);
     if (error instanceof CodexAccountCooldownError) return cooldownErrorResponse(error);
     if (error instanceof CodexMainProfileDrainingError) return codexMainProfileDrainingResponse();
     return formatErrorResponse(401, "authentication_error", "Audio account authentication unavailable; reconnect the selected OpenAI account");

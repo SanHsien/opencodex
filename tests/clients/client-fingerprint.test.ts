@@ -8,12 +8,13 @@ import {
 import { createAnthropicAdapter } from "../../src/adapters/anthropic";
 import type { OcxParsedRequest, OcxProviderConfig } from "../../src/types";
 
-function parsed(): OcxParsedRequest {
+function parsed(overrides: Partial<OcxParsedRequest> = {}): OcxParsedRequest {
   return {
     modelId: "claude-opus-4-6",
     stream: false,
     options: {},
     context: { systemPrompt: ["You are Codex, a coding agent based on GPT-5."], messages: [{ role: "user", content: "hi" }] },
+    ...overrides,
   } as unknown as OcxParsedRequest;
 }
 
@@ -68,6 +69,19 @@ describe("client fingerprint — helpers", () => {
     expect(claudeCodeSessionId("super-secret-token")).not.toContain("super-secret-token");
   });
 
+  test("claude session id isolates distinct conversations on the same credential while staying deterministic per conversation", async () => {
+    const convA1 = claudeCodeSessionId("tok-abc", "thread-alpha");
+    const convA2 = claudeCodeSessionId("tok-abc", "  thread-alpha  ");
+    const convB = claudeCodeSessionId("tok-abc", "thread-beta");
+    const fallback = claudeCodeSessionId("tok-abc");
+    expect(convA1).toBe(convA2);
+    expect(convA1).not.toBe(convB);
+    expect(convA1).not.toBe(fallback);
+    expect(claudeCodeSessionId("tok-abc", "")).toBe(fallback);
+    expect(claudeCodeSessionId("tok-abc", "   ")).toBe(fallback);
+    expect(convA1).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+  });
+
   test("CLAUDE_CODE_HEADERS carries the first-party Stainless/App signature", async () => {
     expect(CLAUDE_CODE_HEADERS["X-App"]).toBe("cli");
     expect(CLAUDE_CODE_HEADERS["X-Stainless-Runtime"]).toBe("node");
@@ -95,6 +109,15 @@ describe("client fingerprint — anthropic OAuth headers", () => {
     const a = (await createAnthropicAdapter(oauthProvider).buildRequest(parsed())).headers["X-Claude-Code-Session-Id"];
     const b = (await createAnthropicAdapter(oauthProvider).buildRequest(parsed())).headers["X-Claude-Code-Session-Id"];
     expect(a).toBe(b);
+  });
+
+  test("session id separates distinct conversation threads on the same OAuth token", async () => {
+    const adapter = createAnthropicAdapter(oauthProvider);
+    const turnA1 = (await adapter.buildRequest(parsed({ _clientThreadId: "conv-1" }))).headers["X-Claude-Code-Session-Id"];
+    const turnA2 = (await adapter.buildRequest(parsed({ _clientThreadId: "conv-1" }))).headers["X-Claude-Code-Session-Id"];
+    const turnB = (await adapter.buildRequest(parsed({ _clientThreadId: "conv-2" }))).headers["X-Claude-Code-Session-Id"];
+    expect(turnA1).toBe(turnA2);
+    expect(turnA1).not.toBe(turnB);
   });
 
   test("outgoing session-id header never echoes the raw OAuth token", async () => {

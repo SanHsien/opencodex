@@ -29,12 +29,15 @@ export const CLAUDE_CODE_HEADERS: Record<string, string> = {
 /**
  * Stable per-credential session id, matching Claude Code's `X-Claude-Code-Session-Id`. Real Claude
  * Code keeps one session id per CLI session; we derive a deterministic UUIDv4-shaped id from the
- * OAuth token so it stays stable across a conversation's turns without persisting state. The token
+ * OAuth token and optional conversation key so concurrent conversations do not collide while turns
+ * within a conversation stay stable without persisting state. The token
  * itself never leaves this function (only its hash drives the id).
  */
-export function claudeCodeSessionId(token: string | undefined): string {
+export function claudeCodeSessionId(token: string | undefined, sessionKey?: string | null): string {
   const seed = token && token.length > 0 ? token : "opencodex-anon";
-  const h = createHash("sha256").update(`claude-code-session:${seed}`, "utf8").digest("hex");
+  const conv = typeof sessionKey === "string" ? sessionKey.trim() : "";
+  const input = conv ? `claude-code-session:${seed}:conv:${conv}` : `claude-code-session:${seed}`;
+  const h = createHash("sha256").update(input, "utf8").digest("hex");
   // Shape the hash into a v4-looking UUID (version nibble 4, variant nibble 8-b).
   const variant = ((parseInt(h[16], 16) & 0x3) | 0x8).toString(16);
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-4${h.slice(13, 16)}-${variant}${h.slice(17, 20)}-${h.slice(20, 32)}`;

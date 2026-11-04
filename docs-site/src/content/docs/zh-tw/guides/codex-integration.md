@@ -17,6 +17,14 @@ proxy 提供一條裸 `openai` Codex 登入路徑，可使用 Pool（預設）�
 bearer。這些路徑不會彼此 fallback。shipped v1 設定會遷移到 marker 2，並保留
 `config.json.pre-openai-tiers-v2.bak` 供手動恢復。
 
+Pool 選定新增帳號時，OpenCodex 會把請求標頭或 client metadata 中已有的 installation 識別碼，
+換成該帳號與此 OpenCodex home 專屬的穩定識別碼。token 更新時識別碼不變，切換帳號則改變。Direct 模式與
+原生主帳號保留你原本的值；原本不存在的 installation metadata 仍保持不存在。切換原生 profile 時，
+OpenCodex 不會改動 Codex 自己的 `installation_id` 檔。若本機 installation secret 無法安全讀取，請求會在
+送到 ChatGPT 之前回傳可重試的 503。同樣的隔離也涵蓋已驗證的 live 通話 session，以及之後的
+realtime／sideband WebSocket 幀。Pool 的 turn metadata 超過 32 KiB 會在送出前被拒絕（HTTP 回 503，
+WebSocket 幀則關閉連線）；Direct 與原生主帳號的值維持不變。
+
 在 Pool 模式下，當已選定的儲存帳號正在冷卻、且沒有合格的儲存替代帳號或復原探測可用時，帶有已驗證
 原生 Codex 登入的請求可以使用那個登入。這也涵蓋在送出前就被擋下的新請求，遵循與上游拒絕之後相同
 的呼叫端驗證。既有的模型權限與主帳號政策檢查仍然適用。這個後備會保留儲存帳號的冷卻狀態，且不會

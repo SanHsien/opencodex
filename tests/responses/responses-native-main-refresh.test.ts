@@ -141,8 +141,10 @@ function install401ThenRefreshHarness(): { sends: string[]; refreshes: string[];
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(input instanceof Request ? input.url : String(input));
     if (url.hostname === "auth.openai.com") {
-      const refresh = (JSON.parse(String(init?.body)) as { refresh_token?: string }).refresh_token ?? "";
-      refreshes.push(refresh);
+      const wire = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      const refreshHeaders = new Headers(init?.headers);
+      wires.push({ contentType: refreshHeaders.get("content-type"), accept: refreshHeaders.get("accept"), body: wire });
+      refreshes.push(typeof wire.refresh_token === "string" ? wire.refresh_token : "");
       return Response.json({
         access_token: "refreshed-access",
         refresh_token: "rotated-refresh",
@@ -842,19 +844,3 @@ describe("native main 401 refresh and replay", () => {
     }
   });
 });
-
-  test("the native main refresh grant goes out as the official JSON body (#7840)", async () => {
-    const harness = install401ThenRefreshHarness();
-    const response = await handleResponses(
-      request("/v1/responses"),
-      config(),
-      { model: "", provider: "" } as RequestLogContext,
-    );
-
-    expect(response.status).toBe(200);
-    expect(harness.wires).toEqual([{
-      contentType: "application/json",
-      accept: "application/json",
-      body: { client_id: "app_EMoamEEZ73f0CkXaXp7hrann", grant_type: "refresh_token", refresh_token: "refresh-grant" },
-    }]);
-  });

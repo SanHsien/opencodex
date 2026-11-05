@@ -116,8 +116,10 @@ function isRec(v: unknown): v is Rec {
   return !!v && typeof v === "object" && !Array.isArray(v);
 }
 function routingPolicyRefusalMessage(kind: "unknown" | "unavailable", model: ClientFacingModelLabel): string {
+  // Fork: every wire says the same fixed text for a no-eligible policy so a profile id never
+  // reaches the client (tests/routing/routing-policy-surface-parity.test.ts).
   return kind === "unknown" ? `Unknown routing policy: ${clientFacingModelText(model)}`
-    : `No eligible candidates for policy profile: ${clientFacingModelText(model)}`;
+    : "no eligible candidates for routing policy";
 }
 async function readChatBody(req: Request, budget: TranslatorBudget, maxBytes: number): Promise<unknown> {
   try {
@@ -328,9 +330,11 @@ async function handleChatCompletionsWithBudget(
       return chatCompletionsErrorResponse(404, routingPolicyRefusalMessage("unknown", clientModel), "invalid_request_error");
     }
     if (err instanceof NoEligiblePolicyCandidateError) {
-      logCtx.routeDecision = err.trace;
       const clientModel = clientFacingModelLabel(requestedModel);
       projectLocalModelRefusalLog(logCtx, clientModel);
+      // Fork: the evaluation trace stays on the row (as on the other wires) so a failed policy
+      // request remains auditable; the projection above would drop it for unknown candidates.
+      logCtx.routeDecision = err.trace;
       if (logIds) addFinalRequestLog(logIds.requestId, logIds.start, logCtx, 404, { closeReason: "non_stream" });
       return chatCompletionsErrorResponse(404, routingPolicyRefusalMessage("unavailable", clientModel), "invalid_request_error");
     }

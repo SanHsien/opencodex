@@ -1690,6 +1690,19 @@ fork 基準 `688b04a0e3a00a417e0b7492b8d682ed07d1b174`。已讀上游 45 檔完�
 - `tests/ci-workflows/ci-bun-install-frozen.test.ts` 的 Ubuntu 工作清單縮為 fork `ci.yml` 實有的 `test-changed`、`gates`。
 - `codex-native-residue`：3 個失敗皆是 `readCodexTransitionState()` 回 `unavailable`（MSIX 虛擬化 `%LOCALAPPDATA%` 的 coordinator 路徑，已知環境限制）。
 
+### CI 後續修正（`ci/tagdiff-v2.97.0`，全量 run 42036121637 的首個失敗）
+
+重放把 fork 先前硬化過的檔案整檔取上游，或把 fork 獨有測試錯放；下列逐項已修。TSV 清冊是重放當下的機器產物，不手改，所以以下各檔的
+「與 `v2.97.0` 逐位元相同」描述以本節為準。
+
+| 失敗 | 原因 | 修正 |
+| --- | --- | --- |
+| `routing-policy-surface-parity`：no-eligible 的 chat 回應 | 上游 `routingPolicyRefusalMessage` 在 Chat Completions 回 `No eligible candidates for policy profile: <model>`，並在 `projectLocalModelRefusalLog` 把含未知候選的 `routeDecision` 清掉；fork 的四個 wire 一律回固定句 `no eligible candidates for routing policy` 且保留評估 trace | `src/server/chat-completions.ts`：unavailable 回固定句；投影後把 `err.trace` 放回 `logCtx.routeDecision`（unknown 分支仍用上游文字） |
+| `responses-native-main-refresh`：JSON 更新 body 測試 | 重放時 `install401ThenRefreshHarness` 取了上游版（不記 `wires`），fork 的 `#7840` 測試被重複貼到 `describe` 外 | `tests/responses/responses-native-main-refresh.test.ts`：harness 還原為記錄 `wires` 的 fork 版，移除檔尾重複測試 |
+| `codex-legacy-config-keys`：超過 1 MiB 回 `not_a_file` | `src/codex/inject/bounded-config-reader.ts` 整檔取上游，失去 fork 的 `EFBIG`（`configTooLarge`）區分 | 還原基準 `ed36b929a` 的版本（`statFileIdentity`／`fstatFileIdentity` 與 `EFBIG`） |
+| `fork-hygiene`：maintainer markdown links | `/docs/` 在 `.gitignore`，新 TSV 沒有 `git add -f`，CI checkout 找不到 | `git add -f docs/fork/upstream-v2.93.0-v2.97.0-files.tsv` |
+| `codex-cli-windows-plan`：unsafe ledger 回 403 | 上游 `#8008` 要求 paired dashboard session（`ctx.sessionControl.isPaired`），上游沒更新這個 Windows 專用測試（macOS／Linux 皆 skip） | 測試 ctx 加 `sessionControl: { isPaired: () => true }` |
+
 ### 尚未完成（所以水位不動）
 
 - 635 個被觸及的測試檔中，單獨跑完約 327 個後背景批次中斷，其餘約 308 個未跑；已跑檔案中的失敗檔與乾淨 `HEAD` 對照狀態見 `REVIEW.md` 或 `ROADMAP.md` 該列。

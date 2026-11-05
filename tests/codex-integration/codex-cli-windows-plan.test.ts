@@ -254,6 +254,8 @@ native("an unsafe Windows ledger refuses admission and a disabled plan never ins
     const ctx: ManagementContext = { req: request, url: new URL(request.url),
       config: { port: 10100, providers: {} } as import("../../src/types").OcxConfig,
       deps: {}, version: "test", principal: "gui-session", trustedLoopbackIngress: true, guiSessionIssuance: null,
+      // #8008: admission requires a paired dashboard session; upstream left this fixture unpaired.
+      sessionControl: { isPaired: () => true } as unknown as NonNullable<ManagementContext["sessionControl"]>,
       convergeCodexCatalog: async () => ({ status: "skipped", reason: "not-requested", retryable: false }),
       syncClaudeAgentDefsBestEffort: async () => {} };
     const response = await handleCodexCliUpdateRoutes(ctx);

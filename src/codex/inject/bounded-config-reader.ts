@@ -1,7 +1,12 @@
-import { closeSync, constants, fstatSync, openSync, readSync, statSync, type BigIntStats } from "node:fs";
-import { sameFileIdentity } from "../../lib/file-identity";
+import { statFileIdentity, fstatFileIdentity, type IdentityStats, sameFileIdentity } from "../../lib/file-identity";
+import { closeSync, constants, fstatSync, openSync, readSync, statSync, } from "node:fs";
 
 const MAX_CODEX_CONFIG_BYTES = 1024 * 1024;
+
+/** An oversize config is a different failure from a non-regular one; `EFBIG` is the code the other config probes use for it. */
+function configTooLarge(): Error {
+  return Object.assign(new Error("config.toml exceeds the 1 MiB read limit"), { code: "EFBIG" });
+}
 
 /**
  * Read config.toml the way Codex and the injector resolve it — a symlink's target IS the
@@ -15,17 +20,16 @@ const MAX_CODEX_CONFIG_BYTES = 1024 * 1024;
 export function readBoundedCodexConfig(path: string): string | null {
   let fd: number | undefined;
   try {
-    let namedBefore: BigIntStats;
+    let namedBefore: IdentityStats;
     try {
-      namedBefore = statSync(path, { bigint: true });
+      namedBefore = statFileIdentity(path);
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code;
       if (code === "ENOENT" || code === "ENOTDIR") return null;
       throw error;
     }
-    if (!namedBefore.isFile() || namedBefore.size > BigInt(MAX_CODEX_CONFIG_BYTES)) {
-      throw new Error("config.toml is not a bounded regular file");
-    }
+    if (!namedBefore.isFile()) throw new Error("config.toml is not a bounded regular file");
+    if (namedBefore.size > MAX_CODEX_CONFIG_BYTES) throw configTooLarge();
     // Deliberately no O_NOFOLLOW: Codex and the injector read through a symlinked
     // config.toml, so refusing the link here would disagree with the writes this probe
     // stands in front of. O_NONBLOCK is what keeps a FIFO — linked or direct — from
@@ -34,25 +38,24 @@ export function readBoundedCodexConfig(path: string): string | null {
       ? 0
       : (constants.O_NONBLOCK ?? 0);
     fd = openSync(path, constants.O_RDONLY | guardedFlags);
-    const before = fstatSync(fd, { bigint: true });
+    const before = fstatFileIdentity(fd);
     if (!sameFileIdentity(before, namedBefore)) {
       throw new Error("config.toml changed while it was read");
     }
-    if (!before.isFile() || before.size > BigInt(MAX_CODEX_CONFIG_BYTES)) {
-      throw new Error("config.toml is not a bounded regular file");
-    }
+    if (!before.isFile()) throw new Error("config.toml is not a bounded regular file");
+    if (before.size > MAX_CODEX_CONFIG_BYTES) throw configTooLarge();
 
-    const buffer = Buffer.allocUnsafe(Number(before.size) + 1);
+    const buffer = Buffer.allocUnsafe(before.size + 1);
     let bytesRead = 0;
     while (bytesRead < buffer.length) {
       const count = readSync(fd, buffer, bytesRead, buffer.length - bytesRead, null);
       if (count === 0) break;
       bytesRead += count;
     }
-    const after = fstatSync(fd, { bigint: true });
-    const namedAfter = statSync(path, { bigint: true });
-    if (BigInt(bytesRead) !== before.size || after.size !== before.size
-      || after.mtimeNs !== before.mtimeNs || after.ctimeNs !== before.ctimeNs
+    const after = fstatFileIdentity(fd);
+    const namedAfter = statFileIdentity(path);
+    if (bytesRead !== before.size || after.size !== before.size
+      || after.mtimeMs !== before.mtimeMs || after.ctimeMs !== before.ctimeMs
       || !namedAfter.isFile()
       || !sameFileIdentity(namedAfter, before)) {
       throw new Error("config.toml changed while it was read");

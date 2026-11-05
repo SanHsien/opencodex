@@ -8,8 +8,9 @@
 import { afterAll, afterEach, describe, expect, spyOn, test } from "bun:test";
 import * as fs from "node:fs";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir, userInfo } from "node:os";
-import { join, relative, isAbsolute } from "node:path";
+import { tmpdir } from "node:os";
+import { join, relative, isAbsolute, resolve } from "node:path";
+import { protectedHomeForTests } from "../../src/lib/test-home-guard";
 import type { OcxConfig } from "../../src/types";
 import { installIsolatedCodexHome } from "../helpers/isolated-codex-home";
 import { repoRoot } from "../helpers/repo-root";
@@ -27,7 +28,10 @@ const within = (root: string, path: string) => {
   return !rel.startsWith("..") && !isAbsolute(rel);
 };
 // Only this test's own home, or a preload sandbox HOME distinct from the account's real home.
-const sandboxHome = process.env.HOME && process.env.HOME !== userInfo().homedir ? process.env.HOME : null;
+// Fork: the real home is the guard's captured one, not `userInfo().homedir`: on Windows that
+// follows USERPROFILE, which the sandbox replaces, so it equals the sandbox HOME and the
+// sandbox was never recognized.
+const sandboxHome = process.env.HOME && relative(resolve(process.env.HOME), resolve(protectedHomeForTests())) !== "" ? process.env.HOME : null;
 if (!within(isolatedHome.path, CODEX_PROFILE_PATH) && !(sandboxHome && within(sandboxHome, CODEX_PROFILE_PATH))) {
   throw new Error("codex-profile-preservation: refusing to run against a Codex profile outside a test home");
 }

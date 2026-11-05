@@ -1702,6 +1702,7 @@ fork 基準 `688b04a0e3a00a417e0b7492b8d682ed07d1b174`。已讀上游 45 檔完�
 | `codex-legacy-config-keys`：超過 1 MiB 回 `not_a_file` | `src/codex/inject/bounded-config-reader.ts` 整檔取上游，失去 fork 的 `EFBIG`（`configTooLarge`）區分 | 還原基準 `ed36b929a` 的版本（`statFileIdentity`／`fstatFileIdentity` 與 `EFBIG`） |
 | `fork-hygiene`：maintainer markdown links | `/docs/` 在 `.gitignore`，新 TSV 沒有 `git add -f`，CI checkout 找不到 | `git add -f docs/fork/upstream-v2.93.0-v2.97.0-files.tsv` |
 | `codex-cli-windows-plan`：unsafe ledger 回 403 | 上游 `#8008` 要求 paired dashboard session（`ctx.sessionControl.isPaired`），上游沒更新這個 Windows 專用測試（macOS／Linux 皆 skip） | 測試 ctx 加 `sessionControl: { isPaired: () => true }` |
+| `codex-profile-preservation`：refusing to run against a Codex profile outside a test home | 守衛用 `userInfo().homedir` 判斷沙盒 HOME；Windows 上它跟隨 USERPROFILE，沙盒把它換掉後與 `HOME` 相同，沙盒從不被辨認（POSIX 取自 passwd，不受影響） | `tests/codex-integration/codex-profile-preservation.test.ts`：改用 `protectedHomeForTests()` 的真實家目錄比對 |
 
 ### 尚未完成（所以水位不動）
 

@@ -252,8 +252,14 @@ describe("routing policy request evidence parity (via dev handlers)", () => {
       }), config, log);
       expect(response.status).toBe(404);
       const payload = await response.json() as { error: { message: string } };
-      expect(payload.error.message).toBe("no eligible candidates for routing policy");
-      expect(JSON.stringify(payload)).not.toContain("private_profile_id");
+      if (path === "/v1/chat/completions") {
+        // Upstream #8108: Chat names the client-supplied selector (tests/responses/chat-error-body-normalization.test.ts
+        // pins "No eligible candidates"); it echoes only what the client sent, never a catalog profile id.
+        expect(payload.error.message).toStartWith("No eligible candidates for policy profile:");
+      } else {
+        expect(payload.error.message).toBe("no eligible candidates for routing policy");
+        expect(JSON.stringify(payload)).not.toContain("private_profile_id");
+      }
       expect(log.routeDecision).toBeDefined();
     }
   });

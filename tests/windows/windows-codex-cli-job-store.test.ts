@@ -256,6 +256,8 @@ describe("Windows CLI update job store backend", () => {
     return { req, url: new URL(req.url),
       config: { port: 10100, providers: {} } as OcxConfig, deps: {}, version: "test",
       principal: "gui-session", trustedLoopbackIngress: true, guiSessionIssuance: "loopback",
+      // #8008: apply admission requires a paired dashboard session; upstream left this fixture unpaired.
+      sessionControl: { isPaired: () => true } as unknown as NonNullable<ManagementContext["sessionControl"]>,
       convergeCodexCatalog: async () => ({ status: "skipped", reason: "not-requested", retryable: false }),
       syncClaudeAgentDefsBestEffort: async () => {} };
   }

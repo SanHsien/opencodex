@@ -116,10 +116,8 @@ function isRec(v: unknown): v is Rec {
   return !!v && typeof v === "object" && !Array.isArray(v);
 }
 function routingPolicyRefusalMessage(kind: "unknown" | "unavailable", model: ClientFacingModelLabel): string {
-  // Fork: every wire says the same fixed text for a no-eligible policy so a profile id never
-  // reaches the client (tests/routing/routing-policy-surface-parity.test.ts).
   return kind === "unknown" ? `Unknown routing policy: ${clientFacingModelText(model)}`
-    : "no eligible candidates for routing policy";
+    : `No eligible candidates for policy profile: ${clientFacingModelText(model)}`;
 }
 async function readChatBody(req: Request, budget: TranslatorBudget, maxBytes: number): Promise<unknown> {
   try {

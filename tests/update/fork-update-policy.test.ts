@@ -11,6 +11,7 @@ import {
 } from "../../src/update/fork-source.mjs";
 import { latestVersionAsync } from "../../src/update/async-check";
 import { latestVersion, runUpdate, updateCommand } from "../../src/update";
+import { runOrchestratedUpdate } from "../../src/update/orchestrated-entry";
 import { startUpdateJob, UpdateJobError } from "../../src/update/job";
 
 // The fork never installs or announces a registry build: the registry only carries the upstream
@@ -106,6 +107,43 @@ describe("fork update policy: the Node launcher's orchestrated entry points", ()
     for (const call of ["await runPackageManagerSelfUpdate(installMethod, childArgs)", "await applyNodeOrchestratedUpdate(", "await runNpmSelfUpdate()", "await runPnpmSelfUpdate()"]) {
       expect(source.indexOf(call), call).toBeGreaterThan(gate);
     }
+  });
+});
+
+// The Bun-direct path (src/cli/dispatch.ts) reaches runOrchestratedUpdate without the Node launcher.
+// The gate must be its own, not a side effect of latestVersion() returning null.
+describe("fork update policy: the Bun-direct orchestrated entry", () => {
+  let previous = true;
+  beforeEach(() => { previous = forkUpdatePolicy.selfUpdateAllowed; forkUpdatePolicy.selfUpdateAllowed = false; });
+  afterEach(() => { forkUpdatePolicy.selfUpdateAllowed = previous; });
+  const capture = async (argv: string[]) => {
+    const logs: string[] = [];
+    const log = spyOn(console, "log").mockImplementation((...a: unknown[]) => { logs.push(a.join(" ")); });
+    const err = spyOn(console, "error").mockImplementation(() => {});
+    try { return { code: await runOrchestratedUpdate(argv), json: JSON.parse(logs.at(-1)!), stderr: err.mock.calls.flat().join("\n") }; }
+    finally { log.mockRestore(); err.mockRestore(); }
+  };
+
+  test("--yes --json is refused with exit 10 and the fork-disabled result", async () => {
+    const out = await capture(["--yes", "--json"]);
+    expect(out.code).toBe(10);
+    expect(out.stderr).toContain(FORK_RELEASES_URL);
+    expect(out.json).toMatchObject({ schema: "ocx.update.result/1", applied: false, error: "fork-self-update-disabled" });
+  });
+
+  test("--plan --json reports canApply false with no target version", async () => {
+    const out = await capture(["--plan", "--json"]);
+    expect(out.code).toBe(0);
+    expect(out.json).toMatchObject({ schema: "ocx.update.plan/1", canApply: false, reason: "fork-self-update-disabled", targetVersion: null });
+  });
+
+  test("the gate runs before the plan is observed, so a resolvable target cannot bypass it", () => {
+    const source = readFileSync(repoPath("src/update/orchestrated-entry.ts"), "utf8");
+    const fn = source.slice(source.indexOf("export async function runOrchestratedUpdate"));
+    const gate = fn.indexOf("forkSelfUpdateBlocked()");
+    expect(gate).toBeGreaterThan(0);
+    expect(fn.indexOf("observeOrchestratedPlan(")).toBeGreaterThan(gate);
+    expect(fn.indexOf("applyOrchestratedBun(")).toBeGreaterThan(gate);
   });
 });
 

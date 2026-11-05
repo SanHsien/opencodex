@@ -26,6 +26,7 @@ import { createUpdatePlanToken } from "./orchestrated-token.mjs";
 import { selfLaunchArgv } from "../lib/self-launch-argv";
 import { proxyIdentityAt } from "../server/proxy-liveness";
 import { probeSpawn, probeSpawnSync } from "./mutation-guard.mjs";
+import { FORK_SELF_UPDATE_HINT, forkSelfUpdateBlocked } from "./fork-source.mjs";
 
 type Request = Extract<OrchestratedUpdateArgs, { ok: true }>;
 type DetectedInstaller = PlanInputs["installer"] | "standalone";
@@ -211,6 +212,24 @@ export async function runOrchestratedUpdate(argv: string[]): Promise<number> {
     console.log(JSON.stringify({ error: "usage" }));
     console.error("Usage: ocx update (--plan | --yes) --json [--tag latest|preview | --version <version>]");
     return 64;
+  }
+  // Fork policy: defence in depth for the Bun-direct path (dispatch.ts); same envelopes as bin/ocx.mjs.
+  if (forkSelfUpdateBlocked()) {
+    console.error(`opencodex: ${FORK_SELF_UPDATE_HINT}`);
+    let currentVersion = "unknown";
+    try { currentVersion = String(packageVersion()); } catch { /* keep unknown */ }
+    let installer: string = "unknown";
+    try { installer = defaultDeps.install().installer; } catch { /* keep unknown */ }
+    if (parsed.mode === "plan") {
+      const identity = { currentVersion, targetVersion: null, installer, cliRoot: process.execPath, servingRoot: null, runtimeOwner: "unknown", runtime: null };
+      console.log(JSON.stringify({ schema: "ocx.update.plan/1", currentVersion, targetVersion: null, installer,
+        runtimeOwner: "unknown", servingPath: null, cliPath: process.execPath, canApply: false, reason: "fork-self-update-disabled", restartRequired: false,
+        planToken: createUpdatePlanToken(identity as never), updateInFlight: false, mutationBoundMs: 900000 }));
+      return 0;
+    }
+    console.log(JSON.stringify({ schema: "ocx.update.result/1", applied: false, fromVersion: currentVersion, toVersion: null,
+      installer, restarted: false, healthy: false, rolledBack: false, error: "fork-self-update-disabled" }));
+    return 10;
   }
   const plan = await observeOrchestratedPlan(parsed);
   if (parsed.mode === "plan") {

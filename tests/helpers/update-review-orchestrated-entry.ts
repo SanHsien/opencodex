@@ -33,6 +33,7 @@ export const orchestratedEntryReview: UpdateReviewTable = {
       "import { selfLaunchArgv } from \"../lib/self-launch-argv\";", // read-only: construct self-launch arguments
       "import { proxyIdentityAt } from \"../server/proxy-liveness\";", // read-only: probe proxy health and identity
       "import { probeSpawn, probeSpawnSync } from \"./mutation-guard.mjs\";", // bounded registry probe adapter and the ordinary update-child launcher
+      "import { FORK_SELF_UPDATE_HINT, forkSelfUpdateBlocked } from \"./fork-source.mjs\";", // fork policy: pure refusal gate for the Bun-direct path, no mutation
       "export { decideOrchestratedApply } from \"./orchestrated-admission.mjs\";", // read-only: decide admission from plan
     ],
     "src/update/orchestrated-identity.ts": [

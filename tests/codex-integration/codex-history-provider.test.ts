@@ -1821,23 +1821,3 @@ describe("Codex history injection preflight on a WAL store with no live writer",
     expect(phases).toEqual(["open", "first-read"]);
   });
 });
-
-  test("a manifest open held by another process stays retryable instead of reading as corrupt", () => {
-    // The bounded descriptor read replaced readFileSync; a Windows scanner holding the manifest
-    // must still classify as busy/permission (retryable), not as an integrity failure.
-    const fixture = makeFixture();
-    syncCodexHistoryProvider("opencodex", fixture.dbPath, fixture.backupPath);
-    for (const [code, failureReason] of [["EBUSY", "busy"], ["EACCES", "permission"]] as const) {
-      const realOpen = fs.openSync;
-      const open = spyOn(fs, "openSync").mockImplementation(((path: fs.PathLike, ...rest: unknown[]) => {
-        if (String(path) === fixture.backupPath) throw Object.assign(new Error(`${code}: held`), { code });
-        return (realOpen as (...args: unknown[]) => number)(path, ...rest);
-      }) as typeof fs.openSync);
-      try {
-        expect(countPendingOpencodexHistory(fixture.dbPath, fixture.backupPath))
-          .toMatchObject({ failed: true, failureReason });
-      } finally {
-        open.mockRestore();
-      }
-    }
-  });

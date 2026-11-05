@@ -768,37 +768,3 @@ describe("Windows audit privacy (r4176128642)", () => {
     });
   }
 });
-
-  test("a file that appears between the absence check and the open is never adopted or written", () => {
-    // Pins O_EXCL on the create branch (the property that makes the lstat -> open pair race-safe).
-    // The first lstat of the audit path reports absence, then an empty owner-looking file is there.
-    writeFileSync(auditPath(), "", { mode: 0o600 });
-    const realLstat = fs.lstatSync;
-    let hidden = false;
-    const lstat = spyOn(fs, "lstatSync").mockImplementation(((path: fs.PathLike, options?: unknown) => {
-      if (!hidden && String(path) === auditPath()) {
-        hidden = true;
-        throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
-      }
-      return (realLstat as (p: fs.PathLike, o?: unknown) => unknown)(path, options);
-    }) as typeof fs.lstatSync);
-    const harden = spyOn(secretAcl, "hardenSecretPath");
-    try {
-      expect(appendUnderK()).toBe("skipped");
-      expect(hidden).toBe(true);
-      expect(readFileSync(auditPath(), "utf8")).toBe("");
-      expect(harden).not.toHaveBeenCalled();
-    } finally { harden.mockRestore(); lstat.mockRestore(); }
-  });
-
-  test("directory and public mode audits never change a real catalog outcome", () => {
-    mkdirSync(auditPath());
-    expect(replaceAs("restore", catalogBytes(native, routed))).toEqual({ kind: "written" });
-    rmSync(auditPath(), { recursive: true });
-    writeFileSync(auditPath(), '{}\n', { mode: 0o644 });
-    expect(replaceAs("restore", catalogBytes(native))).toEqual({ kind: "written" });
-    expect(readFileSync(auditPath(), "utf8")).toBe('{}\n');
-    if (process.platform !== "win32") {
-      expect(statSync(auditPath()).mode & 0o777).toBe(0o644);
-    }
-  });

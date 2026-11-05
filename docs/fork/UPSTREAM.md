@@ -1702,10 +1702,11 @@ fork 基準 `688b04a0e3a00a417e0b7492b8d682ed07d1b174`。已讀上游 45 檔完�
 | `codex-legacy-config-keys`：超過 1 MiB 回 `not_a_file` | `src/codex/inject/bounded-config-reader.ts` 整檔取上游，失去 fork 的 `EFBIG`（`configTooLarge`）區分 | 還原基準 `ed36b929a` 的版本（`statFileIdentity`／`fstatFileIdentity` 與 `EFBIG`） |
 | `fork-hygiene`：maintainer markdown links | `/docs/` 在 `.gitignore`，新 TSV 沒有 `git add -f`，CI checkout 找不到 | `git add -f docs/fork/upstream-v2.93.0-v2.97.0-files.tsv` |
 | `codex-cli-windows-plan`：unsafe ledger 回 403 | 上游 `#8008` 要求 paired dashboard session（`ctx.sessionControl.isPaired`），上游沒更新這個 Windows 專用測試（macOS／Linux 皆 skip） | 測試 ctx 加 `sessionControl: { isPaired: () => true }` |
-| `codex-profile-preservation`：refusing to run against a Codex profile outside a test home | 守衛用 `userInfo().homedir` 判斷沙盒 HOME；Windows 上它跟隨 USERPROFILE，沙盒把它換掉後與 `HOME` 相同，沙盒從不被辨認（POSIX 取自 passwd，不受影響） | `tests/codex-integration/codex-profile-preservation.test.ts`：改用 `protectedHomeForTests()` 的真實家目錄比對 |
+| `codex-profile-preservation`：refusing to run against a Codex profile outside a test home | 守衛的允許清單用 `userInfo().homedir` 辨認沙盒 HOME；Windows 上它跟隨 USERPROFILE，沙盒把它換掉後與 `HOME` 相同，且 preload 的 `CODEX_HOME` 不一定在 `HOME` 底下（POSIX 取自 passwd，不受影響） | `tests/codex-integration/codex-profile-preservation.test.ts`：守衛改為只拒絕落在真實 Codex home（`protectedCodexHomeForTests()`）之下的 profile 路徑 |
 | `windows-codex-cli-job-store`：HTTP apply 回 403 | 同 `#8008`，上游未更新這個 Windows 專用 fixture | 測試 `managementCtx` 加 `sessionControl: { isPaired: () => true }` |
 | `messaging-remote-store`：temporary／post-rename ACL 案例回 `unsafe_remote_storage` | 合併後測試的 `fstatSync` mock 回到上游的數字 `uid`／`mode`，fork 的 `remote-files.ts` 走 `fstatFileIdentity`（bigint stat） | 還原 fork 的 `fstatSync(fd, options)` mock（`uid: 1234n`、`mode: 0o100600n`） |
 | `chat-error-body-normalization`：policy alias refusal 的 request row | 先前我在 chat 投影後把 `err.trace` 放回，trace 內含 profile id，違反上游 row 不得含 profile id；上游行為為準 | `src/server/chat-completions.ts` 與上游逐位元相同；parity 測試對 chat wire 不要求 `routeDecision` |
+| `client-link-stop`「a separate sync finishes before signal restoration (catalog)」（未解） | CI 還原後 catalog 為空，本機因 MSIX 的 history lock 命名空間無法重現；`src` 與上游相同 | 測試失敗時輸出子行程 stdout／stderr 與目錄清單（`link-sync-stop diagnostics`），待下一輪 CI 日誌定因 |
 
 ### 尚未完成（所以水位不動）
 

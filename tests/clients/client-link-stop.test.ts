@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fixturePath, repoPath } from "../helpers/repo-root";
@@ -276,6 +276,7 @@ for (const { releaseFirst, hold } of [{ releaseFirst: false, hold: "catalog" }, 
       token: readFileSync(join(home, "service-api-token"), "utf8"),
     });
     const timer = setTimeout(() => { for (const { child } of children) if (child.exitCode === null) child.kill("SIGKILL"); }, 35_000);
+    let failed = false;
     try {
       const runtime = spawn("client-link-stop-runner.ts", { mode: "runtime", externalSignal: true, holdShutdown: true });
       await waitFor("ready");
@@ -321,11 +322,19 @@ for (const { releaseFirst, hold } of [{ releaseFirst: false, hold: "catalog" }, 
         expect(await offline.exited).toBe(0);
         expect(read("fresh-sync-result.json")).toMatchObject({ ok: true, fetched: true, injected: true });
       }
+    } catch (error) {
+      failed = true;
+      throw error;
     } finally {
       clearTimeout(timer);
       // A child parked on a held release ignores another SIGTERM; kill it so a failed assertion surfaces.
       for (const { child } of children) { if (child.exitCode === null) child.kill("SIGKILL"); await child.exited; }
-      await Promise.all(children.map(value => value.drained));
+      const outputs = await Promise.all(children.map(value => value.drained));
+      if (failed) {
+        // Fork: CI-only failures here (Windows 8.3 spellings, held locks) are otherwise undiagnosable.
+        const listing = (dir: string) => { try { return readdirSync(dir); } catch { return ["<unreadable>"]; } };
+        console.error("link-sync-stop diagnostics", JSON.stringify({ root, home, codex, outputs, homeFiles: listing(home), codexFiles: listing(codex) }));
+      }
       removeTreeWithRetry(root);
     }
   }, 40_000);

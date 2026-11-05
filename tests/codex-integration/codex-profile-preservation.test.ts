@@ -10,7 +10,7 @@ import * as fs from "node:fs";
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative, isAbsolute, resolve } from "node:path";
-import { protectedHomeForTests } from "../../src/lib/test-home-guard";
+import { protectedCodexHomeForTests } from "../../src/lib/test-home-guard";
 import type { OcxConfig } from "../../src/types";
 import { installIsolatedCodexHome } from "../helpers/isolated-codex-home";
 import { repoRoot } from "../helpers/repo-root";
@@ -23,16 +23,14 @@ const isolatedHome = installIsolatedCodexHome("ocx-profile-preservation-");
 const { buildProfileFileForTarget, preserveUnmanagedProfileKeys } = await import("../../src/codex/inject/config-toml");
 const { deriveCodexInjectionPlan } = await import("../../src/codex/inject/plan");
 const { CODEX_PROFILE_PATH } = await import("../../src/codex/paths");
-const within = (root: string, path: string) => {
-  const rel = relative(realpathSync(root), realpathSync(join(path, "..")));
-  return !rel.startsWith("..") && !isAbsolute(rel);
-};
-// Only this test's own home, or a preload sandbox HOME distinct from the account's real home.
-// Fork: the real home is the guard's captured one, not `userInfo().homedir`: on Windows that
-// follows USERPROFILE, which the sandbox replaces, so it equals the sandbox HOME and the
-// sandbox was never recognized.
-const sandboxHome = process.env.HOME && relative(resolve(process.env.HOME), resolve(protectedHomeForTests())) !== "" ? process.env.HOME : null;
-if (!within(isolatedHome.path, CODEX_PROFILE_PATH) && !(sandboxHome && within(sandboxHome, CODEX_PROFILE_PATH))) {
+// Refuse only the account's REAL Codex home. Fork: upstream's allow-list (this test's own home or a
+// sandbox HOME distinct from `userInfo().homedir`) never matches on Windows, where that home
+// follows USERPROFILE and so equals the sandbox, and the preload's CODEX_HOME need not sit under HOME.
+const underRealCodexHome = (() => {
+  const rel = relative(resolve(protectedCodexHomeForTests()), resolve(CODEX_PROFILE_PATH));
+  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+})();
+if (underRealCodexHome) {
   throw new Error("codex-profile-preservation: refusing to run against a Codex profile outside a test home");
 }
 afterAll(() => { isolatedHome.restore(); });

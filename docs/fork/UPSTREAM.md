@@ -1706,7 +1706,7 @@ fork 基準 `688b04a0e3a00a417e0b7492b8d682ed07d1b174`。已讀上游 45 檔完�
 | `windows-codex-cli-job-store`：HTTP apply 回 403 | 同 `#8008`，上游未更新這個 Windows 專用 fixture | 測試 `managementCtx` 加 `sessionControl: { isPaired: () => true }` |
 | `messaging-remote-store`：temporary／post-rename ACL 案例回 `unsafe_remote_storage` | 合併後測試的 `fstatSync` mock 回到上游的數字 `uid`／`mode`，fork 的 `remote-files.ts` 走 `fstatFileIdentity`（bigint stat） | 還原 fork 的 `fstatSync(fd, options)` mock（`uid: 1234n`、`mode: 0o100600n`） |
 | `chat-error-body-normalization`：policy alias refusal 的 request row | 先前我在 chat 投影後把 `err.trace` 放回，trace 內含 profile id，違反上游 row 不得含 profile id；上游行為為準 | `src/server/chat-completions.ts` 與上游逐位元相同；parity 測試對 chat wire 不要求 `routeDecision` |
-| `client-link-stop`「a separate sync finishes before signal restoration (catalog)」（未解） | CI 還原後 catalog 為空，本機因 MSIX 的 history lock 命名空間無法重現；`src` 與上游相同 | 測試失敗時輸出子行程 stdout／stderr 與目錄清單（`link-sync-stop diagnostics`），待下一輪 CI 日誌定因 |
+| `client-link-stop`「a separate sync finishes before signal restoration (catalog)」 | 上游測試用 `realpathSync(root)` 讓 fixture 的 native 備份與 sync 記錄的正規路徑同拼寫，但 JS 版 `realpathSync` 不展開 Windows 8.3 短名（CI 的 `RUNNER~1`），sync 記錄長名、備份雜湊用短名，還原找不到 native 備份而得空 catalog；`src` 與上游相同，是上游測試只在 macOS 驗證過的可攜性缺口 | `tests/clients/client-link-stop.test.ts`：改用 `realpathSync.native`；失敗時輸出 `link-sync-stop diagnostics` 保留 |
 
 ### 尚未完成（所以水位不動）
 

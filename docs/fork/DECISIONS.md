@@ -1065,3 +1065,12 @@ Windows 適用性：只用 `node:crypto` 與環境變數，不碰檔案系統、
 | `.github/workflows/ci.yml`、`deploy-docs.yml`、`cleanup-orphaned-workflows.yml` | 採用（Windows-only 結構保留） | 官方 repo guard 與 `REMOVED_CI_JOBS` 不變；`fork-hygiene` 39 案通過。 |
 | `src/bridge/errors.ts`、`src/server/responses/compact.ts`、`src/codex/catalog/provider-models.ts` | 上游＋fork 加固並存 | fork 的 stack frame 擦除、routing-policy 404 對映與 log 注入擦除（`sanitizeLogMetadataString`）上游沒有，保留；上游的配額來源溯源、`resolveConnectTimeoutMs`、`projectAdmissionModelDeniedLog` 一併採用。 |
 | 韓文介面字串（`src/cli/claude-desktop.ts`、`src/types/config.ts`、`scripts/client-support-matrix/locales.ts`） | 取上游邏輯、字串維持英文 | `fork-hygiene` 的 Hangul 檢查要求 `src/`、`scripts/` 無韓文。 |
+
+
+## 2026-11-06：v2.97.0 整合驗收與水位推進
+
+**決定一（推進水位）**：`tools/upstream_baseline.json` 的 `integrated_tag` 由 `v2.93.0` 推到 `v2.97.0`，`integrated_through`／`reviewed_through` 為 `cab7eb7d0332ae0ebb4289d7c6bac1de666b6e40`，`reviewed_date` 為 2026-11-06。理由：`v2.93.0..v2.97.0` 全版 tag diff（1980 檔）已逐檔判定（`docs/fork/upstream-v2.93.0-v2.97.0-files.tsv`；`docs/fork/UPSTREAM.md` 的「CI 後續修正」表補記重放後被修正的檔案），分支 `ci/tagdiff-v2.97.0` 在 Windows 的全量 CI run 42063145190 全綠，`88aaa754..cab7eb7d0` 的 254 筆 commit 全落在這份 diff 內，所以連續前綴的條件成立。PR 水位與 17 筆 `reviewed_pr_numbers` 不動。
+
+**決定二（`#8181` 適用但延後）**：desktop takeover 在預設 bind 時，`runtime-port.json` 缺 `hostname`，`tracked-runtime-inspection.ts` 讀成空字串、liveness 讀成 `127.0.0.1`，`stop-approval.ts` 比對永遠回 `approvalChanged`。fork 有同一份程式，Windows 同樣受影響（回報者在 macOS，但根因與平台無關）。這是 stop 授權比對的安全邊界，上游尚未提出修正，因此不自行放寬比對；`reviewed_issue_through` 推到 8181，延後項與觸發條件寫在 `ROADMAP.md` 中期列。
+
+**未處理的限制**：MSIX 虛擬化終端下 `codex-native-residue` 的 3 個案例回 `unavailable`（環境限制），需在非虛擬化 Windows 終端複驗，記在 `ROADMAP.md`。

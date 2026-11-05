@@ -670,7 +670,7 @@ src/codex/history-provider.ts	M	MOD	fork-adapted	adapt	fork TOCTOU hardening ret
 src/codex/history-worker.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.93.0; upstream blob taken
 src/codex/inject-coordination.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.93.0; upstream blob taken
 src/codex/inject.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.93.0; upstream blob taken
-src/codex/inject/bounded-config-reader.ts	M	MOD	same-as-upstream	adopt	3-way merge / conflict resolved to upstream; result identical to v2.97.0
+src/codex/inject/bounded-config-reader.ts	M	MOD	fork-adapted	adapt	upstream bigint design plus fork configTooLarge() EFBIG distinction (CI follow-up; see UPSTREAM.md CI table)
 src/codex/inject/config-toml.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.93.0; upstream blob taken
 src/codex/inject/multi-agent-v2.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.93.0; upstream blob taken
 src/codex/inject/plan.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.93.0; upstream blob taken
@@ -1289,7 +1289,7 @@ tests/advisor/advisor-retention.test.ts	M	TAKE	same-as-upstream	adopt	fork unmod
 tests/advisor/advisor-scope-transport.test.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
 tests/advisor/advisor-web-search.test.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
 tests/ci-workflows/bun-runtime.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.93.0; upstream blob taken
-tests/ci-workflows/ci-bun-install-frozen.test.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+tests/ci-workflows/ci-bun-install-frozen.test.ts	A	ABSENT-A	fork-adapted	adapt	Ubuntu job list reduced to the fork ci.yml jobs (replay-time edit)
 tests/ci-workflows/ci-gui-typecheck-gate.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.93.0; upstream blob taken
 tests/ci-workflows/ci-shard-balance.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.93.0; upstream blob taken
 tests/ci-workflows/ci-workflows.test.ts	M	MOD	fork-adapted	adapt	3-way merge; fork-only hunks retained or conflict resolved per hunk (see section)
@@ -1386,7 +1386,7 @@ tests/cli/sync-link-status.test.ts	A	ABSENT-A	same-as-upstream	adopt	new upstrea
 tests/clients/client-export-model-names.test.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
 tests/clients/client-fingerprint.test.ts	M	MOD	fork-adapted	adapt	3-way merge; fork-only hunks retained or conflict resolved per hunk (see section)
 tests/clients/client-link-connect.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.93.0; upstream blob taken
-tests/clients/client-link-stop.test.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+tests/clients/client-link-stop.test.ts	A	ABSENT-A	fork-adapted	adapt	uses realpathSync.native for 8.3 temp names; link-sync-stop diagnostics kept (CI follow-up)
 tests/clients/client-link-tunnel.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.93.0; upstream blob taken
 tests/clients/client-path.test.ts	A	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.97.0 before this pass
 tests/clients/client-runtime-restart.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.93.0; upstream blob taken
@@ -1460,7 +1460,7 @@ tests/codex-integration/codex-cli-update-worker.test.ts	A	ABSENT-A	same-as-upstr
 tests/codex-integration/codex-cli-update-zero-effect.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.93.0; upstream blob taken
 tests/codex-integration/codex-cli-windows-child.test.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
 tests/codex-integration/codex-cli-windows-installation-files.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.93.0; upstream blob taken
-tests/codex-integration/codex-cli-windows-plan.test.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+tests/codex-integration/codex-cli-windows-plan.test.ts	A	ABSENT-A	fork-adapted	adapt	ctx gains sessionControl.isPaired for upstream #8008 pairing (CI follow-up)
 tests/codex-integration/codex-composed-acceptance.test.ts	M	MOD	fork-adapted	adapt	3-way merge; fork-only hunks retained or conflict resolved per hunk (see section)
 tests/codex-integration/codex-convergence-account-selectors.test.ts	M	MOD	fork-adapted	adapt	3-way merge; fork-only hunks retained or conflict resolved per hunk (see section)
 tests/codex-integration/codex-convergence-contract.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.93.0; upstream blob taken
@@ -1492,7 +1492,7 @@ tests/codex-integration/codex-main-grant-refusal.test.ts	M	EQ	same-as-upstream	a
 tests/codex-integration/codex-main-rotation.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.93.0; upstream blob taken
 tests/codex-integration/codex-metadata-integrity.test.ts	M	MOD	fork-adapted	adapt	3-way merge; fork-only hunks retained or conflict resolved per hunk (see section)
 tests/codex-integration/codex-native-residue.test.ts	M	MOD	same-as-upstream	adopt	3-way merge / conflict resolved to upstream; result identical to v2.97.0
-tests/codex-integration/codex-profile-preservation.test.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+tests/codex-integration/codex-profile-preservation.test.ts	A	ABSENT-A	fork-adapted	adapt	guard rejects only profiles under the real Codex home (CI follow-up)
 tests/codex-integration/codex-prompt-text-probe.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.93.0; upstream blob taken
 tests/codex-integration/codex-request-owned-affinity.test.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
 tests/codex-integration/codex-round-robin-headroom.test.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
@@ -1618,12 +1618,12 @@ tests/helpers/update-guarded-io.mjs	A	ABSENT-A	same-as-upstream	adopt	new upstre
 tests/helpers/update-helper-control-contracts.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
 tests/helpers/update-helper-inventory.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
 tests/helpers/update-home-fixtures.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
-tests/helpers/update-import-policy.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+tests/helpers/update-import-policy.ts	A	ABSENT-A	fork-adapted	adapt	five fork-source.mjs imports registered (replay-time edit)
 tests/helpers/update-lint-parser.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
 tests/helpers/update-mutation-scanner.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
 tests/helpers/update-node-home-child.mjs	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
 tests/helpers/update-primitive-allowlist.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
-tests/helpers/update-process-allowlist.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+tests/helpers/update-process-allowlist.ts	A	ABSENT-A	fork-adapted	adapt	process.exit(0/1/10) counts each +1 for the update gate (replay-time edit)
 tests/helpers/update-review-orchestrated-child.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
 tests/helpers/update-review-orchestrated-entry.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
 tests/helpers/update-review-table.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
@@ -1728,7 +1728,7 @@ tests/providers/xai/xai-transport.test.ts	M	TAKE	same-as-upstream	adopt	fork unm
 tests/providers/zcode-client.test.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.97.0 before this pass
 tests/providers/zed-argument-consistency.test.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
 tests/providers/zed-failure-relay.test.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
-tests/providers/zed-hosted-provider.test.ts	M	MOD	fork-adapted	adapt	3-way merge; fork-only hunks retained or conflict resolved per hunk (see section)
+tests/providers/zed-hosted-provider.test.ts	M	MOD	same-as-upstream	adopt	3-way merge replay left a duplicated tail block; removed in CI follow-up, now identical to v2.97.0
 tests/providers/zed-lossless-arguments.test.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
 tests/providers/zed-openai-contract.test.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
 tests/responses/apply-patch-envelope.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.93.0; upstream blob taken
@@ -1971,7 +1971,7 @@ tests/web-search/web-search-passthrough-bridge.test.ts	M	TAKE	same-as-upstream	a
 tests/web-search/web-search-terminal-refusal.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.93.0; upstream blob taken
 tests/web-search/web-search-timeout-contract.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.93.0; upstream blob taken
 tests/windows/windows-atomic-write-acl-rearm.test.ts	A	A-DIFF	same-as-upstream	adopt	3-way merge / conflict resolved to upstream; result identical to v2.97.0
-tests/windows/windows-codex-cli-job-store.test.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+tests/windows/windows-codex-cli-job-store.test.ts	A	ABSENT-A	fork-adapted	adapt	managementCtx gains sessionControl.isPaired for upstream #8008 pairing (CI follow-up)
 tests/windows/windows-config-root-async-writers.test.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
 tests/windows/windows-deploy-close-regressions.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.93.0; upstream blob taken
 tests/windows/windows-lifecycle-root-acl.test.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added

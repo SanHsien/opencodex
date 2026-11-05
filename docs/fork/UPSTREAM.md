@@ -1641,7 +1641,7 @@ fork 基準 `688b04a0e3a00a417e0b7492b8d682ed07d1b174`。已讀上游 45 檔完�
 
 `tools/upstream_baseline.json` 完全不動；integrated／reviewed、PR／issue 水位維持原值。這筆的審查不代表其餘 defer 項或完整 stable 區段已通過。
 
-## 2026-11-05：全版 tag diff 重放 `v2.93.0..v2.97.0`（進行中；水位不動）
+## 2026-11-05：全版 tag diff 重放 `v2.93.0..v2.97.0`（2026-11-06 驗收完成，水位已推進）
 
 `git diff refs/upstream-tags/v2.93.0 refs/upstream-tags/v2.97.0` 共 1980 個檔案（658 新增、1322 修改、0 刪除；`v2.97.0` = `cab7eb7d0332ae0ebb4289d7c6bac1de666b6e40`），
 以單一 parent、不 merge 上游的 tag-diff 法套到 `main`（fork 基準 `ed36b929a`）。逐檔清冊（路徑、上游狀態、重放前分類、重放後與上游 blob 的關係、判定、備註）在
@@ -1710,8 +1710,13 @@ fork 基準 `688b04a0e3a00a417e0b7492b8d682ed07d1b174`。已讀上游 45 檔完�
 | `responses-pool-401-refresh`：pool JSON refresh 測試 | 與 native main 同型：重放取了上游 harness（不記 `refreshWires`），fork 測試被重複貼到 `describe` 外 | harness 還原為記錄 `refreshWires` 的 fork 版，移除檔尾重複測試 |
 | `codex-catalog-write-audit`、`codex-history-provider`、`zed-hosted-provider` | 同型：fork 獨有測試在檔尾又多貼一份（以測試名對照上游 `v2.97.0` 與基準 `ed36b929a` 機器掃描全 repo，只有這三檔與上面兩檔） | 移除檔尾重複區塊，保留原位置的那份 |
 
-### 尚未完成（所以水位不動）
+### 驗收與水位推進（2026-11-06）
 
-- 635 個被觸及的測試檔中，單獨跑完約 327 個後背景批次中斷，其餘約 308 個未跑；已跑檔案中的失敗檔與乾淨 `HEAD` 對照狀態見 `REVIEW.md` 或 `ROADMAP.md` 該列。
-- gui 完整 `bun test --isolate tests`：370 個檔、3675 pass／5 fail，5 個失敗全在 `login-url-block`、`models-empty-provider`、`usage-custom-range`（計時型，系統滿載時發生），三檔單獨重跑 62 案全過。`docs-site` build、`tools/dev_check.ps1`、全量 `bun run test` 未跑。
-- `tools/check-upstream-updates.ts --strict` 仍會因 `reviewed_through` 未推進而 exit 1。`integrated_tag`／`integrated_through`／`reviewed_*` 全部維持 `v2.93.0`／`88aaa754`。
+驗收依據：`ci/tagdiff-v2.97.0` 在 Windows 上的完整 CI run `42063145190` 全綠（含 Windows shards 與 aggregate `ci`），其後 `CI 後續修正` 表內每一項皆已逐檔對帳；本機另跑 `typecheck`、`privacy:scan`、`structure:check`、`file-size-ratchet`、`fork-hygiene`、`tools/dev_check.ps1` 與 docs-site build。
+清冊 TSV 在後續修正中有 9 列與事實不符，已更正：`bounded-config-reader.ts`、`client-link-stop.test.ts`、`codex-cli-windows-plan.test.ts`、`codex-profile-preservation.test.ts`、`windows-codex-cli-job-store.test.ts`、`ci-bun-install-frozen.test.ts`、`update-import-policy.ts`、`update-process-allowlist.ts` 由「採用」改為「適配」（原因寫在備註欄），`zed-hosted-provider.test.ts` 因移除重複區塊由「適配」改為「採用」。更正後計數：已等價 76、採用 1556、適配 157、不適用 191（合計 1980）。`scripts/ci/bun-install-frozen.sh` 只差檔案模式（blob 相同，Windows 上無可執行位），仍算採用。
+
+水位：`integrated_tag = v2.97.0`、`integrated_through`／`reviewed_through = cab7eb7d0332ae0ebb4289d7c6bac1de666b6e40`、`reviewed_date = 2026-11-06`。`reviewed_through` 可以推進，是因為 `88aaa754..cab7eb7d0` 的 254 筆 commit 全部落在 `v2.93.0..v2.97.0` 全版 tag diff 內，逐檔判定都在清冊與上列 CI 表中；個別 commit 的作者歸屬保留在整合提交。PR 水位不動（`reviewed_pr_through = 8086`、17 筆 `reviewed_pr_numbers`）。
+
+issue 軸：strict 新列出 `#8181`（desktop takeover 在預設 bind 時，`runtime-port.json` 缺 `hostname` 欄位，`tracked-runtime-inspection.ts:150` 讀成 `""`，而 liveness 讀成 `127.0.0.1`，`stop-approval.ts` 比對時永遠回 `approvalChanged`）。判定：**適用但延後**。fork 有同一份程式（`src/config/tracked-runtime-inspection.ts:150`、`src/cli/stop-approval.ts:95,148`、`src/cli/index.ts:608`），Windows desktop 的 approved takeover 同樣會踩到；回報者在 macOS／launchd，但根因與平台無關。延後理由：該 issue 在上游仍 open、尚無修正，動的是 stop-approval 的授權比對（安全邊界），不在沒有上游設計的情況下自行改；觸發條件是上游出修正，或維護者在 Windows 上實際遇到 takeover 失敗。`reviewed_issue_through` 8161 → 8181，延後項記在 `ROADMAP.md` 中期列。
+
+殘留（不阻擋推進，已列入 `ROADMAP.md`）：`codex-native-residue` 的 3 個案例在 MSIX 虛擬化終端回 `unavailable`，須於非虛擬化 Windows 終端複驗；其餘英文原文行與計時型 flaky 測試見路線圖。

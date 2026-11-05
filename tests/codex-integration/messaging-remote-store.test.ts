@@ -52,7 +52,7 @@ test.each(["acl", "error", "timeout"])("temporary ACL %s closes the descriptor a
           descriptors.push(fd); liveFd = fd;
           return fd;
         },
-        fstatSync(fd) { return Object.assign(native.fstatSync(fd), { uid: 1234, mode: 0o100600 }); },
+        fstatSync(fd, options) { return Object.assign(native.fstatSync(fd, options), { uid: 1234n, mode: 0o100600n }); },
         closeSync(value) {
           assert.equal(value, liveFd); native.closeSync(value); closed.push(value); liveFd = undefined;
         },
@@ -137,7 +137,7 @@ test.each(["acl", "error", "timeout"])("post-rename ACL %s reports unknown publi
           descriptors.push(fd); return fd;
         },
         closeSync(fd) { native.closeSync(fd); closed.push(fd); },
-        fstatSync(fd) { return Object.assign(native.fstatSync(fd), { uid: 1234, mode: 0o100600 }); },
+        fstatSync(fd, options) { return Object.assign(native.fstatSync(fd, options), { uid: 1234n, mode: 0o100600n }); },
         writeFileSync(...args) { writes++; return native.writeFileSync(...args); },
         renameSync(from, to) {
           assert.equal(native.readFileSync(published, "utf8"), "old");

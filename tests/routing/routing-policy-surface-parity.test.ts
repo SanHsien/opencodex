@@ -260,7 +260,9 @@ describe("routing policy request evidence parity (via dev handlers)", () => {
         expect(payload.error.message).toBe("no eligible candidates for routing policy");
         expect(JSON.stringify(payload)).not.toContain("private_profile_id");
       }
-      expect(log.routeDecision).toBeDefined();
+      // Chat's row projection (#8108) drops a trace naming ids outside the client selector; the
+      // other wires keep it. tests/responses/chat-error-body-normalization.test.ts pins the row.
+      if (path !== "/v1/chat/completions") expect(log.routeDecision).toBeDefined();
     }
   });
   test("rich evidence (tools + image) produces identical route decision across all three surfaces", async () => {

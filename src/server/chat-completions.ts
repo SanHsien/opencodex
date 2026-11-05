@@ -328,11 +328,9 @@ async function handleChatCompletionsWithBudget(
       return chatCompletionsErrorResponse(404, routingPolicyRefusalMessage("unknown", clientModel), "invalid_request_error");
     }
     if (err instanceof NoEligiblePolicyCandidateError) {
+      logCtx.routeDecision = err.trace;
       const clientModel = clientFacingModelLabel(requestedModel);
       projectLocalModelRefusalLog(logCtx, clientModel);
-      // Fork: the evaluation trace stays on the row (as on the other wires) so a failed policy
-      // request remains auditable; the projection above would drop it for unknown candidates.
-      logCtx.routeDecision = err.trace;
       if (logIds) addFinalRequestLog(logIds.requestId, logIds.start, logCtx, 404, { closeReason: "non_stream" });
       return chatCompletionsErrorResponse(404, routingPolicyRefusalMessage("unavailable", clientModel), "invalid_request_error");
     }

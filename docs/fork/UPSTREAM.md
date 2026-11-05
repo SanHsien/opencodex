@@ -1704,6 +1704,8 @@ fork 基準 `688b04a0e3a00a417e0b7492b8d682ed07d1b174`。已讀上游 45 檔完�
 | `codex-cli-windows-plan`：unsafe ledger 回 403 | 上游 `#8008` 要求 paired dashboard session（`ctx.sessionControl.isPaired`），上游沒更新這個 Windows 專用測試（macOS／Linux 皆 skip） | 測試 ctx 加 `sessionControl: { isPaired: () => true }` |
 | `codex-profile-preservation`：refusing to run against a Codex profile outside a test home | 守衛用 `userInfo().homedir` 判斷沙盒 HOME；Windows 上它跟隨 USERPROFILE，沙盒把它換掉後與 `HOME` 相同，沙盒從不被辨認（POSIX 取自 passwd，不受影響） | `tests/codex-integration/codex-profile-preservation.test.ts`：改用 `protectedHomeForTests()` 的真實家目錄比對 |
 | `windows-codex-cli-job-store`：HTTP apply 回 403 | 同 `#8008`，上游未更新這個 Windows 專用 fixture | 測試 `managementCtx` 加 `sessionControl: { isPaired: () => true }` |
+| `messaging-remote-store`：temporary／post-rename ACL 案例回 `unsafe_remote_storage` | 合併後測試的 `fstatSync` mock 回到上游的數字 `uid`／`mode`，fork 的 `remote-files.ts` 走 `fstatFileIdentity`（bigint stat） | 還原 fork 的 `fstatSync(fd, options)` mock（`uid: 1234n`、`mode: 0o100600n`） |
+| `chat-error-body-normalization`：policy alias refusal 的 request row | 先前我在 chat 投影後把 `err.trace` 放回，trace 內含 profile id，違反上游 row 不得含 profile id；上游行為為準 | `src/server/chat-completions.ts` 與上游逐位元相同；parity 測試對 chat wire 不要求 `routeDecision` |
 
 ### 尚未完成（所以水位不動）
 

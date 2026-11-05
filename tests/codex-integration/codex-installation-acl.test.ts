@@ -3,14 +3,9 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { codexInstallationIdForAccount } from "../../src/codex/installation-id";
-import { hardenSecretDirAsync, resetHardenedStateForTests, setAsyncIcaclsRunnerForTests, setIcaclsRunnerForTests, setPlatformForTests, windowsSecretAclReapPendingAtOrBelow, withWindowsSecretAclSettled } from "../../src/lib/windows-secret-acl";
+import { hardenSecretDirAsync, resetHardenedStateForTests, setAsyncIcaclsRunnerForTests, setIcaclsRunnerForTests, setPlatformForTests, verifySecretPathAcl, windowsSecretAclReapPendingAtOrBelow, withWindowsSecretAclSettled } from "../../src/lib/windows-secret-acl";
 import { resolveTrustedWindowsIcaclsExe } from "../../src/lib/windows-elevation";
 let root: string;
-// Fork adaptation: this tree has no verifySecretPathAcl; a protected DACL is one with no inherited ACE.
-function verifySecretPathAcl(path: string): boolean {
-  const out = Bun.spawnSync([resolveTrustedWindowsIcaclsExe(), path], { stdout: "pipe", stderr: "pipe" });
-  return out.exitCode === 0 && !/\(I\)/.test(new TextDecoder().decode(out.stdout));
-}
 const ok = { success: true, exitCode: 0, timedOut: false, stdout: "" };
 beforeEach(() => { root = mkdtempSync(join(tmpdir(), "ocx-installation-acl-")); resetHardenedStateForTests(); setPlatformForTests("win32"); });
 afterEach(() => { setIcaclsRunnerForTests(null); setAsyncIcaclsRunnerForTests(null); setPlatformForTests(null); resetHardenedStateForTests(); rmSync(root, { recursive: true, force: true }); });

@@ -1,7 +1,6 @@
-import { sameFileIdentity, lstatFileIdentity } from "../lib/file-identity";
 import { randomUUID } from "node:crypto";
+import { beginCodexCliSelectionParentWrite, withCodexCliSelectionParentWriteAsync, CodexCliSelectionMutationBusyError } from "./cli-update-selection-gate";
 import {
-  chmodSync,
   existsSync,
   lstatSync,
   readFileSync,
@@ -9,22 +8,14 @@ import {
   unlinkSync,
   writeFileSync,
 } from "node:fs";
-import { basename, delimiter, dirname, extname, join, posix, win32 } from "node:path";
+import { delimiter, extname, join, posix, win32 } from "node:path";
 import { durableBunRuntime, type DurableBunRuntime } from "../lib/bun-runtime";
+import type { FileIdentity } from "../lib/file-identity";
 import { assertSelectedRuntimeWritable, RuntimePreflightError, type RuntimePreflightDeps } from "../lib/bun-runtime-preflight";
 import { getConfigDir } from "../config";
-import type { BunRuntimeSource } from "../lib/bun-runtime";
-import { serviceApiTokenFilePath } from "../lib/service-secrets";
 import { isWslRuntime, wslAutomountRoot } from "./home";
 import { truncateRetainedUtf8 } from "../lib/admission";
-import {
-  buildUnixCodexShim,
-  buildWindowsCodexShim,
-  buildWindowsPowerShellCodexShim,
-  gitBashPath,
-  SHIM_MARKER,
-  UNIX_SHIM_REVISION_MARKER,
-} from "./shim-templates";
+import { SHIM_MARKER, UNIX_SHIM_REVISION_MARKER } from "./shim-templates";
 import {
   hasUsableBackingPath,
   isCurrentShimProbe,
@@ -66,6 +57,7 @@ import {
   resolveStableFnmCodexPath,
   type CodexPathScanDeps,
 } from "./shim-path-resolution";
+import { ownedWrapperFingerprint, windowsShimContent, wrapperInodeIsOurs, writeShim } from "./shim-wrapper-write";
 
 export { buildUnixCodexShim, buildWindowsCodexShim, buildWindowsPowerShellCodexShim } from "./shim-templates";
 export { isVersionManagerOwnedCodexPath } from "./shim-fingerprint";
@@ -111,14 +103,6 @@ export type CodexShimAutoRestoreResult =
   | { status: "not-installed" | "healthy" | "disabled" }
   | { status: "ineligible" | "deferred"; message?: string }
   | { status: "restored"; message: string };
-
-function cliEntry(runtime: DurableBunRuntime = durableBunRuntime()): { bun: string; bunRuntimeSource: BunRuntimeSource; cli: string } {
-  // Bundled Bun path (survives `ocx update`); all three shim builders
-  // (Unix / Windows cmd / Windows PowerShell) receive it via this entry.
-  // This module lives in src/codex/, the CLI entry in src/cli/index.ts.
-  // Path and provenance resolve together so the marker always describes this binary.
-  return { bun: runtime.path, bunRuntimeSource: runtime.source, cli: join(import.meta.dir, "..", "cli", "index.ts") };
-}
 
 function commandNames(name: string): string[] {
   if (process.platform !== "win32") return [name];
@@ -189,7 +173,7 @@ function findWindowsCodexTargets(): ShimFileState[] | null {
     if (stableExe === null) return null;
     if (existsSync(stableExe) && !isShim(stableExe)) {
       try {
-        if (!lstatFileIdentity(stableExe).isDirectory()) {
+        if (!lstatSync(stableExe).isDirectory()) {
           lastShimDiscoveryError = truncateRetainedUtf8(
             `Found codex.exe at ${stableExe}. Refusing to rename a real .exe because exact codex.exe invocations would break; ` +
             "install a codex.cmd/codex.ps1 launcher or use `ocx service install` for autostart.",
@@ -212,7 +196,7 @@ function findWindowsCodexTargets(): ShimFileState[] | null {
       if (stablePath === null) return null;
       if (!existsSync(stablePath) || isShim(stablePath)) continue;
       try {
-        if (!lstatFileIdentity(stablePath).isDirectory()) {
+        if (!lstatSync(stablePath).isDirectory()) {
           targets.push({ wrapperPath: stablePath, originalPath: stablePath, backupPath: backupPathFor(stablePath) });
         }
       } catch { /* keep scanning */ }
@@ -281,7 +265,7 @@ interface FreshShimInstallJournalEntry {
   writtenWrapperFingerprint?: ShimPathFingerprint;
   wrapperWriteStarted: boolean;
   /** dev/ino of the file our `writeShim()` created, recorded before anything can fail. */
-  writtenWrapperInode?: { dev: bigint; ino: bigint };
+  writtenWrapperInode?: FileIdentity;
 }
 
 function rollbackFreshShimInstall(journal: readonly FreshShimInstallJournalEntry[]): void {
@@ -305,7 +289,7 @@ function rollbackFreshShimInstall(journal: readonly FreshShimInstallJournalEntry
       if (ownsWrapper) unlinkSync(target.wrapperPath);
       else {
         try {
-          lstatFileIdentity(target.originalPath);
+          lstatSync(target.originalPath);
           sourceOccupied = true;
         } catch (error) {
           if (fileErrorCode(error) !== "ENOENT") sourceOccupied = true;
@@ -340,108 +324,6 @@ function rollbackFreshShimInstall(journal: readonly FreshShimInstallJournalEntry
     }
   }
   if (errors.length > 0) throw new AggregateError(errors, "Codex shim install validation rollback failed");
-}
-
-/**
- * Write the wrapper and return the identity of the inode this call created, or
- * `undefined` where the platform still writes the destination in place.
- *
- * Callers must derive ownership from the returned identity rather than from a
- * later `stat` of `wrapperPath`: the shim markers are public, so a concurrent
- * updater's wrapper can carry them, and a replacement landing between the write
- * and the observation is otherwise indistinguishable from our own file.
- */
-/** The Windows wrapper for `wrapperPath`'s flavor (.ps1, .cmd/.bat, or extensionless Git-Bash sh). */
-function windowsShimContent(wrapperPath: string, realCodexPath: string, runtime?: DurableBunRuntime): string {
-  const { bun, bunRuntimeSource, cli } = cliEntry(runtime);
-  const lower = wrapperPath.toLowerCase();
-  // UTF-8 BOM: Windows PowerShell 5.1 decodes BOM-less .ps1 files in the ANSI
-  // codepage, which mangles non-ASCII paths embedded in the shim.
-  if (lower.endsWith(".ps1")) return `\uFEFF${buildWindowsPowerShellCodexShim(realCodexPath, bun, cli, bunRuntimeSource)}`;
-  if (lower.endsWith(".cmd") || lower.endsWith(".bat")) return buildWindowsCodexShim(realCodexPath, bun, cli, bunRuntimeSource);
-  // Extensionless Git-Bash sh launcher: sh shim with forward-slash paths.
-  return buildUnixCodexShim(gitBashPath(realCodexPath), gitBashPath(bun), gitBashPath(cli), bunRuntimeSource, gitBashPath(serviceApiTokenFilePath()));
-}
-
-function writeShim(wrapperPath: string, realCodexPath: string, runtime?: DurableBunRuntime): { dev: bigint; ino: bigint } | undefined {
-  const { bun, bunRuntimeSource, cli } = cliEntry(runtime);
-  if (process.platform === "win32") {
-    writeFileSync(wrapperPath, windowsShimContent(wrapperPath, realCodexPath, runtime), "utf8");
-    return undefined;
-  } else {
-    // Stage the wrapper as its own inode and rename it into place, so ownership
-    // comes from the write itself rather than from observing the path afterwards.
-    // Writing the destination directly leaves a window in which a concurrent
-    // updater can replace the file between our write and our fingerprint; we would
-    // then adopt that replacement as ours and unlink it during rollback, deleting
-    // an executable we never wrote.
-    // Hidden and non-executable while staged, so a crash between the write and the
-    // rename cannot leave an executable `codex*` artifact that a glob or a shell
-    // completion would surface.
-    const staged = join(dirname(wrapperPath), `.${basename(wrapperPath)}.opencodex-staging.${process.pid}.${randomUUID()}`);
-    let renamed = false;
-    try {
-      // "wx" fails if the staging path somehow exists, so we never inherit a file.
-      writeFileSync(staged, buildUnixCodexShim(realCodexPath, bun, cli, bunRuntimeSource), { encoding: "utf8", flag: "wx", mode: 0o600 });
-      const stagedStat = lstatFileIdentity(staged);
-      chmodSync(staged, 0o755);
-      renameSync(staged, wrapperPath);
-      renamed = true;
-      // rename() preserves dev/ino and updates ctime, so identity is the inode
-      // pair, captured from the file we created rather than from the destination.
-      return { dev: stagedStat.dev, ino: stagedStat.ino };
-    } finally {
-      if (!renamed) {
-        try { unlinkSync(staged); } catch { /* best-effort: nothing to clean up */ }
-      }
-    }
-  }
-}
-
-/**
- * The fingerprint to record as "we wrote this", or `undefined` when the file at
- * `wrapperPath` is not the inode `writeShim()` created. Returning `undefined`
- * makes every rollback path treat the file as someone else's and leave it alone.
- */
-function ownedWrapperFingerprint(
-  wrapperPath: string,
-  written: { dev: bigint; ino: bigint } | undefined,
-): ShimPathFingerprint | undefined {
-  const probe = stableShimPathProbe(wrapperPath);
-  if (!probe) return undefined;
-  // Platforms that still write in place (Windows) have no staged identity; fall
-  // back to the marker check they have always used.
-  if (!written) return probe.prefix.includes(SHIM_MARKER) ? probe.fingerprint : undefined;
-  if (!sameFileIdentity(probe.fingerprint, written)) return undefined;
-  return probe.fingerprint;
-}
-
-/**
- * Whether the file now at the wrapper path is one this transaction may unlink.
- *
- * The inode our write created is the authority. It stays ours through an in-place
- * truncation — a partial write we must clean up — and stops being ours the moment
- * someone renames a different file over the path, which is exactly the concurrent
- * updater we must not delete. Where no inode was recorded (Windows writes the
- * destination directly), fall back to the exact fingerprint recorded at the time.
- */
-function wrapperInodeIsOurs(
-  wrapper: StableShimPathProbe,
-  written: { dev: bigint; ino: bigint } | undefined,
-  recorded: ShimPathFingerprint | undefined,
-): boolean {
-  // A different inode is conclusive: someone renamed their own file over ours.
-  if (written && (!sameFileIdentity(wrapper.fingerprint, written))) {
-    return false;
-  }
-  // Same inode is not sufficient on its own — an in-place truncation (shell `>`,
-  // writeFileSync) keeps it while replacing the contents. When we recorded a full
-  // fingerprint, require it to still match; that covers our own partial write,
-  // whose fingerprint we record before anything can fail.
-  if (recorded !== undefined) return sameFingerprint(wrapper.fingerprint, recorded);
-  // No recorded fingerprint: only the inode identity we captured at write time can
-  // speak for us, and there is nothing else to distinguish this file.
-  return written !== undefined;
 }
 
 function primaryState(files: ShimFileState[]): ShimState {
@@ -592,7 +474,7 @@ function rollbackGuardedRefresh(journal: readonly GuardedRefreshJournalEntry[]):
         unlinkSync(entry.operation.file.wrapperPath);
       } else {
         try {
-          lstatFileIdentity(entry.operation.sourcePath);
+          lstatSync(entry.operation.sourcePath);
           sourceOccupied = true;
         } catch (error) {
           if (fileErrorCode(error) !== "ENOENT") sourceOccupied = true;
@@ -1097,10 +979,43 @@ function installCodexShimInternal(options: InstallCodexShimInternalOptions): { i
 
 export function installCodexShim(deps: RuntimePreflightDeps = {}): { installed: boolean; message: string; refused?: boolean; runnable?: boolean } {
   if (process.platform !== "win32") return installUnixOverlay(findCodexOnPath, lastCodexDiscoveryError);
-  return installCodexShimInternal({ ...deps, allowFreshInstall: true });
+  const gate = beginCodexCliSelectionParentWrite();
+  if (!gate.entered) return { installed: false, refused: true, message: "codex_cli_selection_busy" };
+  try { return installCodexShimInternal({ ...deps, allowFreshInstall: true }); }
+  finally { gate.exit(); }
 }
 
-export function autoRestoreCodexShim(options: RuntimePreflightDeps & {
+export async function installCodexShimAsync(deps: RuntimePreflightDeps = {}): Promise<ReturnType<typeof installCodexShim>> {
+  try { return await withCodexCliSelectionParentWriteAsync(() => installCodexShim(deps)); }
+  catch (error) {
+    if (error instanceof CodexCliSelectionMutationBusyError) return { installed: false, refused: true, message: error.message };
+    throw error;
+  }
+}
+export async function autoRestoreCodexShimAsync(options: Parameters<typeof autoRestoreCodexShim>[0]): Promise<CodexShimAutoRestoreResult> {
+  try { return await withCodexCliSelectionParentWriteAsync(() => autoRestoreCodexShim(options)); }
+  catch (error) {
+    if (error instanceof CodexCliSelectionMutationBusyError) return { status: "deferred", message: error.message };
+    throw error;
+  }
+}
+export async function uninstallCodexShimAsync(): Promise<ReturnType<typeof uninstallCodexShim>> {
+  try { return await withCodexCliSelectionParentWriteAsync(uninstallCodexShim); }
+  catch (error) {
+    if (error instanceof CodexCliSelectionMutationBusyError) return { removed: false, message: error.message };
+    throw error;
+  }
+}
+
+export function autoRestoreCodexShim(options: Parameters<typeof autoRestoreWindowsCodexShim>[0]): CodexShimAutoRestoreResult {
+  if (process.platform !== "win32") return autoRestoreUnixOverlay(options);
+  const gate = beginCodexCliSelectionParentWrite();
+  if (!gate.entered) return { status: "deferred", message: "codex_cli_selection_busy" };
+  try { return autoRestoreWindowsCodexShim(options); }
+  finally { gate.exit(); }
+}
+
+function autoRestoreWindowsCodexShim(options: RuntimePreflightDeps & {
   enabled: () => boolean;
   stabilitySleep?: (ms: number) => void;
   /** Narrow deterministic seam used to hold the interprocess lock in tests. */
@@ -1110,7 +1025,6 @@ export function autoRestoreCodexShim(options: RuntimePreflightDeps & {
   /** Narrow deterministic race seam for the guarded transaction tests. */
   beforeGuardedRefresh?: (wrapperPath: string, index: number) => void;
 }): CodexShimAutoRestoreResult {
-  if (process.platform !== "win32") return autoRestoreUnixOverlay(options);
   const stateRead = readStateResult();
   const state = stateRead.state;
   if (!state) {
@@ -1224,6 +1138,13 @@ export function autoRestoreCodexShim(options: RuntimePreflightDeps & {
 
 export function uninstallCodexShim(): { removed: boolean; message: string } {
   if (process.platform !== "win32") return uninstallUnixCodexShim();
+  const gate = beginCodexCliSelectionParentWrite();
+  if (!gate.entered) return { removed: false, message: "codex_cli_selection_busy" };
+  try { return uninstallWindowsCodexShim(); }
+  finally { gate.exit(); }
+}
+
+function uninstallWindowsCodexShim(): { removed: boolean; message: string } {
   const state = readState();
   if (!state) return { removed: false, message: "Codex autostart shim is not installed." };
   const files = stateFiles(state);

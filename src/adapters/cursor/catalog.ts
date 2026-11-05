@@ -473,15 +473,11 @@ export function parseCursorVariantId(rawId: string): ParsedCursorVariantId {
   }
   let thinking = false;
   let level: string | undefined;
-  // Matching `-thinking-<level>` by suffix rather than by `/^(.*)-thinking-([a-z-]+)$/`:
-  // the greedy group made `-thinking--thinking--thinking-...` cost time quadratic in the
-  // id, and model ids arrive from the provider catalog. The level has to be one of eight
-  // known tokens anyway, so there is nothing to search for.
-  for (const token of LEVEL_TOKENS) {
-    const marker = `-thinking-${token}`;
-    if (!stem.endsWith(marker)) continue;
-    const base = stem.slice(0, -marker.length);
-    if (CURSOR_CAPABILITIES[base]) return finishParse(base, true, fast, token);
+  const thinkingAt = stem.lastIndexOf("-thinking-");
+  const thinkingBase = thinkingAt < 0 ? "" : stem.slice(0, thinkingAt);
+  const thinkingLevel = thinkingAt < 0 ? "" : stem.slice(thinkingAt + "-thinking-".length);
+  if (/^[a-z-]+$/.test(thinkingLevel) && CURSOR_CAPABILITIES[thinkingBase] && (LEVEL_TOKENS as readonly string[]).includes(thinkingLevel)) {
+    return finishParse(thinkingBase, true, fast, thinkingLevel);
   }
   const levelThinking = stem.endsWith("-thinking") ? stripLevelSuffix(stem.slice(0, -"-thinking".length)) : undefined;
   if (levelThinking && CURSOR_CAPABILITIES[levelThinking.stem]) {

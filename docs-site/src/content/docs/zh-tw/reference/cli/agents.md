@@ -919,6 +919,39 @@ native-mode flags are rejected; failed runtime save has no local fallback. Apply
 is a separate existing Desktop action on its machine, so verify host/context
 before choosing it. Rendered models are not proof of native application.
 
+### `ocx codex [codex args...]`
+
+只有設定及其命名空間受到保護、其他主體無法修改時才提供金鑰；目前使用者和特權 OS 主體受到信任。同一使用者的程序受到信任：具有該使用者寫入權限的主體已能讀取該使用者的 OpenCodex 金鑰檔案。驗證與原生啟動之間由同一使用者替換設定不在此威脅模型內，啟動器不會在交接時凍結設定。
+
+一般 Windows 安裝的預設 ProgramData 權限允許其他使用者建立目錄。因此即使 `ProgramData\OpenAI\Codex` 不存在，也會暫緩自動憑證。ProgramData 下的系統 Codex 設定資料夾必須存在，且僅 Administrators/SYSTEM 可寫入；其祖先目錄也必須防止其他使用者替換。請管理員檢查目錄原則。opencodex 絕不自行修改 ACL，也不提供設定目錄的命令。
+
+您也可以自行提供金鑰，例如匯出 `OPENCODEX_API_AUTH_TOKEN` 環境變數；`ocx codex` 會保留其值不變。既有系統設定檔仍會阻止自動憑證，需另行檢查。每種暫緩原因都會輸出一行簡短明確的 stderr 診斷，不含金鑰值、金鑰檔案內容或路徑。
+
+單字提示前請加 `--`，以免選取未知的 Codex 子命令。
+
+即使系統設定檔不存在，也必須阻止其他使用者建立這些檔案。無法驗證 Windows ProgramData/OpenAI/Codex 路徑保護時不自動注入權杖，也不建立目錄。macOS 接受僅拒絕的 ACL 與唯讀允許項。任何允許寫入、附加、刪除、修改屬性、安全或擁有者的項目都會被拒絕，即使前面已有拒絕項。未知標籤與檢查錯誤也會被拒絕。
+
+只有 argv 位於下方允許清單內、環境中沒有非空 HTTP(S)/ALL proxy 或 `CODEX_*`/`OPENAI_*`/`AZURE_OPENAI_*` 覆寫（允許標準的 `CODEX_HOME`），且主目錄、設定與系統命名空間通過擁有權檢查時，才讀取新服務權杖。設定必須只包含已稽核鍵與準確的受管 loopback provider，沒有額外憑證消費者或設定層。`-c`/`--config`、`-p`/`--profile`、未知旗標和 `resume`/`fork` 等清單外引數都會暫緩權杖，並輸出不含值的診斷；明確提供的使用者憑證與原始引數保持不變。
+
+標準主目錄與 `config.toml` 必須屬於目前使用者。POSIX 拒絕 group/other 寫入權限；Windows 驗證擁有者 SID，並拒絕目前使用者、SYSTEM、Administrators 以外的 DACL 寫入授權。也會檢查祖先路徑替換權限。macOS 還要求不存在強制 Codex 設定 preference。這些檢查無法隔離相同使用者或管理員執行的惡意程序。
+
+| 允許清單 | 旗標 |
+| --- | --- |
+| 開關 | `--no-daemon`, `--json`, `--ephemeral`, `--skip-git-repo-check`, `--no-alt-screen`, `--full-auto`, `--dangerously-bypass-approvals-and-sandbox`, `--search` |
+| 單一值 | `--model`/`-m`, `--sandbox`/`-s`, `--ask-for-approval`/`-a`, `--image`/`-i` |
+
+
+
+自動憑證讀取會將 `CODEX_HOME` 中的 `~` 與空白視為字面路徑，驗證後將同一個正規絕對路徑傳給子程序。無法讀取主目錄時不讀取權杖。只要存在非空的 `HTTP_PROXY`、`HTTPS_PROXY` 或 `ALL_PROXY`（不分大小寫），就會略過自動讀取，不受 `NO_PROXY` 影響；拒絕的啟動和使用者匯出的憑證保持不變。傳遞新權杖時，子程序的 `NO_PROXY` 與 `no_proxy` 會保留既有排除項目並加入 `127.0.0.1` 和 `::1`。啟用 `features.respect_system_proxy` 或傳入 `--enable`/`--disable` 會略過自動讀取。
+
+使用原始引數啟動 Codex 前嘗試啟動代理。路由仍由 Codex 設定擁有，啟動器不會改寫。原生及其他閘道路由略過代理啟動；未知路由會警告並嘗試啟動，失敗後仍警告並繼續。說明、版本及 `login`、`doctor`、`help` 等內部命令略過代理啟動和自動權杖讀取。
+
+只有所選 provider 的完整傳輸設定與本次安裝的回環監聽器或已儲存的本機用戶端連線對應的管理區塊一致時，才從本次安裝的 `service-api-token` 讀取缺少的 `OPENCODEX_API_AUTH_TOKEN`。名稱或注入註解本身不構成授權。未知或遠端目的地、預設 profile、專案設定、`OPENAI_BASE_URL` 及傳入的 `-c`/`--config`、`-p`/`--profile`、`-C`/`--cd`、`--remote` 都會略過自動讀取。保留使用者匯出的憑證與引數，拒絕權杖檔案覆寫和管理權杖衝突。
+
+只有比對成功（`matched`）的 autostart wrapper 才直接啟動背後的 Codex。未知狀態（包括檢查例外）必須通過 bypass 驗證；受管 Windows CMD wrapper 必須與目前產生的範本完整一致，才以 `OCX_SHIM_BYPASS=1` 執行。一般 npm 啟動器仍受支援。無法驗證或過時的 wrapper 以結束代碼 1 拒絕，且不啟動 Codex；請用 `ocx codex-shim install` 更新。本次啟動不修復 shim；內容檢查不證明 Windows backing 檔案來源，也不防止並行路徑替換。
+
+啟動器說明為 `ocx help codex`，Codex 說明為 `ocx codex --help`。之後直接執行一般 `codex` 的行為保持不變。
+
 ### `ocx opencode [opencode args...]`
 
 確保代理正在執行，然後在 OpenCode 的內嵌執行階段層（`OPENCODE_CONFIG_CONTENT`）中以生成的 `provider.opencodex` 與 `providers.opencodex` 區塊啟動 opencode。既有的內嵌設定會被保留，本次啟動僅替換這兩個鍵。全域或專案的 `opencode.json` 檔案可能被讀取以警告既有的覆寫，但磁碟上的檔案永不修改。路由模型以
@@ -1079,9 +1112,12 @@ resolver selects the same canonical environment candidate without executing it. 
 can then establish `managed: true` when it proves ownership and, if a candidate version is reported, that version matches the manifest; persisted candidates remain unattested. The JSON report exposes `candidateAvailable`, `candidateVersion`, `candidateSource`,
 and `selectionAttested`. Inspecting the configured candidate requires a trusted published-launcher context;
 a direct Bun/source launch has no such proof, ignores ambient and persisted candidate state, and may report
-`candidate_unavailable` on POSIX. On Windows this first slice performs no candidate or configuration filesystem I/O:
-only a proof-captured absolute environment candidate can receive lexical app-bundle or version-manager labels;
-every other Windows candidate fails closed. Because that slice never consults persisted state, a Windows run
+`candidate_unavailable` on POSIX. On Windows x64, a proof-captured absolute standard npm `codex.cmd`
+can be managed when held local handles bind its package, a prefix-local Node/npm pair or the captured
+PATH metadata pair tied to the launcher architecture, and the first in-prefix platform backing.
+This metadata pair does not attest the interpreter a later CMD invocation would select.
+Plan paths and configured version-manager roots must use their canonical long DOS names;
+aliases, unavailable roots and reparse points leave the installation unmanaged. Other Windows layouts remain deferred or unmanaged. Windows never consults persisted state, so a run
 with no captured environment candidate reports `windows_inspection_deferred` rather than `candidate_unavailable`:
 the command cannot observe whether a Codex CLI is installed, so it reports the deferral instead of asserting
 that no candidate exists. The command does not execute Codex or a package manager, repair a shim,
@@ -1091,6 +1127,49 @@ and are never classified as managed.
 
 On Windows, a captured bare command such as `CODEX_CLI_PATH=codex`, a remote path, or a device path reports `candidate_path_unavailable` instead. Those cases have a captured candidate; its path is not eligible for this inspection.
 
+#### 已確認的 Codex CLI 套用與工作狀態
+
+```bash
+ocx system codex-cli-update apply --plan-id <32-hex> --yes --request-id <stable-key> --json
+ocx system codex-cli-update status <job-id> --json
+```
+
+套用支援所選的、受管的、非 shim 的 npm 全域 CLI（Linux／macOS），以及受限的 Windows x64 npm 配置。
+它會在安裝租約之下重新驗證已核准的計畫，驗證確切的主套件／平台封存，以離線並停用生命週期腳本的方式安裝，
+並檢查已安裝的檔案與所選 CLI 的版本。既有的 Codex 工作階段絕不會被停止；觀測到有作用中或未知的處理程序時會拒絕更新。
+Windows 支援具有已驗證 ACL 且沒有重新分析點路徑的共用前綴。觀測範圍包含不相關的套件與 shim，上限為 4,096 個項目、合計 512 MiB、單一檔案 384 MiB。
+它們的位元組與身分必須保留。更大或不安全的前綴、ARM64、shim 修復、原生應用程式與其他安裝管理員仍不支援。
+子處理程序存活時間未知，或控制代碼清理不完整時，會保留暫存區與安裝租約；請勿刪除其鎖定檔來重試。
+讀回包含輔助檔案、新增／不存在的後援根目錄與 npm 的隱藏鎖定檔。`not_applied` 表示觀察到受範圍限定的安裝狀態沒有改變，
+並不表示 npm 在任何地方都沒有做過 I/O。
+安裝目錄與暫存區要求整個上層路徑具有受信任的 POSIX 擁有者與權限。不安全的安裝路徑會回報 `installation_prefix_unsupported`
+或 `installation_paths_untrusted`；不安全的暫存根目錄會回報 `staging_path_untrusted`。
+請使用位於受信任上層目錄之下的私有暫存目錄（支援由 root 擁有、帶 sticky 位元的暫存根目錄）。
+在安裝與讀回期間，受擁有的工作階段啟動、桌面重新啟動，以及執行階段／shim 選擇變更都會回報忙碌。
+未確認的安裝程式或驗證子處理程序會讓准入保持關閉。當證明受擁有的處理程序群組已消失（包含在回收期限之後才關閉的驗證子處理程序）時，准入會恢復。
+提交之前的工作程序遺失也會恢復准入；提交之後單獨的工作程序關閉則不會。持久的復原記錄會在代理重新啟動之間保留這項排他。
+在 Windows 上，復原會檢查確切的安裝程式／驗證程式 Job 與原始的處理程序建立身分；所有 Job 成員都必須已結束。
+存取失敗會讓准入保持關閉，且絕不停止安裝程式。缺少子身分、記錄不完整或無法取得存活證據時，需要檢查。
+在發布重新命名之前留下的完整終止寫入，當其確切擁有者與目前的父層／群組不存在都獲得驗證時，可在重新啟動後恢復准入。
+在 Windows 上，完整的待處理子身分也可以在符合以下條件時恢復准入：它符合已武裝的擁有者與 Job、守衛的終止證明有效，
+且父層、確切的子處理程序存活時間與每個 Job 成員都已證明消失。缺少證明、不完整或已武裝的待處理寫入仍需要檢查；單憑守衛死亡不能重新開啟准入。
+復原不會改變含糊的工作結果、重試安裝，或回收被遺棄的安裝租約。
+沒有復原歷史時，符號連結的 `OPENCODEX_HOME`（或 home 的上層目錄）允許這些一般操作。有歷史時，准入會讀取受保護的正規 home 目標；
+不安全的復原路徑仍回報忙碌。這不會放寬更新程式的安裝或設定路徑資格。Shim 修復、原生應用程式與其他安裝管理員仍不支援。
+
+只有 `applied` 的工作會讓套用以 0 結束；`not_applied`、`refused`、`ambiguous` 與待處理的重複工作都以 1 結束，包含使用 `--json` 時。
+狀態讀取的是同一份私有工作記錄，不需要執行中的代理或 GUI 權杖。回應遺失後，請重用同一個選用的請求 ID：
+相同的鍵與計畫會回傳原本的工作；用該鍵搭配改變的計畫則會被拒絕。私有帳本最多保留 64 個工作（包含已完成的工作），不會自動修剪。
+到達該上限時，新的請求 ID 會以 `store_full` 拒絕；既有且相符的重試仍會回傳原本的工作。
+容量與營運人員復原仍是另一項後續工作，且必須保留這項去重契約。忙碌的准入帳本會回報 `job_store_busy`
+（HTTP 503 並帶 `Retry-After: 1`）；永久的准入失敗沒有重試延遲標頭。缺少或無法讀取 CLI 狀態會回傳 `job_unavailable` 與非零結束碼。
+完成寫入的持久化失敗不會重新執行安裝程式，也不會把不確定的工作變成已確認的成功。
+含糊的結果絕不會自動重試或回復。擁有者重新啟動後，未完成的工作會回報擁有權未知，而不是宣稱舊的處理程序已停止。
+請檢查工作的結果、子處理程序／租約狀態與清理錯誤；單靠指令的結束狀態並不能確立安裝結果。
+
+管理 API 提供經過驗證的計畫／狀態讀取，以及已確認的、可信任迴路 GUI 工作階段套用准入。已發布的 Node `ocx start`
+會提供所需的檢查快照；直接的 Bun 或編譯後的附屬程式啟動不提供該證明。儀表板更新面板是另一項後續工作。
+
 #### Read-only Codex CLI update plan
 
 ```bash
@@ -1098,18 +1177,24 @@ ocx system codex-cli-update plan --channel latest --json
 ```
 
 Run through the published Node launcher with the intended `CODEX_CLI_PATH` in the shell environment.
-The plan requires an attested POSIX npm-global installation and a linked package manifest version.
+The plan requires an attested npm-global installation and a linked package manifest version.
+Windows supports only an explicit absolute standard npm `codex.cmd` with a held-bound Node/npm toolchain —
+prefix-local when present, otherwise the captured-PATH pair anchored to the launcher architecture;
+PATH-only selection, OpenCodex autostart wrappers and global/vendor fallback stay deferred.
 It queries the official npm registry for an exact version, SHA-512 integrity and same-origin tarball,
 using the launcher's captured PATH and isolated temporary npm configuration, cache and logs. Proxy
 settings and `NODE_EXTRA_CA_CERTS` remain supported; cleanup is best-effort. No Codex command runs.
 
 An applicable plan reports `applicable: true` and a deterministic `planId` binding platform,
-installation-root digest, installed version, channel and target version/integrity. The plan is never
+installation-root/content digests, installed version, channel and exact main/platform artifacts. The plan is never
 persisted. It refuses downgrades, already-current versions, active Codex sessions and incomplete
-process observation. Windows returns `windows_inspection_deferred` before registry/process queries.
+process observation. Supported Windows metadata queries use the observed Node/npm under matching
+held handles. Windows x64 can be applicable only for a bounded npm prefix with verified
+write authority; other observed prefixes retain `windows_apply_disabled`. Active/unknown sessions still refuse earlier. Unsupported
+Windows layouts return `windows_inspection_deferred` before registry/process queries.
 A refusal exits 0: inspect `applicable` and `refusal`. The printed install argv is indicative; this
-command installs nothing, changes no application state and never signals a session. No apply command
-is exposed, and a plan ID is not installation authorization.
+command installs nothing, changes no application state and never signals a session.
+A plan ID alone is not installation authorization: apply requires separate explicit confirmation.
 
 #### 明確觀測 Windows x64 安裝
 

@@ -22,6 +22,9 @@ import type { RequestLogContext } from "../../src/server/request-log";
 import type { OcxConfig } from "../../src/types";
 import { captureCallerDirectAuth } from "../../src/providers/caller-authorization";
 import { fakeChatGptJwt } from "../helpers/agent-task-recovery";
+import { setNativeMainRefreshResolutionForTests } from "../../src/codex/native-main-refresh-mode";
+import { clearAccountQuota, getAccountQuota, getMainPolicyQuota } from "../../src/codex/quota";
+import { resetMainCodexAccountIdentityTrackingForTests } from "../../src/codex/account-lifecycle";
 import { acquireOwnedSpendHome } from "../helpers/owned-spend-home";
 import { removeTreeWithRetry } from "../helpers/remove-tree";
 import { setAsyncIcaclsRunnerForTests, setIcaclsRunnerForTests } from "../../src/lib/windows-secret-acl";
@@ -105,6 +108,9 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  setNativeMainRefreshResolutionForTests(null);
+  clearAccountQuota(MAIN_CODEX_ACCOUNT_ID);
+  resetMainCodexAccountIdentityTrackingForTests();
   // Release before restoring or removing the home to prevent Windows removal failures and POSIX unlinked databases.
   releaseSpendHome?.();
   releaseSpendHome = undefined;
@@ -135,10 +141,8 @@ function install401ThenRefreshHarness(): { sends: string[]; refreshes: string[];
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(input instanceof Request ? input.url : String(input));
     if (url.hostname === "auth.openai.com") {
-      const wire = JSON.parse(String(init?.body)) as Record<string, unknown>;
-      const refreshHeaders = new Headers(init?.headers);
-      wires.push({ contentType: refreshHeaders.get("content-type"), accept: refreshHeaders.get("accept"), body: wire });
-      refreshes.push(typeof wire.refresh_token === "string" ? wire.refresh_token : "");
+      const refresh = (JSON.parse(String(init?.body)) as { refresh_token?: string }).refresh_token ?? "";
+      refreshes.push(refresh);
       return Response.json({
         access_token: "refreshed-access",
         refresh_token: "rotated-refresh",
@@ -159,6 +163,63 @@ function install401ThenRefreshHarness(): { sends: string[]; refreshes: string[];
 }
 
 describe("native main 401 refresh and replay", () => {
+  test.each(["/v1/responses", "/v1/responses/compact"] as const)(
+    "%s publishes retry quota for a keyring account replacement after 401", async path => {
+      clearAccountQuota(MAIN_CODEX_ACCOUNT_ID);
+      resetMainCodexAccountIdentityTrackingForTests();
+      fs.rmSync(join(home, "auth.json"));
+      setNativeMainRefreshResolutionForTests({
+        mode: "codex", configured: "auto", reason: "codex-compatible", command: "/fixture/codex", version: "0.162.1",
+      });
+      const first = fakeChatGptJwt("retry-account-a");
+      const replacement = fakeChatGptJwt("retry-account-b");
+      if (path.endsWith("compact")) saveCodexAccountCredential(OTHER_ACCOUNT_ID, {
+        accessToken: "other-access", refreshToken: "other-refresh", expiresAt: Date.now() + 3_600_000,
+        chatgptAccountId: "account-other",
+      });
+      let token = first;
+      const refreshes: boolean[] = [];
+      const nativeMainRefreshDependencies = { codexAuthStatus: async ({ refresh }: { refresh: boolean }) => {
+        refreshes.push(refresh);
+        if (refresh) token = replacement;
+        return { authMethod: "chatgpt", authToken: token, requiresOpenaiAuth: true };
+      } };
+      const sends: Headers[] = [];
+      globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = new URL(input instanceof Request ? input.url : String(input));
+        if (!url.pathname.endsWith("/responses") && !url.pathname.endsWith("/responses/compact")) {
+          return Response.json({ rate_limit: { primary_window: { used_percent: 10 } } });
+        }
+        sends.push(new Headers(init?.headers));
+        if (sends.length === 1) return Response.json({ error: { message: "expired bearer" } }, { status: 401 });
+        if (sends.length === 3) return Response.json({ id: "resp_other", object: "response", status: "completed", output: [] });
+        return Response.json({ id: "resp_replacement", object: "response", status: "completed", output: [] }, {
+          status: path.endsWith("compact") ? 429 : 200,
+          headers: { "x-codex-primary-used-percent": "37", "x-codex-primary-window-minutes": "300",
+            "x-codex-primary-reset-at": String(Math.floor(Date.now() / 1000) + 600) },
+        });
+      }) as typeof fetch;
+      const req = request(path);
+      const cfg = config({ secondAccount: path.endsWith("compact") });
+      await getValidMainAccountToken(nativeMainRefreshDependencies);
+      const log = { model: "", provider: "" } as RequestLogContext;
+      const response = path === "/v1/responses"
+        ? await handleResponses(req, cfg, log, { nativeMainRefreshDependencies })
+        : await handleResponsesCompact(req, cfg, log, undefined, undefined, { nativeMainRefreshDependencies });
+      const responseBody = await response.text();
+      expect({ status: response.status, error: response.status === 200 ? undefined : responseBody }).toEqual({ status: 200, error: undefined });
+      expect(sends.map(headers => headers.get("authorization"))).toEqual([
+        `Bearer ${first}`, `Bearer ${replacement}`, ...(path.endsWith("compact") ? ["Bearer other-access"] : []),
+      ]);
+      expect(sends.map(headers => headers.get("chatgpt-account-id"))).toEqual([
+        "retry-account-a", "retry-account-b", ...(path.endsWith("compact") ? ["account-other"] : []),
+      ]);
+      expect(refreshes.filter(Boolean)).toHaveLength(1);
+      expect(getAccountQuota(MAIN_CODEX_ACCOUNT_ID)?.shortPercent).toBe(37);
+      expect(getMainPolicyQuota()?.shortPercent).toBe(37);
+    },
+  );
+
   test.each(["/v1/responses", "/v1/responses/compact"] as const)(
     "%s strips caller account identity when a bearer key selects stored Direct",
     async path => {
@@ -718,7 +779,7 @@ describe("native main 401 refresh and replay", () => {
       }
       // One failure is one line, and it names the refusal rather than reprinting the envelope.
       // The raw body is multi-line JSON; a log built from it spread a single 401 over the screen.
-      const comboLine = warnings.find(line => line.startsWith("[combo] codexfirst: openai/"));
+      const comboLine = warnings.find(line => line.startsWith("[combo] combo 1: target 1 (openai)"));
       expect(comboLine).toBeDefined();
       expect(comboLine).not.toContain("\n");
       expect(comboLine).not.toContain("{");
@@ -781,3 +842,19 @@ describe("native main 401 refresh and replay", () => {
     }
   });
 });
+
+  test("the native main refresh grant goes out as the official JSON body (#7840)", async () => {
+    const harness = install401ThenRefreshHarness();
+    const response = await handleResponses(
+      request("/v1/responses"),
+      config(),
+      { model: "", provider: "" } as RequestLogContext,
+    );
+
+    expect(response.status).toBe(200);
+    expect(harness.wires).toEqual([{
+      contentType: "application/json",
+      accept: "application/json",
+      body: { client_id: "app_EMoamEEZ73f0CkXaXp7hrann", grant_type: "refresh_token", refresh_token: "refresh-grant" },
+    }]);
+  });

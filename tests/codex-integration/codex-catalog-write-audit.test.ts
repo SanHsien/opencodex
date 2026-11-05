@@ -1,3 +1,4 @@
+import { samePath } from "../helpers/same-path";
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync, symlinkSync } from "node:fs";
 import * as fs from "node:fs";
@@ -635,7 +636,7 @@ describe("Windows audit privacy (r4176128642)", () => {
       { ctimeNs: stat.ctimeNs + (hardened ? 1_000_000n : 0n) }) as fs.BigIntStats;
     const fstat = spyOn(fs, "fstatSync").mockImplementation(((fd, options) => options?.bigint ? postAcl(realFstat(fd, { bigint: true })) : realFstat(fd)) as typeof fs.fstatSync);
     const lstat = spyOn(fs, "lstatSync").mockImplementation(((path, options) =>
-      path === auditPath() && options?.bigint ? postAcl(realLstat(path, { bigint: true })) : realLstat(path)) as typeof fs.lstatSync);
+      samePath(path, auditPath()) && options?.bigint ? postAcl(realLstat(path, { bigint: true })) : realLstat(path)) as typeof fs.lstatSync);
     const write = spyOn(fs, "writeSync");
     const open = spyOn(fs, "openSync");
     harden.mockImplementation((path, options) => {
@@ -654,6 +655,25 @@ describe("Windows audit privacy (r4176128642)", () => {
       expect(Number(creation![1]) & fs.constants.O_EXCL).toBe(fs.constants.O_EXCL);
       expect(auditLines()).toEqual([expect.objectContaining({ writer: "convergence" })]);
     } finally { fstat.mockRestore(); lstat.mockRestore(); write.mockRestore(); open.mockRestore(); }
+  });
+
+  test("file identity preserves adjacent NTFS-sized values", () => {
+    const realFstat = fs.fstatSync;
+    const realLstat = fs.lstatSync;
+    const identity = 9_007_199_254_740_992n;
+    const fstat = spyOn(fs, "fstatSync").mockImplementation(((fd, options) => {
+      const stat = options?.bigint ? realFstat(fd, { bigint: true }) : realFstat(fd);
+      return Object.assign(Object.create(Object.getPrototypeOf(stat)), stat, { ino: options?.bigint ? identity : Number(identity) });
+    }) as typeof fs.fstatSync);
+    const lstat = spyOn(fs, "lstatSync").mockImplementation(((path, options) => {
+      const stat = options?.bigint ? realLstat(path, { bigint: true }) : realLstat(path);
+      return samePath(path, auditPath()) ? Object.assign(Object.create(Object.getPrototypeOf(stat)), stat,
+        { ino: options?.bigint ? identity + 1n : Number(identity + 1n) }) : stat;
+    }) as typeof fs.lstatSync);
+    try {
+      expect(appendUnderK()).toBe("skipped");
+      expect(harden).not.toHaveBeenCalled();
+    } finally { fstat.mockRestore(); lstat.mockRestore(); }
   });
 
   for (const code of ["EICACLS", "ETIMEDOUT", "returned-failure"]) {
@@ -735,7 +755,7 @@ describe("Windows audit privacy (r4176128642)", () => {
       const realOpen = fs.openSync;
       const open = spyOn(fs, "openSync").mockImplementation((path, flags, mode) => {
         const fd = realOpen(path, flags, mode);
-        if (phase === "before" && path === auditPath()) substitute();
+        if (phase === "before" && samePath(path, auditPath())) substitute();
         return fd;
       });
       harden.mockImplementation(() => { substitute(); return { ok: true }; });
@@ -748,3 +768,37 @@ describe("Windows audit privacy (r4176128642)", () => {
     });
   }
 });
+
+  test("a file that appears between the absence check and the open is never adopted or written", () => {
+    // Pins O_EXCL on the create branch (the property that makes the lstat -> open pair race-safe).
+    // The first lstat of the audit path reports absence, then an empty owner-looking file is there.
+    writeFileSync(auditPath(), "", { mode: 0o600 });
+    const realLstat = fs.lstatSync;
+    let hidden = false;
+    const lstat = spyOn(fs, "lstatSync").mockImplementation(((path: fs.PathLike, options?: unknown) => {
+      if (!hidden && String(path) === auditPath()) {
+        hidden = true;
+        throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+      }
+      return (realLstat as (p: fs.PathLike, o?: unknown) => unknown)(path, options);
+    }) as typeof fs.lstatSync);
+    const harden = spyOn(secretAcl, "hardenSecretPath");
+    try {
+      expect(appendUnderK()).toBe("skipped");
+      expect(hidden).toBe(true);
+      expect(readFileSync(auditPath(), "utf8")).toBe("");
+      expect(harden).not.toHaveBeenCalled();
+    } finally { harden.mockRestore(); lstat.mockRestore(); }
+  });
+
+  test("directory and public mode audits never change a real catalog outcome", () => {
+    mkdirSync(auditPath());
+    expect(replaceAs("restore", catalogBytes(native, routed))).toEqual({ kind: "written" });
+    rmSync(auditPath(), { recursive: true });
+    writeFileSync(auditPath(), '{}\n', { mode: 0o644 });
+    expect(replaceAs("restore", catalogBytes(native))).toEqual({ kind: "written" });
+    expect(readFileSync(auditPath(), "utf8")).toBe('{}\n');
+    if (process.platform !== "win32") {
+      expect(statSync(auditPath()).mode & 0o777).toBe(0o644);
+    }
+  });

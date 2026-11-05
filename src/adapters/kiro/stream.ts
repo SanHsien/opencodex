@@ -15,7 +15,7 @@ import {
   safeKiroHttpErrorMessage,
   type KiroErrorClassification,
 } from "../kiro-errors";
-import { parseKiroEvent } from "../kiro-events";
+import { parseKiroEvent, type KiroRefusalDetails } from "../kiro-events";
 import { noteKiroTransientThrottle } from "../kiro-retry";
 import { InlineThinkTagParser } from "../inline-think-tags";
 import { isCompleteKiroToolInput, kiroTruncationErrorMessage } from "../kiro-truncation";
@@ -187,6 +187,7 @@ function mergeKiroUsage(
     ...(sumOptional("providerCredits") !== undefined ? { providerCredits: sumOptional("providerCredits") } : {}),
     ...(sumOptional("reasoningOutputTokens") !== undefined ? { reasoningOutputTokens: sumOptional("reasoningOutputTokens") } : {}),
     ...(first.estimated || second.estimated ? { estimated: true } : {}),
+    ...(first.upstreamReported && second.upstreamReported ? { upstreamReported: true as const } : {}),
   };
 }
 
@@ -206,6 +207,37 @@ function retryableKiroIncomplete(
     endTurn: false,
     ...(providerState ? { providerState } : {}),
   };
+}
+
+/**
+ * Kiro's safety-filter stops. For Claude models CONTENT_FILTERED is the model's own safety
+ * classifier, a deterministic verdict on this exact context, so every completion mode maps it to
+ * the non-retryable `content_filter` incomplete: Claude outbound renders `stop_reason: "refusal"`
+ * and Responses a terminal `response.failed` (`src/bridge/terminal-refusal.ts`). Kiro's refusal
+ * category and explanation are model-side copy, never request content, so they ride the message.
+ */
+function isKiroContentFilterStop(
+  stopReason: string | undefined,
+): stopReason is "CONTENT_FILTERED" | "GUARDRAIL_INTERVENED" {
+  return stopReason === "CONTENT_FILTERED" || stopReason === "GUARDRAIL_INTERVENED";
+}
+
+/** The non-retryable `content_filter` incomplete for a filter stop, carrying Kiro's refusal category and explanation when present. */
+function kiroContentFilterIncomplete(
+  stopReason: string,
+  refusal: KiroRefusalDetails | undefined,
+  usage: OcxUsage,
+  providerState: { kiro: { conversationId: string } } | undefined,
+): AdapterEvent {
+  const category = refusal?.category ? `, category ${refusal.category}` : "";
+  const explanation = refusal?.explanation ? `: ${refusal.explanation}` : "";
+  return retryableKiroIncomplete(
+    "content_filter",
+    `Kiro stopped with ${stopReason}${category}${explanation}`,
+    usage,
+    providerState,
+    false,
+  );
 }
 
 /**
@@ -296,6 +328,11 @@ async function* parseKiroAttempt(
   }
 }
 
+/**
+ * Parse one Kiro attempt's event stream into adapter events and a terminal decision: text, reasoning,
+ * real tool calls, the private terminal tool, usage and the stop reason. In `required` mode it may
+ * return `needsFallback` instead of a terminal, which asks the caller for the one bounded retry.
+ */
 async function* parseKiroAttemptEvents(
   response: Response,
   budget: TranslatorBudget,
@@ -343,6 +380,7 @@ async function* parseKiroAttemptEvents(
   let authoritativeUsage: OcxUsage | undefined;
   let providerCredits: number | undefined;
   let stopReason: string | undefined;
+  let refusal: KiroRefusalDetails | undefined;
   const fallbackEvents: AdapterEvent[] = [];
   const thinking = new InlineThinkTagParser(budget);
 
@@ -454,24 +492,27 @@ async function* parseKiroAttemptEvents(
     };
   };
 
+  // A real tool call and the private final-answer call can share one turn, in either order. The
+  // turn then continues through the real tools, so the final answer is dropped: it is held until
+  // the stream ends and is never relayed, which makes the drop invisible to the client. A second
+  // completion call, a completion call in `disabled` mode and a malformed completion stay errors.
+  const noteDroppedCompletion = (): void => {
+    console.warn("[kiro] dropped the private final-answer call; the turn also carried a real tool call");
+  };
+
   const classifyTool = (
     tool: { id: string; name: string; chunks: string[]; completion: boolean },
   ): AdapterEvent | undefined => {
     if (tool.name !== KIRO_COMPLETION_TOOL_NAME) {
       tool.completion = false;
-      return completionAnswer !== undefined || completionCalls > 0
-        ? protocolTerminal("Kiro returned a real tool call alongside a private final answer")
-        : undefined;
+      return undefined;
     }
     if (mode === "disabled") {
       return protocolTerminal("Kiro returned the reserved private final-answer tool while explicit completion was disabled");
     }
     tool.completion = true;
-    if (completionAnswer !== undefined || completionCalls > 0) {
+    if (completionCalls > 0) {
       return protocolTerminal("Kiro returned more than one private final-answer tool call", true);
-    }
-    if (sawRealTool) {
-      return protocolTerminal("Kiro returned a private final answer alongside a real tool call");
     }
     return undefined;
   };
@@ -575,18 +616,20 @@ async function* parseKiroAttemptEvents(
       if (completionCalls > 1) {
         return { events: [], terminal: protocolTerminal("Kiro returned more than one private final-answer tool call", true) };
       }
-      if (sawRealTool) {
-        return { events: [], terminal: protocolTerminal("Kiro returned a private final answer alongside a real tool call") };
-      }
       const answer = parseCompletion(tool.chunks);
       if (answer instanceof Error) return { events: [], terminal: protocolTerminal(answer.message, true) };
+      if (sawRealTool) {
+        noteDroppedCompletion();
+        return { events: [] };
+      }
       completionAnswer = answer;
       return { events: [] };
     }
-    if (completionAnswer !== undefined || completionCalls > 0) {
-      return { events: [], terminal: protocolTerminal("Kiro returned a real tool call alongside a private final answer") };
-    }
     sawRealTool = true;
+    if (completionAnswer !== undefined) {
+      completionAnswer = undefined;
+      noteDroppedCompletion();
+    }
     const restored = nameMap?.get(tool.name) ?? tool.name;
     return {
       events: [
@@ -633,6 +676,7 @@ async function* parseKiroAttemptEvents(
             contextUsagePercentage = ev.contextUsagePercentage;
           }
           if (ev.stopReason !== undefined) stopReason = ev.stopReason;
+          if (ev.refusal) refusal = ev.refusal;
           break;
         case "message_metadata":
           if (isValidKiroConversationId(ev.conversationId)) {
@@ -827,6 +871,19 @@ async function* parseKiroAttemptEvents(
     }
 
     if (mode === "text_fallback") {
+      // A validated final answer and a real tool call keep their precedence; only a turn that would
+      // otherwise end on its text is read as refused. Neither attempt produced an accepted answer, so
+      // the first attempt's held progress is released rather than superseded (retry text normally
+      // replaces it), and the filtered retry text follows as the commentary it was staged as.
+      if (completionAnswer === undefined && !sawRealTool && isKiroContentFilterStop(normalizedStopReason)) {
+        if (priorAttempt) yield* priorAttempt.drainDeferred(false);
+        yield* emitRetained(fallbackEvents);
+        return {
+          assistantText,
+          sawReasoning,
+          terminal: kiroContentFilterIncomplete(normalizedStopReason, refusal, finalUsage, finalProviderState),
+        };
+      }
       if (priorAttempt) {
         yield* priorAttempt.drainDeferred(completionAnswer !== undefined || (sawText && !sawRealTool));
       }
@@ -879,6 +936,17 @@ async function* parseKiroAttemptEvents(
       };
     }
 
+    // Ahead of the empty-stream fallback below: a tool-less (`disabled`) turn Kiro refuses carries
+    // no content at all, and reading it as a replay-safe empty stream made clients resend a refusal
+    // that repeats deterministically. Partial text before the filter is not a finished answer either.
+    // A validated final answer and a real tool call keep their precedence, as on the retry path.
+    if (completionAnswer === undefined && !sawRealTool && isKiroContentFilterStop(normalizedStopReason)) {
+      return {
+        assistantText,
+        sawReasoning,
+        terminal: kiroContentFilterIncomplete(normalizedStopReason, refusal, finalUsage, finalProviderState),
+      };
+    }
     if (completionAnswer !== undefined) {
       yield { type: "text_delta", text: completionAnswer, phase: "final_answer" };
       return {
@@ -947,9 +1015,6 @@ async function* parseKiroAttemptEvents(
         };
       }
       if (normalizedStopReason === "MAX_TOKENS") return incomplete("max_output_tokens", true);
-      if (normalizedStopReason === "CONTENT_FILTERED" || normalizedStopReason === "GUARDRAIL_INTERVENED") {
-        return incomplete("content_filter", false);
-      }
       if (normalizedStopReason === "MALFORMED_TOOL_USE") return incomplete("kiro_malformed_tool_use", false);
       if (normalizedStopReason === "MALFORMED_MODEL_OUTPUT") return incomplete("kiro_malformed_model_output", false);
       // TOOL_USE here means Kiro claimed a tool call it never emitted.

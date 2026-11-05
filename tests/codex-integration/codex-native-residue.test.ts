@@ -1,3 +1,4 @@
+import { samePath } from "../helpers/same-path";
 import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import * as fs from "node:fs";
 import { createHash, randomUUID } from "node:crypto";
@@ -69,7 +70,7 @@ function pathInCodexHome(name: string): string {
   return join(codexHome, name);
 }
 
-test("residue inspection reports a surface whose file ID changes by one above numeric precision as changed", () => {
+test("residue inspection detects adjacent large file identities", () => {
   const path = pathInCodexHome("config.toml");
   writeFileSync(path, 'model = "example"\n');
   const realStat = fs.statSync;
@@ -77,7 +78,7 @@ test("residue inspection reports a surface whose file ID changes by one above nu
   let observations = 0;
   const spy = spyOn(fs, "statSync").mockImplementation(((target, options) => {
     const value = options?.bigint ? realStat(target, { bigint: true }) : realStat(target);
-    if (target !== path) return value;
+    if (!samePath(target, path)) return value;
     const ino = id + BigInt(observations++ > 0);
     return Object.assign(Object.create(Object.getPrototypeOf(value)), value, { ino: options?.bigint ? ino : Number(ino) });
   }) as typeof fs.statSync);

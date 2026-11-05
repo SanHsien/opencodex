@@ -5,7 +5,8 @@ import type { AnthropicCacheRetention } from "./anthropic/cache-retention";
 import { createGoogleAdapter } from "./google";
 import { createOpenAIChatAdapter } from "./openai-chat";
 import { createResponsesPassthroughAdapter } from "./openai-responses";
-import { liftZedAdditionalTools } from "./zed-additional-tools";
+import { liftZedAdditionalTools, translateZedOpenAiStream } from "./zed-openai-stream";
+import { zedDiagnosticUsage } from "./zed-diagnostic-usage";
 import { createAdapterPhysicalSend } from "./physical-send";
 import type { AdapterEvent, OcxParsedRequest, OcxProviderConfig } from "../types";
 import { createTranslatorBudget, releaseTranslatedEvent, retainTranslatedEvent, type TranslatorBudget } from "../lib/translator-budget";
@@ -87,7 +88,6 @@ function promoteOpenAiToolsBeforeRepair(parsed: OcxParsedRequest): OcxParsedRequ
   liftZedAdditionalTools(copy, parsed._replayPrefixLen ?? 0);
   return { ...parsed, stream: true, _rawBody: copy };
 }
-
 
 function providerFromCatalog(catalog: Awaited<ReturnType<typeof resolveZedModels>> | undefined, model: string): ZedProvider {
   const raw = catalog?.rawById.get(model);
@@ -236,7 +236,23 @@ export function zedEventStream(
       return;
     }
     if (isNativeTerminalEvent(event)) sawNativeTerminal = true;
-    emit(controller, event);
+    // Native diagnostics can echo the same account credential as status failures.
+    const diagnostic = Object.hasOwn(event, "error") || event.type === "response.failed" || event.type === "response.incomplete"
+      || event.type === "error" || (isRecord(event.response) && Object.hasOwn(event.response, "error"));
+    const scrubFields = (record: Record<string, unknown>, preserveType = false): Record<string, unknown> => Object.fromEntries(
+      Object.entries(record).map(([key, value]) => [key, typeof value === "string" && !(preserveType && key === "type") ? scrub(value) : value]),
+    );
+    const scrubRecord = (record: Record<string, unknown>, preserveType = false): Record<string, unknown> => ({
+      ...scrubFields(record, preserveType),
+      ...(provider === "open_ai" ? { usage: zedDiagnosticUsage(record.usage) } : {}),
+      ...(typeof record.error === "string" ? { error: scrub(record.error) }
+        : isRecord(record.error) ? { error: { ...scrubFields(record.error), metadata: undefined } } : {}),
+      ...(isRecord(record.incomplete_details) ? { incomplete_details: scrubFields(record.incomplete_details) } : {}),
+    });
+    emit(controller, diagnostic ? {
+      ...scrubRecord(event, true),
+      ...(isRecord(event.response) ? { response: scrubRecord(event.response) } : {}),
+    } : event);
   }
 
   return body.pipeThrough(output);
@@ -279,7 +295,8 @@ export function createZedAdapter(provider: OcxProviderConfig, cacheRetention?: A
      ...(incoming?.providerFetch ? { providerFetch: incoming.providerFetch } : {}),
      ...(incoming?.abortSignal ? { abortSignal: incoming.abortSignal } : {}),
     };
-    const built = await selected.buildRequest(zedProvider === "open_ai" ? promoteOpenAiToolsBeforeRepair(parsed) : forceStreaming(parsed), safeIncoming);
+    const delegateParsed = zedProvider === "open_ai" ? promoteOpenAiToolsBeforeRepair(parsed) : forceStreaming(parsed);
+    const built = await selected.buildRequest(delegateParsed, safeIncoming);
     let providerRequest: unknown;
     try { providerRequest = JSON.parse(built.body) as unknown; } catch { throw new Error("Zed delegate produced an invalid request body"); }
     if (zedProvider === "google" && isRecord(providerRequest)) delete providerRequest.safetySettings;
@@ -337,6 +354,7 @@ export function createZedAdapter(provider: OcxProviderConfig, cacheRetention?: A
           : item,
       );
     }
+    // OpenAI wrappers were promoted before delegation; serialized input has no provenance tags.
     if (zedProvider === "open_ai" && Array.isArray(providerRequest.tools)) {
       // Zed's Responses decoder supports function/custom tools, not Codex's built-in web_search.
       const supported = (tool: unknown) => isRecord(tool) && (tool.type === "function" || tool.type === "custom");
@@ -433,7 +451,11 @@ export function createZedAdapter(provider: OcxProviderConfig, cacheRetention?: A
         headers: { "Content-Type": "text/event-stream" },
       });
       try {
-        yield* delegate.adapter.parseStream(translated, budget);
+        // The Responses passthrough parser only keeps compaction text. Zed is not a
+        // passthrough route, so function and custom calls have to be translated or
+        // Codex ends the turn on the first sentence.
+        if (delegate.provider === "open_ai") yield* translateZedOpenAiStream(translated.body, budget);
+        else yield* delegate.adapter.parseStream(translated, budget);
       } finally {
         // Some delegates only unlock their reader when a collector stops early.
         try { await translated.body?.cancel(); } catch { /* already closed/errored */ }

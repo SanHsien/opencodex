@@ -1,4 +1,3 @@
-import { sameFileIdentity, statFileIdentity, lstatFileIdentity, fstatFileIdentity, type IdentityStats } from "../lib/file-identity";
 import {
   closeSync,
   existsSync,
@@ -11,7 +10,8 @@ import {
   readSync,
   statSync,
 } from "node:fs";
-
+import type { BigIntStats } from "node:fs";
+import { sameFileIdentity } from "../lib/file-identity";
 import { basename, dirname, join, resolve } from "node:path";
 
 import { Database } from "bun:sqlite";
@@ -58,7 +58,7 @@ type ReadResult =
 
 type PathResult =
   | { kind: "absent" }
-  | { kind: "path"; path: string; stat: IdentityStats }
+  | { kind: "path"; path: string; stat: BigIntStats }
   | { kind: "indeterminate"; reason: string };
 
 type CatalogTarget = {
@@ -96,19 +96,23 @@ function errorReason(error: unknown): string {
   return String(error);
 }
 
+function milliseconds(ns: bigint): number {
+  return Number(ns / 1_000_000_000n) * 1000 + Number(ns % 1_000_000_000n) / 1e6;
+}
+
 function sameStat(
-  left: IdentityStats,
-  right: IdentityStats,
+  left: BigIntStats,
+  right: BigIntStats,
 ): boolean {
   return sameFileIdentity(left, right)
-    && left.size === right.size
-    && left.mtimeMs === right.mtimeMs;
+    && Number(left.size) === Number(right.size)
+    && milliseconds(left.mtimeNs) === milliseconds(right.mtimeNs);
 }
 
 function resolveRegularFile(path: string): PathResult {
   let entry;
   try {
-    entry = lstatFileIdentity(path);
+    entry = lstatSync(path);
   } catch (error) {
     if (errorCode(error) === "ENOENT") return { kind: "absent" };
     return { kind: "indeterminate", reason: errorReason(error) };
@@ -124,7 +128,7 @@ function resolveRegularFile(path: string): PathResult {
   }
 
   try {
-    const before = statFileIdentity(target);
+    const before = statSync(target, { bigint: true });
     if (!before.isFile()) {
       return { kind: "indeterminate", reason: "surface is not a regular file" };
     }
@@ -141,12 +145,12 @@ function readRegularFile(path: string): ReadResult {
   // depend on who ran the suite. No read bit means the configured surface is
   // operationally unreadable to an ordinary Codex process and must remain
   // indeterminate even when the inspector itself has elevated privileges.
-  if (process.platform !== "win32" && (resolved.stat.mode & 0o444) === 0) {
+  if (process.platform !== "win32" && (Number(resolved.stat.mode) & 0o444) === 0) {
     return { kind: "indeterminate", reason: "EACCES: surface has no read permission bits" };
   }
   try {
     const content = readFileSync(resolved.path, "utf8");
-    const after = statFileIdentity(resolved.path);
+    const after = statSync(resolved.path, { bigint: true });
     if (!sameStat(resolved.stat, after)) {
       return { kind: "indeterminate", reason: "surface changed while it was being observed" };
     }
@@ -446,7 +450,7 @@ function classifyReferencedRollout(
   let partial = "";
   let totalRead = 0;
   try {
-    const opened = fstatFileIdentity(handle);
+    const opened = fstatSync(handle);
     if (opened.size > MAX_ROLLOUT_INSPECTION_BYTES) {
       return indeterminate(
         surface,
@@ -497,11 +501,11 @@ function classifyReferencedRollout(
         latest = payload.payload;
       }
     }
-    const after = fstatFileIdentity(handle);
+    const after = fstatSync(handle, { bigint: true });
     if (!sameStat(resolved.stat, after)) {
       return indeterminate(surface, resolved.path, "rollout changed while it was being observed");
     }
-    const pathAfter = statFileIdentity(resolved.path);
+    const pathAfter = statSync(resolved.path, { bigint: true });
     if (!sameStat(resolved.stat, pathAfter)) {
       return indeterminate(surface, resolved.path, "rollout pathname was replaced while it was being observed");
     }
@@ -591,7 +595,7 @@ function classifyHistoryDatabase(path: string, budget: RolloutInspectionBudget):
       budget,
     );
     if (rollouts.kind !== "clean") return rollouts;
-    const after = statFileIdentity(resolved.path);
+    const after = statSync(resolved.path, { bigint: true });
     if (!sameStat(resolved.stat, after)) {
       return indeterminate("history", resolved.path, "history database changed while it was being observed");
     }

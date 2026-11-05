@@ -1,3 +1,4 @@
+import { isProxyError, rememberProxyErrorMessage } from "../../lib/client-error-body";
 import type { ResponsesRequestContext } from "./core-options";
 import type { PreparedResponsesRequest } from "./request-prepare";
 import type { ResponsesTransport } from "./request-transport";
@@ -27,7 +28,7 @@ import { readDisplaySafeErrorText, normalizeUpstreamErrorText } from "./core-err
 import { sanitizeNonReplayableUpstreamError } from "./non-replayable-error";
 import { isNonReplayableResponse } from "../../lib/upstream-retry";
 import { isCanonicalOpenAiForwardProvider } from "../../providers/openai-tiers";
-import { guardEmptyToolCatalogEvents, guardEmptyToolCatalogStream } from "../../lib/empty-tool-catalog";
+import { currentTurnToolBridgeMaps, guardEmptyToolCatalogEvents, guardEmptyToolCatalogStream } from "../../lib/empty-tool-catalog";
 import { guardCompactionSummary } from "../../responses/compaction-summary";
 
 /** One responsibility of the Responses request pipeline; state owners are explicit. */
@@ -96,12 +97,14 @@ export async function deliverAdapterResponse(
         if (nonReplayable) response = await sanitizeNonReplayableUpstreamError(response, errorSignal);
         const body = await readDisplaySafeErrorText(response, errorSignal, "Upstream recovery failed");
         const error = normalizeUpstreamErrorText(body, "Upstream recovery failed");
+        if (isProxyError(response)) rememberProxyErrorMessage(logCtx, error.message ?? error.safeText, { status: response.status, type: error.type ?? "upstream_error", code: error.code });
         yield { type: "error", status: response.status, message: error.message ?? error.safeText,
           errorType: error.type ?? "upstream_error", ...(error.code ? { code: error.code } : {}),
           ...(nonReplayable ? { retryable: false } : {}) };
         return;
       }
       try {
+        const bodyInactivityMs = resolveStallTimeoutMs(config.stallTimeoutSec, { localUpstream: adapterExchange.localUpstream });
         const retryEvents = upstreamRequestsStream
           ? readResponseStreamWithInactivity(response, upstream.signal, bodyInactivityMs,
             guarded => transportState.activeAdapter.parseStream(guarded, translatorBudget, logCtx.activeTierMetadata))
@@ -122,8 +125,7 @@ export async function deliverAdapterResponse(
 
   const clientToolCatalog = requestState.clientToolCatalogRestriction && route.provider.authMode !== "forward"
     ? requestState.clientToolCatalogRestriction : undefined;
-  const deliveryToolBridgeMaps = clientToolCatalog
-    ? { ...toolBridgeMaps, ...clientToolCatalog } : toolBridgeMaps;
+  const deliveryToolBridgeMaps = currentTurnToolBridgeMaps(toolBridgeMaps, clientToolCatalog);
 
 
   if (parsed.stream) {
@@ -234,11 +236,12 @@ export async function deliverAdapterResponse(
         fold: {
           replayCacheScope: parsed._reasoningReplayScope,
           hideThinkingSummary: parsed.options.hideThinkingSummary,
+          chatRawReasoningVisible: options.chatRawReasoningVisible,
           hideRawReasoning: parsed.options.hideRawReasoning,
           toolNsMap, declaredToolNames, toolParameterSchemas, freeformToolNames, bareCustomToolNames, toolSearchToolNames,
         },
         stallTimeoutSec: config.stallTimeoutSec,
-        localUpstream,
+        get localUpstream() { return adapterExchange.localUpstream; },
         turnAdmissionLease: options.turnAdmissionLease,
         ...(options.onFirstOutput ? { onFirstOutput: options.onFirstOutput } : {}),
         stopUpstream: () => { cancelResponseCompletion(); upstream.abort(); },
@@ -251,13 +254,14 @@ export async function deliverAdapterResponse(
       guardedEventStream, parsed._responseModelId ?? parsed.modelId, toolNsMap, freeformToolNames, toolSearchToolNames,
       () => { cancelResponseCompletion(); upstream.abort(); }, 2_000,
       {
-        translatorBudget,
+        translatorBudget, proxyErrorContext: logCtx,
         replayCacheScope: parsed._reasoningReplayScope,
         ...(outputItemIds ? { outputItemIds } : {}),
         ...(options.forceEmptyResponseId ? { responseId: "" } : {}),
         stallTimeoutSec: config.stallTimeoutSec,
-        localUpstream,
+        get localUpstream() { return adapterExchange.localUpstream; },
         hideThinkingSummary: parsed.options.hideThinkingSummary,
+        chatRawReasoningVisible: options.chatRawReasoningVisible,
         hideRawReasoning: parsed.options.hideRawReasoning,
         declaredToolNames,
         bareCustomToolNames,
@@ -266,6 +270,8 @@ export async function deliverAdapterResponse(
         toolParameterSchemas,
         ...(options.onFirstOutput ? { onFirstOutput: options.onFirstOutput } : {}),
         ...(routedCompaction ? { compaction: true, compactionRetention: parsed._compactionRetention } : {}),
+        completeOnMaxOutputTokens: config.completeOnMaxOutputTokens === true && options.inboundWire !== "chat" && options.inboundWire !== "anthropic",
+        textFormat: parsed.options.textFormat,
         // Same grok-surface split as the runTurn branch above.
         ...(logCtx.surface === "grok" ? { heartbeatStyle: "comment" as const } : {}),
         onUsage: usage => {
@@ -365,6 +371,7 @@ export async function deliverAdapterResponse(
       translatorBudget,
       replayCacheScope: parsed._reasoningReplayScope,
       hideThinkingSummary: parsed.options.hideThinkingSummary,
+      chatRawReasoningVisible: options.chatRawReasoningVisible,
       hideRawReasoning: parsed.options.hideRawReasoning,
       toolNsMap,
       declaredToolNames,
@@ -374,6 +381,8 @@ export async function deliverAdapterResponse(
       freeformToolNames,
       toolSearchToolNames,
       ...(routedCompaction ? { compaction: true, compactionRetention: parsed._compactionRetention } : {}),
+      completeOnMaxOutputTokens: config.completeOnMaxOutputTokens === true && options.inboundWire !== "chat" && options.inboundWire !== "anthropic",
+      textFormat: parsed.options.textFormat,
       onProviderState: state => { providerState = state; },
       onUsage: usage => {
         transportState.bindKeyUsageFromBridge(usage);

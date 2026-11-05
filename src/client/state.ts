@@ -100,7 +100,7 @@ function rawTopLevelConfig(): Record<string, unknown> | null {
 
 export function readClientConnectionState(): ClientConnectionState {
   const raw = rawTopLevelConfig();
-  const diagnostics = readConfigDiagnostics();
+  const diagnostics = readConfigDiagnostics({ passive: true });
   if (!raw) {
     return diagnostics.source === "default"
       ? { kind: "disconnected" }

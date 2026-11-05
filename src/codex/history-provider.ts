@@ -1,4 +1,4 @@
-import { fileIdentityKey, sameFileIdentity, statFileIdentity, lstatFileIdentity, fstatFileIdentity } from "../lib/file-identity";
+import { fileIdentityKey, sameFileIdentity, statFileIdentity, lstatFileIdentity, fstatFileIdentity, statTimeMs } from "../lib/file-identity";
 import { createHash } from "node:crypto";
 import { closeSync, constants, existsSync, fstatSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, statSync, unlinkSync, writeSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -296,7 +296,7 @@ function patchFirstLineProviderInPlace(
   try {
     const assertIdentity = (): void => {
       assertHistoryDescriptorIdentity(path, fd);
-      const held = fstatFileIdentity(fd);
+      const held = fstatSync(fd, { bigint: true });
       if (!sameFileIdentity(held, expectedIdentity)) {
         throw new CodexHistoryIntegrityError("history_rollout_identity_changed");
       }
@@ -381,9 +381,9 @@ function assertLegacyHistoryRecord(line: string): void {
 }
 
 function assertHistoryDescriptorIdentity(path: string, fd: number): void {
-  const held = fstatFileIdentity(fd);
-  let current: ReturnType<typeof lstatFileIdentity>;
-  try { current = lstatFileIdentity(path); } catch { throw new CodexHistoryIntegrityError("history_rollout_identity_changed"); }
+  const held = fstatSync(fd, { bigint: true });
+  let current: import("node:fs").BigIntStats;
+  try { current = lstatSync(path, { bigint: true }); } catch { throw new CodexHistoryIntegrityError("history_rollout_identity_changed"); }
   if (!current.isFile() || current.isSymbolicLink() || !sameFileIdentity(current, held)) {
     throw new CodexHistoryIntegrityError("history_rollout_identity_changed");
   }
@@ -743,8 +743,8 @@ function inspectBackupForNoop(path: string, stateDbPath: string): StrictBackupIn
 
 function historyFileIdentity(path: string): string | null {
   try {
-    const stat = statFileIdentity(path);
-    return [fileIdentityKey(stat), stat.size, stat.mtimeMs, stat.ctimeMs].join(":");
+    const stat = statSync(path, { bigint: true });
+    return [fileIdentityKey(stat), Number(stat.size), statTimeMs(stat.mtimeNs), statTimeMs(stat.ctimeNs)].join(":");
   } catch {
     return null;
   }
@@ -1418,7 +1418,7 @@ export function syncCodexHistoryProvider(
   provider: CodexHistoryProvider,
   stateDbPath = resolveCodexStateDbPath(),
   backupPath = resolveExistingHistoryBackupPath(stateDbPath),
-  opts: { skipWhenProvablyNoop?: boolean } = {},
+  opts: { skipWhenProvablyNoop?: boolean; withWriteGuard?: <T>(write: () => T) => T } = {},
 ): CodexHistorySyncResult {
   // Opt-in steady-state gate (Design B loopback callers only): default semantics of
   // this exported API are unchanged — legacy stop/restore paths never pass the flag.
@@ -1427,7 +1427,10 @@ export function syncCodexHistoryProvider(
     return { rows: 0, files: 0 };
   }
   try {
-    const retried = withHistoryRetryResult(() => syncCodexHistoryProviderUnsafe(provider, stateDbPath, backupPath));
+    // The guard encloses the entire synchronous attempt: DB CAS/commit, every rollout
+    // append and manifest consumption/finalization. No ownership publication can interleave.
+    const write = () => syncCodexHistoryProviderUnsafe(provider, stateDbPath, backupPath);
+    const retried = withHistoryRetryResult(() => opts.withWriteGuard ? opts.withWriteGuard(write) : write());
     return retried.ok ? retried.value : { rows: 0, files: 0, failed: true, failureReason: retried.reason };
   } catch (error) {
     if (error instanceof CodexHistoryIntegrityError) {

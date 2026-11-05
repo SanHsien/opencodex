@@ -5,6 +5,7 @@ import { NamespaceToolCollisionError } from "../../responses/namespace-tool-comp
 import { RoutedCustomToolCompatError } from "../../responses/custom-tool-compat";
 import { XaiToolSchemaCompatibilityError } from "../../adapters/xai-tool-schema";
 import { MuseToolChoiceCompatibilityError } from "../../adapters/openai-responses/muse-tool-choice";
+import { MuseToolCatalogCompatibilityError } from "../../adapters/openai-responses/muse-tool-catalog";
 import { OpenGatewayInputCompatibilityError } from "../../adapters/openai-responses/opengateway-input";
 import { mapCodexAuthContextErrorToResponse } from "./codex-auth-error";
 
@@ -16,6 +17,7 @@ export function passthroughBuildErrorResponse(error: unknown, accountSelector?: 
     || error instanceof XaiToolSchemaCompatibilityError
     || error instanceof RoutedCustomToolCompatError
     || error instanceof MuseToolChoiceCompatibilityError
+    || error instanceof MuseToolCatalogCompatibilityError
     || error instanceof OpenGatewayInputCompatibilityError) {
     return formatErrorResponse(400, "invalid_request_error", redactSecretString(error.message));
   }

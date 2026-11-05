@@ -193,13 +193,13 @@ async function openedFileIsConfined(
   const opened = await withinDeadline(() => handle.stat({ bigint: true }), deadline, scope);
   if (!opened.isFile()) return false;
   const current = await withinDeadline(() => lstat(path, { bigint: true }), deadline, scope);
-  if (!current.isFile() || !sameFileIdentity(opened, current)) return false;
+  if (!current.isFile() || opened.dev !== current.dev || opened.ino !== current.ino) return false;
   const resolved = await withinDeadline(() => realpath(path), deadline, scope);
   // The input path was canonical before open. A changed intermediate symlink changes this
   // result even though O_NOFOLLOW protects only the final component on macOS and Linux.
   if (!isContainedCanonicalPath(cwdCanonical, resolved) || resolved !== path) return false;
   const resolvedInfo = await withinDeadline(() => lstat(resolved, { bigint: true }), deadline, scope);
-  return resolvedInfo.isFile() && sameFileIdentity(opened, resolvedInfo);
+  return resolvedInfo.isFile() && opened.dev === resolvedInfo.dev && opened.ino === resolvedInfo.ino;
 }
 
 async function readUtf8File(path: string, capBytes: number, deadline: number, cwdCanonical: string, scope: ScanScope): Promise<string | null> {

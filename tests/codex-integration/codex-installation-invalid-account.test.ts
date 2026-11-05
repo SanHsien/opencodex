@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { getConfigDir } from "../../src/config";
 import { MAIN_CODEX_ACCOUNT_ID } from "../../src/codex/account-id";
 import { markAccountNeedsReauth } from "../../src/codex/account-runtime-state";
-import { getCodexAccountCredential } from "../../src/codex/account-store";
+import { getCodexAccountCredential, inspectLocalCodexCredentialSlots } from "../../src/codex/account-store";
 import { headersForCodexAuthContext, resolveCodexAuthContext, type CodexAuthContext } from "../../src/codex/auth-context";
 import { isolateCodexPoolClientMetadata, rewriteTurnMetadataInstallationId } from "../../src/codex/forward-transport-headers";
 import { CodexInstallationIdUnavailableError } from "../../src/codex/installation-id";
@@ -26,6 +26,7 @@ for (const account of ["", "   ", "\t\r\n"]) {
     const value = wrapped ? { generation: 1, credential: credential(account) } : credential(account);
     writeFileSync(join(getConfigDir(), "codex-accounts.json"), JSON.stringify({ "live-a": value }));
     expect(getCodexAccountCredential("live-a")).toBeNull();
+    expect(() => inspectLocalCodexCredentialSlots({ "live-a": value })).toThrow();
     await expect(resolveCodexAuthContext(new Headers(), liveConfig(), "pool", { accountId: "live-a" })).rejects.toThrow();
   });
   for (const corrupt of [false, true]) {
@@ -47,13 +48,6 @@ for (const account of ["", "   ", "\t\r\n"]) {
     });
   }
 }
-test("a legacy store with one blank-account record keeps its valid sibling usable", () => {
-  writeFileSync(join(getConfigDir(), "codex-accounts.json"), JSON.stringify({
-    "live-a": credential("   "), "live-b": { generation: 1, credential: credential("canonical-live-b") },
-  }));
-  expect(getCodexAccountCredential("live-a")).toBeNull();
-  expect(getCodexAccountCredential("live-b")?.chatgptAccountId).toBe("canonical-live-b");
-});
 test("main and main-pool retain turn metadata; absent pool surfaces do not read secret storage", () => {
   fixture.corrupt();
   for (const kind of ["main", "main-pool"] as const) {
@@ -104,3 +98,11 @@ for (const account of ["", "   "]) for (const corrupt of [false, true]) {
     } finally { lease.release(); }
   });
 }
+
+test("a legacy store with one blank-account record keeps its valid sibling usable", () => {
+  writeFileSync(join(getConfigDir(), "codex-accounts.json"), JSON.stringify({
+    "live-a": credential("   "), "live-b": { generation: 1, credential: credential("canonical-live-b") },
+  }));
+  expect(getCodexAccountCredential("live-a")).toBeNull();
+  expect(getCodexAccountCredential("live-b")?.chatgptAccountId).toBe("canonical-live-b");
+});

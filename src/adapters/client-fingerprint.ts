@@ -111,7 +111,8 @@ const ANTIGRAVITY_CLI_PLATFORM = "darwin/arm64";
  * Verified 2026-10-14 against live CCA: `gemini-4-argon-{low,medium,high}` answer only to this
  * family and return 404 "Requested entity was not found" to the IDE UA above, while
  * `gemini-3.7-flash-tiered` and `gemini-3.1-pro-low` 404 under this one. So it is used ONLY for
- * Argon requests and for model discovery, never as a general replacement for the IDE UA.
+ * Argon requests, model discovery and the quota summary (whose Argon group is likewise CLI-only),
+ * never as a general replacement for the IDE UA.
  *
  * `GOOGLE_ANTIGRAVITY_USER_AGENT` deliberately does not apply here: that override names the IDE
  * header, and letting it replace this one would re-lock Argon for anyone who set it.

@@ -1,4 +1,5 @@
-import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import type { ChildProcessWithoutNullStreams } from "node:child_process";
+import { probeSpawn } from "./mutation-guard.mjs";
 import { unprivilegedOwnershipMutationEnvironment } from "../service/ownership-mutation-lease.mjs";
 import { forkSelfUpdateBlocked } from "./fork-source.mjs";
 import { PKG, registrySpawnTarget, type Channel, type Installer } from "./index";
@@ -41,11 +42,11 @@ export async function pnpmOwner(deps: PnpmOwnerDeps = {}): Promise<PnpmGlobalOwn
 
 export interface AsyncLookupDeps {
   ownerFn: () => Promise<PnpmGlobalOwner | null>;
-  spawnFn: typeof spawn;
+  spawnFn: typeof probeSpawn;
   deadlineMs?: number;
 }
 
-const defaultDeps: AsyncLookupDeps = { ownerFn: pnpmOwner, spawnFn: spawn };
+const defaultDeps: AsyncLookupDeps = { ownerFn: pnpmOwner, spawnFn: probeSpawn };
 
 export async function latestVersionAsync(
   channel: Channel,

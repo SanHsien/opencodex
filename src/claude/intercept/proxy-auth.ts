@@ -1,4 +1,3 @@
-import { sameFileIdentity } from "../../lib/file-identity";
 import { randomBytes } from "node:crypto";
 import {
   closeSync, constants, fchmodSync, fstatSync, linkSync, lstatSync, mkdirSync,
@@ -31,7 +30,7 @@ function assertOwnedNode(stat: BigIntStats, directory = false): void {
 function assertSameNode(path: string, expected: BigIntStats, directory = false): void {
   const current = lstatSync(path, { bigint: true });
   assertOwnedNode(current, directory);
-  if (!sameFileIdentity(current, expected)) throw invalidCredential();
+  if (current.dev !== expected.dev || current.ino !== expected.ino) throw invalidCredential();
 }
 
 /** Read only through the validated descriptor, with a fixed maximum allocation and no links. */
@@ -41,7 +40,6 @@ function readPinnedToken(configDir: string, harden: boolean): string {
   assertOwnedNode(directory, true);
   if (process.platform !== "win32" && (directory.mode & 0o077n) !== 0n) throw invalidCredential();
   const path = claudeInterceptProxyTokenPath(configDir);
-  // Refuse a symlink or special file before opening: NOFOLLOW is 0 on Windows.
   const entry = lstatSync(path, { bigint: true });
   assertOwnedNode(entry);
   if (entry.size < TOKEN_LENGTH || entry.size > TOKEN_MAX_BYTES) throw invalidCredential();
@@ -50,7 +48,7 @@ function readPinnedToken(configDir: string, harden: boolean): string {
   try {
     const opened = fstatSync(fd, { bigint: true });
     assertOwnedNode(opened);
-    if (!sameFileIdentity(opened, entry)
+    if (opened.dev !== entry.dev || opened.ino !== entry.ino
       || opened.size < TOKEN_LENGTH || opened.size > TOKEN_MAX_BYTES) throw invalidCredential();
     const bytes = Buffer.alloc(TOKEN_MAX_BYTES + 1);
     let length = 0;
@@ -99,23 +97,23 @@ function ensurePrivateDirectory(configDir: string): BigIntStats {
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
   }
+  const entry = lstatSync(dir, { bigint: true });
+  assertOwnedNode(entry, true);
   if (process.platform === "win32") {
-    const entry = lstatSync(dir, { bigint: true });
-    assertOwnedNode(entry, true);
     hardenSecretDir(dir, { required: true });
-    assertSameNode(dir, entry, true);
-    return entry;
+  } else {
+    const fd = openSync(dir, constants.O_RDONLY | (constants.O_DIRECTORY ?? 0) | NOFOLLOW);
+    try {
+      const opened = fstatSync(fd, { bigint: true });
+      assertOwnedNode(opened, true);
+      if (entry.dev !== opened.dev || entry.ino !== opened.ino) throw invalidCredential();
+      fchmodSync(fd, 0o700);
+    } finally {
+      closeSync(fd);
+    }
   }
-  const fd = openSync(dir, constants.O_RDONLY | (constants.O_DIRECTORY ?? 0) | NOFOLLOW);
-  try {
-    const opened = fstatSync(fd, { bigint: true });
-    assertOwnedNode(opened, true);
-    fchmodSync(fd, 0o700);
-    assertSameNode(dir, opened, true);
-    return opened;
-  } finally {
-    closeSync(fd);
-  }
+  assertSameNode(dir, entry, true);
+  return entry;
 }
 
 /** Create once without replacing a winner, invalid file, symlink, or other existing entry. */

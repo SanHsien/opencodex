@@ -1,9 +1,7 @@
-import { sameFileIdentity } from "../lib/file-identity";
 import { randomUUID } from "node:crypto";
 import {
   closeSync,
   existsSync,
-  fstatSync,
   fsyncSync,
   lstatSync,
   mkdirSync,
@@ -15,9 +13,9 @@ import {
   unlinkSync,
   writeFileSync,
   type BigIntStats,
-  constants as fsConstants,
 } from "node:fs";
 import { basename, dirname, join } from "node:path";
+import { statTimeMs } from "../lib/file-identity";
 
 const SERVICE_STATE_LOCK_WAIT_MS = 2_000;
 const SERVICE_STATE_LOCK_POLL_MS = 20;
@@ -78,7 +76,7 @@ function sameIdentity(
   left: Pick<BigIntStats, "dev" | "ino">,
   right: Pick<BigIntStats, "dev" | "ino">,
 ): boolean {
-  return sameFileIdentity(left, right);
+  return left.dev === right.dev && left.ino === right.ino;
 }
 
 function ownerFileName(record: ServiceStateLockRecord): string {
@@ -105,21 +103,9 @@ function readLockSnapshot(lockPath: string): ServiceStateLockSnapshot | null {
   if (entries.length !== 1 || !parseOwnerFileName(entries[0]!)) return null;
   const ownerPath = join(lockPath, entries[0]!);
   try {
-    // lstat rejects a symlinked owner record; dev/ino rejects a swap before open.
-    const lexical = lstatSync(ownerPath, { bigint: true });
-    if (!lexical.isFile() || lexical.size > 4096) return null;
-    // O_NOFOLLOW/O_NONBLOCK are undefined on Windows (?? 0); on POSIX a raced-in FIFO cannot block the open.
-    const fd = openSync(ownerPath, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0) | (fsConstants.O_NONBLOCK ?? 0));
-    let ownerIdentity: BigIntStats;
-    let value: Partial<ServiceStateLockRecord>;
-    try {
-      ownerIdentity = fstatSync(fd, { bigint: true });
-      if (!ownerIdentity.isFile() || ownerIdentity.size > 4096
-        || !sameFileIdentity(ownerIdentity, lexical)) return null;
-      value = JSON.parse(readFileSync(fd, "utf8")) as Partial<ServiceStateLockRecord>;
-    } finally {
-      closeSync(fd);
-    }
+    const ownerIdentity = lstatSync(ownerPath, { bigint: true });
+    if (!ownerIdentity.isFile() || ownerIdentity.size > 4096) return null;
+    const value = JSON.parse(readFileSync(ownerPath, "utf8")) as Partial<ServiceStateLockRecord>;
     if (value.version !== 1 || !Number.isSafeInteger(value.pid) || (value.pid ?? 0) <= 0
       || typeof value.processInstance !== "string" || value.processInstance.length === 0
       || typeof value.token !== "string" || value.token.length === 0
@@ -131,7 +117,7 @@ function readLockSnapshot(lockPath: string): ServiceStateLockSnapshot | null {
     if (!currentLock.isDirectory() || !sameIdentity(lockIdentity, currentLock)
       || !currentOwner.isFile() || !sameIdentity(ownerIdentity, currentOwner)
       || currentOwner.size !== ownerIdentity.size) return null;
-    return { record, ownerPath, lockIdentity, ownerIdentity, mtimeMs: Number(ownerIdentity.mtimeMs) };
+    return { record, ownerPath, lockIdentity, ownerIdentity, mtimeMs: statTimeMs(ownerIdentity.mtimeNs) };
   } catch {
     return null;
   }
@@ -148,16 +134,16 @@ function sameLock(left: ServiceStateLockSnapshot, right: ServiceStateLockSnapsho
 
 function parsedIncompleteOwner(lockPath: string): { ownerPath: string | null; pid: number | null; mtimeMs: number } | null {
   try {
-    const lock = lstatSync(lockPath, { bigint: true });
+    const lock = lstatSync(lockPath);
     if (!lock.isDirectory()) return null;
     const entries = readdirSync(lockPath);
-    if (entries.length === 0) return { ownerPath: null, pid: null, mtimeMs: Number(lock.mtimeMs) };
+    if (entries.length === 0) return { ownerPath: null, pid: null, mtimeMs: lock.mtimeMs };
     if (entries.length !== 1) return null;
     const parsed = parseOwnerFileName(entries[0]!);
     if (!parsed) return null;
     const ownerPath = join(lockPath, entries[0]!);
-    const owner = lstatSync(ownerPath, { bigint: true });
-    return owner.isFile() ? { ownerPath, pid: parsed.pid, mtimeMs: Number(owner.mtimeMs) } : null;
+    const owner = lstatSync(ownerPath);
+    return owner.isFile() ? { ownerPath, pid: parsed.pid, mtimeMs: owner.mtimeMs } : null;
   } catch {
     return null;
   }

@@ -21,7 +21,7 @@ Responses WebSocket terminal frames normalize known `incomplete_details.reason` 
 
 ## Heartbeat and stall deadline
 
-RunTurn search interception forwards adapter heartbeats immediately and emits progress for buffered semantic events. Its bridge uses the search plan's stall deadline so a bounded sidecar search fits the watchdog budget.
+Header and JSON policy follow [local deadlines](timeouts.md). Responses and direct-client watchdogs read live serving locality across refreshed continuation legs and reset silence ticks on locality changes. RunTurn search interception forwards adapter heartbeats immediately and emits progress for buffered semantic events. Its bridge uses the search plan's stall deadline so a bounded sidecar search fits the watchdog budget.
 
 Native Chat uses the same resolved `stallTimeoutSec` with a pending-upstream-read allowance that
 pauses under downstream backpressure. Its Chat error and cancellation contract is documented in
@@ -550,9 +550,9 @@ charged against the unchanged 32 MiB serialized history budget. The existing
 body-persistence eligibility and accepted-only steering commit rules still apply.
 `tests/responses/ws-steering-stability.test.ts` binds these deadline and replay
 contracts to deterministic clocks and a synthetic real-handler continuation test.
-`src/server/responses/native-response-json.ts` owns content comparison without
-importing either control owner, keeping the replay dependency graph acyclic.
-Injection retains its existing helper export names and comparison semantics.
+`src/server/responses/native-response-json.ts` owns content comparison and
+[bounded output identity](inventory.md#native-output-identity) without importing either control owner.
+Injection retains its existing helper export names and SHA-256 comparison semantics.
 
 ## Steering settings, public API and diagnostic probe
 

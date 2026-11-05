@@ -6,6 +6,7 @@ import {
   REPLAY_REFUSED_STATUS,
   retainReplayRefusal,
 } from "../lib/upstream-retry";
+import { formatClientRetryAfter } from "../lib/client-retry-after";
 import {
   adapterFailureFromMessage,
   classifyError,
@@ -22,6 +23,23 @@ import {
 } from "../lib/errors";
 
 const PINNED_VERDICT_CODES = new Set([CYBER_POLICY_ERROR_CODE, "client_closed_request"]);
+
+// A serialized classifier verdict is not an upstream code. Keep the original code out of
+// the wire body so a combo cannot mistake prose-derived insufficient_quota for evidence.
+const formattedQuotaSources = new WeakMap<Response, string | null>();
+const STRUCTURED_QUOTA_CODES = new Set(["usage_limit_exceeded", "usage_limit_reached", "1308", "insufficient_quota"]);
+
+export function upstreamCodeForComboFailure(response: Response, bodyCode: string | undefined): string | undefined {
+  return bodyCode === "insufficient_quota" && formattedQuotaSources.has(response)
+    ? formattedQuotaSources.get(response) ?? undefined
+    : bodyCode;
+}
+
+/** Preserve formatted quota-code provenance when lifecycle helpers rebuild a response. */
+export function carryFormattedQuotaSource(source: Response, target: Response): Response {
+  if (formattedQuotaSources.has(source)) formattedQuotaSources.set(target, formattedQuotaSources.get(source)!);
+  return target;
+}
 
 const STACK_FRAME_FUNCTION = /^(?:async\s+)?(?:new\s+)?(?:<anonymous>|[A-Za-z_$][\w$.[\]<>]*)(?:\s+\[as\s+[A-Za-z_$][\w$]*\])?$/;
 const STACK_FRAME_LOCATION = /^(?:file:|node:|https?:|webpack:|bun:|\/|[A-Za-z]:[\\/])[^\r\n]*:\d+:\d+$/;
@@ -48,8 +66,9 @@ export function formatErrorResponse(
   status: number,
   type: string,
   message: string,
-  options?: { code?: string | null; retryAfter?: string | null; classified?: boolean },
+  options?: { code?: string | null; retryAfter?: string | null; classified?: boolean; upstreamCode?: string | null },
 ): Response {
+  const validationStatus = status === 400 || status === 422;
   const error = classifyError(status, type, message);
   // Provider failures can carry a V8/Bun stack after their diagnostic message. The response
   // envelope is client-visible, so retain the diagnostic but never serialize local frames.
@@ -78,6 +97,11 @@ export function formatErrorResponse(
     error.code = CYBER_POLICY_ERROR_CODE;
     error.type = cyberPolicyErrorType(type);
   }
+  // Only the adapter event's original code can retain this hop identity. Its classified
+  // code may have come from reflected prose, and a generic 422 type can erase a real one.
+  if (validationStatus && options?.upstreamCode
+    && STRUCTURED_QUOTA_CODES.has(options.upstreamCode.trim().toLowerCase().replaceAll("-", "_"))
+    && !PINNED_VERDICT_CODES.has(error.code ?? "")) error.code = options.upstreamCode;
   // The undeclared-tool refusal is deterministic, not a transient upstream failure: its code
   // survives so the Anthropic translator can classify it instead of folding it into a
   // retryable overload (and so clients see the SSE path's rejection identity).
@@ -100,7 +124,8 @@ export function formatErrorResponse(
     : error.code === SPEND_LEDGER_STORAGE_UNAVAILABLE_CODE ? 503
       : isReplayRefusalCode(error.code) ? REPLAY_REFUSED_STATUS : status;
   const headers = new Headers({ "Content-Type": "application/json" });
-  const retryAfter = options?.retryAfter?.trim();
+  // Re-emitted as an integer this proxy formats; the incoming text is never echoed.
+  const retryAfter = formatClientRetryAfter(options?.retryAfter);
   if (error.code !== CYBER_POLICY_ERROR_CODE
     && !replayBlocked
     && retryAfter
@@ -118,6 +143,10 @@ export function formatErrorResponse(
     status: finalStatus,
     headers,
   });
+  if (validationStatus && error.code === "insufficient_quota") {
+    formattedQuotaSources.set(response, options?.upstreamCode !== undefined
+      ? options.upstreamCode : options?.classified ? null : options?.code ?? null);
+  }
   if (replayBlocked) markResponseNonReplayable(response);
   // Re-wrapping is where the refusal loses its provenance: combo failure consumption parses
   // the JSON and builds a new Response, and the code alone does not tell a later quota
@@ -158,6 +187,7 @@ export function formatUsageLimitReachedResponse(message: string, resetsAtMs: num
     ...(resetsAtMs !== null ? { resets_at: Math.ceil(resetsAtMs / 1000) } : {}),
   };
   const headers = new Headers({ "Content-Type": "application/json" });
-  if (retryAfterSeconds !== null) headers.set("Retry-After", String(retryAfterSeconds));
+  const advice = retryAfterSeconds !== null ? formatClientRetryAfter(retryAfterSeconds) : undefined;
+  if (advice !== undefined) headers.set("Retry-After", advice);
   return new Response(JSON.stringify({ error }), { status: 429, headers });
 }

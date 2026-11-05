@@ -1048,3 +1048,20 @@ Windows 適用性：只用 `node:crypto` 與環境變數，不碰檔案系統、
 安全覆核結論：只有本機 adapter 建立的 symbol 可作為這個投影的來源標記；它不等同 f94e95ce5 的 durable principal 或簽章工具分組證據。HTTP／WS 的 admission、CORS、key scope、bearer、帳號隔離、簽章與既有 undeclared-call guard 保持原邊界。管理欄位不擴權；只增加 editor 可設定的 optional boolean，跨 destination 不繼承。Zed helper／caller 是此項所需的最小適配，不帶入 stream、OAuth 或 diagnostic redesign。Windows 不需新 symlink、ACL、原生元件或相依套件。
 
 重新覆核條件：新增 input replacement／重排、改寫 serialization 邊界、改變 current catalog 收集或新增同名 provider overwrite 路徑時，須重新跑來源隔離、兩回合 undeclared-tool guard 與 management carry 測試。原 `tools/upstream_baseline.json` 所有水位保持不動；完整 stable 整合仍由 ROADMAP 追蹤。
+
+## 2026-11-05：全版 tag diff 重放 `v2.93.0..v2.97.0` 的安全邊界逐檔判定
+
+判準依維護者政策：上游做法合法可用就採用，只從技術適配、Windows 適用性與安全回歸判斷。逐檔清冊與計數見 [`UPSTREAM.md`](UPSTREAM.md) 同日節與
+[`upstream-v2.93.0-v2.97.0-files.tsv`](upstream-v2.93.0-v2.97.0-files.tsv)。下列是 fork 先前加固過、與上游改動同檔的安全邊界檔案。
+
+| 檔案 | 判定 | 理由與回歸證據 |
+| --- | --- | --- |
+| `src/config/atomic-write.ts` | 採用上游整檔 | 上游版包含 `c7f3928a2` 的 ACL timeout 復原（五個 harden 呼叫 opt in、目的地暫存追蹤）與後續的 exclusive publication／stable-identity 檢查；fork 2026-11-05 的適配版是其子集，沒有獨有行為。`requireStableIdentity` 只在 exclusive recovery copy 要求非零 dev／ino，一般存檔仍可在回報零 identity 的檔案系統上運作。回歸：`tests/windows/windows-atomic-write-acl-rearm.test.ts`、`tests/server/config.test.ts`（待逐檔跑完，見 `UPSTREAM.md` 尚未完成）。 |
+| 檔案 identity 叢集（`native-residue`、`native-main-lock-file`、`native-profile-manager`、`shim-fingerprint`、`shim-inspect`、`shim-restore-lock`、`shim.ts`、`transition-state`、`codex-home-owner`、`workspace-executor`、`droid-settings`、`coordinator-doctor`、`orca-auth-source`、`state-lock`、`oauth/store`、`proxy-auth`、`config/initialize`、`spend-pool-alias-validation`、`cli-install-provenance`、`transactional-install`） | 採用上游整檔 | fork 先前的差異全是把 `lstat/fstat/stat` 換成自建 `*FileIdentity` helper（identity-only，逐檔以 fork-vs-`v2.93.0` 差異行過濾確認）；上游版直接以 `{ bigint: true }` 加 `sameFileIdentity` 達成相同的「不把 64 位 file ID 降成 Number」保證，並由 `tests/lib/file-identity-callers.test.ts` 對具名函式做詞法檢查。`native-residue` 改回單次 bigint stat 後，「相鄰大 file ID」案例由 `clean`（漏判）轉為 `indeterminate`（正確）。 |
+| `src/codex/history-provider.ts` | 保留 fork 加固＋套用上游 | fork 在 `openSync` 以錯誤碼判斷缺檔（原本是 `existsSync` 後再開，兩次解析名稱）與 manifest 以描述元讀取，上游 `v2.97.0` 沒有；上游改動是 identity 寫法與 `withWriteGuard`。兩者不衝突，故以 fork 檔為底，手工套上游 `withWriteGuard` 與三個 bigint scope。回歸：`file-identity-callers`（29 案）、fork 獨有的「manifest 被他處持有時維持可重試」案例保留。 |
+| `src/lib/bounded-file-read.ts`、`src/codex/shim-state-file.ts` | 保留 fork 版 | 上游改動只是 `sameIdentity` → `sameFileIdentity` 與 `statTimeMs`；fork 的 `readBoundedRegularFile` 家族有約 20 個 caller，上游版沒有這組 API。語意等價，不替換。 |
+| `src/lib/file-identity.ts` | 保留 fork 超集 | 上游 20 行只有 `FileIdentity`、`statTimeMs`、`sameFileIdentity`、`fileIdentityKey`；fork 版全部包含且簽名相容，另有持久化格式用的 `storedFileIdentity`／`validStoredFileIdentity`／`sameFileInode`。 |
+| `src/update/index.ts`、`src/update/job.ts`、`bin/ocx.mjs` | 保留 fork 更新封鎖 | `forkSelfUpdateBlocked()`、`FORK_RELEASES_URL` 逐 hunk 保留；上游新增的 `orchestratedUpdate` 條件併入 `ocx.mjs` 的 `update` 分支。**orchestrated 更新路徑是否在所有進入點都被封鎖尚未逐路徑驗證**，列為尚未完成。 |
+| `.github/workflows/ci.yml`、`deploy-docs.yml`、`cleanup-orphaned-workflows.yml` | 採用（Windows-only 結構保留） | 官方 repo guard 與 `REMOVED_CI_JOBS` 不變；`fork-hygiene` 39 案通過。 |
+| `src/bridge/errors.ts`、`src/server/responses/compact.ts`、`src/codex/catalog/provider-models.ts` | 上游＋fork 加固並存 | fork 的 stack frame 擦除、routing-policy 404 對映與 log 注入擦除（`sanitizeLogMetadataString`）上游沒有，保留；上游的配額來源溯源、`resolveConnectTimeoutMs`、`projectAdmissionModelDeniedLog` 一併採用。 |
+| 韓文介面字串（`src/cli/claude-desktop.ts`、`src/types/config.ts`、`scripts/client-support-matrix/locales.ts`） | 取上游邏輯、字串維持英文 | `fork-hygiene` 的 Hangul 檢查要求 `src/`、`scripts/` 無韓文。 |

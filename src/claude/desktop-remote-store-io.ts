@@ -1,4 +1,3 @@
-import { fileIdentityKey } from "../lib/file-identity";
 import { chmodSync, lstatSync, mkdirSync, realpathSync, unlinkSync, type BigIntStats } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { atomicWriteFile, getConfigDir } from "../config";
@@ -9,7 +8,7 @@ import { DesktopStoreError, digest } from "./desktop-remote-store-state";
 export const MAX_DESKTOP_METADATA_ENTRIES = 256;
 
 export interface JsonFile { value: Record<string, unknown>; hash: string; identity: string }
-const identity = (s: BigIntStats): string => `${fileIdentityKey(s)}:${s.size}:${s.mtimeNs}`;
+const identity = (s: BigIntStats): string => `${s.dev}:${s.ino}:${s.size}:${s.mtimeNs}`;
 function missing(error: unknown): boolean { return (error as NodeJS.ErrnoException)?.code === "ENOENT"; }
 export function canonicalDirectory(path: string): string {
   const absolute = resolve(path);

@@ -1,4 +1,3 @@
-import { sameFileIdentity } from "../lib/file-identity";
 import {
   closeSync, fchmodSync, fstatSync, linkSync, lstatSync,
   openSync, unlinkSync, writeFileSync,
@@ -48,7 +47,7 @@ function identifiesDescriptor(fd: number, path: string, privateMode = false): bo
   const opened = fstatSync(fd, { bigint: true });
   const entry = lstatSync(path, { bigint: true });
   return opened.isFile() && entry.isFile()
-    && sameFileIdentity(opened, entry)
+    && opened.dev === entry.dev && opened.ino === entry.ino
     && (!privateMode || process.platform === "win32" || (opened.mode & 0o777n) === 0o600n);
 }
 

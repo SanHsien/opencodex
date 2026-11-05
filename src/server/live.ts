@@ -1,4 +1,3 @@
-import { sameFileIdentity } from "../lib/file-identity";
 import { CodexInstallationIdUnavailableError } from "../codex/installation-id";
 import { isolateCodexPoolClientMetadata, mergeCodexSelectedHeaders } from "../codex/forward-transport-headers";
 import { codexCompatibleUrl } from "../codex/context-compat";
@@ -144,7 +143,7 @@ export function appendOwnerOnly(
     const before = fstatSync(fd, { bigint: true });
     const memo = hardenedWindowsFrameLog;
     const alreadyHardened = platform === "win32" && memo !== undefined && memo.path === path
-      && before.ino !== 0n && sameFileIdentity(memo, before);
+      && before.ino !== 0n && memo.dev === before.dev && memo.ino === before.ino;
     if (!alreadyHardened) {
       hardenedWindowsFrameLog = undefined;
       harden(fd, path);
@@ -152,7 +151,7 @@ export function appendOwnerOnly(
     const opened = fstatSync(fd, { bigint: true });
     const named = statSync(path, { bigint: true });
     if (!opened.isFile() || !named.isFile() || opened.ino === 0n || named.ino === 0n
-      || !sameFileIdentity(opened, named)) {
+      || opened.dev !== named.dev || opened.ino !== named.ino) {
       throw new Error("Frame log path changed during hardening.");
     }
     if (platform === "win32") hardenedWindowsFrameLog = { path, dev: opened.dev, ino: opened.ino };

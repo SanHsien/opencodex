@@ -291,6 +291,13 @@ env_key = "OPENCODEX_API_AUTH_TOKEN"
 設定。loopback 模式下，其中包含自動注入被移除時可手動合併的根級鍵；non-loopback 模式下，其中包含
 專用 provider 形式。外部 provider 模式不會修改此 profile。
 
+重新產生此檔案時，會保留 OpenCodex 不管理的一般根級鍵，因此你新增的 `stream_idle_timeout_ms` 或
+`stream_max_retries` 等設定在下一次注入後仍會存在。保留的賦值會照原樣複製，包括跨多行的值與 64 位元
+整數，並放在第一個表之前。表內的鍵以及 `a.b = 1` 這類點分根級鍵不會保留。發生衝突時一律以 OpenCodex
+為準：它擁有的根級鍵（`model_provider`、`model_catalog_json`、`openai_base_url`）會依目前的路由模式
+重寫；與 profile 寫入的表同名的根級鍵（例如 profile 寫入 `[features]` 時的內嵌 `features = { ... }`）
+會被捨棄。若注入等待寫入鎖期間檔案有變動，注入會以可重試的錯誤停止，並保留你的修改。
+
 :::caution
 `openai_base_url`、`model_provider`、`model_catalog_json` 等根級鍵**必須**位於第一個 `[table]`
 標頭之前。注入器會保證此位置、移除自己留下的舊值或重複項，而且絕不覆寫使用者自有的根級
@@ -310,6 +317,13 @@ $CODEX_HOME/models_cache.json
 ```
 
 在 macOS 上，opencodex 在明確選擇、shim、PATH、既有安裝路徑和可執行的裸 `codex` 後備命令之後，依序檢查 `/Applications/ChatGPT.app` 和 `~/Applications/ChatGPT.app` 中的 Codex 應用程式內建 CLI，要求其 XML `Info.plist` 識別碼為 `com.openai.codex`，且不會用應用程式候選項自動取代仍可執行的已儲存選擇。
+
+執行檢查也會辨識任意位置的 `Codex.app` 和 `ChatGPT.app`，包括移動後的應用程式套件、明確的
+`CODEX_CLI_PATH` 或設定的執行階段命令，以及符號連結別名。名稱只觸發驗證，不代表可信。
+每次執行前，正規化的套件和確切二進位檔都必須通過嚴格簽章驗證、OpenAI Team ID 及擁有權、
+權限和祖先目錄政策。二進位檔必須位於套件的 `Contents/` 內（包含 Codex.app 的
+`Contents/Resources/codex-aarch64-apple-darwin`）；無法正規化套件或二進位檔時拒絕執行。
+一般非應用程式 CLI 和第三方套件保留原有執行政策。
 
 在 WSL 中，如果未設定 `CODEX_HOME`，且 Linux 的 `~/.codex` 目錄不存在或不含任何 Codex 狀態（`config.toml`, `auth.json`, `sessions`, `history.jsonl`），opencodex 也會檢查
 `/mnt/c/Users/*/.codex/config.toml` 下是否只有一個 Windows Codex Desktop home。候選項恰好只有一個時，
@@ -748,6 +762,12 @@ its two modes:
   It never substitutes a Pool or provider credential for the assertion, and it never forwards or
   logs the assertion. Use `dual_header`, or turn the feature off, when Codex runs through opencodex.
 
+### 以 `ocx codex` 啟動
+
+只有在設定及其命名空間受到保護、不被其他主體存取時，才會提供該金鑰；目前使用者與具特權的 OS 權限單位受到信任。同一使用者的處理程序受到信任：擁有你寫入權限的行為者本來就能讀取你的 OpenCodex 金鑰檔。驗證與原生啟動之間、同一使用者對設定的取代，不在此威脅模型之內；啟動器不會在交接時凍結設定。
+
+在 Windows 上，預設的 ProgramData 建立權限會扣住該金鑰，即使 `ProgramData\OpenAI\Codex` 不存在也一樣。ProgramData 底下的系統 Codex 設定資料夾必須存在，而且只有 Administrators／SYSTEM 可寫入，其上層目錄也必須受到保護、不被其他使用者取代。請管理員檢視該目錄的原則。opencodex 本身絕不變更 ACL，也不提供佈建指令。另一種做法是匯出 `OPENCODEX_API_AUTH_TOKEN` 來提供你自己的金鑰；`ocx codex` 不會動它。請見[啟動器需求與診斷](/zh-tw/reference/cli/agents/#ocx-codex-codex-args)。其他拒絕情況也會產生一行簡短、具體、且不含金鑰值、金鑰檔內容或金鑰檔路徑的 stderr 訊息。
+
 ### Codex 自動啟動 shim
 
 Run `ocx codex-shim install` to install the optional launcher wrapper. It runs
@@ -971,6 +991,19 @@ Partial or invalid usage data retains the previous block until recovery is confi
 帳號退出帳號池選擇時，原因會隨判定一起傳遞，而不是為了顯示重新計算，因此介面不會在路由已排除該帳號時仍顯示正常。`GET /api/codex-auth/accounts` 會在每個帳號的 `needsReauth` 旁回傳 `reauthReason`：從未儲存憑證為 `missing_credential`，更新持續失敗為 `refresh_failed`，用量查詢本身遭拒為 `quota_unauthorized`。
 
 主帳號更新未完成時仍回傳帶 `Retry-After` 的 `503`，因為重試仍可能成功。訊息現在補充說明：若持續失敗，代表主帳號需要重新認證，而不只是再試一次。
+
+### 請求擁有的對話親和性
+
+`codexPool.requestOwnedAffinity` 是選用的布林值，預設為 `false`。設為 `true` 時，會讓帶有自己 ChatGPT bearer 的對話，
+在每個配額範圍內固定使用一個符合資格的帳號。釋放與模型繞道仍可能讓它移動。這個綁定僅存在於處理程序內；
+重新啟動代理或輪替 bearer 會開始新的綁定。沒有工作階段、多代的子代理鏈，可能會依執行緒個別綁定。
+
+親和性標籤描述選擇回傳時的綁定。`unbound` 表示沒有儲存任何綁定；`request_owned` 表示呼叫端擁有的憑證沒有選用，
+`no_conversation` 表示沒有可用的對話鍵。之後資格的變化，可能在選擇之後釋放綁定。
+
+無論有沒有這個選項，帶有自己 bearer 的請求，都會在以該 bearer 為範圍的鍵底下記錄每個回合由哪個帳號服務。
+當之後的回合由不同的帳號服務時（包含你手動切換帳號之後），OpenCodex 會在送出之前移除 `previous_response_id`，
+並以 HTTP 400 拒絕攜帶的已上傳 `file_id` 參照，因為新帳號無法讀取它們。
 
 ### 選用的閒置視窗導向
 

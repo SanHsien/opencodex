@@ -1,3 +1,4 @@
+import { samePath } from "../helpers/same-path";
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import * as fs from "node:fs";
 import { createHash, randomUUID } from "node:crypto";
@@ -146,14 +147,14 @@ function responseValue(response: Awaited<ReturnType<RemoteWorkspaceCoordinator["
 }
 
 describe("remote workspace file identity", () => {
-  test("rejects an opened target whose file ID is one above the linked path's beyond numeric precision", async () => {
+  test("rejects an opened target with an adjacent NTFS-sized inode", async () => {
     const state = fixture();
     const target = join(state.executorRoot, "project", "marker.txt");
     const id = 9_007_199_254_740_992n;
     const realLstat = fs.lstatSync, realFstat = fs.fstatSync;
     const lstat = spyOn(fs, "lstatSync").mockImplementation(((path, options) => {
       const stat = options?.bigint ? realLstat(path, { bigint: true }) : realLstat(path);
-      return path === target ? Object.assign(Object.create(Object.getPrototypeOf(stat)), stat,
+      return samePath(path, target) ? Object.assign(Object.create(Object.getPrototypeOf(stat)), stat,
         { ino: options?.bigint ? id : Number(id) }) : stat;
     }) as typeof fs.lstatSync);
     const fstat = spyOn(fs, "fstatSync").mockImplementation(((fd, options) => {
@@ -166,6 +167,27 @@ describe("remote workspace file identity", () => {
       expect(result.ok).toBe(false);
       expect(result.error).toContain("file identity changed");
     } finally { fstat.mockRestore(); lstat.mockRestore(); }
+  });
+
+  test("rejects an approved root with an adjacent NTFS-sized inode", async () => {
+    const state = fixture();
+    const realLstat = fs.lstatSync;
+    const id = 9_007_199_254_740_992n;
+    let replacement = false;
+    const lstat = spyOn(fs, "lstatSync").mockImplementation(((path, options) => {
+      const stat = options?.bigint ? realLstat(path, { bigint: true }) : realLstat(path);
+      const ino = id + (replacement ? 1n : 0n);
+      return samePath(path, state.executorRoot) ? Object.assign(Object.create(Object.getPrototypeOf(stat)), stat,
+        { ino: options?.bigint ? ino : Number(ino) }) : stat;
+    }) as typeof fs.lstatSync);
+    try {
+      const executor = new RemoteWorkspaceExecutor({ deviceId: "device", roots: [{ id: "root", path: state.executorRoot }] });
+      replacement = true;
+      const result = await executor.invoke({ requestId: "request", sessionId: "session", executorDeviceId: "device",
+        rootId: "root", tool: "read_file", arguments: { path: "project/marker.txt" } });
+      expect(result.ok).toBe(false);
+      expect(result.error).toContain("approved root identity changed");
+    } finally { lstat.mockRestore(); }
   });
 });
 

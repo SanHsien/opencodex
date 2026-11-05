@@ -22,6 +22,12 @@ interface ProviderAdapter {
 無法表示成一次 HTTP fetch 加一條回應流的 transport。隨後
 [`bridge.ts`](/zh-tw/reference/architecture/#橋接器) 把 event 轉成 Responses SSE。
 
+## 共用的工具參數修復
+
+橋接層會依工具的結構描述，修復整數欄位中的整數浮點數，以及僅限字串欄位中安全的裸整數。
+不安全的整數、溢位的數字與未修復的非整數小數，會保留其原本的完整字詞，而安全的同層欄位仍會被修復。
+巢狀陣列與重複的鍵會保留每一個不安全的字詞，所以修復 timeout 不會悄悄改變無關的識別碼。
+
 ## 翻譯後 Responses 路由上的外部任務輸入
 
 Codex task coordination 可以用帶有非空 `id`、`name` 與 `namespace` 欄位、且沒有 `call_id`

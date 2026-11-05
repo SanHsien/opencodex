@@ -1,9 +1,10 @@
+import { samePath } from "../helpers/same-path";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
+import * as fs from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
 import { afterEach, describe, expect, setDefaultTimeout, spyOn, test } from "bun:test";
-import * as fs from "node:fs";
 import { classifyRecoverableHistoryError, countPendingOpencodexHistory, historyBackupPathFor, isRecoverableHistoryError, legacyHistoryBackupPathFor, migrateHistoryToOpenai, resolveExistingHistoryBackupPath, restoreLegacyOpenaiHistory, restoredUserEventFor, setAfterNoopPendingCountForTests, setAfterStrictHistoryRolloutAppendForTests, setBeforeHistoryApplyTransactionForTests, setBeforeHistoryBackupConsumeForTests, setBeforeStrictHistoryRolloutAppendForTests, setHistoryDbBusyTimeoutForTests, snapshotCodexHistoryNoop, syncCodexHistoryProvider, withHistoryRetry } from "../../src/codex/history-provider";
 import { codexHistoryBackupId, legacyCodexHistoryBackupId, sameCodexHistoryPath } from "../../src/codex/history-manifest";
 import { INVALID_HISTORY_BACKUP_FIXTURES, validHistoryBackupFixture } from "../helpers/codex-history-manifest-fixtures";
@@ -107,7 +108,7 @@ function makeFixture({ includeExec = false, includeLegacy = false } = {}) {
 }
 
 describe("Codex history provider sync", () => {
-  test("descriptor guard rejects a rollout whose file ID changes by one above numeric precision", () => {
+  test("descriptor guard rejects adjacent NTFS-sized file identities", () => {
     const fixture = makeFixture();
     noopSnapshotArtifacts.add(join(fixture.dbPath, ".."));
     const id = 9_007_199_254_740_992n;
@@ -116,13 +117,13 @@ describe("Codex history provider sync", () => {
     const rolloutFds = new Set<number>();
     const open = spyOn(fs, "openSync").mockImplementation(((path, flags, mode) => {
       const fd = realOpen(path, flags, mode);
-      if (path === fixture.rollout) rolloutFds.add(fd);
+      if (samePath(path, fixture.rollout)) rolloutFds.add(fd);
       return fd;
     }) as typeof fs.openSync);
     const close = spyOn(fs, "closeSync").mockImplementation((fd => { rolloutFds.delete(fd); realClose(fd); }) as typeof fs.closeSync);
     const lstat = spyOn(fs, "lstatSync").mockImplementation(((path, options) => {
       const stat = options?.bigint ? realLstat(path, { bigint: true }) : realLstat(path);
-      return path === fixture.rollout && armed ? Object.assign(Object.create(Object.getPrototypeOf(stat)), stat,
+      return samePath(path, fixture.rollout) && armed ? Object.assign(Object.create(Object.getPrototypeOf(stat)), stat,
         { ino: options?.bigint ? id : Number(id) }) : stat;
     }) as typeof fs.lstatSync);
     const fstat = spyOn(fs, "fstatSync").mockImplementation(((fd, options) => {
@@ -1336,7 +1337,7 @@ describe("history lock retry", () => {
 });
 
 describe("Design B migration helpers", () => {
-  test("no-op snapshot rejects a database whose file ID changes by one above numeric precision", () => {
+  test("no-op snapshot rejects adjacent NTFS-sized database identities", () => {
     const fixture = makeFixture();
     const backup = historyBackupPathFor(fixture.dbPath);
     noopSnapshotArtifacts.add(join(fixture.dbPath, ".."));
@@ -1347,7 +1348,7 @@ describe("Design B migration helpers", () => {
     const stat = spyOn(fs, "statSync").mockImplementation(((path, options) => {
       const result = options?.bigint ? real(path, { bigint: true }) : real(path);
       const ino = id + (replaced ? 1n : 0n);
-      return path === fixture.dbPath ? Object.assign(Object.create(Object.getPrototypeOf(result)), result,
+      return samePath(path, fixture.dbPath) ? Object.assign(Object.create(Object.getPrototypeOf(result)), result,
         { ino: options?.bigint ? ino : Number(ino) }) : result;
     }) as typeof fs.statSync);
     setAfterNoopPendingCountForTests(() => { replaced = true; });
@@ -1820,3 +1821,23 @@ describe("Codex history injection preflight on a WAL store with no live writer",
     expect(phases).toEqual(["open", "first-read"]);
   });
 });
+
+  test("a manifest open held by another process stays retryable instead of reading as corrupt", () => {
+    // The bounded descriptor read replaced readFileSync; a Windows scanner holding the manifest
+    // must still classify as busy/permission (retryable), not as an integrity failure.
+    const fixture = makeFixture();
+    syncCodexHistoryProvider("opencodex", fixture.dbPath, fixture.backupPath);
+    for (const [code, failureReason] of [["EBUSY", "busy"], ["EACCES", "permission"]] as const) {
+      const realOpen = fs.openSync;
+      const open = spyOn(fs, "openSync").mockImplementation(((path: fs.PathLike, ...rest: unknown[]) => {
+        if (String(path) === fixture.backupPath) throw Object.assign(new Error(`${code}: held`), { code });
+        return (realOpen as (...args: unknown[]) => number)(path, ...rest);
+      }) as typeof fs.openSync);
+      try {
+        expect(countPendingOpencodexHistory(fixture.dbPath, fixture.backupPath))
+          .toMatchObject({ failed: true, failureReason });
+      } finally {
+        open.mockRestore();
+      }
+    }
+  });

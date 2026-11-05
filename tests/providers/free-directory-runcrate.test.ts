@@ -22,8 +22,8 @@ describe("free-provider directory: Runcrate", () => {
       dashboardUrl: "https://www.runcrate.ai/dashboard/api-keys",
       discovery: "hybrid",
       liveModels: true,
+      lastVerified: "2026-10-27",
     });
-    expect(row?.lastVerified).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     expect(row?.keyOptional).toBeUndefined();
     expect(row?.models).toEqual([
       "deepseek-ai/DeepSeek-V4.1-Flash",

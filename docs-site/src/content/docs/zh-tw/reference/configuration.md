@@ -25,6 +25,11 @@ opencodex 把持久化設定存放在 `$OPENCODEX_HOME/config.json`，通常是
 如果檔案無法解析，opencodex 會把它備份為 `config.json.invalid-<timestamp>`、在 console
 警告，並以預設值啟動。檔案缺失時也使用全新安裝的預設：一個 `openai` forward provider。
 
+本機的 `ocx config set`、`unset`、`import`、離線 `ocx effort`、自訂模型的 add/remove
+與 provider 的 add/remove/set-default 操作，會拒絕修改既有但無效或無法讀取的 `config.json`，
+並保留原始位元組。請執行 `ocx config validate` 並修復檔案後再重試。已有設定時，
+import 也要求目標檔案可讀且有效。
+
 ## 優先順序與預設值
 
 ### Provider 與模型別名
@@ -48,7 +53,7 @@ opencodex 把持久化設定存放在 `$OPENCODEX_HOME/config.json`，通常是
 
 ### Native reasoning retention
 
-Native reasoning ciphertext retention on model and account changes has two opt-in settings, both off by default. Configure them on the dashboard overview or see [Native reasoning retention](/zh-tw/reference/configuration/server/#native-reasoning-retention) for the exact scope and experimental account behavior.
+Native reasoning ciphertext retention on model and account changes has two opt-in settings, both off by default. Configure them on the dashboard overview or see [Native reasoning retention](/zh-tw/reference/configuration/server/#原生推理保留) for the exact scope and experimental account behavior.
 
 ### Cursor effort 列
 

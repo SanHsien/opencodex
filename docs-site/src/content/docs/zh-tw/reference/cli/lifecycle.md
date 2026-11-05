@@ -56,16 +56,13 @@ ocx start --socks5-off
 
 ### `ocx stop`
 
+無人監督的 Link Child 處理結束訊號時，會在每次寫入前核對連線，並在關閉接聽器前還原 Codex 原生設定及受管理的 Grok。服務/Desktop、sibling、重新啟動交接和父程序 stop 收據會保留設定。結束中的重新啟動要求回傳 `409 runtime_stopping`。強制終止可能略過訊號處理，仍需父程序 `ocx stop` 的還原路徑。
+
 停止執行中的代理（依 PID）、移除 PID 檔案，並還原原生 Codex。若已安裝受管背景服務，`ocx stop` 也會先停止它，使其無法重新生成代理。網頁儀表板的 **Stop** 按鈕在多數後端執行相同動作（`POST /api/stop`），但 Windows 工作排程器除外：工作結束後包裝程序仍可能重新啟動 Proxy，因此儀表板會以 `respawnable_service` 拒絕、不做任何變更，並請你改用 `ocx stop`。
 
-儀表板在代理本身就是已安裝的 launchd 或 systemd 服務時同樣會拒絕。從 proxy 內部停止那個管理器，
-會在原生 Codex 被還原之前就終止程序，讓你的用戶端設定指向一個已經消失的 proxy，所以儀表板會回傳
-`self_unload_service`、不做任何變更，並請你執行 `ocx stop`——它會從外部停止服務並完成還原。
+對已連線的 hub 用戶端，`ocx stop`（包括成功的 API 停止）會保留連線擁有的 Codex 路由、目錄和 Grok 設定，`ocx start` 會再次提供服務。明確停止 Remote Link Child 時，若共用設定還原成功，則會還原原生 Codex 路由、目錄與已備份的續接歷程中繼資料，並移除受管理的 Grok 設定。已儲存的 Home 連線會保留，可用 `ocx disconnect` 移除。
 
-單靠 proxy 結束並不能確認共享的 Codex/Grok 還原已經成功。若 stop 的回應回報失敗、無法讀取，或
-沒有確認已指派的拆卸模式，CLI 會在既有的擁有權與 respawn 檢查之後，把還原工作留給發起停止的父
-程序處理。對於已經觀察到結束的程序，它不會進入強制停止的退路。有收據支持的延後處理，仍會把最終
-還原與收據清理交給父程序；共享用戶端設定還原失敗時，stop 會維持失敗狀態，其收據也會維持未結案。
+要在還原後再次從 Codex 使用 Home，請先執行 `ocx start`（已安裝服務時使用 `ocx service start`），再執行 `ocx sync --restart-codex`。僅啟動不會重新套用路由；sync 不會重新建立 Grok 設定區塊。若在停止服務前無法確認連線擁有權，停止 API 會回傳 HTTP 409 與 `sharedTeardown: "refused"`，並讓 Proxy 與服務管理員繼續執行。請等待進行中的連線或中斷連線作業完成後再試。
 
 ### `ocx restart`
 
@@ -289,7 +286,11 @@ See [v2 outcomes](/zh-tw/reference/cli/agents/#explicit-v2-target-and-outcome) a
 for target, scope and spending boundaries. A reset-grant status read can contact
 upstream status but never consumes or resumes a grant.
 
-### `ocx sync [--restart-codex] [--restart-app-server-only]`
+### `ocx sync [--expect-link <linkId> | --expect-hub-key <apiKeyId>] [--local-only] [--json] [--restart-codex] [--restart-app-server-only]` <span id="ocx-sync---restart-codex---restart-app-server-only"></span>
+
+在 Remote Link Home 上成功提交最新目錄後，`ocx sync` 也會向符合條件的已連結 Child 同步。`--local-only` 可停用這個傳播。`--json` 會輸出單一 `ocx.sync.fanout/1` 文件，包含 Home 的結果與各 Child 的狀態；遭略過的 Child 也會顯示原因。Home 自身的非零結束碼會原樣回傳。Home 成功時，若 Child 失敗、逾時或連結儲存區無法讀取，指令以結束碼 6 結束；其他情況均以 0 結束，包括 Child 遭略過時。文字模式下，連結儲存區無法讀取的錯誤不包含路徑。結束碼 7 保留給進行中的更新。JSON 模式下若 Home 同步擲出例外，stdout 仍只包含一份結果文件，stderr 則輸出經安全轉義的診斷訊息。
+
+傳播不會要求重新啟動 Child 上的 Codex 應用程式或 app-server。若需要重新啟動，請使用 GOAT 或在該 Child 執行 `ocx sync --restart-codex`。不過，Child 的固定目標同步在套用變更後的 Home 設定時，仍可能重新啟動它自己的 OpenCodex 用戶端執行階段。Home 逾時並停止本機 SSH 程序後，已開始的遠端同步仍可能在 Child 上繼續。
 
 > **Remote Link Child：** `ocx sync` 也會套用 Home 的 Codex 設定；如果用戶端執行階段在該次套用之前啟動，即使沒有重新啟動旗標也會重新啟動執行階段。重新啟動失敗時，原有執行階段會繼續提供服務，指令以非零狀態結束。`ocx status --json` 與 `ocx link status --json` 的相關欄位請見 [Remote Link apply parity](/zh-tw/reference/cli/lifecycle/#remote-link-apply-parity)（英文）。
 
@@ -769,8 +770,7 @@ systemd 的 `EnvironmentFile=` 使用。
 
 ### `ocx gui`
 
-在 `http://localhost:<port>` 開啟[網頁儀表板](/zh-tw/guides/web-dashboard/)——或在啟用管理 ingress 的
-hub 上開啟 `http://127.0.0.1:<管理埠>`——若代理未執行則自動啟動它。
+在 `http://127.0.0.1:<port>` 開啟[網頁儀表板](/zh-tw/guides/web-dashboard/)，若代理未執行則自動啟動它。在啟用管理 ingress 的 hub 上，開啟的是 `http://127.0.0.1:<管理埠>`。
 
 ## 更新
 
@@ -795,6 +795,63 @@ ocx update --tag preview
 ```
 
 當 [Release workflow](https://github.com/lidge-jun/opencodex/actions/workflows/release.yml) 將新版本發布到 npm 時，新版本即可使用。
+
+#### 協調式更新
+
+自動化可用 `ocx capabilities --contracts --json` 探索支援情況；`contracts` 陣列包含 `update.orchestrated/1`。
+僅合約選項不能與 `--route` 或 `--mutating-only` 合用。
+
+```bash
+ocx update --plan --json [--tag latest|preview | --version <version>]
+ocx update --yes --json [--version <version>] [--expect-plan <token>] [--not-after <unix-ms>]
+```
+
+Plan 會輸出一個 `ocx.update.plan/1` JSON 物件：`currentVersion`、`targetVersion`、`installer`、`runtimeOwner`、
+`servingPath`、`cliPath`、`canApply`、選用的 `reason`、`restartRequired`、`planToken`、`updateInFlight` 與 `mutationBoundMs`。
+計畫是唯讀的。原因包括 `desktop-app-owned`、`source-checkout`、`mise-managed`、`installer-unknown`、`plan-unavailable`、
+`serving-install-unknown`、`cli-not-serving-install`、`runtime-ownership-refused`、`target-unresolved`、`downgrade-refused` 與 `up-to-date`。
+`desktop-app-owned` 會把更新導向 Desktop 應用程式；無法確定提供服務的身分時會拒絕，而不是猜測。
+再次規劃之前，請執行 `ocx start` 或 `ocx stop` 來處理過期的執行階段記錄。
+
+Apply 會輸出一個 `ocx.update.result/1` 物件，包含 `applied`、`fromVersion`、`toVersion`、`installer`、`restarted`、`healthy`、`rolledBack`，
+以及選用的 `error`。把計畫的 `planToken` 當作 `--expect-plan` 傳入，若所選的安裝或執行階段身分改變，就會以 `plan-changed` 拒絕。
+`--not-after` 是正的安全整數 Unix 毫秒時間戳；超過該時間後，變更會以 `deadline-passed` 被拒絕。
+`mutationBoundMs` 是 900000（15 分鐘）：逾時會回報不確定的結果，而不會終止進行中的交易。
+只要更新仍可能變更內容，`updateInFlight` 就維持為 true，包含無法判斷其狀態的情況；單獨的同步不會設定它。
+並行的同步可以用 `sync-in-progress` 拒絕套用，另一個更新則可用 `update-in-flight` 拒絕。
+
+協調式 apply 在已驗證或已是最新時以 0 結束，拒絕時為 10，更新失敗但先前版本已驗證為使用中（必要時包含執行階段）時為 11，
+結果未驗證或仍在執行時為 12，用法無效則為 64。只有在實際的安裝程式回復及其驗證成功時，`rolledBack` 才為 true。
+plan 指令會輸出其計畫並以 0 結束；`canApply` 與 `reason` 欄位描述資格。
+
+編譯後的獨立安裝（包含 Windows MSI 的 Desktop 套件），要透過 OpenCodex Desktop 的**檢查更新…**，或重新安裝獨立執行檔（取自 [GitHub Releases](https://github.com/lidge-jun/opencodex/releases)）來更新。`ocx system update check` 會回報 `installer: "standalone"`、`canUpdate: false` 與 `reason: "standalone_install"` 並附上該指引。`ocx update` 會以相同提示失敗結束；它不會對編譯後的執行檔執行套件管理員更新。真正的原始碼 checkout 仍回報 `installer: "source"` 與 `reason: "source_checkout"`。
+
+透過 mise 安裝 OpenCodex 時，此指令會在停止代理或變更套件檔案之前失敗結束，並使用已驗證的本機 mise 別名顯示 `mise upgrade <tool>`。更新檢查仍可使用，並將該安裝回報為外部管理。無法讀取或不一致的 mise 擁有權記錄會封閉式失敗，不猜測工具名稱，而 `--tag preview` 絕不會改變 mise 設定的選擇。
+
+在 Linux 上，記錄的啟動器是 mise 的套件啟動器（`<tool>/latest/node_modules/.bin/ocx`，不是 mise shim）的背景服務，會自行跟隨 `mise upgrade`：新版本穩定後約十秒內，它會排空使用中的請求並重新啟動到新版本；若 mise 之後修剪了它正在執行的版本，它也以同樣方式復原。在 macOS 上，透過 mise shim 安裝的服務以及前景代理，請在升級後自行重新啟動（macOS 上先執行 `ocx service repair`）。
+
+從 npm 自我更新 opencodex。穩定版安裝使用 `@latest`；預覽版安裝除非你傳入 `--tag latest|preview`，否則維持在 `@preview`。
+它會偵測原始碼 checkout，並改告訴你執行 `git pull && bun install`；若你已在該標籤的最新版本，則不做任何事。
+在停止任何東西之前，npm 安裝會先執行有界的 Unix 快取擁有權與存取檢查。巢狀符號連結以 `lstat` 檢查但不跟隨；
+Windows 會明確略過這項僅限 Unix 的檢查。失敗時會在系統匣與代理仍在執行時中止。
+接著，執行中的代理會在檔案被取代之前停止；已安裝的服務會自動重建並啟動，前景安裝則會印出 `ocx start` 作為下一步。
+儀表板的更新記錄會在儲存之前，遮蔽設定檔／快取路徑與 UID／GID 值。
+當已停止的監聽器的字面 IP 位址會讓存活撥號被丟棄、而不是被拒絕（例如在 tailnet 上），更新程式會短暫嘗試綁定同一個位址與連接埠。
+綁定成功可確認該瞬間監聽器不存在；綁定失敗或主機名稱探測無定論，仍會阻止更新。
+
+在 Windows 上，Scoop 預設的 `nodejs` 與 `nodejs-lts` `npm` 安裝，在其 `current` 連接點留在 Node 應用程式目錄之內時，
+可從使用者 home 目錄使用；預設的持久 `bin` 目錄也受支援。在該安裝內執行（包含其解析後的版本目錄或持久 `bin`）、
+專案本機的 `npm`、`NO_JUNCTION` 版本目錄項目，以及 home 底下自訂的 Scoop 根目錄，仍被排除。
+
+若安裝步驟失敗，先前的版本仍保持已安裝，其服務也會重新啟動；終端機輸出會指出下一步，
+[Windows 上更新失敗](/zh-tw/troubleshooting/update-failed/)說明如何完成更新，以及失敗的嘗試可能留下的資料夾。
+
+```bash
+ocx update
+ocx update --tag preview
+```
+
+[Release 工作流程](https://github.com/lidge-jun/opencodex/actions/workflows/release.yml)把新版本發布到 npm 之後，新版本才可取得。
 
 ## Save cleanup thresholds without starting a cleanup
 
@@ -849,6 +906,32 @@ On the Home, every row of `ocx link status --json` carries what that Child last 
 starts and then once a minute; the Home keeps reports in memory only, so after a Home restart the
 fields read `null` until the next report. A Child whose runtime started before `lastApplyAt` is
 running an older runtime than its last apply.
+
+After `ocx sync` applies the Home's settings on a Child, it restarts the Child's client runtime when
+that runtime started before `lastApplyAt`, using the same restart as `ocx restart`. A runtime that
+already started after the apply is left alone, nothing is started when no client runtime is
+running, and a failed restart exits nonzero while the previous runtime keeps serving; run
+`ocx sync` or `ocx restart` again to retry. Two applies on one Child never interleave: a second
+`ocx sync` while one is applying fails fast and changes nothing.
+
+## Remote Link 子節點證明
+
+透過 Remote Link 子節點送出工作的對等端，可在子節點的 `ocx status --json` 中檢查另外兩項事實。
+這兩個欄位在無法證明時都會省略，絕不會是 `null`。
+
+| 欄位 | 意義 |
+| --- | --- |
+| `localCredentials` | `{count, generation}`。`count` 是這個安裝存放在這台機器上的供應商憑證數量：OAuth 帳號、供應商 API 金鑰槽位（包含已停用的項目，以及金鑰圈或環境變數參照）、Codex 帳號池記錄、原生 Codex `auth.json`，以及非使用中的原生 Codex 設定檔。連結金鑰、管理權杖與傳入的 API 金鑰不計入，Home 所服務的帳號也不計入。`generation` 是不透明值，每當儲存的憑證被新增、取代或移除就會改變，即使數量最後與開始時相同。只有在這台機器上的 OpenCodex 執行階段正在執行、且每個儲存區都完整讀取時才會回報。原生 Codex 設定的 `cli_auth_credentials_store` 不是 `file` 時會省略它。 |
+| `link.connectionGeneration` | 在子節點上：不透明值，每當通往其 Home 的通道連線（包含保留同一連結的重新連線）以及任一執行階段重新啟動時都會改變。只有在子節點的執行階段就緒時才會回報。對於由 Home 啟動的連結，子節點從 Home 的簽署回應得知它，所以較舊版本的 Home 會省略它。 |
+
+若子節點回報 `localCredentials.count` 為 0，且 `localCredentials.generation` 與 `link.connectionGeneration` 在一個請求前後都沒有改變，
+表示該請求期間它沒有任何本機供應商憑證，也沒有觀察到通道重新連線。
+
+對於由 Home 新增的連結，每一列也帶有 `tunnel`：`attempt`（自連結上次連線以來的 ssh 嘗試次數）、
+`nextRetryAt`（下次排定重試的 ISO 時間，重試執行中或沒有待辦時為 `null`）、`lastTransition`（`{from, to, at, cause}`）
+與 `lastFailure`（`{cause, at}`）。原因是 `auth`、`hostkey`、`forward`、`remote_forward_conflict`、`timeout`、`network`、
+`unknown`、`spawn_failed` 與 `listener_unavailable` 之一。Home 把它保存在記憶體中，所以 Home 重新啟動後從空的開始。
+`GET /api/link/status` 只有在以 `?diagnostics=1` 要求時才包含此欄位，因為較舊的 `ocx link status` 會拒絕它不認得的欄位。
 
 After `ocx sync` applies the Home's settings on a Child, it restarts the Child's client runtime when
 that runtime started before `lastApplyAt`, using the same restart as `ocx restart`. A runtime that

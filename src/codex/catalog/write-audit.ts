@@ -1,4 +1,3 @@
-import { sameFileIdentity } from "../../lib/file-identity";
 import {
   closeSync, constants, fstatSync, ftruncateSync, lstatSync, openSync, readSync, writeSync,
   type BigIntStats,
@@ -48,7 +47,7 @@ function regularPrivateFile(stat: BigIntStats): boolean {
 }
 
 function sameFile(left: BigIntStats, right: BigIntStats): boolean {
-  return sameFileIdentity(left, right) && left.size === right.size
+  return left.dev === right.dev && left.ino === right.ino && left.size === right.size
     && left.mtimeNs === right.mtimeNs && left.ctimeNs === right.ctimeNs;
 }
 
@@ -136,7 +135,7 @@ export function appendCatalogWriteAudit(
       const hardened = fstatSync(fd, { bigint: true });
       // ACL changes legitimately move ctime. Retain object identity, then take a fresh baseline.
       if (!hardened.isFile() || hardened.nlink !== 1n || hardened.size !== 0n
-        || !sameFileIdentity(opened, hardened)
+        || opened.dev !== hardened.dev || opened.ino !== hardened.ino
         || !sameFile(hardened, lstatSync(path, { bigint: true }))) return "skipped";
       opened = hardened;
     } else if (!regularPrivateFile(opened) || (before && !sameFile(before, opened))) return "skipped";

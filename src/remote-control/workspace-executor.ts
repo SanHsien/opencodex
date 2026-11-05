@@ -1,4 +1,3 @@
-import { sameFileIdentity, statFileIdentity, lstatFileIdentity, fstatFileIdentity } from "../lib/file-identity";
 import { createHash, randomUUID } from "node:crypto";
 import {
   closeSync,
@@ -15,6 +14,7 @@ import {
 } from "node:fs";
 import { basename, dirname, isAbsolute, posix, relative, resolve, sep, win32 } from "node:path";
 import { renameAtomicFile } from "../lib/windows-atomic-replace";
+import { sameFileIdentity, statTimeMs } from "../lib/file-identity";
 import {
   REMOTE_WORKSPACE_MAX_TOOL_RESULT_BYTES,
   type RemoteWorkspaceToolName,
@@ -126,7 +126,7 @@ function assertNoSymlinkComponents(root: string, candidate: string, includeLeaf:
   let current = root;
   for (let index = 0; index < limit; index += 1) {
     current = resolve(current, parts[index]!);
-    if (lstatFileIdentity(current).isSymbolicLink()) throw new Error("remote workspace symlink traversal is not allowed");
+    if (lstatSync(current).isSymbolicLink()) throw new Error("remote workspace symlink traversal is not allowed");
   }
 }
 
@@ -171,20 +171,20 @@ function decodeUtf8(value: Uint8Array): string {
 }
 
 function assertOpenedRegularFile(root: string, target: string, descriptor: number, maximum: number) {
-  const opened = fstatFileIdentity(descriptor);
-  const linked = lstatFileIdentity(target);
-  if (opened.isFile() && linked.isFile() && (opened.nlink !== 1 || linked.nlink !== 1)) {
+  const opened = fstatSync(descriptor, { bigint: true });
+  const linked = lstatSync(target, { bigint: true });
+  if (opened.isFile() && linked.isFile() && (opened.nlink !== 1n || linked.nlink !== 1n)) {
     throw new Error("remote workspace hard-linked files are not allowed");
   }
   if (!opened.isFile() || !linked.isFile() || linked.isSymbolicLink()
     || !sameFileIdentity(opened, linked)
-    || opened.birthtimeMs !== linked.birthtimeMs) {
+    || statTimeMs(opened.birthtimeNs) !== statTimeMs(linked.birthtimeNs)) {
     throw new Error("remote workspace file identity changed during access");
   }
   const canonical = realpathSync(target);
   if (!inside(root, canonical)) throw new Error("remote workspace path escapes the approved root");
   if (opened.size > maximum) throw new Error("remote workspace file exceeds the read limit");
-  return opened;
+  return { size: Number(opened.size), mode: Number(opened.mode) };
 }
 
 function readBoundedRegularFile(root: string, target: string, maximum: number): { body: Buffer; mode: number } {
@@ -217,11 +217,11 @@ function assertStableWritableParent(root: string, target: string): void {
 }
 
 function assertApprovedRootIdentity(root: ApprovedRoot): void {
-  const linked = lstatFileIdentity(root.path);
+  const linked = lstatSync(root.path, { bigint: true });
   const canonical = realpathSync(root.path);
   if (!linked.isDirectory() || linked.isSymbolicLink()
     || !sameFileIdentity(linked, root)
-    || linked.birthtimeMs !== root.birthtimeMs
+    || statTimeMs(linked.birthtimeNs) !== root.birthtimeMs
     || relative(root.path, canonical) !== "") {
     throw new Error("remote workspace approved root identity changed; pair the folder again");
   }
@@ -254,16 +254,16 @@ export class RemoteWorkspaceExecutor {
     }
     for (const root of options.roots) {
       if (!root.id || root.id.length > 128 || this.roots.has(root.id)) throw new Error("invalid remote workspace root ID");
-      const metadata = lstatFileIdentity(root.path);
+      const metadata = lstatSync(root.path);
       if (!metadata.isDirectory() || metadata.isSymbolicLink()) throw new Error("remote workspace root must be a real directory");
       const canonical = realpathSync(root.path);
-      const identity = lstatFileIdentity(canonical);
+      const identity = lstatSync(canonical, { bigint: true });
       this.roots.set(root.id, {
         id: root.id,
         path: canonical,
         dev: identity.dev,
         ino: identity.ino,
-        birthtimeMs: identity.birthtimeMs,
+        birthtimeMs: statTimeMs(identity.birthtimeNs),
       });
     }
     if (this.roots.size === 0) throw new Error("remote workspace executor needs one approved root");
@@ -304,7 +304,7 @@ export class RemoteWorkspaceExecutor {
     const args = objectArguments(input);
     noExtraKeys(args, ["path"]);
     const target = resolveExisting(root.path, args.path ?? ".", this.options.platform);
-    if (!statFileIdentity(target).isDirectory()) throw new Error("remote workspace list target is not a directory");
+    if (!statSync(target).isDirectory()) throw new Error("remote workspace list target is not a directory");
     const directory = opendirSync(target);
     const entries: Array<{ name: string; type: "directory" | "file" | "symlink" | "other" }> = [];
     try {
@@ -379,7 +379,7 @@ export class RemoteWorkspaceExecutor {
       throw new Error("remote workspace command vector is too large");
     }
     const cwd = resolveExisting(root.path, args.cwd ?? ".", this.options.platform);
-    if (!statFileIdentity(cwd).isDirectory()) throw new Error("remote workspace command cwd is not a directory");
+    if (!statSync(cwd).isDirectory()) throw new Error("remote workspace command cwd is not a directory");
     const timeoutMs = boundedInteger(args.timeoutMs, 30_000, 1, 60_000);
     const result = await this.options.commandRunner.run({
       command,

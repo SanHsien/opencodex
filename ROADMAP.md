@@ -30,7 +30,7 @@ PR 追蹤（2026-11-03；fork 基準 `13e0f0e453fb`）：以 `reviewed_pr_closed
 | 項目 | 為什麼 | 驗收方式 | 建議執行者 | 證據 |
 | --- | --- | --- | --- | --- |
 | 查明夜間 `Cross-platform CI` 的 Windows shard 紅燈 | 已完成本機分類與測試修正：shard 2 的 job 名單過期、shard 7 的故障注入過期；`stall-timeout` 全過；shard 9 的 npm 測試在 10-30、11-03 兩次 schedule 因固定 15s／30s 逾時失敗（已改用 `COLD_SPAWN_BUDGET_MS`，待遠端驗收；run 41354967821 的 shard 9 綠燈只是單次未卡住，不算修好）。push 不跑 Windows shards（`.github/workflows/ci.yml:577-578`），不能作為對照綠燈 | 逐項分類與本機修正已完成；以修正後 schedule 的九個 Windows shards 與 aggregate `ci` success，達標才刪列 | 維護者 | `docs/fork/DECISIONS.md` 2026-11-02 條目；`REVIEW.md` 本機證據；run 41354967821 |
-| 整合上游下一個 stable 版（`v2.93.0` 之後）：逐筆 fork 審查與重放 | 分類盤點尚缺 fork 檔案:行號與觸發條件，產品基底為 v2.93.0 | MSIX coordinator 測試須於非虛擬化 Windows 終端複驗；其餘 defer 項需逐筆決定。全版 tag diff 與 Windows-only 重放驗收後才推 integrated，逐筆證據完整的連續前綴才推 reviewed | Codex | `docs/fork/UPSTREAM.md` 205 筆分類清冊；`REVIEW.md` 2026-11-03 精度／路徑驗收 |
+| 整合上游下一個 stable 版（`v2.93.0` 之後）：逐筆 fork 審查與重放 | 2026-11-05 已把 `v2.93.0..v2.97.0` 全版 tag diff（1980 檔）重放到工作樹並寫逐檔清冊 `docs/fork/upstream-v2.93.0-v2.97.0-files.tsv`（採用 1563、已等價 76、適配 150、不適用 191）；但被觸及的 635 個測試檔只單獨跑完約 327 個（其餘 308 個未跑）、全量 `bun run test` 與 gui／docs-site 建置未完成，所以 `integrated_*`／`reviewed_*` 仍是 v2.93.0／`88aaa754`。已完成：`@types/bun` 1.4.4 還原後 typecheck 通過；orchestrated update 的 launcher 入口加閘並有測試釘住（`tests/update/fork-update-policy.test.ts`）；zh-tw 英文補入區段已譯為繁中。剩餘：(1) 補跑尚未單獨執行的測試檔，並對照乾淨 HEAD 判定仍失敗的檔案（清單見 `docs/fork/UPSTREAM.md` 同日節）；(2) docs-site build；(3) `tools/dev_check.ps1` 全綠；(4) 全綠後才推進 `integrated_tag`／`integrated_through`／`reviewed_*` 並刪本列與中期列 | MSIX coordinator 測試須於非虛擬化 Windows 終端複驗；其餘 defer 項需逐筆決定。全版 tag diff 與 Windows-only 重放驗收後才推 integrated，逐筆證據完整的連續前綴才推 reviewed | Codex | `docs/fork/UPSTREAM.md` 205 筆分類清冊；`REVIEW.md` 2026-11-03 精度／路徑驗收 |
 
 ## 中期：等條件成立再做
 

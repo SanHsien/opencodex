@@ -91,6 +91,8 @@ function config(options: { secondAccount?: boolean } = {}): OcxConfig {
         baseUrl: "https://chatgpt.com/backend-api/codex",
         authMode: "forward",
         codexAccountMode: "pool",
+        // This fixture intercepts HTTP fetch; no test may dial a live WebSocket.
+        upstreamWebsocket: false,
       },
     },
     codexAccounts: options.secondAccount
@@ -195,10 +197,7 @@ function installHarness(options: {
     const body = typeof init?.body === "string" ? init.body : "";
     const authorization = new Headers(init?.headers).get("authorization") ?? "";
     if (url.hostname === "auth.openai.com") {
-      const wire = JSON.parse(String(init?.body)) as Record<string, unknown>;
-      const refreshHeaders = new Headers(init?.headers);
-      refreshWires.push({ contentType: refreshHeaders.get("content-type"), accept: refreshHeaders.get("accept"), body: wire });
-      refreshes.push(typeof wire.refresh_token === "string" ? wire.refresh_token : "");
+      refreshes.push((JSON.parse(String(init?.body)) as { refresh_token?: string }).refresh_token ?? "");
       if (options.refresh) return options.refresh();
       return Response.json({
         access_token: "refreshed-access",
@@ -288,6 +287,7 @@ function encryptedRecoveryComboConfig(options: {
       adapter: "openai-responses",
       baseUrl: "https://chatgpt.com/backend-api/codex",
       authMode: "forward",
+      upstreamWebsocket: false,
     };
   }
   if (options.extraSpare) {
@@ -1758,3 +1758,32 @@ describe("stored pool 401 replay then encrypted combo recovery", () => {
     expect(harness.canonicalAliasSends).toBe(0);
   });
 });
+
+  test("the pool refresh grant goes out as the official JSON body (#7840)", async () => {
+    const harness = installHarness();
+    const response = await handleResponses(
+      request("/v1/responses"),
+      config(),
+      { model: "", provider: "" } as RequestLogContext,
+    );
+
+    expect(response.status).toBe(200);
+    expect(harness.refreshWires).toEqual([{
+      contentType: "application/json",
+      accept: "application/json",
+      body: { client_id: "app_EMoamEEZ73f0CkXaXp7hrann", grant_type: "refresh_token", refresh_token: "refresh-grant" },
+    }]);
+  });
+
+  test("a pool refresh answer without an access_token is a failed refresh, never a stored credential", async () => {
+    const harness = installHarness({ refresh: () => Response.json({ refresh_token: "rotated-refresh", expires_in: 3600 }) });
+    const response = await handleResponses(
+      request("/v1/responses"),
+      config(),
+      { model: "", provider: "" } as RequestLogContext,
+    );
+
+    expect(response.status).not.toBe(200);
+    expect(harness.sends).toEqual(["Bearer rejected-access"]);
+    expect(readStoredGeneration()).toBe(3);
+  });

@@ -1,7 +1,7 @@
-import { sameFileIdentity } from "../lib/file-identity";
 import { closeSync, constants, fstatSync, lstatSync, openSync, readSync, realpathSync, statSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { getConfigDir } from "../config/paths";
+import { sameFileIdentity } from "../lib/file-identity";
 import { samePathIdentity } from "./user-identity";
 
 export const CODEX_HOME_JOURNAL_FILE = "opencodex-journal.json";
@@ -56,7 +56,6 @@ function validJournal(value: unknown): value is Record<string, unknown> {
 export function readCodexHomeJournal(journalPath: string): CodexHomeJournalInspection {
   let fd: number | undefined;
   try {
-    // bigint: NTFS file IDs exceed 2^53 and would compare inexactly as numbers.
     const before = lstatSync(journalPath, { bigint: true });
     if (!before.isFile() || before.isSymbolicLink() || before.size > BigInt(MAX_JOURNAL_BYTES)) return { kind: "unknown" };
     fd = openSync(journalPath, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0));

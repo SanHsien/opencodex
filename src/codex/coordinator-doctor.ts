@@ -1,4 +1,3 @@
-import { sameFileIdentity, lstatFileIdentity, type IdentityStats } from "../lib/file-identity";
 /**
  * Observe and explicitly quarantine non-authoritative native-write coordinators.
  *
@@ -12,11 +11,14 @@ import {
   lstatSync,
   realpathSync,
   renameSync,
+  type Stats,
+  type BigIntStats,
 } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { Database, constants as sqliteConstants } from "bun:sqlite";
+import { sameFileIdentity, type FileIdentity as NodeIdentity } from "../lib/file-identity";
 
 import { resolveCodexHomeDir } from "./home";
 import {
@@ -33,7 +35,11 @@ import {
 const IMMUTABLE_READONLY_FLAGS =
   sqliteConstants.SQLITE_OPEN_READONLY | sqliteConstants.SQLITE_OPEN_URI;
 
-export type FileIdentity = Pick<IdentityStats, "dev" | "ino" | "size" | "mtimeMs" | "ctimeMs">;
+export type FileIdentity = NodeIdentity & Pick<Stats, "size" | "mtimeMs" | "ctimeMs">;
+
+function milliseconds(ns: bigint): number {
+  return Number(ns / 1_000_000_000n) * 1000 + Number(ns % 1_000_000_000n) / 1e6;
+}
 
 export interface CodexCoordinatorDiagnosticEvidence {
   sizeBytes: number;
@@ -83,9 +89,9 @@ function coordinatorPathWithoutCreation(): { kind: "absent"; path: string | null
   if (namespace.status === "missing") return { kind: "absent", path: null };
 
   const locks = join(namespace.root, "native-write-locks");
-  let locksEntry: IdentityStats;
+  let locksEntry: Stats;
   try {
-    locksEntry = lstatFileIdentity(locks);
+    locksEntry = lstatSync(locks);
   } catch (cause) {
     if (errorCode(cause) === "ENOENT") {
       const digest = createHash("sha256").update(canonicalCodexHome).digest("hex");
@@ -112,9 +118,9 @@ function inspectTarget(
   path: string,
   options: { allowSqliteSidecars?: boolean } = {},
 ): { kind: "absent" } | { kind: "file"; identity: FileIdentity } | { kind: "unsafe"; reason: string } {
-  let entry: IdentityStats;
+  let entry: BigIntStats;
   try {
-    entry = lstatFileIdentity(path);
+    entry = lstatSync(path, { bigint: true });
   } catch (cause) {
     if (errorCode(cause) === "ENOENT") return { kind: "absent" };
     return { kind: "unsafe", reason: "the coordinator file cannot be inspected" };
@@ -131,7 +137,7 @@ function inspectTarget(
   }
   if (process.platform !== "win32") {
     const uid = process.getuid?.();
-    if (uid === undefined || entry.uid !== uid || (entry.mode & 0o777) !== 0o600) {
+    if (uid === undefined || Number(entry.uid) !== uid || (Number(entry.mode) & 0o777) !== 0o600) {
       return { kind: "unsafe", reason: "the coordinator file has unsafe ownership or permissions" };
     }
   }
@@ -142,7 +148,8 @@ function inspectTarget(
       }
     }
   }
-  return { kind: "file", identity: entry };
+  return { kind: "file", identity: { dev: entry.dev, ino: entry.ino, size: Number(entry.size),
+    mtimeMs: milliseconds(entry.mtimeNs), ctimeMs: milliseconds(entry.ctimeNs) } };
 }
 
 function classifyOpenedDatabase(

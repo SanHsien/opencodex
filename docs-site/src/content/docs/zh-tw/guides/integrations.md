@@ -117,222 +117,6 @@ OpenClaw 有數個環境變數，各自負責不同的工作。`OPENCLAW_CONFIG_
 
 opencodex 從自己的環境讀取這些變數。如果你的 gateway 以 profile 或搬移過的家目錄執行，請以相同的變數啟動 opencodex，否則它會正確地遵循另一個安裝。
 
-## Gentle Shell
-
-Choose **Connect → Gentle Shell**, or use the same managed-integration commands:
-
-```bash
-ocx export --client gentle-shell --json
-ocx integration client enable --client gentle-shell
-ocx integration client disable --client gentle-shell
-```
-
-Gentle Shell has a separate destination and rollback history from Pi. Only
-`providers.opencodex` is managed; other providers and preferences stay intact.
-Catalog changes refresh an already connected, unchanged block. An existing manually
-copied block is a conflict, not permission to overwrite it: inspect the preview and
-use the explicit overwrite confirmation only if you intend to replace it.
-
-The saved `home` in `~/.gentle-shell/config.json` selects the destination. A saved
-custom path wins; isolated/default mode uses `GENTLE_SHELL_HOME` or
-`~/.gentle-shell/agent`. `GENTLE_SHELL_CONFIG` selects an alternate launcher config.
-These environment variables must be set on the **OpenCodex process**, not just in a
-later shell. Selectors must be absolute paths; literal `~` and relative paths refuse.
-One-off `gentle-shell --home` flags cannot be discovered by a background proxy.
-
-Link mode or a home aliasing Pi refuses with a Pi-integration remedy; use **Connect → Pi**
-for that shared file instead. OpenCodex does not change launcher preferences. An
-unreadable/unsafe launcher config refuses; malformed JSON falls back to isolated,
-matching the launcher. If you move a connected home, disable it using its original
-selectors before reconnecting the new one. Restart Gentle Shell after a catalog update.
-This integration retains Pi’s loopback-only export policy and stores no real API key.
-
-"omo" names three products that share the `~/.omo` folder. The **omo** tab manages Pi-based omo
-(the senpi engine) through `~/.omo/agent/models.json`, as in the table above. Codex-based omo
-(LazyCodex) gets its own section on the same tab, shown only when LazyCodex is detected, described in
-[omo (Codex / LazyCodex) role models](#omocodex--lazycodex角色模型). OpenCode-based omo
-(oh-my-opencode) keeps its own config under OpenCode; opencodex does not read or write it.
-
-Qoder IDE / qodercli supports export and managed configuration through the Dashboard and CLI:
-
-    ocx export --client qoder --json
-    ocx integration client enable --client qoder
-    ocx integration client disable --client qoder
-
-Qoder uses `settings.json` in `QODER_CONFIG_DIR` when that variable is set, and
-`~/.qoder/settings.json` otherwise; a relative `QODER_CONFIG_DIR` is refused. Enable merges `providers.opencodex` and
-OpenCodex entries in `modelConfigs.customModels`, preserving other providers, custom models,
-and settings. Disable removes the recorded OpenCodex entries; restore uses the existing
-snapshot workflow. The provider's default model is the first model in the sorted export.
-Custom models use their catalog context window, falling back to 128000 input tokens.
-The generated API key is a non-secret placeholder: Qoder integration requires loopback
-access and refuses an authenticated non-loopback bind. When the dedicated unauthenticated
-loopback listener is enabled, exports point Qoder at that listener. `ocx sync` and catalog
-changes refresh an already enabled Qoder integration like the other managed clients.
-
-Generated catalogs include only enabled models from each provider selection. This applies to both
-downloads and managed integrations, including Pi and Aside. The management model list still shows
-the full roster so you can enable additional models.
-
-`ocx uninstall` disables recorded integrations, including all owned Aside profiles, before deleting
-OpenCodex's recovery state. Unreadable ownership, missing profile registration or a conflicting edit
-stops that deletion. Cleanup is sequential: earlier successful disables are not undone when a later
-one fails. If compensation also fails, a client file may be left in an intermediate state. Inspect
-the reported client files and retained recovery snapshots before retrying; retained state does not
-mean every client was restored or left unchanged.
-
-For Gajae built-in presets, keep the routing choice in `~/.gjc/agent/config.yml`:
-
-    modelProfile:
-      proxyProvider: opencodex
-      proxyMode: always
-
-Keep your chosen `modelProfile.default` to apply it when plain `gjc` starts. The managed integration owns only `providers.opencodex` in `models.yml`; refreshing or disabling that provider does not rewrite your preset choice. Refresh the integration after changing the exported model selection.
-
-GJC models with a supported reasoning-effort ladder export `reasoning: true`, `thinking.levels`, and `compat.supportsReasoningEffort`, so GJC can offer an effort choice. Native Codex models receive their standard ladder even when the catalog omits it. Models without a known ladder omit these fields; `none` and `ultra` are not offered because `none` sends no effort and `ultra` folds to `max` on the wire. Refresh the integration to update these model options.
-
-The managed OpenCode integration owns two fragments: `provider.opencodex` (opencode V1) and
-`providers.opencodex` (opencode V2). Both carry the same declared per-model reasoning choices and
-defaults — the legacy block spells a model's default in its options and its choices as a variant
-map, the V2 block uses the model's settings and a native variant array — so both are written and
-kept in sync; they name the same provider and model ids, and opencode V2 merges them into one
-provider entry. Apply, Refresh, Disable, and Restore act on both fragments, and your other
-providers, agents, keybinds, and MCP entries stay untouched.
-
-Both fragments are built from the effective canonical model metadata — as are the Kilo export and
-the `ocx opencode` launcher. An explicit custom override always wins, and a ladder you cleared to
-empty stays empty; a reasoning ladder or default is never invented for a model that declares none.
-An authoritative context limit is carried with an output budget beside it: a known output value —
-explicit or from catalog metadata — wins, otherwise the schema-required 32000 fallback clamped to
-the context, and without an authoritative context the whole limit block is omitted. Capabilities,
-effort ladders, defaults, and an optional input limit appear only when known; the V2 block's
-native capabilities object requires a known tools value, so when tool support is unknown it is
-omitted entirely rather than written partially, and the legacy modality declarations stand.
-"No ladder invented" still writes the controls, never choices: the V2 block always carries an
-explicit variant array — empty when nothing is declared, because omitting it would make OpenCode
-synthesize low/medium/high — and a model with known fixed reasoning but no adjustable ladder gets
-disabled-only suppression instead of an effort: the legacy OpenCode block and Kilo both disable
-every rung id the client would otherwise generate. Neither adds a selectable effort. The
-selectable variants override the per-model
-default — `none` included, offered only when the model's own declared ladder contains it. Whatever
-the client selects, the proxy's pinned upstream reasoning policy still governs the request that
-leaves it.
-
-Managed DSH support has a compatibility floor of **DSH 0.1.0-rc.6**. DSH 0.1.7+ reads provider
-routes from `[id=llm-pi-ai].config.providers.opencodex` in the Desktop profile patch,
-`$DSH_HOME/profiles/desktop/cordis.patch.yml`, which DSH hot reloads. OpenCodex writes that row when the Desktop profile and its patch exist. If
-`$DSH_HOME/profiles/desktop/package.json` exists but `cordis.patch.yml` is missing, Apply refuses:
-create `cordis.patch.yml` containing `[]` (the empty patch DSH writes for a new profile), then
-enable the integration again. Only when there is no Desktop profile does OpenCodex use
-`llm-pi-ai.providers.opencodex` in `$DSH_HOME/settings.yaml`. OpenCodex owns only that provider
-fragment: Apply and Refresh replace it, Disable removes it, and Restore puts back a recorded
-snapshot. These operations do not change the user's default model or the native
-`deepseek-official` provider.
-The managed DSH integration is currently loopback-only and never writes a real credential.
-
-MiniMax Code follows `MINIMAX_DATA_DIR`, then `MAVIS_DATA_DIR`, before falling
-back to `~/.minimax`. Its managed block owns only `custom_provider.opencodex`.
-It does not change `defaultModel`, the selected MiniMax credential source, or
-the user's MiniMax login. Choose a `custom_provider:opencodex/<provider/model>`
-entry in MCode after connecting it. Refreshing the integration also refreshes
-authoritative per-model context windows and reasoning-effort choices; unknown
-capabilities are omitted, and MCode's session-owned current effort is preserved.
-
-Prime Agent follows `PRIME_AGENT_CODING_AGENT_DIR` before falling back to
-`~/.prime/agent`; a relative value is refused so the proxy and the agent cannot
-disagree about which file is meant. Its managed block owns only
-`providers.opencodex`, so other providers and any `modelOverrides` you have set
-stay untouched. Prime Agent reads `models.json` when a session starts, so start
-a new session after connecting it.
-
-Aside keeps a separate model catalog for each registered profile, including local profiles. OpenCodex lists
-all registered profiles, including local profiles, and can synchronize them together or control
-one profile at a time. Switching an integration never changes Aside's active account. A prior
-Aside connection enables all profiles by default; individual exclusions survive later syncs.
-
-One caveat specific to Aside: the running app rewrites `models.json` itself, so
-fully quit and reopen Aside after applying, the same way Claude Desktop needs a
-restart. Aside's block is loopback-only and never carries a real credential.
-
-The managed Raycast integration supports **macOS and Windows**. Custom Providers
-is a **Raycast Pro** feature: on a free plan the file is still written, but
-`ocx integration client status --client raycast` and the **Connect** page report
-a warning, because Raycast will not read it. On macOS or Windows, open Raycast →
-Settings → AI → **Reveal Providers Config** once so the `ai` folder exists.
-On these supported platforms, opencodex uses that folder as its install signal
-and reports the client as not installed until it exists. Linux is unsupported,
-even if the folder exists.
-
-The status field `aiDirPresent` reports only whether `~/.config/raycast/ai` exists,
-independently of whether the Raycast app is installed or the platform is supported.
-It does not prove that Raycast is installed or usable. The CLI prints `plan` on a
-separate line and adds the macOS/Windows setup instruction when `aiDirPresent` is
-false; `--json` preserves the raw status, including the nested `raycast` block.
-Raycast reads `~/.config/raycast/ai/providers.yaml` on macOS and Windows alike and
-does not honor `XDG_CONFIG_HOME`, so that path is not relocatable.
-
-The managed block is one element, `id: opencodex`, in the file's `providers`
-sequence: `name: OpenCodex`, `base_url: http://<host>:<port>/v1`, and every
-routed model with its `abilities` — the exporter sets `tools` and `system_message` to
-`true` as a client-export convention, `vision` follows the catalog's input modalities, `reasoning_effort`
-is set when the model has an effort ladder, and `temperature` is turned off for
-reasoning models. Other providers in the file are preserved, and disable removes
-only the OpenCodex element. Raycast picks up the change as soon as the file is
-saved, no restart needed; the models appear in Raycast's model picker grouped
-under **OpenCodex**. Raycast supports optional `api_keys`, but OpenCodex intentionally
-omits them and refuses non-loopback or admission-authenticated targets; this integration
-cannot supply OpenCodex's required admission header.
-
-The macOS private preference is only an advisory Pro hint; Windows never reads it and
-reports the plan as unknown. Plan detection does not authorize or block a write.
-The export metadata has no authoritative tool-support flag, so `tools: true` does not
-prove every routed model supports tools. Vision and effort flags follow catalog metadata;
-turning temperature off for an effort ladder is conservative export behavior.
-Provider values are preserved; YAML formatting and comments are not guaranteed to survive.
-The format is documented at
-[manual.raycast.com/ai/custom-providers](https://manual.raycast.com/ai/custom-providers).
-
-Raycast CLI exports and dashboard downloads use the running server's destination and
-admission policy, including a configured unauthenticated loopback listener. `ocx ensure`
-does not refresh Raycast from its saved configuration snapshot: that can differ from the
-running server. Server startup and explicit sync remain the catalog refresh paths.
-
-
-Cursor has a tab but is not one of these switches. Regular Cursor calls custom endpoints from
-its own backend, so a loopback proxy is unreachable without a public tunnel, and Cursor's
-separate Private Inference build is configured inside Cursor. The **Cursor** tab is read-only:
-it detects which build is installed, shows the Base URL and API Key to paste into Cursor, and
-reports the last request Cursor made to the proxy. See
-[Cursor Private Inference](/zh-tw/guides/cursor-private-inference/).
-
-Paths honor each client's own environment override where it has one. For OMP,
-`OMP_PROFILE` wins over `PI_PROFILE` by presence, even when explicitly empty. A named profile
-uses `PI_CONFIG_DIR` as a directory name relative to the user's home and ignores `PI_CODING_AGENT_DIR`; without a named profile,
-`PI_CODING_AGENT_DIR` wins. OMP supports provider-level headers, but this initial integration
-is deliberately loopback-only; remote `x-opencodex-api-key` wiring is deferred. Relocated
-`HERMES_HOME`, `KIMI_CODE_HOME`, and `XDG_CONFIG_HOME` paths are likewise followed rather than
-guessed at. The table lists each client's default.
-
-For native OpenAI models, the generated OMP block selects its model-level Responses API, preserving
-image input and reasoning-effort controls. Routed models retain the provider's Chat Completions
-dialect so their existing adapters remain compatible.
-
-OpenClaw has several, and they do different jobs. `OPENCLAW_CONFIG_PATH` selects the
-file; `OPENCLAW_STATE_DIR`, `OPENCLAW_PROFILE` and `OPENCLAW_HOME` select the state
-directory, which is also what detection looks at — so a profile or relocated home
-still reads as installed, while a config-path override moves only the file. If you
-are still on the older `.clawdbot` layout, that is found too: the modern directory
-wins when it exists, and the legacy one is used when it is the only one there.
-
-These must be **absolute paths** or start with `~`. A relative one is refused rather
-than resolved, because it would mean whatever directory each process happened to
-start in — and that path is stored with the backup, so it has to name the same file
-tomorrow as it did today.
-
-opencodex reads these from its own environment. If your gateway runs with a profile
-or a relocated home, start opencodex with the same variables set, or it will
-correctly follow a different installation.
-
 ### Qoder CN and WorkBuddy editions
 
 In **Connect**, enable **Qoder CN**, **WorkBuddy (CN)** or **WorkBuddy AI**, then choose
@@ -392,6 +176,82 @@ access and refuses an authenticated non-loopback bind. When the dedicated unauth
 loopback listener is enabled, exports point Qoder at that listener. `ocx sync` and catalog
 changes refresh an already enabled Qoder integration like the other managed clients.
 Model IDs containing `,` or `]` (for example `kimi/k3[1m]`) are exported like any other model.
+
+## Gentle Shell
+
+選擇 **Connect → Gentle Shell**，或使用同樣的受管整合指令：
+
+```bash
+ocx export --client gentle-shell --json
+ocx integration client enable --client gentle-shell
+ocx integration client disable --client gentle-shell
+```
+
+Gentle Shell 的目的地與回復歷史與 Pi 分開。只有 `providers.opencodex` 受管；其他供應商與偏好維持不變。
+目錄變更會重新整理已連線且未變動的區塊。既有、手動複製的區塊屬於衝突，而不是允許覆寫：
+請檢視預覽，只有在你確實要取代它時才使用明確的覆寫確認。
+
+`~/.gentle-shell/config.json` 中儲存的 `home` 決定目的地。已儲存的自訂路徑優先；隔離／預設模式使用
+`GENTLE_SHELL_HOME` 或 `~/.gentle-shell/agent`。`GENTLE_SHELL_CONFIG` 選擇另一份啟動器設定。
+這些環境變數必須設定在 **OpenCodex 處理程序**上，而不是只設在之後的 shell。選擇器必須是絕對路徑；
+字面的 `~` 與相對路徑會被拒絕。一次性的 `gentle-shell --home` 旗標無法被背景代理發現。
+
+連結模式，或與 Pi 共用同一個 home 的別名，會被拒絕並附上 Pi 整合的補救方式；請改用 **Connect → Pi** 處理該共用檔案。
+OpenCodex 不會變更啟動器偏好。無法讀取或不安全的啟動器設定會被拒絕；格式錯誤的 JSON 會退回隔離模式，與啟動器一致。
+若你移動了已連線的 home，請先用原本的選擇器停用它，再連線新的 home。目錄更新之後請重新啟動 Gentle Shell。
+此整合沿用 Pi 僅限迴路的匯出策略，且不儲存任何真實的 API 金鑰。
+
+「omo」指的是共用 `~/.omo` 資料夾的三個產品。**omo** 分頁管理以 Pi 為基礎的 omo（senpi 引擎），
+經由 `~/.omo/agent/models.json`，如上表所示。以 Codex 為基礎的 omo（LazyCodex）在同一分頁有自己的區段，
+只在偵測到 LazyCodex 時才顯示，說明見 [omo（Codex／LazyCodex）角色模型](#omocodex--lazycodex角色模型)。
+以 OpenCode 為基礎的 omo（oh-my-opencode）把自己的設定留在 OpenCode 之下；opencodex 不讀取也不寫入它。
+
+受管的 Pi 型 omo 區塊預設使用 Chat 方言（`api: "openai-completions"`）。Chat 會在跨工具呼叫時丟棄上一步的推理，
+這是 omo 的長工具迴圈會注意到的。若要讓啟用與每次重新整理都改寫成 Responses 方言，請在你的 opencodex 設定中設定這個僅限設定檔的鍵：
+
+```json
+{ "omoClientExport": { "api": "openai-responses" } }
+```
+
+請重新啟動代理以載入編輯後的設定（服務安裝用 `ocx service restart`，或先 `ocx stop` 再 `ocx start`），
+然後在儀表板的 **Connect → omo** 重新整理 omo 整合。單獨重新整理使用的是執行中代理的設定，不會重新載入設定檔。
+
+此設定只適用於 omo；Pi、Gentle Shell 與其他 Pi 格式的用戶端維持 `openai-completions`。
+要回到 Chat，請移除該鍵、以同樣方式重新啟動代理，再重新整理 **Connect → omo**。未知的值會被忽略。
+opencodex 仍只擁有 `~/.omo/agent/models.json` 中的 `providers.opencodex`，該檔案中的其他供應商維持原狀。
+
+## T3 Code
+
+[T3 Code](https://github.com/pingdotgg/t3code) 驅動機器上已安裝的 Codex 與 Claude Code CLI。
+啟用 [Codex 整合](/zh-tw/guides/codex-integration/)後，它的 Codex 對話串會經由 opencodex 路由，
+因為 T3 Code 透過 `codex app-server` 列出 Codex 模型，而它和所有 Codex 用戶端一樣讀取 `$CODEX_HOME/config.toml`。
+只要 T3 Code 執行 Codex 時使用 opencodex 所管理的同一個 Codex home（`CODEX_HOME`，預設 `~/.codex`），
+路由模型就會出現在 Codex 底下，不需要任何 T3 Code 開關。指向其他 home 的 T3 Code Codex 實例看不到路由目錄。
+
+**T3 Code** 開關加入 Claude 這一側。它需要 Messages API（每個 Claude 回合都會用到）：
+API 頁面上的 Messages 關閉時，啟用與重新整理會被拒絕，停用仍可運作。
+
+```bash
+ocx export --client t3code --json
+ocx integration client enable --client t3code
+ocx integration client disable --client t3code
+```
+
+啟用會在 T3 Code 的伺服器設定中寫入一個供應商實例 `providerInstances.opencodex`，並保留其他每個實例與設定。
+它是名為 **opencodex** 的 Claude 實例，執行你自己的 `claude` 執行檔，並把 `ANTHROPIC_BASE_URL` 設為代理，
+`ANTHROPIC_AUTH_TOKEN` 使用非機密的 `opencodex-proxy` 標記，`ANTHROPIC_API_KEY` 明確設為空，
+並設定 `CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST=1`，讓你 Claude 設定中的 `settings.json` env 區塊無法重新指向。
+每個路由模型都是以其 opencodex 選擇器（`provider/model`）為鍵的自訂模型，T3 Code 會原樣送出。
+它會出現在 T3 Code 模型選擇器的 **opencodex** 底下。T3 Code 會自行重新載入該檔案，所以不需要重新啟動；
+目錄變更與 `ocx sync` 會重新整理該實例。
+
+T3 Code 在設定了 `T3CODE_HOME` 時把資料放在該處，否則放在 `~/.t3`。若你搬動了它，請在 opencodex 處理程序上設定同一個變數；
+相對值會被拒絕。在 Windows 上，請使用完整限定的磁碟機路徑（`C:\shared\t3`）或 UNC 路徑（`\\server\share\t3`）；
+沒有磁碟機的路徑，例如 `\shared\t3` 或 `/shared/t3`，會被拒絕。`~` 會依有效的使用者 home 展開。
+標記不是憑證，所以此整合需要迴路存取，並且會拒絕已驗證的非迴路綁定，除非啟用了未驗證的迴路監聽器。
+
+請把這個實例視為 opencodex 的。在 T3 Code 中把它的某個變數標為**敏感**、替它加入自訂模型，或將它關閉，都會改寫該區塊。
+開關這時會顯示衝突，而不是覆寫你的編輯，並由**取代**還原產生的區塊。若要使用不同的設定，請在 T3 Code 中於它旁邊加入你自己的 Claude 實例。
 
 Generated catalogs include only enabled models from each provider selection. This applies to both
 downloads and managed integrations, including Pi and Aside. The management model list still shows
@@ -549,6 +409,10 @@ still reads as installed, while a config-path override moves only the file. If y
 are still on the older `.clawdbot` layout, that is found too: the modern directory
 wins when it exists, and the legacy one is used when it is the only one there.
 
+在 Windows 上，需要絕對路徑的覆寫必須包含磁碟機代號（`C:\Users\me\client`）或 UNC 共用（`\\server\share\client`）。
+沒有磁碟機的根目錄形式，例如 `\Users\me\client` 或 `/client/config`，因為依賴目前的磁碟機而會被拒絕。
+文件中標明支援 `~` 的選擇器仍會依有效的 home 展開；Gentle Shell 不展開 `~`。
+
 These must be **absolute paths** or start with `~`. A relative one is refused rather
 than resolved, because it would mean whatever directory each process happened to
 start in — and that path is stored with the backup, so it has to name the same file
@@ -655,6 +519,29 @@ ocx integration client disable --client hermes
 ocx integration client history --client hermes
 ocx integration client restore --op <opId> [--confirm-drift]
 ```
+
+### 選用的別名模型名稱
+
+Hermes 與 Command Code 接受 `--model-names alias|routed`。預設為 `routed`，與 `preferModelAliasIds` 無關。例如：
+
+```bash
+ocx export --client hermes --model-names alias --json
+ocx integration client preview --client hermes --operation apply --model-names alias --json
+ocx integration client enable --client hermes --model-names alias
+ocx integration client enable --client commandcode --model-names alias
+```
+
+匯出只是預覽：它使用已載入的目前目錄，不會寫入任何用戶端設定或整合狀態。若該目錄不可用，請另外載入模型目錄後重試。
+`--out` 會明確寫出匯出成品；它不會連線用戶端。
+
+連線會儲存這個模式。之後的套用（包含儀表板）省略旗標時會保留它；明確的 `--model-names routed` 則會重設。
+像 `AC/AC-model-x` 這樣的限定別名，只有在路由器證明供應商與模型相同時，才會取代 `acme/vendor-model-x`。
+缺少或不安全的別名與衝突，會退回路由鍵。組合保留其既有的鍵。
+
+別名重新命名或移除後，請執行 `ocx sync` 或明確套用該連線：下一次成功的受管重新整理，會把舊的鍵換成新驗證過的別名或路由後備。
+別名編輯不會以原子方式更新用戶端檔案。重新整理維持冪等，並拒絕外來的編輯。
+若別名在套用或重新整理等待期間改變，寫入會被拒絕；請對目前的目錄重試。
+每個具名的 Hermes 設定檔各自儲存自己的模式；自動目錄重新整理只涵蓋預設設定檔，所以具名設定檔需要明確套用。其他匯出器保留路由名稱。
 
 ### Preview and bind a terminal write
 
@@ -999,20 +886,55 @@ ocx agent roles set explorer xai/grok-4.5
 
 ### 自動指派
 
-自動指派是 omo（Codex / LazyCodex）的一部分：它位於該區段中角色表的上方，且只在偵測到 LazyCodex 時才存在。沒有它時，儀表板兩者都不顯示，API 回應 409 `lazycodex_not_detected`，而 `ocx agent roles suggest` 會被拒絕。
+自動指派是 omo（Codex／LazyCodex）的一部分：它位於該區段的角色表上方，只有偵測到 LazyCodex 時才存在。
+沒有它時，儀表板兩者都不顯示，API 回應 409 `lazycodex_not_detected`，而 `ocx agent roles suggest` 會被拒絕。
 
-自動指派會一次為每個角色建議模型。opencodex 向你的預設 Codex 模型（Codex `config.toml` 中的根層級 `model`）問一個問題：針對每個角色，根據它的描述與指示的開頭，它需要哪個能力層級（fast、standard 或 frontier），以及多少推理（glance、measured、thorough 或 exhaustive）？那個模型絕不會挑選模型。接著 opencodex 會從你的選擇器清單中，挑出達到該層級的最便宜模型：
+自動指派會一次為每個角色提出模型建議。opencodex 向你的預設 Codex 模型（Codex `config.toml` 中的根 `model`）問一個問題：
+對每個角色，依其描述與指示的開頭，它需要哪個能力層級（fast、standard 或 frontier）、多少推理（glance、measured、thorough 或 exhaustive），
+以及哪個任務領域（coding、agentic、reasoning、writing、knowledge 或 general）？該模型從不挑選模型。
+opencodex 接著從你的選擇器清單中，挑出達到該層級的最便宜模型：
 
-- 列在 opencodex 設定中 `codexRoleTiers`（`{ "fast": [...], "standard": [...], "frontier": [...] }`）之下的模型，屬於該層級。
-- 其他有已知價格的模型依價格排序，並平均分到三個層級。只有一兩個有價格的模型時，最貴的是 frontier，另一個（如果有）是 standard。
-- 沒有價格也沒有列出層級的模型絕不會被建議。把它們列出來就能納入。
+- 在 opencodex 設定的 `codexRoleTiers`（`{ "fast": [...], "standard": [...], "frontier": [...] }`）中列出的模型，屬於該層級。
+- 當其餘模型中有兩個或以上在該角色的領域有公布分數時，這些模型會依不同的分數值分層，不需要價格；
+  分數相同者同屬一層，沒有分數的模型被排除。分數來自 [Artificial Analysis](https://artificialanalysis.ai)（在你加入自己的 API 金鑰之後，見下）。
+  Artificial Analysis 已不再公布 Coding 或 Agentic 指數，所以每個領域都以其 Intelligence Index 計分。回應的 `capability` 區塊會指出所用的來源。
+- 其他有已知價格的模型依價格排序，並平均分到三個層級。只有一個或兩個有價格的模型時，最貴的為 frontier，另一個（若有）為 standard。
+- 當分層退回依價格時，沒有價格也沒有列出層級的模型不會被建議。請列出它們才會納入。
 
-每項建議會顯示模型、層級、reasoning effort、一行理由，以及什麼會讓它上升或下降。模型無法清楚評估規模的角色會顯示為未評估，並附上原因，且不能套用。在你對某一列按 Apply 或按 Apply all 之前不會寫入任何東西。套用使用與手動挑選相同的儲存，且當檔案已經有 `model_reasoning_effort` 時也會改寫它。effort 會放在所選模型自己的等級上：它的最低、它的預設、比預設高一級，或它的最高。
+若要使用 Artificial Analysis，請在 [artificialanalysis.ai](https://artificialanalysis.ai/data-api/docs) 建立免費的 API 金鑰，
+並設定為字面值、`${ENV}` 參照或金鑰圈參照：
+
+```json
+{
+  "codexRoleCapability": {
+    "artificialAnalysis": { "apiKey": "${ARTIFICIAL_ANALYSIS_API_KEY}" }
+  }
+}
+```
+
+opencodex 每天讀取一次免費語言模型清單（`/api/v2/language/models/free`），每頁一個請求，維持在免費方案每日請求上限之內。
+其條款允許將資料用於你自己的決策，但禁止轉傳，所以自動指派把分數保留在內部：回應帶有每個模型得到的層級與出處標示，但不含分數。
+若金鑰不存在或讀取失敗，自動指派會使用已設定的層級與價格；`capability.error` 會回報原因，出處標示欄位為 null。已淘汰的 `huggingFace` 設定會被忽略。
+
+Artificial Analysis 會拒絕 HTTP 重新導向，最多讀取十頁與合計 16 MiB，並給每個請求 30 秒的逾時；較長的清單視為讀取失敗。
+憑證只會送到它固定的 API 端點。
+
+每個建議會顯示模型、層級、推理強度、一行理由，以及什麼會讓它上調或下調。模型無法明確評估的角色會顯示為未評估並附上原因，且無法套用。
+在你按下某一列的套用或全部套用之前，不會寫入任何內容。套用使用與手動挑選相同的儲存。
+每個已評估、且所選模型具有非空 effort 階梯的角色都會得到 effort 建議，而套用或 `--apply` 會插入或取代其 `model_reasoning_effort` 值。
+effort 會放在所選模型自己的層級上：它的最低、預設、預設上一階，或最高。空的階梯不給 effort 建議（`proposedEffort: null`）；
+套用會省略 `effort`，並保持既有的 effort 固定值不變。null 建議絕不會清除固定值。
 
 ```bash
 ocx agent roles suggest
 ocx agent roles suggest --model xai/grok-4.5 --apply
 ```
+
+CLI 的 `--apply` 在一個歷史批次中最多接受 50 個變更的角色。較大的操作會在任何角色更新之前被拒絕；
+請預覽它，並用 `ocx agent roles set` 套用個別選擇。中斷的操作會回報已確認的寫入與未確認的請求，並讓較早的寫入維持已套用。
+重試之前請參閱 [CLI 套用與復原契約](/zh-tw/reference/cli/agents/)。
+
+在表格下方，**變更歷史**列出儲存、自動指派套用或 `ocx agent roles set` 所寫入的最新變更，由新到舊，以完整批次為單位且不超過 50 筆，所以一次全部套用，其寫入的每個角色要嘛全部列出、要嘛完全不列出，並附上每個角色變更前後的模型與 effort。一次全部套用是一筆項目。**還原**會透過同一個儲存把較早的值寫回，所以還原本身也會被列出。儲存絕不移除模型固定值，所以原本沒有固定值的角色會保留目前的模型，只還原其 effort。歷史存放在 opencodex 設定目錄下的 `integrations/codex-agent-roles.jsonl`，最多保留 256 KiB 與 1000 列，方式是丟棄最舊的完整批次。壓縮的目標是 128 KiB，並在兩項上限都容得下時，把還原與其完整的來源批次一起保留，必要時丟棄不相關的較舊批次來騰出空間；隨著之後的寫入，歷史仍可能過期。寫入器會在附加之前擷取有界的歷史，所以還原不會在保留邊界逐出自己的來源；上方 omo 卡片的還原中心只追蹤 `~/.omo/agent/models.json`。每筆變更都記錄它所做的 Codex home，且只列出或還原目前 home 的變更，因此把 `CODEX_HOME` 指向別處後，清單會從空的開始，來自另一個 home 歷史的還原會被拒絕。若無法讀取歷史檔，該區段會就地說明，而不顯示清單，角色表仍可運作。
 
 ## Kilo
 

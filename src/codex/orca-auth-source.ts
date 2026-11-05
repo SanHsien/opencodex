@@ -1,6 +1,6 @@
-import { lstatFileIdentity, fstatFileIdentity, sameFileIdentity } from "../lib/file-identity";
 import { closeSync, constants, fstatSync, lstatSync, openSync, readSync, realpathSync } from "node:fs";
 import { dirname, isAbsolute, join, parse, relative, resolve } from "node:path";
+import { sameFileIdentity } from "../lib/file-identity";
 
 const MAX_AUTH_BYTES = 256 * 1024;
 export const ORCA_ACCOUNT_DIRECTORY = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -16,7 +16,7 @@ export function assertPlainLocalPath(path: string): string {
   let current = parse(absolute).root;
   for (const component of relative(current, absolute).split(/[\\/]/).filter(Boolean)) {
     current = join(current, component);
-    if (lstatFileIdentity(current).isSymbolicLink()) throw new Error("Unsafe local credential path.");
+    if (lstatSync(current).isSymbolicLink()) throw new Error("Unsafe local credential path.");
   }
   if (!sameLocalPath(realpathSync(absolute), absolute)) throw new Error("Unsafe local credential path.");
   return absolute;
@@ -24,29 +24,27 @@ export function assertPlainLocalPath(path: string): string {
 
 export function readBoundedLocalFile(path: string, limit = MAX_AUTH_BYTES): string {
   assertPlainLocalPath(path);
-  // O_NOFOLLOW does not exist on Windows, so the lexical lstat plus the dev/ino match
-  // is what rejects a symlink and a swap between the check and the open.
-  const before = lstatFileIdentity(path);
+  const before = lstatSync(path, { bigint: true });
   if (!before.isFile() || before.size > limit) throw new Error("Invalid local credential file.");
   const fd = openSync(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0));
   try {
-    const opened = fstatFileIdentity(fd);
+    const opened = fstatSync(fd, { bigint: true });
     if (!opened.isFile() || opened.size > limit || !sameFileIdentity(before, opened)) {
       throw new Error("Local credential file changed.");
     }
     // The cap bounds the read, not the allocation: tiny registry files should not
     // allocate 32 MiB on each preview/recheck. One extra byte detects concurrent growth.
-    const bytes = Buffer.alloc(opened.size + 1);
+    const bytes = Buffer.alloc(Number(opened.size) + 1);
     let length = 0;
     while (length < bytes.length) {
       const count = readSync(fd, bytes, length, bytes.length - length, null);
       if (!count) break;
       length += count;
     }
-    if (length !== opened.size) throw new Error("Local credential file changed.");
+    if (BigInt(length) !== opened.size) throw new Error("Local credential file changed.");
     assertPlainLocalPath(path);
-    const after = lstatFileIdentity(path);
-    if (!sameFileIdentity(after, opened) || after.size !== opened.size || after.mtimeMs !== opened.mtimeMs) {
+    const after = lstatSync(path, { bigint: true });
+    if (!sameFileIdentity(after, opened) || after.size !== opened.size || after.mtimeNs !== opened.mtimeNs) {
       throw new Error("Local credential file changed.");
     }
     return bytes.subarray(0, length).toString("utf8");

@@ -66,22 +66,6 @@ describe("Anthropic serving-account metadata", () => {
     }
     expect(bindAnthropicAccountMetadata(alreadyIsolatedA, A)).toBe(alreadyIsolatedA);
   });
-  test("moving a body bound to account A onto account B leaves none of A's device identity on the wire", () => {
-    const onA = bindAnthropicAccountMetadata(source, A);
-    const onB = bindAnthropicAccountMetadata(onA, B);
-    const wire = JSON.parse((onB.metadata as typeof source.metadata).user_id);
-    expect(wire.account_uuid).toBe(B);
-    expect(wire.device_id).toBe(deriveAnthropicAccountDeviceId(B));
-    expect(wire.device_id).not.toBe(deriveAnthropicAccountDeviceId(A));
-    expect(wire.session_id).toBe(identity.session_id);
-    expect((onB.metadata as typeof source.metadata).user_id).not.toContain(deriveAnthropicAccountDeviceId(A));
-    expect((onB.metadata as typeof source.metadata).user_id).not.toContain(identity.device_id);
-  });
-  test("the derived device_id is deterministic across calls, so a restart keeps each account's identity", () => {
-    expect(deriveAnthropicAccountDeviceId(A)).toBe(deriveAnthropicAccountDeviceId(A.toUpperCase()));
-    expect(deriveAnthropicAccountDeviceId(A)).toBe(deriveAnthropicAccountDeviceId(` ${A} `));
-    expect(deriveAnthropicAccountDeviceId(A)).toMatch(/^[0-9a-f]{64}$/);
-  });
   test("a credential override cannot send metadata bound to another bearer", () => {
     for (const headers of [{ Authorization: "Bearer fixture-other" }, { authorization: "Bearer fixture-other" }, { "x-api-key": "fixture-other" }]) {
       expect(() => buildAnthropicMessagesPassthroughRequest({ ...provider, headers }, "m", source, undefined, { providerAccountUuid: B })).toThrow("serving credential was overridden");
@@ -101,3 +85,21 @@ describe("Anthropic serving-account metadata", () => {
     expect(() => buildAnthropicMessagesPassthroughRequest({ ...provider, baseUrl: "https://anthropic.example" }, "m", source, undefined, { providerAccountUuid: B })).toThrow();
   });
 });
+
+  test("moving a body bound to account A onto account B leaves none of A's device identity on the wire", () => {
+    const onA = bindAnthropicAccountMetadata(source, A);
+    const onB = bindAnthropicAccountMetadata(onA, B);
+    const wire = JSON.parse((onB.metadata as typeof source.metadata).user_id);
+    expect(wire.account_uuid).toBe(B);
+    expect(wire.device_id).toBe(deriveAnthropicAccountDeviceId(B));
+    expect(wire.device_id).not.toBe(deriveAnthropicAccountDeviceId(A));
+    expect(wire.session_id).toBe(identity.session_id);
+    expect((onB.metadata as typeof source.metadata).user_id).not.toContain(deriveAnthropicAccountDeviceId(A));
+    expect((onB.metadata as typeof source.metadata).user_id).not.toContain(identity.device_id);
+  });
+
+  test("the derived device_id is deterministic across calls, so a restart keeps each account's identity", () => {
+    expect(deriveAnthropicAccountDeviceId(A)).toBe(deriveAnthropicAccountDeviceId(A.toUpperCase()));
+    expect(deriveAnthropicAccountDeviceId(A)).toBe(deriveAnthropicAccountDeviceId(` ${A} `));
+    expect(deriveAnthropicAccountDeviceId(A)).toMatch(/^[0-9a-f]{64}$/);
+  });

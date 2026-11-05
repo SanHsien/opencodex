@@ -1,4 +1,4 @@
-import { sameFileIdentity, statTimeMs } from "../lib/file-identity";
+import { publishCredentialSync } from "../local-credentials/generation";
 /**
  * OAuth token store at ~/.opencodex/auth.json, keyed by provider name.
  *
@@ -35,6 +35,7 @@ import { getConfigDir, atomicWriteFile, backupInvalidConfig, hardenConfigDir, ha
 import { atomicWriteFileNoFollowUnclaimed } from "../config/atomic-write";
 import { assertNotRealHomeUnderTest } from "../lib/test-home-guard";
 import { recordOwnedConfigPath } from "../lib/config-ownership";
+import { statTimeMs } from "../lib/file-identity";
 import { MAX_PENDING_OAUTH_MUTATIONS } from "../lib/translator-budget";
 import { publishAccountSelection, publishOAuthAccountPauseChange, publishOAuthAccountRoutingPolicyChange } from "../lib/account-selection-events";
 import {
@@ -424,7 +425,7 @@ function persist(store: AuthStore): void {
     try { chmodSync(dir, 0o700); } catch { /* best-effort on existing dir */ }
   }
   hardenConfigDir();
-  atomicWriteFile(getAuthStorePath(), JSON.stringify(store, null, 2) + "\n");
+  publishCredentialSync(() => atomicWriteFile(getAuthStorePath(), JSON.stringify(store, null, 2) + "\n"));
   notifyAuthStoreLoaded(store);
 }
 
@@ -434,8 +435,8 @@ export interface OAuthFileLockOptions { path: string; waitTimeoutMs?: number; st
 export interface OAuthFileLockGuard { readonly ownerId: string; release(): void }
 function errorCode(error: unknown): string | undefined { return error && typeof error === "object" && "code" in error ? String((error as { code?: unknown }).code) : undefined; }
 function snapshot(path: string): LockSnapshot { const bytes = readFileSync(path, "utf8"); const s = statSync(path, { bigint: true }); return { bytes, dev:s.dev, ino:s.ino, mtimeMs:statTimeMs(s.mtimeNs), mtimeNs:s.mtimeNs, size:s.size }; }
-function sameSnapshot(a: LockSnapshot,b: LockSnapshot): boolean { return a.bytes===b.bytes&&sameFileIdentity(a, b)&&a.mtimeNs===b.mtimeNs&&a.size===b.size; }
-function sameFd(a: LockSnapshot,b: import("node:fs").BigIntStats): boolean { return sameFileIdentity(a, b)&&a.mtimeNs===b.mtimeNs&&a.size===b.size; }
+function sameSnapshot(a: LockSnapshot,b: LockSnapshot): boolean { return a.bytes===b.bytes&&a.dev===b.dev&&a.ino===b.ino&&a.mtimeNs===b.mtimeNs&&a.size===b.size; }
+function sameFd(a: LockSnapshot,b: import("node:fs").BigIntStats): boolean { return a.dev===b.dev&&a.ino===b.ino&&a.mtimeNs===b.mtimeNs&&a.size===b.size; }
 export function createOAuthFileLock(options: OAuthFileLockOptions): { acquire(): Promise<OAuthFileLockGuard> } {
  const wait=options.waitTimeoutMs??5000, stale=options.staleAfterMs??120000, min=options.pollMinMs??25,max=options.pollMaxMs??100,sleep=options.sleep??(ms=>Bun.sleep(ms)),now=options.now??Date.now,random=options.random??Math.random,write=options.writeMetadata??((fd,b)=>writeFileSync(fd,b,"utf8"));
  if(wait<0||stale<=0||min<0||max<min) throw new OAuthFileLockError("Invalid OAuth file-lock timing options");
@@ -467,7 +468,7 @@ function backupLegacyOnce(): void {
   // alone, and the copy is exclusive, so credentials are never written through a link.
   if (!existsSync(path) || directoryEntryExists(backup)) return;
   try {
-    copyFileSync(path, backup, fsConstants.COPYFILE_EXCL);
+    publishCredentialSync(() => copyFileSync(path, backup, fsConstants.COPYFILE_EXCL));
     try { chmodSync(backup, 0o600); } catch { /* best-effort */ }
     try {
       // Register only the copy we just created. An unowned home still needs downgrade recovery.
@@ -498,8 +499,10 @@ function scrubLegacyBackup(providers: readonly string[]): void {
   try {
     const remaining = readLegacyBackupEntries(backup);
     for (const provider of providers) delete remaining[provider];
-    if (Object.keys(remaining).length > 0) atomicWriteFileNoFollowUnclaimed(backup, `${JSON.stringify(remaining, null, 2)}\n`);
-    else unlinkSync(backup);
+    publishCredentialSync(() => {
+      if (Object.keys(remaining).length > 0) atomicWriteFileNoFollowUnclaimed(backup, `${JSON.stringify(remaining, null, 2)}\n`);
+      else unlinkSync(backup);
+    });
   } catch (error) {
     if (errorCode(error) !== "ENOENT") {
       console.warn(`[oauth] could not remove deleted credentials from the legacy credential backup: ${error instanceof Error ? error.message : String(error)}`);
@@ -509,22 +512,10 @@ function scrubLegacyBackup(providers: readonly string[]): void {
 
 /** Provider entries of the backup; empty (so the file is removed) when unreadable or not a regular file. */
 function readLegacyBackupEntries(backup: string): Record<string, unknown> {
+  if (!lstatSync(backup).isFile()) return {};
   try {
-    // lstat rejects a symlinked backup (its target is never read); the dev/ino check
-    // rejects a swap between lstat and open.
-    const lexical = lstatSync(backup, { bigint: true });
-    if (!lexical.isFile()) return {};
-    // O_NOFOLLOW/O_NONBLOCK are undefined on Windows (?? 0); on POSIX a raced-in FIFO cannot block the open.
-    const fd = openSync(backup, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0) | (fsConstants.O_NONBLOCK ?? 0));
-    try {
-      // bigint: NTFS file IDs exceed 2^53 and would compare inexactly as numbers.
-      const opened = fstatSync(fd, { bigint: true });
-      if (!opened.isFile() || !sameFileIdentity(opened, lexical)) return {};
-      const parsed: unknown = JSON.parse(readFileSync(fd, "utf-8"));
-      return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? { ...(parsed as Record<string, unknown>) } : {};
-    } finally {
-      closeSync(fd);
-    }
+    const parsed: unknown = JSON.parse(readFileSync(backup, "utf-8"));
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? { ...(parsed as Record<string, unknown>) } : {};
   } catch {
     return {};
   }
@@ -709,6 +700,31 @@ function normalizeAccountSet(raw: unknown): { set: ProviderAccountSet | null; wa
   if (!cred) return { set: null, wasLegacy: false };
   const id = newAccountId(cred);
   return { set: { activeAccountId: id, accounts: [{ id, credential: cred }] }, wasLegacy: true };
+}
+
+export function countLocalOAuthCredentialSlots(raw: Record<string, unknown> | null): number {
+  if (raw === null) return 0;
+  let count = 0;
+  for (const value of Object.values(raw)) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Invalid OAuth provider row");
+    const row = value as Record<string, unknown>;
+    if (Object.hasOwn(row, "accounts")) {
+      if (!Array.isArray(row.accounts) || typeof row.activeAccountId !== "string") throw new Error("Invalid OAuth account set");
+      const ids = new Set<string>();
+      for (const entry of row.accounts) {
+        if (!entry || typeof entry !== "object" || Array.isArray(entry)) throw new Error("Invalid OAuth account");
+        const account = entry as Record<string, unknown>;
+        if (typeof account.id !== "string" || !account.id || ids.has(account.id)
+          || !normalizeCredential(account.credential)) throw new Error("Invalid OAuth credential slot");
+        ids.add(account.id);
+        count += 1;
+      }
+    } else {
+      if (!normalizeCredential(row)) throw new Error("Invalid legacy OAuth credential");
+      count += 1;
+    }
+  }
+  return count;
 }
 
 function normalizeAuthStore(raw: unknown): { store: AuthStore; hadLegacy: boolean } {
@@ -1099,7 +1115,8 @@ export async function appendKiroAccountFromDeviceLogin(
   return await mutateStore(store => {
     const set = store.kiro;
     const id = distinctAccountId(safe, set?.accounts ?? []);
-    const warning = safe.kiro?.profileArn && set?.accounts.some(a => a.credential.kiro?.profileArn === safe.kiro?.profileArn)
+    const warning = safe.kiro?.profileArn && set?.accounts.some(a => a.credential.kiro?.profileArn === safe.kiro?.profileArn
+      && (!safe.email || !a.credential.email || a.credential.email.toLowerCase() === safe.email.toLowerCase()))
       ? "duplicate_profile_arn" as const : undefined;
     const account: ProviderAccount = { id, credential: safe, addedAt: Date.now(), loginId: randomUUID(), loginOrigin: "kiro-device" };
     if (set) set.accounts.push(account);
@@ -1593,7 +1610,7 @@ export async function markAccountNeedsReauth(
   }, [provider, accountId]);
 }
 
-export async function mergeAccountCredential(provider:string,accountId:string,credential:OAuthCredentials,opts:{expectedGeneration?:string;afterPrePersistRead?:()=>void|Promise<void>;assertOwnership?: (store: AuthStore) => void}={}):Promise<{superseded:false}|{superseded:true;stored:OAuthCredentials}>{const safe=normalizeCredential(credential);if(!safe)throw new Error("Refusing to persist invalid OAuth credential");if(isAnthropicInstanceId(provider))assertAnthropicCredentialSource(provider,safe);return await mutateStore(async store=>{await opts.afterPrePersistRead?.();const account=store[provider]?.accounts.find(x=>x.id===accountId);if(!account)throw new Error(`OAuth account disappeared before persist: ${provider}`);if(opts.expectedGeneration!==undefined&&credentialGeneration(account.credential)!==opts.expectedGeneration)return{superseded:true,stored:account.credential};opts.assertOwnership?.(store);account.credential=safe;delete account.refreshAttentionGeneration;if(account.needsReauthReason!=="verify_account"){delete account.needsReauth;delete account.needsReauthReason;}return{superseded:false};},[provider,accountId,safe,opts.expectedGeneration]);}
+export async function mergeAccountCredential(provider:string,accountId:string,credential:OAuthCredentials,opts:{expectedGeneration?:string;afterPrePersistRead?:()=>void|Promise<void>;assertOwnership?: (store: AuthStore) => void;keepReauthMarkedAfterDispatch?:boolean}={}):Promise<{superseded:false}|{superseded:true;stored:OAuthCredentials}>{const safe=normalizeCredential(credential);if(!safe)throw new Error("Refusing to persist invalid OAuth credential");if(isAnthropicInstanceId(provider))assertAnthropicCredentialSource(provider,safe);return await mutateStore(async store=>{await opts.afterPrePersistRead?.();const account=store[provider]?.accounts.find(x=>x.id===accountId);if(!account)throw new Error(`OAuth account disappeared before persist: ${provider}`);if(opts.expectedGeneration!==undefined&&credentialGeneration(account.credential)!==opts.expectedGeneration)return{superseded:true,stored:account.credential};opts.assertOwnership?.(store);account.credential=safe;delete account.refreshAttentionGeneration;if(account.needsReauthReason!=="verify_account"&&!(opts.keepReauthMarkedAfterDispatch&&account.needsReauth)){delete account.needsReauth;delete account.needsReauthReason;}return{superseded:false};},[provider,accountId,safe,opts.expectedGeneration]);}
 // A late refresh failure must not change an operator-paused account's health. Check under
 // the mutation lock, not before awaiting it, so a concurrent pause cannot be overwritten.
 export async function markAccountNeedsReauthIfGeneration(provider:string,accountId:string,generation:string,writerGeneration=captureConfigGeneration(),reason?:"verify_account",isCurrent?:(store:AuthStore)=>boolean):Promise<boolean>{const key=oauthAccountKey(provider,accountId);if(writerGeneration<lastReconciledGeneration&&!liveOAuthAccountKeys.has(key))return false;return await mutateStore(store=>{const account=store[provider]?.accounts.find(x=>x.id===accountId);if(!account?.credential||account.paused||credentialGeneration(account.credential)!==generation)return false;if(writerGeneration<lastReconciledGeneration&&!liveOAuthAccountKeys.has(key))return false;if(isCurrent&&!isCurrent(store))return false;account.needsReauth=true;if(reason==="verify_account")account.needsReauthReason=reason;return true;},[provider,accountId,generation]);}

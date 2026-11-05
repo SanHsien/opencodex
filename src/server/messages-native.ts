@@ -44,7 +44,7 @@ import { readBoundedResponseBody } from "../lib/bounded-body";
 import { classifyError } from "../lib/errors";
 import { relaySseWithPayloadRewrite } from "./sse-payload-rewrite";
 import { redactSecretString } from "../lib/redact";
-import { resolveClientRetryAfter } from "../lib/retry-after";
+import { formatClientRetryAfter, resolveClientRetryAfter } from "../lib/retry-after";
 import { enrichOpenCodeZenUpstreamMessage } from "../providers/opencode-zen-rate-limit";
 import { isTranslatorBudgetExceededError, type TranslatorBudget } from "../lib/translator-budget";
 import {
@@ -122,13 +122,15 @@ import {
   type RequestLogContext,
 } from "./request-log";
 import { fetchWithHeaderTimeout, physicalSendObserverInit, providerFetch, safeHostLabel, sendWithConnectionPolicy } from "./responses/fetch-helpers";
+import { isLocalUpstream } from "../lib/local-upstream";
+import { resolveConnectTimeoutMs, resolveJsonBodyReadTimeoutMs } from "../stall-timeout";
 import { anthropicBillingPhysicalFetch } from "../providers/anthropic-billing-ownership";
 import { rotateAnthropicBillingKeyOnResponse } from "../providers/anthropic-billing-recovery";
 import { linkAbortSignal } from "./responses/core-lifetime";
 import { attachRequestSpendTracker } from "./responses/request-spend";
 import { workflowRefusalResponse } from "./workflow-refusal";
 import { sseFieldValue } from "../lib/sse-decoder";
-import { admissionModelDeniedResponse, type AdmissionModelScope } from "./admission-model-scope";
+import { admissionModelDeniedResponse, projectAdmissionModelDeniedLog, type AdmissionModelScope } from "./admission-model-scope";
 import { nativeMessagesToolScopeDenial } from "./messages-native-scope";
 import { retainUpstreamMessagesRequestId } from "./messages-response-headers";
 
@@ -378,7 +380,8 @@ export async function handleNativeMessages(options: HandleNativeMessagesOptions)
   const localOAuthFailure = (error: unknown): Response | null => {
     if (error instanceof AnthropicAccountCooldownError) {
       const response = fail(429, error.message, "rate_limit_error");
-      if (error.retryAfterSeconds !== null) response.headers.set("retry-after", String(error.retryAfterSeconds));
+      const advice = error.retryAfterSeconds !== null ? formatClientRetryAfter(error.retryAfterSeconds) : undefined;
+      if (advice !== undefined) response.headers.set("retry-after", advice);
       return response;
     }
     if (error instanceof OAuthAccountPausedError) return fail(403, publicOAuthAuthenticationErrorMessage(error), "permission_error");
@@ -392,6 +395,7 @@ export async function handleNativeMessages(options: HandleNativeMessagesOptions)
 
   const toolScopeDenial = nativeMessagesToolScopeDenial(options.modelScope, route.providerName, requestedModel, body);
   if (toolScopeDenial) {
+    projectAdmissionModelDeniedLog(toolScopeDenial, logCtx);
     finishLog(403, toolScopeDenial.message);
     return admissionModelDeniedResponse(toolScopeDenial);
   }
@@ -424,7 +428,8 @@ export async function handleNativeMessages(options: HandleNativeMessagesOptions)
     streamTurnRegistered = false;
     unregisterTurn(upstream);
   };
-  const connectMs = config.connectTimeoutMs ?? 200_000;
+  // Set only at the final send boundary; queued refresh can replace the destination.
+  let localUpstream = false;
   // An OAuth route is served by the account the existing OAuth selection commits now, at
   // dispatch; the token lives on this lane's provider copy only, never on the shared route.
   let oauthBinding: NativeOAuthBinding | undefined;
@@ -451,7 +456,8 @@ export async function handleNativeMessages(options: HandleNativeMessagesOptions)
       cleanupAbort(); upstream.abort();
       if (!(error instanceof RequestPacingQueueOverloadError)) throw error;
       const refusal = fail(429, error.message, "rate_limit_error");
-      refusal.headers.set("Retry-After", String(error.retryAfterSeconds));
+      const advice = formatClientRetryAfter(error.retryAfterSeconds);
+      if (advice !== undefined) refusal.headers.set("Retry-After", advice);
       return refusal;
     }
   }
@@ -560,7 +566,7 @@ export async function handleNativeMessages(options: HandleNativeMessagesOptions)
         request.url,
         applyUpstreamRecoveryInit({ method: "POST", headers: request.headers, body: request.body }, transportRecovery),
         upstream.signal,
-        connectMs,
+        0, // Final physical send owns the header clock after queued credential/destination refresh.
         requestedStream,
         providerFetch(activeProvider, undefined, {
           providerName: route.providerName,
@@ -640,13 +646,19 @@ export async function handleNativeMessages(options: HandleNativeMessagesOptions)
               sendOwner = snapshot ? captureAnthropicPhysicalSendOwnership(snapshot) : null;
               if (snapshot && !sendOwner) throw new NativeOAuthSelectionChangedError();
               physicalSendsUsed++;
-              dispatched = await sendWithConnectionPolicy(
+              const physicalFetch = ((input, physicalInit) => sendWithConnectionPolicy(
                 distributedKeyPhysicalFetch(
                   anthropicBillingPhysicalFetch((activeProvider as OcxProviderTransport).fetch ?? execute, route.providerName, activeProvider),
                   route.providerName, activeProvider, wire.url, activeProvider.apiKeyTransport === "bearer" ? "authorization" : "x-api-key"),
+                String(input), physicalInit, { providerName: route.providerName, provider: activeProvider },
+              )) as typeof fetch;
+              localUpstream = isLocalUpstream(wire.url);
+              dispatched = await fetchWithHeaderTimeout(
                 wire.url,
                 applyUpstreamRecoveryInit({ ...init, method: "POST", headers, body: wire.body, ...physicalSendObserverInit(observeAutoPause, wire.url) }, transportRecovery),
-                { providerName: route.providerName, provider: activeProvider },
+                init.signal ?? upstream.signal,
+                resolveConnectTimeoutMs(config.connectTimeoutMs, { localUpstream }),
+                requestedStream, physicalFetch,
               );
             } finally {
               try { if (physicalBudget.spendEnforced) spendReport(1); }
@@ -826,7 +838,8 @@ export async function handleNativeMessages(options: HandleNativeMessagesOptions)
     const sendError = error instanceof UpstreamRetryEvidenceError ? error.cause : error;
     if (sendError instanceof RequestPacingQueueOverloadError) {
       const refusal = fail(429, sendError.message, "rate_limit_error");
-      refusal.headers.set("Retry-After", String(sendError.retryAfterSeconds));
+      const advice = formatClientRetryAfter(sendError.retryAfterSeconds);
+      if (advice !== undefined) refusal.headers.set("Retry-After", advice);
       return refusal;
     }
     if (sendError instanceof SendBudgetExhaustedError) return fail(429, sendError.message, "send_budget_exhausted", "send_budget_exhausted");
@@ -960,11 +973,12 @@ export async function handleNativeMessages(options: HandleNativeMessagesOptions)
 
   let read;
   try {
+    const jsonBodyReadMs = resolveJsonBodyReadTimeoutMs(config.stallTimeoutSec, { localUpstream }, config.connectTimeoutMs);
     read = await readBoundedResponseBody(response, {
       signal: upstream.signal,
       maxBytes: MAX_NATIVE_MESSAGES_JSON_BYTES,
-      totalTimeoutMs: Math.max(connectMs, 5_000),
-      inactivityTimeoutMs: Math.max(connectMs, 5_000),
+      totalTimeoutMs: localUpstream ? 0 : jsonBodyReadMs,
+      inactivityTimeoutMs: jsonBodyReadMs,
     });
   } catch (error) {
     cleanupAbort();
@@ -992,7 +1006,7 @@ export async function handleNativeMessages(options: HandleNativeMessagesOptions)
   const undeclaredTool = clientDeclaredEmptyToolCatalog ? nativeMessagesClientToolName(message, declaredInlineTools) : undefined;
   if (undeclaredTool !== undefined) {
     logCtx.errorCode = UNDECLARED_TOOL_CALL_ERROR_CODE;
-    return fail(502, undeclaredToolCallMessage(undeclaredTool), "api_error", UNDECLARED_TOOL_CALL_ERROR_CODE);
+    return fail(502, undeclaredToolCallMessage(), "api_error", UNDECLARED_TOOL_CALL_ERROR_CODE);
   }
   bindUsage(anthropicUsageToOcx(isRec(message.usage) ? message.usage : undefined));
   if (logIds) recordFirstOutput(logCtx, logIds.start);
@@ -1075,7 +1089,8 @@ function nativeMessagesErrorResponse(response: Response, bodyText: string, finis
       ?? (upstreamRetryAfter?.trim() === "0" ? "0" : undefined);
   finishLog(response.status, safeMessage);
   const headers = new Headers({ "Content-Type": "application/json" });
-  if (retryAfter) headers.set("Retry-After", retryAfter);
+  const clientRetryAfter = formatClientRetryAfter(retryAfter);
+  if (clientRetryAfter) headers.set("Retry-After", clientRetryAfter);
   else if (transient) headers.set("Retry-After", "2");
   if (replayRefusal) applyReplayRefusalClientHeaders(headers);
   // The native envelope keeps its shape (no added code); only an overflow's wording changes, so

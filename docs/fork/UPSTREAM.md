@@ -1640,3 +1640,58 @@ fork 基準 `688b04a0e3a00a417e0b7492b8d682ed07d1b174`。已讀上游 45 檔完�
 上游作者 JUN，共同作者 Omar；歸屬取自 `git show -s --format='%an <%ae>' d9e0c057881` 與原提交 Co-authored-by；整合提交須保留這兩人的 Co-authored-by 歸屬，文件不寫 email。紅綠與逐檔測試／fork gate 證據見 `REVIEW.md` 同日節。
 
 `tools/upstream_baseline.json` 完全不動；integrated／reviewed、PR／issue 水位維持原值。這筆的審查不代表其餘 defer 項或完整 stable 區段已通過。
+
+## 2026-11-05：全版 tag diff 重放 `v2.93.0..v2.97.0`（進行中；水位不動）
+
+`git diff refs/upstream-tags/v2.93.0 refs/upstream-tags/v2.97.0` 共 1980 個檔案（658 新增、1322 修改、0 刪除；`v2.97.0` = `cab7eb7d0332ae0ebb4289d7c6bac1de666b6e40`），
+以單一 parent、不 merge 上游的 tag-diff 法套到 `main`（fork 基準 `ed36b929a`）。逐檔清冊（路徑、上游狀態、重放前分類、重放後與上游 blob 的關係、判定、備註）在
+[`upstream-v2.93.0-v2.97.0-files.tsv`](upstream-v2.93.0-v2.97.0-files.tsv)，由 blob 雜湊比對機器產生，**不手改**；本節只寫方法、數字與例外。
+
+### 方法
+
+1. 以 `git ls-tree` 比對三個 blob（`v2.93.0`、`v2.97.0`、fork `HEAD`）分類：fork 與 `v2.97.0` 相同＝已等價；fork 與 `v2.93.0` 相同＝乾淨採用（直接取上游 blob）；
+   上游新增而 fork 沒有＝新增；其餘（fork 與雙方都不同）以 `git merge-file --diff3` 三方合併，衝突逐 hunk 判定。
+2. Windows-only 刪除清單先套：`REMOVED_FILES`／`REMOVED_DIRECTORIES` 命中者、已刪語系（`FORK.md` 差異表：docs-site 的 fr／ja／ko／ru／tr／zh-cn、`readme/` 譯本、`gui/src/i18n` 非 en／zh-tw）一律不重放。
+3. 生成物（`scripts/ci/test-durations*.tsv`、`scripts/test-layout/*.json`、`tests/fixtures/test-layout-expected.json`、`structure/manifest.json`、`structure/INDEX.md`）取上游版再剔除 fork 沒有的測試、補回 fork 獨有條目，不手工逐行合。
+
+### 計數（1980 個上游變更檔）
+
+| 判定 | 檔數 | 說明 |
+| --- | --- | --- |
+| 已等價（重放前 fork blob 即與 `v2.97.0` 相同） | 76 | 2026-11-04／05 零星重放過的檔案 |
+| 採用（重放後與 `v2.97.0` blob 逐位元相同） | 1563 | 含乾淨採用、新增檔，以及衝突全取上游者；每檔來源類別見 TSV 的 `fork_before` 欄 |
+| 適配（重放後與上游不同，fork 保留／改寫部分 hunk） | 150 | 逐檔原因在 TSV 備註欄；安全邊界檔另見 `DECISIONS.md` 同日條目 |
+| 不適用 | 191 | 已刪語系 188（docs-site 六語系頁、`readme/`、`gui/src/i18n`、`gui/tests/fr-localization`）、Windows-only 刪除清單 3 |
+| defer | 0 | 沒有以 defer 結案的檔案；未完成項見下方「尚未完成」 |
+
+### 適配重點（不是單純取上游）
+
+- **檔案 identity 叢集**：上游 `#8019` 系列把比對統一成 `lstat/fstat(…, { bigint: true })` 加 `sameFileIdentity`。fork 先前自建 `identityStats`／`statFileIdentity` 一組 helper，兩者語意等價（2026-11-04 清冊已記）。
+  本輪**採上游設計**：identity-only 的 15 個 caller 整檔取上游（`native-residue`、`native-main-lock-file`、`shim-fingerprint`、`shim-restore-lock`、`transition-state`、`workspace-executor` 等），
+  `native-residue.ts` 改回單次 bigint stat，使 `codex-native-residue` 的「相鄰大 file ID」測試轉綠（先前 `statFileIdentity` 路徑下該測試回 `clean`）。fork 的 `src/lib/file-identity.ts` helper 超集保留（`validStoredFileIdentity`、`storedFileIdentity` 仍被 `shim-state-file`、`shim-migration`、`shim-overlay`、`filesystem-evidence` 的持久化格式使用）。
+  `src/lib/bounded-file-read.ts`、`src/codex/shim-state-file.ts` 保留 fork 版（上游 hunk 只是 identity 換寫法）；`src/codex/history-provider.ts` 保留 fork 的 TOCTOU 加固並套上游 `withWriteGuard` 與三個 bigint scope（`tests/lib/file-identity-callers.test.ts` 29 案過）。
+- **`src/config/atomic-write.ts`** 整檔取上游（含 `c7f3928a2` 的完整後續與 exclusive publication）；先前 2026-11-05 的 fork 適配版是它的子集。逐檔安全判定見 `DECISIONS.md`。
+- **CI**：`ci.yml` 保留 fork 的 Windows-only 結構，套用上游的 Windows 11 分片、`bash scripts/ci/bun-install-frozen.sh`、`setup-project-bun` 與 `bun@1.4.4` pin；macOS／Linux／docker 的 job、filter 與輸出不重放（`REMOVED_CI_JOBS` 不變）。
+- **語系**：`scripts/client-support-matrix/locales.ts` 剔除 fr／ko／zh-cn／ru／ja／tr 區塊（Hangul 與非保留語系）；`docs-site/astro.config.mjs` 側欄只加 zh-TW 標籤；`tests/usage/request-outcome-agreement.test.ts` 還原 fork 的 `LOCALES = ["en", "zh-TW"]`（重放曾把它換回上游十一語系）。
+  zh-tw 頁面中原先以英文原文補入的區段（三個新頁 `guides/lm-studio`、`reference/configuration/catalog`、`reference/configuration/keychain` 與其餘約 30 個區段）已逐段譯為繁體中文；章節標題改譯後，站內 `#fragment` 連結同步改指新 slug（`docs-zh-tw-parity`、`docs-link-targets`、`docs-developer-role-policy` 通過）。
+  刻意保留英文的是：程式碼區塊內的指令與 JSON、產品與端點名稱，以及基準 `ed36b929a` 就已是英文的段落中被上游改動的零星行（`reference/cli/agents.md` Codex CLI 更新計畫段、`reference/cli/lifecycle.md`／`messaging.md`／`configuration/server.md` 的少數接續行），這些屬舊有的英文段落，不是為了過 parity 而補入。
+- **還原一項刪除**：`tests/clients/link-ssh-argv-discovery.test.ts` 在 `v2.97.0` 新增 7 個 Windows 原生案例（Windows 遠端連結的 PowerShell Job 容器、OpenSSH 通道）。它已不是「只在非 Windows 跑」的測試，故從 `REMOVED_FILES` 移除並採用上游版（POSIX 案例仍 `skipIf(win32)`）。
+- **README.md** 不重放：fork 的 `README.md` 是繁中主文件、`README.en.md` 是 fork 自寫英文版，上游的橫幅與 npm 安裝說明對 fork 不成立。
+- **版本**：`package.json`、`desktop/src-tauri/Cargo.toml`／`Cargo.lock`／`tauri.conf.json` 取 `2.97.0`（updater 設定不變）。
+
+### 本機驗證
+
+- `bun install --frozen-lockfile` 還原 `@types/bun` `1.4.4` 後 `bun run typecheck` exit 0（2,305 個檔案）。
+- `privacy:scan`、`structure:check`、`file-size-ratchet`、`docs:clients:check` 通過；`docs-zh-tw-parity`、`docs-link-targets`、`docs-developer-role-policy` 通過。
+- **orchestrated update 閘門**：上游新增的 orchestrated 子程序與 apply 路徑（`bin/ocx.mjs` 的 `runPackageManagerSelfUpdate(…, childArgs)` 與 `applyNodeOrchestratedUpdate`）先前排在 fork 的 `update` 拒絕之前，會直接安裝上游 registry 版本。
+  已在它們之前加 `if (orchestratedUpdate && forkSelfUpdateBlocked())`：apply 輸出 `ocx.update.result/1`（`error: "fork-self-update-disabled"`）並 exit 10，plan 輸出 `canApply: false`，child 模式 exit 10。
+  `src/update/index.ts` 的 `runUpdate`、`job.ts` 的 `startUpdateJob`、`async-check.ts`／`latestVersion` 的 registry 查詢、`updateCommand` 原本就被擋。`tests/update/fork-update-policy.test.ts` 新增 4 案釘住（含閘門在所有安裝呼叫之前的順序檢查）。
+- 新的 `tests/update/update-mutation-guard.test.ts` 對 `fork-source.mjs` 的 import 與新增的 `process.exit` 站點報未審查；已把這五個 import 登記到 `tests/helpers/update-import-policy.ts`，並把 `update-process-allowlist.ts` 的 `process.exit(0／1／10)` 次數各加 1。
+- `tests/ci-workflows/ci-bun-install-frozen.test.ts` 的 Ubuntu 工作清單縮為 fork `ci.yml` 實有的 `test-changed`、`gates`。
+- `codex-native-residue`：3 個失敗皆是 `readCodexTransitionState()` 回 `unavailable`（MSIX 虛擬化 `%LOCALAPPDATA%` 的 coordinator 路徑，已知環境限制）。
+
+### 尚未完成（所以水位不動）
+
+- 635 個被觸及的測試檔中，單獨跑完約 327 個後背景批次中斷，其餘約 308 個未跑；已跑檔案中的失敗檔與乾淨 `HEAD` 對照狀態見 `REVIEW.md` 或 `ROADMAP.md` 該列。
+- gui 完整 `bun test --isolate tests`：370 個檔、3675 pass／5 fail，5 個失敗全在 `login-url-block`、`models-empty-provider`、`usage-custom-range`（計時型，系統滿載時發生），三檔單獨重跑 62 案全過。`docs-site` build、`tools/dev_check.ps1`、全量 `bun run test` 未跑。
+- `tools/check-upstream-updates.ts --strict` 仍會因 `reviewed_through` 未推進而 exit 1。`integrated_tag`／`integrated_through`／`reviewed_*` 全部維持 `v2.93.0`／`88aaa754`。

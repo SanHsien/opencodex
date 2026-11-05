@@ -205,7 +205,7 @@ full-suite runs and `scripts/ci/run-bun-test-batches.sh` execute those files
 alone with fresh process homes, including launchd repair and standalone home/lease cases. Hosted batches assign shard membership by the per-file durations
 in `scripts/ci/test-durations.tsv` (Windows: `scripts/ci/test-durations.windows.tsv`; sorted round-robin when nothing is recorded), run each shard's
 files in sorted order and split only process boundaries; every selected file still runs once.
-Windows shards select 1/9 through 9/9 from the full file list and execute sequential batches of 6 files.
+Windows shards select 1/11 through 11/11 from the full file list and execute sequential batches of 6 files.
 Storage-policy and API-usage families run as singletons, as do manifest-declared files.
 This preserves full test membership but does not claim cross-batch shared-process coverage.
 Every primary assertion failure, timeout or crash fails the run; diagnostic singleton

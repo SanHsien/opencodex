@@ -25,8 +25,7 @@ Codex 的 models-manager 按 `priority` 升序排列選擇器中可見的目錄�
 | --- | ---: | --- |
 | `subagentModels[i]` | `i`（`0` 至 `4`） | `src/codex/catalog/sync.ts` 中的 featured rank map |
 | 其他路由模型 | `5` | `src/codex/catalog/sync.ts` 中建立路由條目的邏輯 |
-| 列在 `modelPickerOrder` 中的非精選路由模型 | `1000 + i` | `src/codex/catalog/sync.ts` 中僅供顯示用的選擇器排名邏輯 |
-| 預設原生 GPT slug | `9` | `src/codex/catalog/sync.ts` 中建立原生條目的邏輯 |
+| 預設原生 GPT slug | `sourcePriority` | `src/codex/catalog/sync.ts` 中建立原生條目的邏輯 |
 | 存在 featured 列表時未選中的原生模型 | 至少為 `featured.length + 100` | `src/codex/catalog/sync.ts` 中合併原生目錄的邏輯 |
 
 管理 API 在 `src/server/management/agent-settings-routes.ts` 中使用 `slice(0, 5)`，把
@@ -67,7 +66,7 @@ priority，因此 Codex 的 priority 排序會保留這個開頭序列。
 3. 在目錄合併過程中被移到 featured 區塊之後的未選中原生模型。
 
 如果沒有 `subagentModels`，路由模型保持 priority `5`，原生 GPT 條目使用正常 priority
-（opencodex 建立的條目通常為 `9`），路由組內部仍按 provider/id 字母排序。
+（sourcePriority，缺少來源時回退至 `9`），路由組內部仍按 provider/id 字母排序。
 
 ## 示例
 

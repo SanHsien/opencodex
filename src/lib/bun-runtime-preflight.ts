@@ -1,4 +1,3 @@
-import { lstatFileIdentity, sameFileIdentity } from "./file-identity";
 import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { lstatSync, mkdirSync, readdirSync, rmdirSync } from "node:fs";
@@ -20,9 +19,10 @@ export class RuntimePreflightError extends Error {
   }
 }
 
+// bigint: NTFS file IDs exceed 2^53, where adjacent IDs are equal as numbers.
 type DirectoryIdentity = { dev: bigint; ino: bigint; isDirectory(): boolean; isSymbolicLink(): boolean };
 export interface RuntimePreflightFs {
-  lstatSync: (path: string) => DirectoryIdentity;
+  lstatSync: (path: string, options: { bigint: true }) => DirectoryIdentity;
   mkdirSync: (path: string, mode: number) => unknown;
   rmdirSync: (path: string) => void;
   readdirSync: (path: string) => readonly string[];
@@ -42,12 +42,12 @@ export interface RuntimePreflightDeps {
   platform?: NodeJS.Platform;
 }
 
-const probeFs: RuntimePreflightFs = { lstatSync: lstatFileIdentity, mkdirSync, rmdirSync, readdirSync };
+const probeFs: RuntimePreflightFs = { lstatSync, mkdirSync, rmdirSync, readdirSync };
 
 function sameDirectory(fs: RuntimePreflightFs, path: string, owned: DirectoryIdentity): boolean {
-  const current = fs.lstatSync(path);
+  const current = fs.lstatSync(path, { bigint: true });
   return current.isDirectory() && !current.isSymbolicLink()
-    && sameFileIdentity(current, owned);
+    && current.dev === owned.dev && current.ino === owned.ino;
 }
 
 function removeOwnedEmptyDirectory(fs: RuntimePreflightFs, path: string, owned: DirectoryIdentity): void {
@@ -60,7 +60,7 @@ function removeOwnedEmptyDirectory(fs: RuntimePreflightFs, path: string, owned: 
 function prepareRoot(fs: RuntimePreflightFs, root: string, rootWasAbsent?: boolean): void {
   try {
     if (rootWasAbsent === undefined) {
-      try { fs.lstatSync(root); rootWasAbsent = false; }
+      try { fs.lstatSync(root, { bigint: true }); rootWasAbsent = false; }
       catch (error) {
         if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
         rootWasAbsent = true;
@@ -74,7 +74,7 @@ function prepareRoot(fs: RuntimePreflightFs, root: string, rootWasAbsent?: boole
         // Use a concurrently created root, subject to the directory check below.
       }
     }
-    const current = fs.lstatSync(root);
+    const current = fs.lstatSync(root, { bigint: true });
     if (!current.isDirectory() || current.isSymbolicLink()) throw new RuntimePreflightError("create");
   } catch {
     throw new RuntimePreflightError("create");
@@ -84,7 +84,7 @@ function prepareRoot(fs: RuntimePreflightFs, root: string, rootWasAbsent?: boole
 function probeInProcess(fs: RuntimePreflightFs, path: string): void {
   let owned: DirectoryIdentity | undefined;
   try {
-    try { fs.mkdirSync(path, 0o700); owned = fs.lstatSync(path); }
+    try { fs.mkdirSync(path, 0o700); owned = fs.lstatSync(path, { bigint: true }); }
     catch { throw new RuntimePreflightError("create"); }
     try { fs.rmdirSync(path); }
     catch { throw new RuntimePreflightError("remove"); }
@@ -100,7 +100,6 @@ let result = "create", owned;
 try { fs.mkdirSync(path, 0o700); owned = fs.lstatSync(path, { bigint: true }); result = "remove";
   fs.rmdirSync(path); result = "ok";
 } catch { /* result already names the failed step; details never leave the child */ } finally {
-  // Exact identity boundary: isolated runtime child has no module imports; compare bigint witnesses inline.
   if (owned) { try { const now = fs.lstatSync(path, { bigint: true });
     if (now.isDirectory() && !now.isSymbolicLink() && now.dev === owned.dev && now.ino === owned.ino
       && fs.readdirSync(path).length === 0) fs.rmdirSync(path);

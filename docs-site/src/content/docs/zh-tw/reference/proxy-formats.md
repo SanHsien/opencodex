@@ -29,6 +29,16 @@ This guard covers buffered native combo children. Streaming required-tool enforc
 native routes are separate scopes; visible output is never replayed. Translated Chat routes have
 their own guard, described next.
 
+## 串流原生組合路由上的必要工具
+
+對於 `stream: true`，原生 Responses 組合子項在必要或指名的工具選擇未滿足時，也會以 `required_tool_contract_unsatisfied` 失敗。
+即使目標過濾掉它的工具，或把對外的選擇降為 `none`，呼叫端的強制選擇仍然有效。已設定的代管圖片替代，
+只有在套用到實際送出的請求時（包含佇列重新驗證之後），才能滿足原本的選擇。完全被扣住、僅含文字的完成結果，可前進到另一個符合資格的目標。
+已知的推理影格自第一個影格起最多扣住一秒；後續的影格不會延長這個期限。期限到時會釋放已緩衝的串流並確定目標，保留任何待處理的上游讀取。
+文字、工具事件、未知／不透明輸出與緩衝上限，同樣會確定目前的目標。命名空間選擇器與呼叫回聲共用已授權的別名還原。
+過了這個邊界之後，缺少的呼叫會產生 `response.failed`，而不會再發出另一個目標請求；已送出的輸出與用量維持完整。
+代管執行證據也會阻止重送，即使最終快照省略了它。Auto／none、不完整結果與未知契約，維持既有規則。
+
 ## Required tools on translated Chat routes
 
 A translated OpenAI Chat response must contain a complete selected client tool call when
@@ -442,19 +452,7 @@ Reasoning 是這項轉譯的一部分。`reasoning_effort`（或 `reasoning.effo
 `object: "chat.completion.chunk"`、choice delta、帶有 `finish_reason` 的終端 choice 與
 `data: [DONE]` 的 SSE 物件。Tool-call 與 usage 資訊在來源事件帶有它們時被轉譯回來。
 
-若一個串流的 Chat 請求在上游收到一個完整的 JSON Responses 結果，代理會從轉換後的完成結果合成
-SSE。它會保留答案與 reasoning 內容、function 工具呼叫（每個呼叫各有獨立的串流 `index`）、
-usage，以及轉換後的 `finish_reason`（包括 `tool_calls` 與 `length`）。這個後備會把已完成的結果
-分塊送出；它無法在上游 JSON 回應抵達之前提供逐 token 的傳遞，也不會發出額外的推論請求。一個因
-輸出 token 上限或內容過濾而不完整的回應，會維持 `length` 或 `content_filter`，即使它包含工具
-輸出也一樣。其他不完整的邊界情況，會回傳一個上游錯誤，而不是宣稱正常完成。
-
-拒絕文字與答案文字分開保存：JSON 完成結果使用可為 null 的 `message.refusal`，串流片段使用
-`delta.refusal`。原生 Chat 的 JSON 轉 SSE 與 SSE 轉 JSON 轉換都會保留這個欄位；原生串流中繼會
-保留供應商自己的拒絕差異片段。在轉譯後的 Responses 串流上，拒絕部分會被緩衝到終端事件，再依它們
-原本輸出／內容的順序一次發出。相容的重複或稀疏快照不會重複或清除文字。互相矛盾的拒絕快照與緩衝
-溢位，會產生一個有型別的錯誤，而不會有成功的完成或 `[DONE]`。這保留了上游的拒絕結果；它不會
-引入一個代理自己的政策判斷。
+此端點的錯誤回應與串流錯誤框架使用由代理撰寫的訊息。代理會將供應商的失敗歸類為固定狀態，例如觸發速率限制、配額或額度耗盡、超出上下文視窗、模型無法使用、所在地區不受支援或需要帳戶驗證，並回傳該狀態對應的固定訊息。政策拒絕、重送拒絕與代理限制各有固定訊息。HTTP 狀態、`error.type`、`error.code` 與 `Retry-After` 的意義不變，因此依 `context_length_exceeded`、`insufficient_quota` 或 `rate_limit_exceeded` 等代碼分支的用戶端行為與先前相同。
 
 由於內部執行路徑基於 Responses，供應商 adapter 可施加較窄的功能集。例如，所選 adapter 無法表示的請求功能以錯誤回傳，而非靜默變更其意義。
 
@@ -596,6 +594,10 @@ call 建立與旁帶加入必須在同一個 OpenAI 帳號底下執行，否則�
 API-key 供應商則使用它自己的 bearer。只有當 `experimental_realtime_ws_base_url` 指向 proxy 時，
 Codex 才會把加入請求送給它；`ocx start` 會把那個 key 注入在 `openai_base_url` 旁邊（見
 [Codex 整合](/zh-tw/guides/codex-integration/)）。
+
+## 路由供應商上的檢查點重播
+
+當路由模型收到可讀取的可攜式（`ocx1:`／`ocx2:`）或明文檢查點時，OpenCodex 會在模型提示詞中，把較早保留的純文字使用者請求標示為歷史上下文。這有助於區分已完成的請求與未完成的工作；原始請求的細節與檢查點內容仍然可用。檢查點之後的使用者輸入仍視為目前的，包含暫停、取消與替換任務。檢查點或工具的文字不會授予新的授權，待處理的權限仍然適用。這種提示詞框架不會還原用戶端省略的外部任務封包，也不保證模型對任務的選擇。
 
 ## `POST /v1/responses/compact`
 

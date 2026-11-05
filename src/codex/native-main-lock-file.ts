@@ -1,4 +1,3 @@
-import { sameFileIdentity, lstatFileIdentity, fstatFileIdentity, type IdentityStats } from "../lib/file-identity";
 import {
   chmodSync,
   closeSync,
@@ -7,9 +6,11 @@ import {
   fstatSync,
   lstatSync,
   openSync,
+  type BigIntStats,
 } from "node:fs";
 
 import { hardenSecretPathAsync } from "../lib/windows-secret-acl";
+import { sameFileIdentity } from "../lib/file-identity";
 
 export interface StableLockFile {
   readonly fd: number;
@@ -55,7 +56,7 @@ function reference(path: string, entry: StableLockEntry): StableLockFile {
   };
 }
 
-function assertRegular(stats: IdentityStats, path: string): void {
+function assertRegular(stats: BigIntStats, path: string): void {
   if (!stats.isFile() || stats.isSymbolicLink()) {
     throw new StableLockPathUnsafeError(`unsafe SQLite lock path: ${path}`);
   }
@@ -67,7 +68,7 @@ function errorCode(error: unknown): string | undefined {
     : undefined;
 }
 
-function matches(handle: StableLockFile, stats: IdentityStats): boolean {
+function matches(handle: StableLockFile, stats: BigIntStats): boolean {
   return sameFileIdentity(handle, stats);
 }
 
@@ -84,11 +85,11 @@ export function openStableLockFile(path: string, platform: NodeJS.Platform = pro
       throw error;
     }
   }
-  if (existsSync(path)) assertRegular(lstatFileIdentity(path), path);
+  if (existsSync(path)) assertRegular(lstatSync(path, { bigint: true }), path);
   const noFollow = platform === "win32" ? 0 : constants.O_NOFOLLOW;
   const fd = openSync(path, constants.O_RDWR | constants.O_CREAT | noFollow, 0o600);
   try {
-    const descriptor = fstatFileIdentity(fd);
+    const descriptor = fstatSync(fd, { bigint: true });
     assertRegular(descriptor, path);
     const entry: StableLockEntry = {
       fd,
@@ -109,9 +110,9 @@ export function openStableLockFile(path: string, platform: NodeJS.Platform = pro
 }
 
 export function assertStableLockFile(path: string, handle: StableLockFile): void {
-  let pathStats: IdentityStats;
+  let pathStats: BigIntStats;
   try {
-    pathStats = lstatFileIdentity(path);
+    pathStats = lstatSync(path, { bigint: true });
   } catch (error) {
     if (errorCode(error) === "ENOENT") {
       throw new StableLockPathUnsafeError(`SQLite lock path identity changed: ${path}`);

@@ -158,6 +158,38 @@ Loopback 綁定（預設的 `127.0.0.1`）不會驗證任何東西，所以 `{en
 
 `opencodex` provider 區塊每次啟動都會重新產生，因此在裡面做的 per-model 調整不會保留。請把自訂項目放在你自己的 provider 鍵底下。
 
+## 慢速本機模型（prefill 逾時）
+
+opencode 會限時等待供應商的第一個回應標頭（目前的 V2 預設為五分鐘），以及另一個較長的串流區塊間隔限制。
+在 `opencodex` 供應商之後，本機模型（LM Studio、vLLM、Ollama 或任何自架端點）處理大型提示詞時，
+可能在提示詞 *prefill*（在產生第一個 token 之前先處理提示詞）花上比這更久的時間。
+在非串流的回合中，代理在上游完成之前不會送任何東西給 opencode，所以 opencode 自己的標頭等待會先觸發，
+即使模型仍在運作，該回合也會以 `Timed out waiting for response headers` 失敗。
+
+由於產生出的 `opencodex` 供應商把所有路由上游多工到同一個區塊下，而 opencode 的逾時是供應商層級的，
+請在 opencodex 設定中用 `opencodeClientExport` 提高或停用整個供應商的等待。它預設為省略，
+所以除非你主動選用，opencode 會保留原生的等待（標頭與較長的區塊限制）：
+
+```json
+{
+  "opencodeClientExport": {
+    "headerTimeoutMs": false,
+    "chunkTimeoutMs": 1800000
+  }
+}
+```
+
+| 欄位 | opencode 設定 | 意義 |
+| --- | --- | --- |
+| `headerTimeoutMs` | `settings.headerTimeout` | 等待代理的第一個回應標頭。毫秒數，或用 `false` 停用。 |
+| `chunkTimeoutMs` | `settings.chunkTimeout` | 串流回應區塊之間的等待。毫秒數，或用 `false` 停用。 |
+| `timeoutMs` | `settings.timeout` | 整個請求的上限。毫秒數，或 `false`。opencode 沒有預設值。 |
+
+每個值都會原樣寫入 `provider.opencodex`（`options`）與 `providers.opencodex`（`settings`）兩個區塊。
+停用 `headerTimeout` 會移除 opencode 對真正卡住的代理的安全網，且影響所有經由它路由的模型，
+所以除非你確實想要不設上限，請優先使用較大的明確值（例如 `1800000`，即三十分鐘）。
+格式錯誤的值會被捨棄，opencode 會保留其原生預設值，而不是載入失敗。
+
 ## 需求
 
 opencode 必須已安裝並位於 `PATH`：

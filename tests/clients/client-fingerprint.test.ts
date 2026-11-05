@@ -27,16 +27,28 @@ function parsed(overrides: Partial<OcxParsedRequest> = {}): OcxParsedRequest {
 
 describe("client fingerprint — helpers", () => {
   test("antigravity UA has the real IDE shape, never the literal giveaway", async () => {
-    const ua = antigravityUserAgent();
-    expect(ua).toBe(`antigravity/ide/${ANTIGRAVITY_IDE_VERSION} (os_type=windows; arch=amd64; aidev_client; auth_method=oauth)`);
-    expect(ua).not.toBe("antigravity");
+    const prevGoogle = process.env.GOOGLE_ANTIGRAVITY_USER_AGENT;
+    try {
+      delete process.env.GOOGLE_ANTIGRAVITY_USER_AGENT;
+      const ua = antigravityUserAgent();
+      expect(ua).toBe(`antigravity/ide/${ANTIGRAVITY_IDE_VERSION} (os_type=windows; arch=amd64; aidev_client; auth_method=oauth)`);
+      expect(ua).not.toBe("antigravity");
+    } finally {
+      if (prevGoogle !== undefined) process.env.GOOGLE_ANTIGRAVITY_USER_AGENT = prevGoogle;
+    }
   });
 
   test("antigravity UA honors explicit version and authMethod overrides", async () => {
-    expect(antigravityUserAgent("9.9.9")).toBe("antigravity/ide/9.9.9 (os_type=windows; arch=amd64; aidev_client; auth_method=oauth)");
-    expect(antigravityUserAgent(ANTIGRAVITY_IDE_VERSION, "api_key")).toBe(
-      `antigravity/ide/${ANTIGRAVITY_IDE_VERSION} (os_type=windows; arch=amd64; aidev_client; auth_method=api_key)`,
-    );
+    const prevGoogle = process.env.GOOGLE_ANTIGRAVITY_USER_AGENT;
+    try {
+      delete process.env.GOOGLE_ANTIGRAVITY_USER_AGENT;
+      expect(antigravityUserAgent("9.9.9")).toBe("antigravity/ide/9.9.9 (os_type=windows; arch=amd64; aidev_client; auth_method=oauth)");
+      expect(antigravityUserAgent(ANTIGRAVITY_IDE_VERSION, "api_key")).toBe(
+        `antigravity/ide/${ANTIGRAVITY_IDE_VERSION} (os_type=windows; arch=amd64; aidev_client; auth_method=api_key)`,
+      );
+    } finally {
+      if (prevGoogle !== undefined) process.env.GOOGLE_ANTIGRAVITY_USER_AGENT = prevGoogle;
+    }
   });
 
   test("GOOGLE_ANTIGRAVITY_USER_AGENT env override trims surrounding whitespace", async () => {
@@ -91,27 +103,18 @@ describe("client fingerprint — helpers", () => {
 
   test("CLAUDE_CODE_HEADERS carries the first-party Stainless/App signature", async () => {
     expect(CLAUDE_CODE_HEADERS["X-App"]).toBe("cli");
+    expect(CLAUDE_CODE_HEADERS["anthropic-dangerous-direct-browser-access"]).toBe("true");
     expect(CLAUDE_CODE_HEADERS["X-Stainless-Runtime"]).toBe("node");
     expect(CLAUDE_CODE_HEADERS["X-Stainless-Lang"]).toBe("js");
-    expect(CLAUDE_CODE_HEADERS["anthropic-dangerous-direct-browser-access"]).toBe("true");
     expect(CLAUDE_CODE_HEADERS["X-Stainless-Package-Version"]).toBe(CLAUDE_CLI_SDK_PACKAGE_VERSION);
     expect(CLAUDE_CODE_HEADERS["X-Stainless-Runtime-Version"]).toBe(CLAUDE_CLI_RUNTIME_VERSION);
     expect(CLAUDE_CODE_HEADERS["X-Stainless-OS"]).toBe(stainlessOsName(process.platform));
     expect(CLAUDE_CODE_HEADERS["X-Stainless-Arch"]).toBe(stainlessArchName(process.arch));
-  });
-
-  test("Stainless OS and arch use the SDK's names, not Node's, and the pinned SDK is 0.112.1", async () => {
     expect(stainlessOsName("darwin")).toBe("MacOS");
     expect(stainlessOsName("linux")).toBe("Linux");
     expect(stainlessOsName("win32")).toBe("Windows");
-    expect(stainlessOsName("freebsd")).toBe("FreeBSD");
-    expect(stainlessOsName("aix")).toBe("Other:aix");
-    expect(stainlessArchName("x64")).toBe("x64");
     expect(stainlessArchName("arm64")).toBe("arm64");
-    expect(stainlessArchName("ia32")).toBe("x32");
-    expect(stainlessArchName("riscv64")).toBe("other:riscv64");
-    expect(CLAUDE_CLI_SDK_PACKAGE_VERSION).toBe("0.112.1");
-    expect(CLAUDE_CLI_RUNTIME_VERSION).toBe("v26.3.0");
+    expect(stainlessArchName("x64")).toBe("x64");
   });
 });
 
@@ -122,11 +125,11 @@ describe("client fingerprint — anthropic OAuth headers", () => {
   test("OAuth request carries the full Claude Code header set", async () => {
     const { headers } = await createAnthropicAdapter(oauthProvider).buildRequest(parsed());
     expect(headers["X-App"]).toBe("cli");
+    expect(headers["anthropic-dangerous-direct-browser-access"]).toBe("true");
     expect(headers["X-Stainless-Runtime"]).toBe("node");
     expect(headers["X-Stainless-Lang"]).toBe("js");
     expect(headers["X-Stainless-Retry-Count"]).toBe("0");
     expect(headers["X-Stainless-Timeout"]).toBe("600");
-    expect(headers["anthropic-dangerous-direct-browser-access"]).toBe("true");
     expect(headers["X-Stainless-Package-Version"]).toBe("0.112.1");
     expect(headers["X-Stainless-Runtime-Version"]).toBe("v26.3.0");
     expect(headers["anthropic-beta"]).toBeDefined();
@@ -172,8 +175,6 @@ describe("client fingerprint — anthropic OAuth headers", () => {
   test("Accept + User-Agent fingerprint headers are sent on both OAuth and API-key paths", async () => {
     const oauth = (await createAnthropicAdapter(oauthProvider).buildRequest(parsed())).headers;
     const apiKey = (await createAnthropicAdapter(apiKeyProvider).buildRequest(parsed())).headers;
-    // Non-stream request advertises a JSON Accept. OAuth presents the Claude Code CLI UA;
-    // the API-key path keeps the pinned SDK UA.
     expect(oauth["Accept"]).toBe("application/json");
     expect(oauth["User-Agent"]).toBe(CLAUDE_CLI_USER_AGENT);
     expect(apiKey["Accept"]).toBe("application/json");
@@ -187,3 +188,17 @@ describe("client fingerprint — anthropic OAuth headers", () => {
     expect(headers["User-Agent"]).toBe(CLAUDE_CLI_USER_AGENT);
   });
 });
+
+  test("Stainless OS and arch use the SDK's names, not Node's, and the pinned SDK is 0.112.1", async () => {
+    expect(stainlessOsName("darwin")).toBe("MacOS");
+    expect(stainlessOsName("linux")).toBe("Linux");
+    expect(stainlessOsName("win32")).toBe("Windows");
+    expect(stainlessOsName("freebsd")).toBe("FreeBSD");
+    expect(stainlessOsName("aix")).toBe("Other:aix");
+    expect(stainlessArchName("x64")).toBe("x64");
+    expect(stainlessArchName("arm64")).toBe("arm64");
+    expect(stainlessArchName("ia32")).toBe("x32");
+    expect(stainlessArchName("riscv64")).toBe("other:riscv64");
+    expect(CLAUDE_CLI_SDK_PACKAGE_VERSION).toBe("0.112.1");
+    expect(CLAUDE_CLI_RUNTIME_VERSION).toBe("v26.3.0");
+  });

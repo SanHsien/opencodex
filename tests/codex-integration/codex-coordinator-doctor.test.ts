@@ -1,3 +1,4 @@
+import { samePath } from "../helpers/same-path";
 import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import * as fs from "node:fs";
 import { chmodSync, existsSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
@@ -81,14 +82,14 @@ test("doctor classifies and explicitly backs up a stable zero-byte coordinator",
   rmSync(recovered.backupPath, { force: true });
 });
 
-test("doctor reports a coordinator whose file ID changes by one above numeric precision as changed", () => {
+test("doctor detects adjacent large file identities", () => {
   privateFile(coordinatorPath);
   const realLstat = fs.lstatSync;
   const id = 2n ** 53n;
   let observations = 0;
   const spy = spyOn(fs, "lstatSync").mockImplementation(((target, options) => {
     const value = options?.bigint ? realLstat(target, { bigint: true }) : realLstat(target);
-    if (target !== coordinatorPath) return value;
+    if (!samePath(target, coordinatorPath)) return value;
     const ino = id + BigInt(observations++ > 0);
     return Object.assign(Object.create(Object.getPrototypeOf(value)), value, { ino: options?.bigint ? ino : Number(ino) });
   }) as typeof fs.lstatSync);

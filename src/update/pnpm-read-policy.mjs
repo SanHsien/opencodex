@@ -1,5 +1,5 @@
-// Exact identity boundary: standalone Node launcher cannot load file-identity.ts; both cleanup witnesses use bigint stats.
-import { mkdtempSync, lstatSync, writeFileSync, unlinkSync, rmdirSync } from "node:fs";
+import { ownedArtifactUnlink } from "./mutation-guard.mjs";
+import { mkdtempSync, lstatSync, writeFileSync, rmdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -12,7 +12,7 @@ const MUTATIONS = new Set(["add", "install", "update", "remove", "uninstall"]);
 export function withPnpmCommandCwd(args, run) {
   if (!MUTATIONS.has(args?.[0])) return run(PNPM_READ_CWD);
   const cwd = mkdtempSync(join(tmpdir(), "ocx-pnpm-command-"));
-  const created = lstatSync(cwd, { bigint: true });
+  const created = lstatSync(cwd);
   const files = ["pnpm-workspace.yaml", ".npmrc"];
   try {
     // Stop discovery at our own workspace, rather than inheriting a shared /tmp workspace.
@@ -21,13 +21,13 @@ export function withPnpmCommandCwd(args, run) {
     return run(cwd);
   } finally {
     try {
-      const now = lstatSync(cwd, { bigint: true });
+      const now = lstatSync(cwd);
       if (!now.isDirectory() || now.isSymbolicLink() || now.dev !== created.dev || now.ino !== created.ino) {
         throw new Error("temporary directory identity changed");
       }
       // Never recursively remove pnpm-created or replacement contents.
       for (const name of files) {
-        try { unlinkSync(join(cwd, name)); }
+        try { ownedArtifactUnlink(join(cwd, name)); }
         catch (error) { if (error?.code !== "ENOENT") throw error; }
       }
       rmdirSync(cwd);

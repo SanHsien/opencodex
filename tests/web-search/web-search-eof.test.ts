@@ -20,13 +20,13 @@ const prefix = 'data: {"type":"response.output_text.delta","delta":"draft"}\n\n'
 describe("Responses sidecar final data line at EOF", () => {
   test.each(["response.completed", "response.done"])("accepts an unterminated %s with authoritative text and sources", async type => {
     const final = { type, response: { output: [{ type: "message", content: [{
-      type: "output_text", text: "Search result 😀", annotations: [
+      type: "output_text", text: "검색 결과 😀", annotations: [
         { type: "url_citation", url: "https://example.com/result", title: "Source" },
       ],
     }] }] } };
     for (const fragmented of [false, true]) {
       const out = await parseSidecarSSE(eofResponse(prefix + `data:${JSON.stringify(final)}`, fragmented));
-      expect(out).toEqual({ text: "Search result 😀", sources: [{ url: "https://example.com/result", title: "Source" }] });
+      expect(out).toEqual({ text: "검색 결과 😀", sources: [{ url: "https://example.com/result", title: "Source" }] });
     }
   });
 

@@ -177,3 +177,8 @@ opencodex 會跳過已停用、不可路由、不健康、冷卻中或達到配�
 
 `GET /api/effort-caps` 會包含這個映射。`PUT /api/effort-caps` 在既有上限之外也接受 `modelPinnedEfforts`：省略的欄位維持不變，`null` 會清空整個映射，映射中某個鍵設為 `null` 或 `""` 只會刪除那一個鍵。無效的合併更新會讓上限與 pin 都維持不變。儲存 pin 不會改變精選子代理 roster。
 </content>
+## v1 同步期間的 CLI 更新
+
+當明確指定 `multiAgentMode: "v1"` 的同步必須停用 Codex 的全域 v2 覆寫時，進行中的 Codex CLI 更新
+可能會暫時拒絕該同步。請在更新完成後重試。已經使用 v1 的 home 在更新期間仍可同步，因為不需要原生功能指令。
+

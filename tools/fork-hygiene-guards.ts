@@ -190,7 +190,6 @@ export const REMOVED_FILES = [
   "tests/cli/cli-client-start-owner-e2e.test.ts",
   "tests/cli/ocx-launcher-fixture-trust.test.ts",
   "tests/clients/desktop-widget-entry.test.ts",
-  "tests/clients/link-ssh-argv-discovery.test.ts",
   "tests/clients/remote-workspace-linux-confinement.test.ts",
   "tests/codex-integration/codex-shim-ensure-failure.test.ts",
   "tests/codex-integration/codex-shim-migration.test.ts",

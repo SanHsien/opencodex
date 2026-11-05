@@ -1,10 +1,11 @@
-import { sameFileIdentity, lstatFileIdentity, fstatFileIdentity } from "../lib/file-identity";
 import {
+  type BigIntStats,
   chmodSync,
   closeSync,
   fchmodSync,
   fsyncSync,
   fstatSync,
+  linkSync,
   lstatSync,
   openSync,
   realpathSync,
@@ -53,7 +54,6 @@ function admitAtomicAclWork(target: string, temp: string, enabled: boolean): (()
     } else release();
   };
 }
-
 
 /**
  * Whether this writer's Windows ACL branch applies.
@@ -127,7 +127,7 @@ export function resolveWriteTarget(path: string): string {
   } catch (cause) {
     let entry;
     try {
-      entry = lstatFileIdentity(path);
+      entry = lstatSync(path);
     } catch (error) {
       if (isMissingPathError(error)) return path;
       throw error;
@@ -158,14 +158,17 @@ function assertResolvedTargetAllowed(path: string, target: string): void {
   assertNotRealHomeUnderTest(dirname(target));
 }
 
-function assertPrivateTempDescriptor(path: string, descriptor: number): void {
-  const opened = fstatFileIdentity(descriptor);
-  const linked = lstatFileIdentity(path);
+// Zero dev/ino is refused only where publication relies on stable identity (exclusive
+// recovery copies); ordinary saves must keep working on filesystems that report zero.
+function assertPrivateTempDescriptor(path: string, descriptor: number, requireStableIdentity = false): void {
+  const opened = fstatSync(descriptor, { bigint: true });
+  const linked = lstatSync(path, { bigint: true });
   if (!opened.isFile() || !linked.isFile()
-    || !sameFileIdentity(opened, linked)) {
+    || (requireStableIdentity && (opened.dev === 0n || opened.ino === 0n))
+    || opened.dev !== linked.dev || opened.ino !== linked.ino) {
     throw new Error("atomic temporary file identity changed before write");
   }
-  if (process.platform !== "win32" && (opened.mode & 0o777) !== 0o600) {
+  if (process.platform !== "win32" && (opened.mode & 0o777n) !== 0o600n) {
     throw new Error("atomic temporary file permissions are not owner-only");
   }
 }
@@ -221,11 +224,12 @@ function writePrivateTempFile(
   path: string,
   content: string,
   timeoutMemoKey: string,
-  onCreated: () => void,
+  onCreated: (descriptor: number) => void,
+  requireStableIdentity = false,
 ): void {
   const descriptor = openSync(path, "wx", 0o600);
-  onCreated();
   try {
+    onCreated(descriptor);
     if (windowsHardeningApplies()) {
       hardenSecretPath(path, { required: true, timeoutMemoKey, retryTimedOutOnce: true });
     }
@@ -235,11 +239,11 @@ function writePrivateTempFile(
     if (process.platform !== "win32") {
       fchmodSync(descriptor, 0o600);
     }
-    assertPrivateTempDescriptor(path, descriptor);
+    assertPrivateTempDescriptor(path, descriptor, requireStableIdentity);
     writeFileSync(descriptor, content, { encoding: "utf-8" });
     // Second assertion, after the content write: the object this path resolves
     // to is still the object the ACL was applied to and the one we just wrote.
-    assertPrivateTempDescriptor(path, descriptor);
+    assertPrivateTempDescriptor(path, descriptor, requireStableIdentity);
   } finally {
     closeSync(descriptor);
   }
@@ -261,18 +265,19 @@ function writePrivateTempFileWith(
   path: string,
   write: (descriptor: number) => void,
   timeoutMemoKey: string,
-  onCreated: () => void,
+  onCreated: (descriptor: number) => void,
+  requireStableIdentity = false,
 ): void {
   const descriptor = openSync(path, "wx", 0o600);
-  onCreated();
   try {
+    onCreated(descriptor);
     if (windowsHardeningApplies()) {
       hardenSecretPath(path, { required: true, timeoutMemoKey, retryTimedOutOnce: true });
     }
     if (process.platform !== "win32") fchmodSync(descriptor, 0o600);
-    assertPrivateTempDescriptor(path, descriptor);
+    assertPrivateTempDescriptor(path, descriptor, requireStableIdentity);
     write(descriptor);
-    assertPrivateTempDescriptor(path, descriptor);
+    assertPrivateTempDescriptor(path, descriptor, requireStableIdentity);
     fsyncSync(descriptor);
   } finally {
     closeSync(descriptor);
@@ -284,11 +289,11 @@ async function writePrivateTempFileAsync(
   path: string,
   content: string,
   timeoutMemoKey: string,
-  onCreated: () => void,
+  onCreated: (descriptor: number) => void,
 ): Promise<void> {
   const descriptor = openSync(path, "wx", 0o600);
-  onCreated();
   try {
+    onCreated(descriptor);
     if (windowsHardeningApplies()) {
       await hardenSecretPathAsync(path, { required: true, timeoutMemoKey, retryTimedOutOnce: true });
     }
@@ -311,6 +316,7 @@ function atomicWriteFileToTarget(
   io?: AtomicWriteIO,
   hooks: AtomicWriteHooks = {},
   recordOwnership = true,
+  exclusive = false,
 ): void {
   if (recordOwnership) recordOwnedConfigPath(getConfigDir(), path);
   assertResolvedTargetAllowed(path, target);
@@ -318,10 +324,24 @@ function atomicWriteFileToTarget(
   const releaseAcl = admitAtomicAclWork(target, tmp, io === undefined);
   let hardened = false;
   let ownsTemp = false;
-  // Cleanup must not consume the destination recovery attempt for a later write.
+  // Cleanup must not consume the destination's recovery attempt for a later write.
   let cleanupHarden = false;
+  let publicationAttempted = false;
+  let identity: BigIntStats | undefined;
+  const created = (descriptor: number): void => {
+    ownsTemp = true;
+    if (exclusive) identity = fstatSync(descriptor, { bigint: true });
+  };
+  const assertIdentity = (entry: string): BigIntStats => {
+    const current = lstatSync(entry, { bigint: true });
+    if (!identity?.isFile() || identity.dev === 0n || identity.ino === 0n || !current.isFile()
+      || current.dev !== identity.dev || current.ino !== identity.ino) {
+      throw new Error("atomic exclusive publication identity changed");
+    }
+    return current;
+  };
   const effective: AtomicWriteIO = io ?? {
-    write: (tempPath, value) => writePrivateTempFile(tempPath, value, path, () => { ownsTemp = true; }),
+    write: (tempPath, value) => writePrivateTempFile(tempPath, value, path, created, exclusive),
     harden: tempPath => {
       // No chmod on the Windows branch: there it sets the read-only ATTRIBUTE,
       // which is not the secret boundary and is not what protects this file, and
@@ -342,15 +362,24 @@ function atomicWriteFileToTarget(
     // A streaming writer bypasses the string form of `write` and nothing else. Every later
     // step -- harden, the pre-rename hooks, the rename and the whole residual-cleanup path,
     // which still scrubs through `effective.write(tmp, "")` -- is shared with the string form.
-    if (typeof content === "function") writePrivateTempFileWith(tmp, content, path, () => { ownsTemp = true; });
+    if (typeof content === "function") writePrivateTempFileWith(tmp, content, path, created, exclusive);
     else effective.write(tmp, content);
     hooks.afterTempWrite?.(tmp, target);
+    if (exclusive) assertIdentity(tmp);
     effective.harden(tmp);
     hardened = true;
     hooks.beforeRename?.(tmp, target);
     hooks.validateBeforeRename?.(target);
-    effective.rename(tmp, target);
+    if (exclusive) {
+      // link is an atomic no-replace publication on both NTFS and POSIX. A raced
+      // destination entry, including a symlink, is refused rather than followed.
+      assertIdentity(tmp);
+      publicationAttempted = true;
+      linkSync(tmp, target);
+      assertIdentity(target);
+    } else effective.rename(tmp, target);
     hooks.afterRename?.(target);
+    if (exclusive) { assertIdentity(tmp); effective.unlink(tmp); }
     // The rename is only as durable as the directory entry recording it. Fsyncing the temp's
     // CONTENT and then losing the entry in a power cut leaves the old file in place, or the
     // directory in an indeterminate state, while the caller was told the replacement landed.
@@ -364,10 +393,19 @@ function atomicWriteFileToTarget(
   } catch (cause) {
     if (!ownsTemp) throw cause;
     cleanupHarden = true;
+    let sharedTemp = false;
+    if (exclusive) {
+      try { sharedTemp = assertIdentity(tmp).nlink > 1n; } catch (error) {
+        if (isMissingPathError(error)) { forgetEphemeralSecretPath(tmp); throw cause; }
+        // The named entry is no longer ours. Neither truncate nor unlink it.
+        throw new AtomicWriteSecretResidualError(tmp, { cause });
+      }
+    }
     let scrubbed = false;
     try {
-      effective.truncate(tmp);
-      scrubbed = true;
+      // A link syscall can publish and then report an error (e.g. a remote FS).
+      // Like initial config publication, cleanup after an attempt is unlink-only.
+      if (!publicationAttempted && !sharedTemp) { effective.truncate(tmp); scrubbed = true; }
     } catch (error) {
       if (isMissingPathError(error)) scrubbed = true;
       else {
@@ -376,12 +414,13 @@ function atomicWriteFileToTarget(
     }
     let removed = false;
     try {
+      if (exclusive) assertIdentity(tmp);
       effective.unlink(tmp);
       removed = true;
     } catch (error) {
       if (isMissingPathError(error)) removed = true;
       else {
-        try { effective.unlink(tmp); removed = true; }
+        try { if (exclusive) assertIdentity(tmp); effective.unlink(tmp); removed = true; }
         catch (retryError) { if (isMissingPathError(retryError)) removed = true; }
       }
     }
@@ -428,14 +467,26 @@ export function atomicWriteFileStreamed(
  */
 export function atomicWriteFileNoFollow(
   path: string,
-  content: string,
+  content: string | Uint8Array,
   io?: AtomicWriteIO,
   hooks: AtomicWriteHooks = {},
+  options: { exclusive?: boolean } = {},
 ): void {
   // Only the final entry is no-follow: the parent still resolves, because an
   // OS alias above the configured root (a home junction, /tmp) is legitimate
   // and Windows cannot exclusive-create a temp through a junction.
-  atomicWriteFileToTarget(path, content, join(resolveWriteTarget(dirname(path)), basename(path)), io, hooks);
+  const value = typeof content === "string" ? content : (descriptor: number) => { writeFileSync(descriptor, content); };
+  // Recovery copies are deliberately unclaimed: uninstall must not own them.
+  atomicWriteFileToTarget(path, value, join(resolveWriteTarget(dirname(path)), basename(path)), io, hooks, !options.exclusive, options.exclusive);
+}
+
+/** Content fsync before rename is mandatory; parent-directory sync is best effort. */
+export function atomicWriteFileNoFollowStreamed(
+  path: string,
+  write: (descriptor: number) => void,
+  hooks: AtomicWriteHooks = {},
+): void {
+  atomicWriteFileToTarget(path, write, join(resolveWriteTarget(dirname(path)), basename(path)), undefined, hooks);
 }
 
 /**
@@ -467,7 +518,6 @@ export async function atomicWriteFileAsync(
   testSeam?: AtomicWriteAsyncTestSeam,
 ): Promise<void> {
   let ownsTemp = false;
-  // Cleanup must not consume the destination recovery attempt for a later write.
   let cleanupHarden = false;
   const effective: AtomicWriteAsyncIO = io ?? {
     write: (tempPath, value) => writePrivateTempFileAsync(tempPath, value, path, () => { ownsTemp = true; }),

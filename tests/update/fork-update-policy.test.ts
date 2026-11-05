@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { repoPath } from "../helpers/repo-root";
 import {
   FORK_TEST_REGISTRY_UPDATE_ENV,
@@ -57,6 +58,53 @@ describe("fork update policy (shipped default)", () => {
     } catch (error) {
       expect(error).toBeInstanceOf(UpdateJobError);
       expect((error as UpdateJobError).code).toBe("fork_self_update_disabled");
+    }
+  });
+});
+
+// The Node launcher handles `update` before Bun starts. Upstream's orchestrated child and apply
+// paths run there and install a registry build (the upstream package), so each needs the gate
+// before it, not only the legacy `update` refusal that sits further down the file.
+describe("fork update policy: the Node launcher's orchestrated entry points", () => {
+  const nodePath = Bun.which("node");
+  const closedGateEnv = (extra: Record<string, string> = {}) => {
+    const env: Record<string, string> = {};
+    for (const [key, value] of Object.entries(process.env)) if (value !== undefined) env[key] = value;
+    delete env[FORK_TEST_REGISTRY_UPDATE_ENV];
+    delete env.OCX_UPDATE_ORCHESTRATED_CHILD;
+    return { ...env, NODE_ENV: "test", ...extra };
+  };
+  const run = (args: string[], extra: Record<string, string> = {}) =>
+    spawnSync(nodePath!, [repoPath("bin/ocx.mjs"), "update", ...args], {
+      env: closedGateEnv(extra), encoding: "utf8", timeout: 45_000, windowsHide: true, cwd: repoPath("."),
+    });
+  const lastJson = (stdout: string) => JSON.parse(stdout.trim().split(/\r?\n/).at(-1)!);
+
+  test.skipIf(!nodePath)("`update --yes --json` is refused with a machine-readable result and exit 10", () => {
+    const result = run(["--yes", "--json"]);
+    expect(result.status).toBe(10);
+    expect(result.stderr).toContain(FORK_RELEASES_URL);
+    expect(lastJson(result.stdout)).toMatchObject({ schema: "ocx.update.result/1", applied: false, error: "fork-self-update-disabled" });
+  });
+
+  test.skipIf(!nodePath)("`update --plan --json` reports canApply false and never a target version", () => {
+    const result = run(["--plan", "--json"]);
+    expect(result.status).toBe(0);
+    expect(lastJson(result.stdout)).toMatchObject({ schema: "ocx.update.plan/1", canApply: false, reason: "fork-self-update-disabled", targetVersion: null });
+  });
+
+  test.skipIf(!nodePath)("the orchestrated child mode is refused before it reads its capability", () => {
+    const result = run(["--orchestrated-expect=AA", "--orchestrated-result=x", "--yes", "--json"], { OCX_UPDATE_ORCHESTRATED_CHILD: "1" });
+    expect(result.status).not.toBe(0);
+    expect(result.stdout + result.stderr).not.toContain("Orchestrated update preflight");
+  });
+
+  test("the gate precedes every launcher call that can install a registry build", () => {
+    const source = readFileSync(repoPath("bin/ocx.mjs"), "utf8");
+    const gate = source.indexOf("if (orchestratedUpdate && forkSelfUpdateBlocked())");
+    expect(gate).toBeGreaterThan(0);
+    for (const call of ["await runPackageManagerSelfUpdate(installMethod, childArgs)", "await applyNodeOrchestratedUpdate(", "await runNpmSelfUpdate()", "await runPnpmSelfUpdate()"]) {
+      expect(source.indexOf(call), call).toBeGreaterThan(gate);
     }
   });
 });

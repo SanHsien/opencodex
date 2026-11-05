@@ -1,3 +1,4 @@
+import { samePath } from "../helpers/same-path";
 /**
  * An installed Windows CMD or PowerShell wrapper from before the bypass-token fix loads the
  * service token before honoring OCX_SHIM_BYPASS. Those wrappers carry the shim marker but no
@@ -9,8 +10,10 @@ import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import * as fs from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join, sep } from "node:path";
-import { autoRestoreCodexShim, installCodexShim } from "../../src/codex/shim";
-import { stableShimPathProbe } from "../../src/codex/shim-fingerprint";
+import { autoRestoreCodexShim, installCodexShim, uninstallCodexShim } from "../../src/codex/shim";
+import { createWorkerCommitWindow, createCodexCliUpdateFence, codexCliUpdateSelectionGate } from "../../src/codex/cli-update-selection-gate";
+import { sameFingerprint, stableShimPathProbe } from "../../src/codex/shim-fingerprint";
+import { ownedWrapperFingerprint, wrapperInodeIsOurs } from "../../src/codex/shim-wrapper-write";
 import { readBoundedRegularFile } from "../../src/codex/shim-state-file";
 import { tryAcquireShimRestoreLock } from "../../src/codex/shim-restore-lock";
 import { refreshObsoleteWindowsShim } from "../../src/codex/shim-windows-refresh";
@@ -19,6 +22,21 @@ import { isolateCodexShimEnvironment } from "../helpers/codex-shim-install-fixtu
 import { removeTreeWithRetry } from "../helpers/remove-tree";
 
 isolateCodexShimEnvironment();
+
+test("all Windows public shim writers refuse a held Worker commit gate before preflight", () => {
+  const original = Object.getOwnPropertyDescriptor(process, "platform")!;
+  Object.defineProperty(process, "platform", { value: "win32", configurable: true });
+  const window = createWorkerCommitWindow({ gate: codexCliUpdateSelectionGate(), fence: createCodexCliUpdateFence() });
+  let enabledReads = 0;
+  try {
+    expect(window.tryEnter()).toBe(true);
+    expect(installCodexShim()).toMatchObject({ installed: false, refused: true, message: "codex_cli_selection_busy" });
+    expect(autoRestoreCodexShim({ enabled: () => { enabledReads++; return true; } }))
+      .toMatchObject({ status: "deferred", message: "codex_cli_selection_busy" });
+    expect(uninstallCodexShim()).toEqual({ removed: false, message: "codex_cli_selection_busy" });
+    expect(enabledReads).toBe(0);
+  } finally { window.exit(); Object.defineProperty(process, "platform", original); }
+});
 
 const platform = Object.getOwnPropertyDescriptor(process, "platform")!;
 const previousHome = process.env.OPENCODEX_HOME;
@@ -36,7 +54,7 @@ afterEach(() => {
   removeTreeWithRetry(dir);
 });
 
-test("shim probe refuses a launcher whose file ID changes by one above numeric precision between observations", () => {
+test("shim probe rejects adjacent NTFS-sized file identities", () => {
   const path = join(dir, "launcher");
   fs.writeFileSync(path, "launcher fixture");
   const id = 9_007_199_254_740_992n;
@@ -44,25 +62,56 @@ test("shim probe refuses a launcher whose file ID changes by one above numeric p
   let calls = 0;
   const stat = spyOn(fs, "lstatSync").mockImplementation(((target, options) => {
     const result = options?.bigint ? real(target, { bigint: true }) : real(target);
-    if (target !== path) return result;
+    if (!samePath(target, path)) return result;
     const ino = id + BigInt(calls++ > 0);
     return Object.assign(Object.create(Object.getPrototypeOf(result)), result,
       { ino: options?.bigint ? ino : Number(ino) });
   }) as typeof fs.lstatSync);
+  try { expect(stableShimPathProbe(path)).toBeNull(); }
+  finally { stat.mockRestore(); }
+});
+
+for (const [name, owns] of [
+  ["wrapperInodeIsOurs", (path, probe, written) => wrapperInodeIsOurs(probe, written, undefined)],
+  ["ownedWrapperFingerprint", (path, _probe, written) => ownedWrapperFingerprint(path, written) !== undefined],
+] as const satisfies ReadonlyArray<readonly [string, (path: string, probe: NonNullable<ReturnType<typeof stableShimPathProbe>>, written: { dev: bigint; ino: bigint }) => boolean]>) test(`${name} rejects adjacent identities with equal numeric fields`, () => {
+  const path = join(dir, "launcher");
+  fs.writeFileSync(path, "launcher fixture");
+  const id = 2n ** 53n;
+  const real = fs.lstatSync;
+  const stat = spyOn(fs, "lstatSync").mockImplementation(((target, options) => {
+    const value = options?.bigint ? real(target, { bigint: true }) : real(target);
+    return samePath(target, path) ? Object.assign(Object.create(Object.getPrototypeOf(value)), value,
+      { dev: options?.bigint ? 1n : 1, ino: options?.bigint ? id : Number(id) }) : value;
+  }) as typeof fs.lstatSync);
   try {
-    expect(Number(id)).toBe(Number(id + 1n));
-    expect(stableShimPathProbe(path)).toBeNull();
+    const probe = stableShimPathProbe(path)!;
+    const written = { dev: 1n, ino: id + 1n };
+    expect(probe.fingerprint.ino).toBe(Number(written.ino));
+    expect(owns(path, probe, written)).toBe(false);
+    // A legacy numeric observation must not regain ownership after rounding.
+    const legacy = { dev: 1, ino: Number(written.ino) } as unknown as typeof written;
+    expect(owns(path, probe, legacy)).toBe(false);
   } finally { stat.mockRestore(); }
 });
 
-test("shim state read refuses a descriptor whose file ID is one above the path's beyond numeric precision", () => {
+test("fingerprint comparisons fail closed when identity is missing", () => {
+  const path = join(dir, "launcher");
+  fs.writeFileSync(path, "launcher fixture");
+  const fingerprint = stableShimPathProbe(path)!.fingerprint;
+  const missing = { ...fingerprint, identity: undefined } as unknown as typeof fingerprint;
+  expect(sameFingerprint(fingerprint, missing)).toBe(false);
+  expect(sameFingerprint(missing, fingerprint)).toBe(false);
+});
+
+test("shim state read rejects adjacent NTFS-sized file identities", () => {
   const path = join(dir, "state.json");
   fs.writeFileSync(path, "{}");
   const id = 9_007_199_254_740_992n;
   const realLstat = fs.lstatSync, realFstat = fs.fstatSync;
   const lstat = spyOn(fs, "lstatSync").mockImplementation(((target, options) => {
     const stat = options?.bigint ? realLstat(target, { bigint: true }) : realLstat(target);
-    return target === path ? Object.assign(Object.create(Object.getPrototypeOf(stat)), stat,
+    return samePath(target, path) ? Object.assign(Object.create(Object.getPrototypeOf(stat)), stat,
       { ino: options?.bigint ? id : Number(id) }) : stat;
   }) as typeof fs.lstatSync);
   const fstat = spyOn(fs, "fstatSync").mockImplementation(((fd, options) => {
@@ -74,7 +123,7 @@ test("shim state read refuses a descriptor whose file ID is one above the path's
   finally { fstat.mockRestore(); lstat.mockRestore(); }
 });
 
-test("shim restore lock keeps an owner file whose ID is one above the held descriptor's beyond numeric precision", () => {
+test("shim restore lock preserves an owner with an adjacent NTFS-sized identity", () => {
   const lockPath = join(dir, "codex-shim.autorestore.lock");
   const id = 9_007_199_254_740_992n;
   const realOpen = fs.openSync, realFstat = fs.fstatSync, realLstat = fs.lstatSync;

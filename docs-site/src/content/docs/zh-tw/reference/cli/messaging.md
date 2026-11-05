@@ -63,6 +63,25 @@ for an FYI. Responses and notifications do not request acknowledgements. A norma
 agent final answer is not sent back to its peer; missing routes must not be guessed.
 No global prompt changes or acknowledgement loops are introduced.
 
+## 寄件者與回覆
+
+包裝器會產生訊息 UUID，並從已載入的 `CODEX_THREAD_ID` 與 daemon 中繼資料附上寄件者 ID／名稱。
+此上下文**不是經過驗證的對等授權**，也絕不授予使用者核准或權限提升。無效或未載入的宣稱寄件者會失敗；
+沒有上下文時維持未知，不猜測回覆路由。對等訊息以文字排入佇列，不是權限核准或設定覆寫。
+接收端代理的駕馭層會執行它自己的權限；信封中的指引不是技術上的授權邊界，也不保證模型行為。
+
+預設種類是 `request`。請使用信封中產生的 `replyCommand` 回答，或明確關聯一個回應：
+
+```bash
+printf '%s\n' 'Review findings: ...' |
+  ocx message send --thread <sender-thread-uuid> --kind response \
+    --in-reply-to <request-message-uuid> --stdin --json
+```
+
+`response` 需要 `--in-reply-to`；其他種類會拒絕它。請用 `--kind notification` 發送知會。
+回應與通知不要求確認。一般代理的最終答案不會回送給它的對等端；不得猜測缺少的路由。
+不會引入全域提示詞變更或確認迴圈。
+
 ## Receipts and exit codes
 
 `--json` emits one versioned receipt (`ocx-message/1`) containing message UUID,
@@ -233,9 +252,11 @@ Crash mutation locks fail closed and need operator recovery;
 the wrapper never guesses that an old lock is abandoned.
 State and recovery-journal publication sync the file and containing directory before dependent
 remote work; journal removal also syncs its directory. `remote_storage_unknown` (exit 3) means
-the storage change's crash durability could not be confirmed: inspect state before explicit
-recovery rather than automatically retrying. A safely readable journal with malformed JSON or
-schema does not block peer removal, but is retained for operator recovery; unsafe storage and
+the storage change's crash durability could not be confirmed. On macOS, an ACL refusal or probe
+failure after file replacement also reports this code: the new state is already visible, but its
+ACL privacy and crash durability are unconfirmed. Inspect state and permissions before explicit
+recovery rather than automatically retrying or rolling back. A safely readable journal with malformed
+JSON or schema does not block peer removal, but is retained for operator recovery; unsafe storage and
 failure to invalidate a matching journal still refuse removal.
 
 The foreground owner shares finite connection/request/helper/buffer limits across
@@ -244,7 +265,11 @@ hold twelve authenticated connections, four more stay reserved for the owner's o
 control, outgoing probes and renewal, and at most eight tunnel
 children and two transient control/inspection helpers, ten total. Setup is bounded by
 30 seconds across the whole selected peer batch. A final lease renewal precedes startup
-success; final and periodic renewal batches have five-second deadlines, within the setup
+success. If SSH reports that a selected forward port was lost, setup closes the owned
+pair and selects fresh ports, up to three attempts within that same deadline. SSH forward
+confirmation, loopback checks and authenticated peer readiness must all succeed. Other
+setup failures stop immediately; published routes do not reconnect automatically. Final
+and periodic renewal batches have five-second deadlines, within the setup
 deadline where applicable, and periodic maintenance runs every ten seconds.
 Cancellation stops only owned
 SSH helpers/listeners; it leaves Codex daemons, threads and unrelated proxies alone.
@@ -262,3 +287,4 @@ is not controlled by it.
 
 Mesh, dashboard/cache controls, isolation, Claude messaging, managed skills and
 idle notifications remain outside this contribution.
+

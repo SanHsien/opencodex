@@ -1,4 +1,3 @@
-import { sameFileIdentity } from "../lib/file-identity";
 /** Read-only guard for competing Factory settings before a managed write. */
 import { closeSync, constants, fstatSync, lstatSync, openSync, readFileSync, type BigIntStats } from "node:fs";
 import { join, win32 } from "node:path";
@@ -33,14 +32,13 @@ export function assertDroidSettingsUnambiguous(root: string, baseUrl?: string, m
       if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
       throw new Error(`Cannot inspect Factory ${name}`);
     }
-    if (!stat.isFile() || stat.size > 1024n * 1024n) throw new Error(`Unsafe Factory ${name}`);
+    if (!stat.isFile() || stat.size > 1024 * 1024) throw new Error(`Unsafe Factory ${name}`);
     let value: unknown;
     let fd: number | undefined;
     try {
       fd = openSync(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
-      // bigint: NTFS file IDs exceed 2^53 and would compare inexactly as numbers.
       const opened = fstatSync(fd, { bigint: true });
-      if (!opened.isFile() || opened.size > 1024n * 1024n || !sameFileIdentity(opened, stat)) {
+      if (!opened.isFile() || opened.size > 1024 * 1024 || opened.ino !== stat.ino || opened.dev !== stat.dev) {
         throw new Error("file changed during inspection");
       }
       value = JSON.parse(readFileSync(fd, "utf8"));

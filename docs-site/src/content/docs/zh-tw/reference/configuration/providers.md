@@ -34,6 +34,16 @@ have a 60-second upload deadline, a 128 MiB input cap and at most two simultaneo
 provider pacing/concurrency still applies. Oversized text or unconvertible images still need
 compaction; this transport repair does not extend the model's context window.
 
+## GPT-6.1 Terra
+
+[GPT-6.1 Terra](https://openai.com/index/introducing-gpt-6-1-terra/) 於 2026 年 10 月 26 日發布，作為 GPT-5.6 Terra 的後繼。`gpt-6.1-terra` 與 `gpt-5.6-terra` 並存可用；預設模型與子代理名冊皆不變。GitHub Copilot 使用 Responses；OpenRouter 列出 `openai/gpt-6.1-terra`，上下文 1,050,000，每 1M token 輸入 $1.00／輸出 $5.00。
+
+原生 Codex：預設上下文 500,000，長上下文上限 872,000，預設 effort 為 `low`，階梯為 `low`、`medium`、`high`、`xhigh`、`max`、`ultra`。原生 `ultra` 在線路上以 `max` 送出。原生資料列只提供 Fast。
+
+[OpenAI API](https://developers.openai.com/api/docs/models/gpt-6.1-terra)：上下文 1,050,000，最大輸出 128,000；文字／圖片輸入與文字輸出；知識截止日 2026-06-01。Effort：`none`、`low`、`medium`（預設）、`high`、`xhigh`、`max`。端點：`v1/responses` 與 `v1/chat/completions`；工具呼叫需要 Responses。
+
+每 1M token：輸入 $1.00、快取輸入 $0.05、快取寫入 $1.25（30 分鐘）、輸出 $5.00。輸入超過 272,000 token 時，整個請求的輸入／快取按 2×、輸出按 1.5× 計價：分別為 $2.00 / $0.10 / $2.50 / $7.50。Fast 模式費用為 2×。
+
 ## 自訂供應商的上下文視窗
 
 When a custom provider omits a model's context window, OpenCodex can infer it from the bundled
@@ -64,16 +74,6 @@ A matching model ID does **not** verify your relay's actual capacity. If it serv
 vendor window, set `modelContextWindows` or the provider's **Context cap** before using long sessions.
 OpenCodex does not enable a cap automatically or probe the model. Successful smaller requests do not
 prove the full inferred window works. Existing configured windows remain in control.
-
-## GPT-6.1 Terra
-
-[GPT-6.1 Terra](https://openai.com/index/introducing-gpt-6-1-terra/) 於 2026年10月26日發布，是 GPT-5.6 Terra 的後繼型號。`gpt-6.1-terra` 與 `gpt-5.6-terra` 並列提供，不修改預設模型或子代理清單。GitHub Copilot 使用 Responses；OpenRouter ID 為 `openai/gpt-6.1-terra`，上下文為 1,050,000，每百萬 token 輸入 $1.00、輸出 $5.00。
-
-原生 Codex：預設上下文 500,000，長上下文上限 872,000，預設 effort 為 `low`，級別為 `low`、`medium`、`high`、`xhigh`、`max`、`ultra`。原生 `ultra` 在傳輸時對應至 `max`。原生項目僅提供 Fast 高速模式。
-
-[OpenAI API](https://developers.openai.com/api/docs/models/gpt-6.1-terra)：上下文 1,050,000，最大輸出 128,000；支援文字與影像輸入、文字輸出；知識截止日期為 2026-06-01。effort 為 `none`、`low`、`medium`（預設）、`high`、`xhigh`、`max`。端點為 `v1/responses` 和 `v1/chat/completions`；工具呼叫必須使用 Responses。
-
-每百萬 token：輸入 $1.00、快取輸入 $0.05、快取寫入 $1.25（30分鐘）、輸出 $5.00。輸入超過 272,000 token 時，整個請求按輸入與快取 2×、輸出 1.5×計費，依序為 $2.00 / $0.10 / $2.50 / $7.50。Fast 模式價格為 2×。
 
 ## 首次註冊時的模型選擇
 
@@ -107,7 +107,8 @@ URL，也不代表不同 adapter 之間的配額消耗不同。既有的 BigMode
 | --- | --- | --- | --- |
 | `providers` | `Record<string, OcxProviderConfig>` | — | 供應商名稱到供應商設定的映射。 |
 | `openaiProviderTierVersion?` | `2` | 由遷移設定 | 標記單一選項感知的 OpenAI projection 已完成。 |
-| `disabledModels?` | `string[]` | — | 對 Codex 目錄與 `/v1/models` 隱藏的模型，但不會阻擋直接的代理呼叫。路由 id 會從清單中移除。帶帳號限定的原生 id 只會隱藏該選擇器列；裸原生 GPT id 會隱藏裸列以及該模型的每一個帳號選擇器列。儀表板 Models 頁面只公開路由列與裸原生列；要隱藏單一個帳號限定列，請直接使用這個設定欄位。 |
+| `disabledModels?` | `string[]` | — | 對 Codex 目錄與 `/v1/models` 隱藏的模型，但不阻擋直接代理呼叫。路由 id 從清單中移除；裸原生 GPT id 取得 `visibility: "hide"`。 |
+| `omitDisabledNativeModels?` | `boolean` | `false` | 預設值為 `false`。在 `config.json` 中設定 `"omitDisabledNativeModels": true` 並執行 `ocx sync`，即可從目錄、快取與 Codex 格式的 HTTP 模型清單中移除已停用的 native 列。移除前經過驗證的繼承範本會另外保留，因此 routed 列的中繼資料不變，直接請求的路由也不變。 |
 | `providerContextCaps?` | `Record<string, number>` | `{}` | 各供應商目前生效的上下文上限。一般視窗只能縮小；支援長視窗的原生模型可以擴展到該模型支援的上限。 |
 | `providerContextCapValues?` | `Record<string, number>` | `{}` | 各供應商最後選擇的上限，停用後仍保留。僅儲存這些值不會啟用上限。生效中的值優先於儲存的選擇值。 |
 | `contextCapValue?` | `number` | `350000` | 首次啟用時使用的預設值。再次啟用時恢復該供應商的選擇值。修改全域值時附帶 `setAll: true` 只會更新已啟用的上限；不帶值的 `setAll: true` 會以目前全域值啟用所有已設定供應商的上限。 |
@@ -117,11 +118,9 @@ URL，也不代表不同 adapter 之間的配額消耗不同。既有的 BigMode
 | `codexAccountNamespaces?` | `Record<string, string>` | — | 從任意公開模型選擇器到已儲存 Codex 帳號目標的選用映射。啟用帳號限定 picker 列時，每個目標存在的選擇器都會為 Codex picker 新增獨立的 `<selector>/<native-openai-model>` 列；每一列只使用該帳號。只要有任一選擇器生效，picker 中的裸原生列就會被隱藏，但除非明確停用，其 id 仍可路由，並會列在原始的 `/v1/models` 中。 |
 | `codexAccountPickerEnabled?` | `boolean` | map 為空時關閉 | 控制合格的 `codexAccountNamespaces` 映射是否產生帳號限定的 Codex picker 列。`true` 允許已映射的列出現。若省略且 map 非空，為向下相容視為啟用；若 map 為空，則視為關閉。`false` 會隱藏產生的列並恢復裸原生 picker 列，但不會刪除映射，也不會停用精確的 `<selector>/<native-openai-model>` 路由。 |
 | `activeCodexAccountId?` | `string` | — | 為下一個請求手動選擇的池帳號。選擇清除執行緒親和性；進行中的請求保留擷取的憑證。 |
-| `codexAccountPriorities?` | `Record<string, number>` | — | Codex 池中各帳號的選擇順序：帳號 id → 介於 `-100` 到 `100` 的整數，**數值越高越先使用**，缺省為 `0`。這是順序邊界，不是資格邊界：選擇會把已合格的帳號縮小到仍有配額餘裕的最高分層，`accountPoolStrategy` 再從該分層內挑選。只有當某一分層的每個成員都超過 `autoSwitchThreshold`、正在冷卻、被軟性迴避、已暫停，或需要重新認證時，才會跳過該分層——未知的配額絕不會耗盡一個分層。順序絕不會讓一個不合格的帳號變成可選，也絕不會重新綁定一個已經有帳號的執行緒。main 的 `__main__` 帳號以同等地位參與，這也是為何 Codex Desktop 登入可以被設定為最後才耗用。沒有任何項目時，池的行為與先前完全相同。格式錯誤的 map 會被忽略並在主控台顯示警告（順序功能關閉，不會修復設定）。由 `ocx account priority` 與 Codex Auth 頁面管理。 |
-| `activeCodexAccountPinned?` | `string` | — | 維運方最後一次手動選擇的帳號 id。設定期間，更高分層的 `codexAccountPriorities` 無法搶占它，直到該釘選被排空、排除、刪除，或明確的容錯移轉／升級移走才會釋放。分層上限內的一般 round-robin 移動不會釋放它。寫入任何 `codexAccountPriorities` 項目也會釋放這個釘選，所以在順序存在之前設定的釘選，無法凌駕之後設定的順序。`GET /api/codex-auth/active` 同時回報生效帳號是否被釘選（`pinned`）以及帶有此上限的帳號（`pinnedAccountId`）。 |
-| `autoSwitchThreshold?` | `number` | `80` | 主動切換的用量閾值。`quota` 可在下一個請求時重新評估未綁定任務。綁定任務預設（`pool.cacheAffinity`）在越過閾值後仍會保留帳號，直到該帳號耗盡或無法繼續服務，並且只改綁到確有額度餘裕且用量嚴格更低的帳號。將 `pool.cacheAffinity` 設為 `false` 才會在此閾值重新評估綁定任務。`fill-first` 僅將其用作未綁定指派的排空點；一般 `round-robin` 選擇不使用它。分數使用最熱的已知 5h、週或 30d 配額視窗。`0` 僅停用基於用量的主動切換，而非未綁定指派或失敗復原。 |
+| `autoSwitchThreshold?` | `number` | `80` | 主動切換的用量閾值。`quota` 可在下一個請求時重新評估未綁定任務。綁定任務預設（`pool.cacheAffinity`）在越過閾值後仍會保留帳號，直到該帳號耗盡或無法繼續服務，並且只改綁到確有額度餘裕且用量嚴格更低的帳號。將 `pool.cacheAffinity` 設為 `false` 才會在此閾值重新評估綁定任務。`fill-first` 僅將其用作未綁定指派的排空點；`round-robin` 僅在新／未綁定工作指派時使用它：只要仍有低於自身有效閾值的合格帳號，就略過達到或超過閾值的帳號，且不會因此移動已綁定任務。分數使用最熱的已知 5h、週或 30d 配額視窗。`0` 僅停用基於用量的主動切換，而非未綁定指派或失敗復原。 |
 | `codexAccountAutoSwitchThresholds?` | `Record<string,number>` | — | 各帳號對 `autoSwitchThreshold` 的覆寫：帳號 ID → `0`–`100` 的整數。沒有項目時繼承全域值；`0` 只停用從該帳號發起的使用量主動切換。支援主帳號 `__main__`。可在 Codex Auth 的帳號卡片中管理。 啟用覆寫時，會將目前全域閾值複製為固定的帳號值。覆寫值（包括 `0`）在之後修改全域閾值時仍優先。停用時傳送 `threshold: null`，刪除項目，並恢復繼承目前全域閾值及其未來的變更。 |
-| `accountPoolStrategy?` | `"quota" \| "round-robin" \| "fill-first" \| "reset-first"` | `"quota"` | 新／未綁定 Codex 請求的指派策略。當請求沒有即時（父執行緒 id、配額 scope）親和性時即為未綁定；可見的既有任務在代理重啟或親和性重置後可變為未綁定。`quota` 在無現用帳號時選擇最低用量的合格帳號，將合格現用帳號保持在 `autoSwitchThreshold` 以下，且在閾值後可將未綁定請求移至較低用量的合格帳號。綁定任務預設會保留到帳號耗盡（已知用量 100%）或無法繼續服務，改綁時只前往確有額度餘裕且用量嚴格更低的帳號。關閉該設定後，也可在閾值將綁定任務的下一個請求改綁到確有額度餘裕且用量嚴格更低的帳號。`round-robin` 均勻分配未綁定請求；`fill-first` 持續將未綁定請求指派到現用帳號直到冷卻、不可用或設定的排空閾值。  `reset-first`: 在低於用量門檻的帳號中，優先選擇下次5小時或週額度重設最早的帳號。已綁定任務遵循設定的親和策略。獨立模型額度按用量排序。 此排序不使用月額度重設時間。 |
+| `accountPoolStrategy?` | `"quota" \| "round-robin" \| "fill-first" \| "reset-first"` | `"quota"` | 新／未綁定 Codex 請求的指派策略。當請求沒有即時（父執行緒 id、配額 scope）親和性時即為未綁定；帶有工作階段 ID 的請求（包括一般 Codex CLI 和 App 回合及子代理），或錨定到直接父任務的無工作階段請求，其綁定在關閉時最後一次親和性儲存成功的情況下，代理正常重啟後可保留，閒置時間最長為 24 小時。更深層的無工作階段鏈和 Codex App 主要登入的綁定僅保留在記憶體中，重啟後會重新指派；驅逐、帳號刪除、重新登入、崩潰或親和性重置仍可能使任務未綁定。`quota` 在無現用帳號時選擇最低用量的合格帳號，將合格現用帳號保持在 `autoSwitchThreshold` 以下，且在閾值後可將未綁定請求移至較低用量的合格帳號。綁定任務預設會保留到帳號耗盡（已知用量 100%）或無法繼續服務，改綁時只前往確有額度餘裕且用量嚴格更低的帳號。關閉該設定後，也可在閾值將綁定任務的下一個請求改綁到確有額度餘裕且用量嚴格更低的帳號。`round-robin` 在有效 `autoSwitchThreshold` 以下的合格帳號間均勻分配未綁定請求，若全部達到或超過閾值則在所有合格帳號間分配；`fill-first` 持續將未綁定請求指派到現用帳號直到冷卻、不可用或設定的排空閾值。  `reset-first`: 在低於用量門檻的帳號中，優先選擇下次5小時或週額度重設最早的帳號。已綁定任務遵循設定的親和策略。獨立模型額度按用量排序。 此排序不使用月額度重設時間。 |
 | `pool.cacheAffinity?` | `boolean` | `true` | 綁定 Codex 執行緒的 cache-affinity 排序，獨立於 `pool.kernel`。預設開啟；省略該鍵或設為 `true` 即為開啟，格式錯誤視為開啟。即時綁定優先於配額餘裕：`quota` 不會只因用量越過 `autoSwitchThreshold` 就移動執行緒。帳號暫停、無法使用或真正耗盡（已知用量 100%）時仍會離開，且只改綁到確有額度餘裕且用量嚴格更低的帳號。用量未知的帳號不會作為綁定任務的改綁目標。設為 `false` 可恢復依閾值重新綁定。親和性是重排而非釘死。 |
 | `accountPoolStickyLimit?` | `number` | `1` | 在前進一個 round-robin 選擇前保留的新／未綁定任務指派；計數器在任務綁定時前進，而非在上游成功後。範圍 1–100。 |
 | `upstreamFailoverThreshold?` | `number` | `3` | 未來新 session 容錯移轉前的連續暫時性失敗。設 `0` 停用。對一般 Responses 與原生 compact 傳送而言，已證實的連線建立前 DNS/TCP 可達性失敗會在供應商主機層級被追蹤：它們絕不會影響帳號健康狀態、帳號冷卻、執行緒／session 親和性、現用帳號選擇或池路由，也絕不會計入這個閾值。 |
@@ -132,6 +131,8 @@ URL，也不代表不同 adapter 之間的配額消耗不同。既有的 BigMode
 | `codexFailureWindow?` | `boolean` | `true` | 60 秒滑動失敗率，與連續計數併用。至少 20 次且失敗率 ≥25% 時帳號降級，只讓新執行緒避開；比率 ≤10% 並持續 30 秒後恢復。`false` 只使用連續計數。 |
 | `codexPinnedTransientPolicy?` | `"hold" \| "detour-new-threads"` | `"hold"` | 手動釘選帳號降級時，`hold` 繼續使用並記錄警告；`detour-new-threads` 只把新執行緒放到其他帳號。不會改派進行中的請求。 |
 | `codexWsReuseAcrossTurns?` | `boolean` | `false` | 選用：同一帳號與執行緒的 Codex WebSocket 跨回合重用。開啟後忙碌 socket 最多等待 750ms，模型或層級變更時最多保留 2 個 socket。 |
+| `maxInboundBodyBytes?` | `number` | `0` | 單一傳入 JSON 請求主體解碼後大小的位元組上限。省略或設為 `0` 會保留 256 MiB 預設值；設定值限制在 1 至 512 MiB。變更後必須重新啟動。超限會回傳本機 HTTP 413，錯誤碼為 `inbound_body_too_large`。生效上限超過 256 MiB 時，也會啟用 `maxConcurrentInboundBodyBytes` 共用閘門；僅提高單次請求上限不會提高共用預算。涵蓋的路徑與詳情請見[傳入主體准入](/zh-tw/reference/inbound-body-admission/)。 |
+| `maxConcurrentInboundBodyBytes?` | `number` | `536870912` (512 MiB) | 選用的頂層共用准入預算，單位為位元組，只在生效的 `maxInboundBodyBytes` 超過 256 MiB 時啟用。省略、`0` 或無效值都會使用不變的 512 MiB 預設值。有效的正整數在使用時限制在 512 MiB 至 2 GiB（`536870912` 至 `2147483648`）範圍內。變更後必須重新啟動；同一程序內的所有監聽器共用一個預算。這是准入計量，並非預先配置的記憶體、RSS 上限或依 RAM 自動調整的容量。2 GiB 必須由操作者明確選擇。設定範例、佇列及回應生命週期的取捨，以及預設預算為何在解析前只允許一個完整 512 MiB 上傳，請見[傳入主體准入](/zh-tw/reference/inbound-body-admission/)。 |
 | `modelCacheTtlMs?` | `number` | `300000` | Per-供應商 `/models` 快取的新鮮度視窗。 |
 | `cacheRetention?` | `"none" \| "short" \| "long"` | Anthropic 官方端點：`"long"`；其他 Anthropic 相容端點：`"short"` | Anthropic prompt-cache 政策：停用、5 分鐘臨時或 1 小時延長。未設定時，送往 `api.anthropic.com`（API 金鑰或 OAuth 帳號池）的請求使用 1 小時 TTL，相容閘道與廠商端點維持 5 分鐘 TTL。明確設定的值一律優先。 |
 | `tokenGuardian?` | `OcxTokenGuardianConfig` | off | 可選的主動 OAuth refresh 與 Codex 帳號暖機政策。 |
@@ -299,48 +300,34 @@ Codex-login 供應商上列出的每個裸 `gpt-*` id（此處為 **GPT-6-Nova**
 | `noPenaltyModels?` | `string[]` | Models that reject presence/frequency penalties. The built-in `xai` preset lists its reasoning models (`grok-4.7`, `grok-4.6`, `grok-4.5`, `grok-4.3`, `grok-4.20-multi-agent-0309`, `grok-4.20-0309-reasoning`, `grok-build-0.1`), which xAI documents as rejecting them; non-reasoning ids keep caller penalties. |
 | `noStructuredOutputModels?` | `string[]` | Exact model IDs whose `openai-chat` endpoint rejects `response_format`. Only an exact requested-model match omits the field; structured-output translation stays enabled for every other `openai-chat` model. |
 | `noJsonSchemaModels?` | `string[]` | 其 `openai-chat` 端點拒絕 `json_schema` 形式但仍接受 `json_object` 的精確模型 ID。這類請求會降級為 `json_object` 而非被丟棄，因此要求 JSON 的呼叫端仍會拿到 JSON。同一模型同時列在兩份清單時，以 `noStructuredOutputModels` 為準。`opencode go`、`opencode zen` 預設已為其 DeepSeek 路由內建。 |
-| `foldDeveloperRoleToSystem?` | `boolean` | Whether an `openai-chat` destination accepts the `developer` role. `foldDeveloperRoleToSystem` unset sends `system`, `true` sends `system`, and `false` sends `developer`. Unset means nothing has been recorded about this destination; `true` records an upstream that rejects the role; `false` records one that accepts it. The message keeps its position in the conversation in every case — only the role changes. A destination that rejects the role answers `400 role 'developer' is not allowed` and the turn never starts, which is why the unrecorded state is the folded one. A provider save that keeps the destination keeps it; see [What a provider save keeps](#儲存供應商時會保留什麼). `PATCH` accepts a boolean or `null` to clear it. |
-| `omitReasoningEffortWithToolsModels?` | `string[]` | Exact `openai-chat` model IDs that accept a reasoning-effort field on an ordinary turn but reject it once function tools are present. The model keeps its advertised effort ladder; OpenCodex omits the wire field for tool-bearing requests only and the upstream default applies. Narrower than `noReasoningModels`, which strips reasoning from every request and costs the model its picker entirely. A provider save that keeps the destination keeps it; see [What a provider save keeps](#儲存供應商時會保留什麼). |
-| `parallelToolCalls?` | `boolean` | Toggle parallel tool calls. OpenAI Chat defaults on; non-chat adapters advertise only on explicit `true`. |
-| `terminalContinuationGuard?` | `boolean` | Opt in an `openai-chat` provider to one bounded internal re-ask when an actionable turn announces work, then cleanly stops without a tool call. Defaults to `false`; explicit `false` behaves like omission. Combo attempts and routed compaction turns are excluded, and non-`openai-chat` adapters ignore this option. |
-| `responsesItemIdRepair?` | `{ message?: string[]; reasoning?: string[]; repairMissingTerminalIds?: boolean; repairInvalidIds?: boolean }` | Disabled-by-default downstream SSE repair for exact placeholder ids, missing terminal ids, and (with `repairInvalidIds`) message/reasoning ids missing the canonical `msg_`/`rs_` prefix. Function-call ids are never rewritten. Built-in DeepSeek enables the last two by default. |
-| `responsesSnapshotRepair?` | `boolean` | Disabled-by-default client-facing repair for sparse Responses lifecycle snapshots in SSE and JSON. Fills missing canonical status, output, and tool metadata while raw inspection and persistence remain unchanged. |
-| `messagePhaseInference?` | `boolean` | 預設關閉。對 Responses passthrough 串流，在完成時推斷缺少的 message phase：後續出現協定事件則為 `commentary`；終端事件或 `[DONE]` 則為 `final_answer`。明確的 commentary／final_answer 會保留（null 或未知值視同缺少而推斷），keepalive 不決定 phase，completed／incomplete 快照在 phase 缺失時沿用各 item 已做的決定。即時文字持續串流，message 完成則等待分類。保留的狀態使用該請求的 translator 預算。也適用於由上游 SSE 重建的 JSON；一般上游 JSON 不變。 |
-| `webSearchBridge?` | `{ enabled?: boolean; backend?: "ollama" \| "openai" \| "anthropic" \| "xai" \| "gemini" \| "exa"; maxSearches?: number; timeoutMs?: number; endpoint?: string }` | Key-auth `openai-responses` passthrough providers only. Off by default. Codex always declares the hosted `web_search` tool, and the passthrough relays it on the assumption the destination executes it. A gateway that does not run hosted search answers with a `function_call` named `web_search` that nothing runs, and the undeclared-tool guard ends the turn. With `enabled: true` and an explicit `backend` OpenCodex intercepts that call, runs the search itself, feeds the result back to the same upstream, and shows Codex a hosted `web_search_call` cell. Never armed for `authMode: "forward"` (ChatGPT already searches) or for a provider that executes hosted search upstream. `backend` is required; there is no implicit default and a missing credential for the named backend leaves the bridge disarmed rather than falling through to another paid search. `ollama` reuses this provider's own API key on `POST <origin>/api/web_search`, so the origin must be `https://ollama.com` unless the operator names `endpoint` explicitly. `openai` / `anthropic` / `xai` / `gemini` / `exa` reuse the matching sidecar executor and that executor's own credential (`webSearchSidecar.exaApiKey` for Exa). The search model comes from `webSearchSidecar.model` only when `webSearchSidecar.backend` resolves to the same backend this bridge names; otherwise the bridge runs that backend's own default, because a model chosen for one vendor is rejected by another. An unset `webSearchSidecar.backend` resolves to `openai`, so an unset-backend model reaches an `openai` bridge and no other. There is no per-provider bridge model override. Streaming turns only. A turn that mixes `web_search` with another client tool call still fails closed rather than dropping the client's call. Assistant text such as XML-like `<web_search>` prose is not executed. Defaults: `maxSearches: 3` (1..10), `timeoutMs: 60000` (1000..600000). |
-| `retryOn429?` | `{ enabled?: boolean; attempts?: number; intervalMs?: number; maxIntervalMs?: number; respectRetryAfter?: boolean }` | API-key providers only (`authMode: "key"`). Opt-in same-target 429 retry: when `retryOn429` is absent the feature is off, except that key-auth OpenCode Go and Command Code (canonical endpoints) fall back to a patient policy (6 replays, 10 s interval, 60 s cap); object presence enables it unless `enabled: false`, which also turns that fallback off. On 429 the proxy waits (upstream `Retry-After` or the fixed interval) and replays the identical request on the same key before any key failover — across the main text-turn recovery loop, the Responses passthrough wire, the image/video bridge, the web-search sidecar, and terminal continuations. Only pre-stream HTTP 429 responses are eligible for replay; custom `runTurn` transports are outside the HTTP retry loop. `attempts` counts same-key replays after the first 429 (total sends = `attempts` + 1) and is one request-wide budget shared by the main recovery loop, the terminal-guard continuation, and bridge retries. Exhausting `attempts` only stops further same-key replays: normal key failover or final-error handling then applies per the available targets — on the key-auth passthrough wire there is no failover, so the exhausted 429 surfaces as-is. Codex itself never retries 429, so this is the only defense for single-key providers. Defaults: `enabled: true`, `attempts: 3`, `intervalMs: 5000`, `maxIntervalMs: 60000` (any single wait is capped at `maxIntervalMs`, itself capped at 600000), `respectRetryAfter: true`. |
-| `transientRetryOn5xx?` | `{ enabled?: boolean; attempts?: number }` | Key-auth `openai-chat` and `openai-responses` providers only. `authMode: "forward"` providers (the ChatGPT account pool) never read this option and keep the default ladder. Opt-in retry for pre-stream transient upstream statuses (500, 502, 503, 504, 520, 521, 522): absent means off, object presence enables it unless `enabled: false`. Covers the initial Responses request, the Responses passthrough lane and each of its recovery legs (OAuth-401 replay, same-target 429 replay, validated rebuild), the terminal-guard continuation, and native `/v1/chat/completions`. `attempts` is the TOTAL number of upstream sends allowed for one request including the first (1..10, default 3) — it is one budget shared with connection-reset recovery, so `3` means at most three real requests reach the provider. On the Responses passthrough lane the configured value is additionally intersected with the request-wide send allowance, so a value below that allowance narrows the ladder exactly while a value above it does not raise the bound. Each Combo target includes its prepaid first send in that target's configured total; `attempts: 1` sends once, without refunding the reservation or widening the shared Combo ceiling. A local refusal or cancellation before dispatch releases an unsent booking. Waits use a fixed 400 ms exponential backoff capped at 5 s and honor `Retry-After`. Separate from `retryOn429`, which handles rate limiting; mid-stream failures are never replayed. |
-| `retryOnReset?` | `{ enabled?: boolean; replacements?: number }` | Native `openai-responses` providers, including `authMode: "forward"`, plus generic translated Responses dispatch before upstream headers. Opt-in replacement of a send that failed while the caller had observed nothing: absent means off, object presence enables it unless `enabled: false`. Covers both ambiguous stages — a connection that died before any response header, and an SSE body that died after the header while carrying only control events. A canonical ChatGPT upstream WebSocket that closed or errored after its create frame left, before any Responses event, is covered the same way, and its replacement is sent over HTTP. Only a self-contained request is ever replaced: `store: false`, complete `input`, no `previous_response_id`, `conversation` or `stream_id`, and only client-executed tools. `replacements` is the number of replacement sends ONE logical request may make across every leg and every combo child (1..2, default 1) — not a per-leg retry count and not a send budget, so a replacement still has to fit inside the send allowance the leg already had. A request that already emitted output or a tool call is never replaced, whatever this is set to. The replacement inference may still be billed if the origin had already started the first one, which is why this is off by default. Generic translated dispatch supports pre-header reset replacement for initial and rebuilt sends under the same grant and send budget. Adapter-owned transports and translated stream failures after upstream headers are excluded. |
-| `autoToolChoiceOnlyModels?` | `string[]` | Models whose `tool_choice` accepts only `auto` or `none`; forced choices are downgraded. |
-| `preserveReasoningContentModels?` | `string[]` | Models requiring prior assistant `reasoning_content` in chat history. A provider save that keeps the destination keeps the stored list, including `[]`; see [What a provider save keeps](#儲存供應商時會保留什麼). `PATCH /api/providers?name=<provider>` accepts an array or `null` to clear it. |
-| `inlineThinkTagModels?` | `string[]` | Opt-in recovery for `openai-chat` gateways without a server-side reasoning parser. A leading `<think>` / `<thinking>` / `<reasoning>` block (optionally after whitespace) activates splitting in streamed and buffered replies. All answer whitespace is preserved. Subsequent tags are delimiters anywhere, including same-line interleaving and code fences; this mode does not interpret Markdown. Ordinary text or a code fence before the first tag keeps the whole reply untouched. Off by default; prefer structured upstream reasoning or `reasoningSplitModels` where supported. |
-| `reasoningDetailsModels?` | `string[]` | Models whose endpoint returns thinking as a structured `reasoning_details` array (MiniMax M-series with `reasoning_split`); stream deltas are cumulative snapshots that are prefix-diffed, and preserved reasoning replays as a `reasoning_details` array instead of a `reasoning_content` string. |
-| `requiresReasoningPlaceholderModels?` | `string[]` | Models whose upstream rejects a tool_call continuation missing `reasoning_content` (DeepSeek thinking mode); a minimal placeholder is injected when the replay cache misses. Defaults to `preserveReasoningContentModels`; set `[]` to opt out. A provider save that keeps the destination keeps the stored list, including `[]`; see [What a provider save keeps](#儲存供應商時會保留什麼). `PATCH /api/providers?name=<provider>` accepts an array or `null` to clear it. |
-| `showThinkingSummary?` | `boolean` | Display provider-authored summaries when a Responses client omits `reasoning.summary`. Explicit wire `"none"` wins; a client that serializes its preference as omission cannot be distinguished. Raw reasoning remains content and is never relabeled as a summary. The `google-antigravity` preset defaults to `true`; explicit `false` disables that default. CCA Gemini requests also opt into `generationConfig.thinkingConfig.includeThoughts` when display is enabled; image, Claude and gpt-oss requests do not. This does not change client configuration or global catalog summary defaults. |
-| `hideRawReasoning?` | `boolean` | Keep a routed provider's raw chain of thought off the client-facing content channel (openai-chat `reasoning_content`, kiro tags, `response.reasoning_text.*`) while provider-authored summaries still stream on the summary channel. Explicit wire `reasoning.summary: "none"` keeps hiding both. This controls what a client displays; it does not keep the text from the client. A Responses bridge route still sends it inside the `ocxr1` replay envelope in the reasoning item's `encrypted_content`, which is base64 JSON rather than encryption, so the client can echo it back on the next turn. The direct Chat and Messages encoders have no envelope on their wire, so those clients receive no copy and replay comes from the server-side reasoning replay cache. `preserveReasoningContentModels` replay and DeepSeek-style continuations are unaffected either way. Off by default; a native passthrough route relays the upstream's own frames and ignores this option. A save of the same provider name keeps an omitted value even after a destination move; `PATCH` accepts a boolean or `null` to clear it. |
-| `thinkingToggleModels?` | `string[]` | Chat models using `thinking.enabled` rather than an effort ladder. |
-| `thinkingBudgetModels?` | `string[]` | Chat models using integer `thinking_budget`; effort maps to a budget fraction. |
-| `noVisionModels?` | `string[]` | Text-only models sent through the vision sidecar; matching tolerates an Ollama `:size` tag. |
-| `escapeBuiltinToolNames?` | `boolean` | Escape built-in tool names for Anthropic-compatible gateways and restore them in returned calls. |
-| `anthropicEofTolerance?` | `boolean` | Let an Anthropic-compatible gateway complete a stream that ends before `message_stop`, only when visible text or a complete JSON-object tool input was received. Off by default. |
-| `googleMode?` | `"ai-studio" \| "vertex" \| "cloud-code-assist"` | Google transport/auth mode. Default `ai-studio`. |
-| `googleToolSchemaPolicy?` | `"compatible" \| "reject-lossy"` | Google only. Omitted/`compatible` preserves the compatible tool schema and existing non-direct 400 repair. `reject-lossy` rejects initial schema loss or an indeterminate bounded comparison before dispatch and withholds a Vertex or Cloud Code Assist repair that would open constraints. Direct AI Studio never performs that repair. |
-| `directGeminiWireRenames?` | `boolean` | Google only. Applies in AI Studio mode, including custom Google-compatible URLs. Omitted or `true` keeps the `-tiered` wire rename for Gemini Flash ids (`gemini-3.7-flash` -> `gemini-3.7-flash-tiered`); `false` sends the requested bare ids to the wire unchanged. Vertex and canonical keyed OpenCode Zen routes preserve the requested model ID regardless of this setting; Cloud Code Assist routing is unchanged. Set `false` when the configured upstream still serves the bare ids. |
-| `project?` | `string` | Vertex 或 Antigravity Cloud Code Assist 專案 id。設定後，Vertex API 金鑰使用專案端點；未設定時，即使有 `GOOGLE_CLOUD_PROJECT` 也使用 express 模式。ADC 後備為 `GOOGLE_CLOUD_PROJECT` / `GCLOUD_PROJECT`。 `"auto"` 會讓每把 Vertex API 金鑰各自解析專案（查詢成功後依金鑰快取；查詢失敗的金鑰於之後的請求再次探測），因此單一金鑰池可跨專案；ADC 不接受 `"auto"`。 |
-| — | — | Antigravity account quota probes (`retrieveUserQuota` and `retrieveUserQuotaSummary`) always go to Google's own Cloud Code host through the pinned outbound transport, regardless of a configured `baseUrl`; the account bearer is never sent to an operator-configured endpoint and a redirect aborts the probe. Only the model-list fallback still honors `baseUrl`. |
-| — | — | If Antigravity quota summary returns 403 for a valid OAuth account, OpenCodex retries that endpoint once with the legacy `antigravity/1.0` User-Agent and the same token and project. A 401 is not retried. Inference and model discovery retain the IDE User-Agent. |
+| `foldDeveloperRoleToSystem?` | `boolean` | 記錄某個 `openai-chat` 目的地是否接受 `developer` 角色。`foldDeveloperRoleToSystem` 未設定時以 `system` 傳送，`true` 時以 `system` 傳送，`false` 時以 `developer` 傳送。未設定表示尚未記錄該目的地的情況；`true` 記錄上游拒絕該角色；`false` 記錄其接受該角色。未啟用 `singleLeadingSystemMessage` 時，訊息保留在對話中的原有位置，只有角色改變。拒絕該角色的目的地會回應 `400 role 'developer' is not allowed`，該回合根本無法開始，這就是未記錄狀態預設摺疊的原因。 |
+| `parallelToolCalls?` | `boolean` | 切換平行工具呼叫。OpenAI Chat 預設開啟；非 chat adapter 僅在明確 `true` 時廣告。 |
+| `responsesItemIdRepair?` | `{ message?: string[]; reasoning?: string[]; repairMissingTerminalIds?: boolean }` | 預設停用的下游 SSE 修復，用於精確佔位 id 與缺失的終端 id。Function-call id 永不被重寫。 |
+| `promptCacheKey?` | `boolean` | 為整個 `openai-chat` provider 啟用 `prompt_cache_key` 轉送。adapter 只轉送收到的 key，不自行產生，但 Claude Messages 轉換會從 `metadata.user_id`，或在沒有 metadata 時從模型/系統/工具組合衍生 key。除非 preset 宣告，否則預設關閉；Mistral 依其[提示快取契約](https://docs.mistral.ai/studio/conversations/advanced/prompt-caching)啟用，明確的 `false` 可停用。僅在上游明確支援時啟用，嚴格閘道可能以 HTTP 400 拒絕未知欄位。 |
+| `retryOn429?` | `{ enabled?: boolean; attempts?: number; intervalMs?: number; maxIntervalMs?: number; respectRetryAfter?: boolean }` | 僅限 API-key provider（`authMode: "key"`）。未設定時關閉，但標準端點的 OpenCode Go 與 Command Code，以及標準 Mistral 的 `openai-chat` 例外：預設 replay 6 次、間隔 10 秒、上限 60 秒。設定物件即啟用；`enabled: false` 也會停用該預設策略。串流開始前的 HTTP 429 會依 `Retry-After` 或固定間隔等待，然後在 key 容錯移轉前以同一 key 重播相同請求。涵蓋文字回合復原、Responses passthrough、圖片/影片橋接、web-search 輔助服務及終端續接；自訂 `runTurn` 不在範圍內。`attempts` 計算第一個 429 後的同 key replay 次數（總傳送次數 = `attempts` + 1），預算由整個請求共用。耗盡時僅停止同 key replay，接著依可用目的地執行一般 key 容錯移轉或最終錯誤處理；金鑰認證 passthrough 沒有容錯移轉，會原樣回傳 429。標準 Mistral Chat 的明確上游延遲超過允許等待時間時，停止同 key replay 並保留原始 `Retry-After`；pool 中另一個 key 仍可能處理請求。其他 provider 仍將等待截斷至上限。Mistral 依 credential/模型共用重試期限；`requestPacing.enabled: false` 或 `retryOn429.respectRetryAfter: false` 可停用。沒有重試時間的 429 在確認每分鐘預算不足時觸發保守的 60 秒復原等待，隨後只探測一次，成功即恢復一般流量。正常流量不預測下一次 token 成本。策略使用公告額度，排除已知耗盡的月額度，不承諾精確重設時間，也不觸發歷史壓縮。Codex 本身不重試 429。物件預設值：`enabled: true`、`attempts: 3`、`intervalMs: 5000`、`maxIntervalMs: 60000`（單次等待上限，設定最大 600000）、`respectRetryAfter: true`。 |
+| `transientRetryOn5xx?` | `{ enabled?: boolean; attempts?: number }` | 僅限使用金鑰認證的 `openai-chat` 與 `openai-responses` 供應商。`authMode: "forward"` 的供應商（ChatGPT 帳號池）從不讀取此選項，維持預設重試次數。選擇性重試串流開始前的暫時性上游狀態（500、502、503、504、520、521、522）：未設定時停用；只要有此物件即啟用，除非 `enabled: false`。涵蓋初始 `Responses` 請求、終止防護續接、原生 `/v1/chat/completions`，以及 429／帳號復原的重新擷取。`attempts` 是單一請求允許傳送至上游的總次數，包含第一次（1..10，預設 3）；這是與連線重設復原共用的單一請求範圍預算，因此 `3` 表示最多只有三個實際請求會送達供應商。等待採固定 400 毫秒、上限 5 秒的指數退避，並遵循 `Retry-After`。此機制獨立於處理速率限制的 `retryOn429`；串流中的失敗絕不重播。 每個 Combo 目標都把預先預約的首次傳送計入該目標設定的總次數；`attempts: 1` 只傳送一次，不會退還預約來增加額度，也不會提高共用上限。傳送前的本機拒絕或取消會釋放未使用的預約。 |
+| `retryOnReset?` | `{ enabled?: boolean; replacements?: number }` | 適用於原生 `openai-responses` 供應商（包含 `authMode: "forward"`），以及收到上游回應標頭之前的通用 Responses 轉換傳送路徑。可選擇性地替換一次在呼叫端尚未觀察到任何內容時就失敗的傳送：未設定時停用；只要有此物件即啟用，除非 `enabled: false`。涵蓋兩個不確定階段——回應標頭抵達前連線中斷，以及標頭之後 SSE 內文只載有控制事件時中斷。canonical ChatGPT upstream WebSocket 在 create 訊框送出之後、任何 Responses 事件抵達之前關閉或出錯時，也以相同方式處理，其替換傳送改走 HTTP。只有自我完備的請求才會被替換：`store: false`、完整的 `input`、沒有 `previous_response_id`／`conversation`／`stream_id`，且僅使用由用戶端執行的工具。`replacements` 是單一邏輯請求在所有環節與所有組合子請求中可進行的替換傳送次數（1..2，預設 1）；它既不是各環節的重試次數，也不是傳送預算，因此替換傳送仍必須落在該環節既有的傳送額度之內。已經產生輸出或工具呼叫的請求，無論此值為何都不會被替換。若上游已經開始第一次推論，被替換的推論仍可能計費，因此此選項預設停用。 通用轉換傳送路徑的首次傳送和重建後的傳送都支援標頭之前連線重設後的替換，使用同一授權和傳送預算。配接器自行管理的傳輸，以及收到上游回應標頭之後的轉換串流故障，均不在此選項範圍內。 |
+| `autoToolChoiceOnlyModels?` | `string[]` | 其 `tool_choice` 僅接受 `auto` 或 `none` 的模型；強制選擇被降級。 |
+| `preserveReasoningContentModels?` | `string[]` | 需要在 chat 歷史中保留先前 assistant `reasoning_content` 的模型。從儀表板儲存時會保留已儲存的清單（包括 `[]`）。`PATCH /api/providers?name=<provider>` 接受陣列，或傳入 `null` 清除該欄位。將供應商改到其他轉接器、base URL 或驗證模式的儲存不會保留該清單（見下文）。 |
+| `reasoningDetailsModels?` | `string[]` | 以結構化 `reasoning_details` 陣列回傳思考內容的模型（啟用 `reasoning_split` 的 MiniMax M 系列）；串流增量為累積快照，以前綴差分處理，保留的推理以 `reasoning_details` 陣列而非 `reasoning_content` 字串重播。 |
+| `requiresReasoningPlaceholderModels?` | `string[]` | 上游會拒絕缺少 `reasoning_content` 的 tool_call 續接訊息的模型（DeepSeek thinking 模式）；重播快取未命中時會注入最小的佔位內容。預設沿用 `preserveReasoningContentModels`；設為 `[]` 可明確關閉。從儀表板儲存時會保留已儲存的清單（包括 `[]`）。`PATCH /api/providers?name=<provider>` 接受陣列，或傳入 `null` 清除該欄位。將供應商改到其他轉接器、base URL 或驗證模式的儲存不會保留該清單（見下文）。 |
+| `thinkingToggleModels?` | `string[]` | 使用 `thinking.enabled` 而非 effort 階梯的 chat 模型。 |
+| `thinkingBudgetModels?` | `string[]` | 使用整數 `thinking_budget` 的 chat 模型；effort 映射為預算比例。 |
+| `noVisionModels?` | `string[]` | 透過視覺 sidecar 發送的純文字模型；比對容忍 Ollama `:size` 標籤。 |
+| `escapeBuiltinToolNames?` | `boolean` | 為 Anthropic 相容閘道轉義內建工具名稱，並在回傳的呼叫中還原它們。 |
+| `googleMode?` | `"ai-studio" \| "vertex" \| "cloud-code-assist"` | Google 傳輸／認證模式。預設 `ai-studio`。 |
+| `googleToolSchemaPolicy?` | `"compatible" \| "reject-lossy"` | 僅限 Google。省略或設為 `compatible` 時保留相容結構描述與既有的非直接 400 修復。`reject-lossy` 會在傳送前拒絕初始損失或結果不確定的有界比較，並阻止會放寬限制的 Vertex 或 Cloud Code Assist 修復。直接 AI Studio 不會執行該修復。 |
+| `project?` | `string` | Vertex 或 Antigravity Cloud Code Assist 專案 id。設定後，Vertex API 金鑰使用專案端點；未設定時，即使有 `GOOGLE_CLOUD_PROJECT` 也使用 express 模式。ADC 後備為 `GOOGLE_CLOUD_PROJECT` / `GCLOUD_PROJECT`。設為 `"auto"` 時，每把 Vertex API 金鑰各自解析所屬專案（解析成功的結果依金鑰快取；解析失敗的金鑰會在後續請求中再次探測），同一個金鑰池可跨多個專案；ADC 不接受 `"auto"`。 |
 | `location?` | `string` | Vertex 位置。API 金鑰的專案端點預設為 `global`，並忽略 `GOOGLE_CLOUD_LOCATION`；ADC 需要此欄位或 `GOOGLE_CLOUD_LOCATION` 後備。 |
 | `mcpServers?` | `Record<string, CursorMcpServerConfig>` | Cursor only: stdio or Streamable HTTP MCP servers. |
 | `desktopExecutor?` | `DesktopExecutorConfig` | Cursor only: external computer-use and record-screen commands. |
 | `unsafeAllowNativeLocalExec?` | `boolean` | Cursor legacy boolean, equivalent to `nativeLocalExec: "on"` only when the newer field is unset. |
 | `nativeLocalExec?` | `"off" \| "codex-sandbox" \| "on"` | Cursor local-exec policy. `off` is default; `codex-sandbox` currently fails closed like `off`. |
 
-Command Code's shipped per-model effort defaults include live API measurements. DeepSeek
-v4/v4.1 Flash (including v4 Flash Vision), GLM-5.3 and GLM-5.3-Flash, Qwen3.8-Flash,
-and Gemini-3.7-Flash support `low`, `medium`, `high`, `xhigh`, and `max`. Ladders remain
-model-specific: `poolside/laguna-s-2.1-free` offers only `medium`, while Gemini-3.8-Flash
-and MiMo-v2.5-Pro offer `low`, `medium`, and `high`. To override a pinned Command Code
-row, set `modelReasoningEffortsAuthoritative: true` together with that model's
-`modelReasoningEfforts` list.
+LM Studio 指示相容性：`singleLeadingSystemMessage: true` 會把僅含文字的 system／developer 訊息合併成一則開頭的 system 訊息，覆寫依時間順序的 Chat 指示位置。LM Studio 預設組合預設啟用它；設為 `false` 可停用合併。
+
+
+註冊或替換供應商（`POST /api/providers`）時，會先驗證 `responsesPath` 和 `chatCompletionsPath`，再修改記憶體或磁碟中的設定。`PATCH /api/providers?name=<provider>` 會將請求內容與已儲存的供應商合併；除僅更新 `requestPacing` 的請求外，凡是修改 `disabled` 以外欄位的更新，都會在儲存前以同樣方式驗證合併後供應商的路徑，若保留的既有路徑無效則回傳 `400`，且不變更設定。載入設定檔時也適用相同的路徑規則。
 
 Provider registration and replacement (`POST /api/providers`) validate `responsesPath` and `chatCompletionsPath` before changing live configuration or disk state. `PATCH /api/providers?name=<provider>` merges the request body with the stored provider; updates touching fields beyond `disabled` — except `requestPacing`-only updates — validate the merged provider's paths the same way before saving, and an invalid retained path returns `400` with the configuration unchanged. The same path rules apply when loading a configuration file.
 
@@ -403,52 +390,142 @@ and `modelContextWindows` for that exact id when needed. Unknown ids are not gue
 
 ### 儲存供應商時會保留什麼
 
-以既有供應商的名稱呼叫 `POST /api/providers`，會以根據請求建立的列取代已儲存的列。儀表板的新增/編輯表單無法傳送所有欄位，因此儲存時會保留請求省略的部分已儲存欄位。下列設定記錄的是某個上游的行為：`preserveReasoningContentModels`, `preserveResponsesReasoningContent`, `promoteAdditionalTools`, `requiresReasoningPlaceholderModels`, `foldDeveloperRoleToSystem`, `reasoningWireFormat`, `omitReasoningEffortWithToolsModels`, `retryOn429`, `transientRetryOn5xx`, `retryOnReset`。
+以既有供應商的名稱呼叫 `POST /api/providers`，會以根據請求建立的列取代已儲存的列。儀表板的新增/編輯表單無法傳送所有欄位，因此儲存時會保留請求省略的部分已儲存欄位。其中十一個記錄的是某個上游的行為：`preserveReasoningContentModels`, `preserveResponsesReasoningContent`, `requiresReasoningPlaceholderModels`, `foldDeveloperRoleToSystem`, `singleLeadingSystemMessage`, `reasoningWireFormat`, `omitReasoningEffortWithToolsModels`, `promoteAdditionalTools`, `retryOn429`, `transientRetryOn5xx`, `retryOnReset`。
 
-| 儲存 | 相容性設定 | 已儲存的 `apiKeyPool` |
+| 儲存 | 十一項設定 | 已儲存的 `apiKeyPool` |
 | --- | --- | --- |
 | 目的地相同，欄位省略 | 保留已儲存的值，包括明確的 `[]` 或 `false` | 保留 |
 | 新目的地，欄位省略 | 不保留；可能套用新目的地的登錄檔預設值 | 不保留 |
 | 請求中傳送了該欄位 | 請求中的值 | 請求中的值 |
 
-目的地指轉接器、base URL（比較協定與主機時不分大小寫，忽略結尾斜線），以及請求有指定時的驗證模式。把供應商移到其他目的地時，描述舊上游的相容性設定和為舊上游核發的金鑰池都不會帶過去。儲存絕不會把舊列的其餘部分合併進新列。
+目的地指轉接器、base URL（比較協定與主機時不分大小寫，忽略結尾斜線），以及請求有指定時的驗證模式。把供應商移到其他目的地時，描述舊上游的十項設定和為舊上游核發的金鑰池都不會帶過去。儲存絕不會把舊列的其餘部分合併進新列。
 
-`PATCH /api/providers?name=<provider>` 只修改它指定的欄位，無論目的地為何都保留其他所有已儲存欄位。它接受全部相容性設定，`null` 表示清除。對於兩個推理清單，空陣列會作為明確的退出選項儲存，而不會被刪除。
+`PATCH /api/providers?name=<provider>` 只修改它指定的欄位，無論目的地為何都保留其他所有已儲存欄位。它接受全部十項設定，`null` 表示清除。對於兩個推理清單，空陣列會作為明確的退出選項儲存，而不會被刪除。
 
-### 逐供應商 egress
+## 供應商診斷對外安全
 
-當上游需要與行程全域代理不同的出口時，請在該供應商上設定 `proxy`：
+儀表板連線測試與即時模型探索使用有界的 GET-only 傳輸。在沒有對外代理的情況下，opencodex 解析主機名稱一次並僅連接到該已驗證位址。HTTPS 保留原始 Host、SNI 與憑證驗證；供應商設定無法停用憑證檢查。
 
-- 省略 `proxy` 以繼承全域代理與 `NO_PROXY` 判斷。
-- 將 `proxy` 設為 `"direct"` 或 `null`，即使有設定全域代理，也強制此供應商直接連線。
-- 將 `proxy` 設為絕對的 `http://` 或 `https://` URL，讓此供應商使用該 HTTP 代理。
-- 將 `proxy` 設為絕對的 `socks5://` 或 `socks5h://` URL，讓此供應商使用該 SOCKS5 代理。
+這些操作使用[伺服器設定的對外 fetch](/zh-tw/reference/configuration/server/)。以 `config.proxy` 設定或繼承自 SOCKS5 `ALL_PROXY` 的伺服器 SOCKS5 代理，在目標不符合 `NO_PROXY` 時使用 OpenCodex 的內建通道。`HTTP_PROXY` 與 `HTTPS_PROXY` 保留 Bun 的原生 HTTP(S) 處理，而非 SOCKS 的 `ALL_PROXY` 不是原生 HTTP fetch 路由。URL 與字面位址檢查仍會執行，但所選代理會決定最終路由、DNS 答案與對等端，因此 opencodex 無法 pin 或驗證該對等端。這是明確的安全限制。
 
-空字串或僅含空白的字串會被刻意拒絕。清空欄位不應悄悄從「繼承全域代理」變成「強制直連」；
-移除欄位以繼承，或明確寫入 `"direct"` 以選擇直連。
+私有／本機目的地需要 `allowPrivateNetwork: true`，且當對外代理活躍時需要相符的 `NO_PROXY` 項目。回送會自動加入；請明確列出每個 LAN 主機，因為 CIDR 項目不被解讀。比對器支援精確主機、網域後綴、可選連接埠、方括號 IPv6 與 `*`；例如，明確列出 `192.168.1.50`。中繼資料與 link-local 目標保持被封鎖。診斷請求拒絕重新導向並回報已剝離憑證的目標。普通供應商請求的重新導向審查與此診斷防護分開。
 
-`noProxy` 接受逗號分隔字串，或 `NO_PROXY` 語法的字串陣列。每個請求都會評估一次。相符的
-目的地會走直連，不論該供應商原本會使用自己的 `proxy` 或繼承全域代理。
+針對 Clash / Surge / Mihomo 使用者的 fake-IP DNS 例外有兩種，且都只作用於 DNS *回應*——URL 中的字面位址仍會被拒絕。IANA 基準區段 `198.18.0.0/15`（含 IPv4-mapped IPv6 寫法）在該主機適用對外代理時被接受。Mihomo 預設的 IPv6 fake-IP 區段 `fdfe:dcba:9876::/48` 採更嚴格的門檻：必須設定與 URL 協定相符的代理變數（`https:` 對應 `HTTPS_PROXY`，`http:` 對應 `HTTP_PROXY`）或 SOCKS5 的 `ALL_PROXY`（非 SOCKS 的 `ALL_PROXY` 不算），主機不得命中 `NO_PROXY`，之後請求會被明確綁定到該代理。其他 ULA、相鄰前綴，或與真實私網回應混合的 fake-IP 回應仍需要 `allowPrivateNetwork: true`。提供者儲存時的驗證不套用此 IPv6 例外。
 
-#### 這條路由涵蓋哪些範圍
+### 探索到的模型顯示名稱
 
-此路由適用於路由推理、供應商探索與連線測試，以及 API-key 配額探測。有些傳輸無法帶著它走，
-OpenCodex 會如實說明，而不是假裝可以：
+當供應商回傳機器友善的 ID、而 Codex 模型選擇器需要較短的標籤時，請使用 `modelDisplayNames`。這個對照表屬於單一供應商，
+所以同一個模型 ID 在另一個供應商底下可以有不同的標籤。請把欄位加到 `config.json` 中既有的供應商資料列，並保留所有其他供應商設定。
+範例包含周圍必要的欄位以供對照：
 
-- **OAuth token 交換與 refresh** 仍使用行程全域代理。這些請求會從不持有供應商設定的程式碼
-  連到固定的廠商端點，因此即使某個供應商 pin 了自己的代理或 `"direct"`，它的憑證仍會透過
-  全域路由 refresh。以 OAuth 為後盾的配額探測與 API-key 驗證探測行為相同。
-- **Responses WebSocket 快速通道**在建立連線時選擇自己的代理，無法帶著每供應商路由走，
-  因此宣告了路由的供應商，這些回合會改走 HTTP/SSE，並記錄一次性提示。
-- **Cursor 預設的 HTTP/2 傳輸**、**CodeBuddy 與 Qoder 子行程供應商**（它們的子環境省略代理
-  變數），以及 **Compatibility Lab** 的 pinned sender，都不會套用它。
-- 不路由模型的端點——圖片生成與編輯、音訊轉寫、live 與 realtime 呼叫，以及未限定的
-  `/v1/alpha/search`——沒有供應商路由可套用。
+```json
+{
+  "providers": {
+    "xai": {
+      "adapter": "openai-chat",
+      "baseUrl": "https://api.x.ai/v1",
+      "modelDisplayNames": {
+        "grok-4.6": "Grok 4.6"
+      }
+    }
+  }
+}
+```
 
-設定了自訂 `fetch` executor 的供應商會被拒絕，而不是悄悄以該 executor 自己的路由送出。
+本機 Codex 目錄中受支援的裸原生 GPT 資料列，也接受 `providers.openai.modelDisplayNames` 中的確切標籤，例如 `"gpt-6-astra": "GPT 6 Astra"`。
+啟動同步與本機目錄收斂都會重新套用這些標籤。移除標籤時，只有在資料列的顯示名稱仍與已套用的覆寫相符時，才會還原原本的原生名稱。
+較新的外部顯示名稱會依既有的原生中繼資料正規化規則保留；例如 Astra（`gpt-6-astra`）仍會把未固定的名稱換成其固定的原生名稱。
+標籤疊加層不會改變模型 ID、中繼資料（包含能力）、排序、路由的組合別名與帶帳號限定的資料列。
+這項本機目錄覆寫不會重新標示 HTTP 模型列表或虛擬的 `*-pro` 資料列。
 
-以下範例讓一般流量維持使用全域代理，讓一個供應商經由區域 HTTP 代理，並將另一個供應商 pin
-為直連：
+生效的標籤順序是：營運人員的 `modelDisplayNames`，然後是供應商目錄中繼資料，最後是一般的 `provider/model` 後備。
+路由選擇器仍是 `xai/grok-4.6`，而上游線路模型仍是 `grok-4.6`。標籤僅供顯示。它們不會改變驗證、轉接器行為、路由、計費或上游請求的組成。
+移除對照表項目只會重設其標籤。對於內建的 OpenAI API 模型，請使用 `providers.openai-apikey.modelDisplayNames`；標籤在目錄重新整理後仍會保留。
+管理用戶端可用 `PUT /api/providers/:provider/model-display-names`，搭配 `{ "modelId": "grok-4.6", "displayName": "Grok 4.6" }` 的內容，
+設定或重設單一標籤；送出 `displayName: null` 即可重設。供應商的 `PATCH` 不會編輯這個對照表。請使用這個專用的 `PUT` 端點來變更或移除標籤。
+
+儀表板在**模型**頁提供同樣的持久設定。展開供應商、找到探索到的模型，然後選擇**名稱**。對話框會在你儲存易讀標籤時，持續顯示確切的 `provider/model` 選擇器。
+選擇**重設名稱**可回到供應商中繼資料或一般的選擇器後備。**名稱**只改變呈現；另一個別名鉛筆圖示改的是簡短的路由別名，並不是顯示名稱編輯器。
+原生 OpenAI 與自訂模型資料列保留既有的控制項。
+
+若變更已儲存、但重新整理失敗，對話框會反映已儲存的覆寫，並保留**重試**可用。伺服器回報收斂失敗時，重試會重做目錄收斂；
+只有列表請求失敗時，則重新載入列表。重設的復原會保留重設操作，不會還原舊名稱。請求有 60 秒的期限，涵蓋寫入及其後續的列表重新整理。
+逾時不會復原寫入：請在做另一次變更之前，使用**重試**檢查目前的名稱。
+
+Claude Code 的 `/model` 選擇器（Anthropic 風格的 `GET /v1/models`）會把具有確切標籤的路由資料列顯示為 `<label> (<provider>)`，例如 `Sonnet 5.5 (anthropic2)` 與 `Sonnet 5.5 (anthropic2) · 1M`；沒有項目的資料列則保持 `<model id> (<provider>)`；當全域 `fastMode` 以易讀樣式把 Cursor 資料列改寫為其 fast ID 時，該資料列保留列出的 ID，而不是設定的標籤。別名與目錄中繼資料不會重新標示它；ID 與原生資料列不變。
+
+### 自動審查（核准）模型選擇
+
+Codex 從目前回合所用模型的目錄資料列讀取 `auto_review_model_override`，以選擇審查核准請求的模型。
+`$CODEX_HOME/config.toml` 中的根 `auto_review_model` 設定則提供 Codex 的後備。儀表板模型設定中的全域**自動審查覆寫**，
+會把 `autoReviewOverride` 存入 `~/.opencodex/config.json`，並優先於該後備；下方以供應商為範圍的欄位，在各自的資料列上仍然優先。
+全域設定必須啟用且指定一個模型。已啟用但沒有模型的設定維持未套用，Codex 的後備仍然生效。
+目錄重新整理是另一種狀態：儲存之後它可能維持待處理，模型頁會回報此狀態，讓你可用 `ocx sync` 重試。
+CLI 使用者可用 `ocx models auto-review status` 讀取設定，或用 `ocx models auto-review set <model|-> [--enabled <on|off>]` 變更；用 `-` 清除模型。
+當重新整理可以重試時，CLI 輸出會建議執行 `ocx sync`。若重新整理失敗，設定仍保持已儲存，且指令以 1 結束。同步之前請先解決失敗原因。
+[供應商指南](/zh-tw/guides/providers/#每個供應商各自的核准審查者)有營運流程與實際範例。
+
+當包含原生 OpenAI 資料列、且最終目錄中除了 Reserve 之外還有一般的裸原生資料列（隱藏的資料列也算）時，OpenCodex 會保留隱藏的 `codex-auto-review` 資料列，
+讓 Codex 在沒有設定覆寫時，可選擇它偏好的核准審查者。它不會出現在模型選擇器、子代理選項、Desktop 清單與公開的 `/v1/models` 清單中。
+供應商與根審查者覆寫保留各自的優先順序，也不會在這個內部資料列上蓋章。沒有一般裸原生資料列的目錄（包含僅有 Reserve 的目錄）會省略它，並保留 Codex 退回使用任務模型的行為。
+審查者收到的多代理模式投影，與一般原生資料列相同。
+
+`autoReviewModel` 是供應商層級的審查者目標。值可以是同一供應商的裸模型 ID（目錄資料列會正規化為 `provider/model` 代稱），
+或完整的公開目錄代稱，例如 `opencode-go/deepseek-v4-flash`。裸值會先對照該供應商的資料列，再對照裸目錄資料列，
+原生模型（例如 `gpt-5.6-terra`）就是這樣被指名的；落在該供應商之外的裸值，會印出一則說明實際提供審查者的資料列的備註；兩者都不符的值則保持未解析。
+`autoReviewModelOverrides` 的鍵是該供應商確切的上游模型 ID，或供應商為其發布的別名（`modelAliases`）；兩種寫法指向同一個路由資料列，其代稱帶有上游 ID。
+項目在其模型上優先於供應商層級的值。供應商的蓋章在自己的路由資料列上優先於根選擇器，而根選擇器仍是原生資料列與沒有供應商蓋章的路由資料列的後備。
+移除供應商選擇器只會清除該供應商的蓋章；移除根選擇器絕不會清除供應商蓋章。含有斜線的模型 ID 可以寫成原始形式或編碼後的目錄形式；兩種寫法都解析到同一個路由資料列。模型鍵保留大小寫。
+每次同步時，選擇器會對最終目錄各自獨立解析，並各自封閉式失敗：未解析的 `autoReviewModel` 會發出診斷並且不替供應商層級的資料列蓋章，
+未解析的 `autoReviewModelOverrides` 項目會發出診斷並且不蓋逐模型覆寫，所以有效的供應商層級目標仍是其後備。凡是能解析的選擇器仍會套用。
+沒有供應商蓋章的資料列保留根選擇器，或在根選擇器未設定時使用一般的上游自動審查行為。標準的 `openai` 供應商不接受這些欄位。
+
+移除根選擇器會清除每個資料列上的根蓋章，包含早期版本、在 OpenCodex 的來源標記出現之前蓋章的原生資料列。
+該清理以形狀辨識舊版蓋章——整個目錄中的同一個值、且某個路由資料列也帶有它——所以符合該形狀的真正逐列值會一併被清除，
+而之後已偏離該形狀的目錄需要手動同步一次。供應商蓋章絕不會因為移除根選擇器而被動到。
+
+`PATCH /api/providers?name=<provider>` 接受這兩個欄位。用 `null` 清除純量或整個對照表；用 `null` 或 `""` 的對照表項目移除該模型並保留其他項目。
+不相關的供應商儲存會保留先前設定的值。
+
+這些欄位可用於 `config.json`、供應商管理 API 與儀表板的原始 JSON 供應商編輯器。目前沒有專用的表單控制項。
+原生根蓋章會記錄先前的值，並在蓋章值沒有被外部改動時於移除時還原。
+
+### 營運人員固定的推理強度
+
+在既有的供應商上設定 `pinnedReasoningEffort`，可覆寫傳入的 effort 選擇，或對個別上游模型 ID 使用 `modelPinnedReasoningEfforts`。
+逐模型的供應商固定值優先於供應商層級的固定值；根 `modelPinnedEfforts` 對照表是後備。這些是營運人員設定，不是供應商登錄的預設值。
+它們不會改變模型探索或對外宣告的 effort 階梯。
+
+```json
+{
+  "pinnedReasoningEffort": "high",
+  "modelPinnedReasoningEfforts": {
+    "example-model": "max"
+  }
+}
+```
+
+請把這些欄位合併到既有的供應商資料列。可接受的值為 `none`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max` 與 `ultra`。
+**`none` 會移除明確的 effort 欄位**；它使用供應商的預設行為，並不保證關閉推理。適用的 effort 上限仍會在固定值之後執行，
+供應商的線路對應／正規化可能降低或省略不支援的值。`ultra` 在抵達上游線路之前會先被正規化。壓縮維護請求不受固定值影響。
+
+`PATCH /api/providers?name=<provider>` 接受這些欄位。省略欄位即保留它；用 `null` 清除純量或整個對照表。
+設為 `null` 或 `""` 的對照表項目會移除該項目並保留其他項目。格式錯誤的寫入在儲存之前就會被拒絕。
+手動編輯的檔案中格式錯誤的選用固定值，在載入時會被忽略，而不會丟棄其餘設定。
+
+#### 此路由涵蓋的範圍
+
+此路由套用於路由推論、供應商探索與連線測試，以及 API 金鑰配額探測。有些傳輸無法承載它，OpenCodex 會明說，而不是假裝沒有這回事：
+
+- **OAuth 權杖交換與重新整理**仍使用全程序的代理。這些請求由不持有任何供應商設定的程式碼送往固定的廠商端點，
+  所以即使供應商被固定使用自己的代理或 `"direct"`，仍會透過全域路由重新整理其憑證。以 OAuth 為基礎的配額探測與 API 金鑰驗證探測也一樣。
+- **Responses WebSocket 快速通道**在撥號時選定其代理，無法承載逐供應商的路由，所以宣告了路由的供應商，會改以 HTTP/SSE 提供這些回合，並記錄一次性通知。
+- **Cursor 預設的 HTTP/2 傳輸**、**CodeBuddy 與 Qoder 子處理程序供應商**（其子環境省略代理變數），以及**相容性實驗室**固定的傳送端，都不套用它。
+- 不路由模型的端點——圖片產生與編輯、音訊轉錄、即時與 realtime 呼叫，以及未限定的 `/v1/alpha/search`——沒有可套用的供應商路由。
+
+設定了自訂 `fetch` 執行器的供應商會被拒絕，而不是被執行器自己的路由無聲送出。
+
+此範例對一般流量保留全域代理、讓一個供應商經由區域 HTTP 代理送出，並把另一個供應商固定為直接連線：
 
 ```json
 {
@@ -468,135 +545,36 @@ OpenCodex 會如實說明，而不是假裝可以：
 }
 ```
 
-### 操作者 pin 的 reasoning effort
+### 各供應商的對外連線
 
-在既有供應商上設定 `pinnedReasoningEffort` 可覆寫傳入的 effort 選擇，或用
-`modelPinnedReasoningEfforts` 針對個別上游模型 ID 設定。逐模型的供應商 pin 優先於供應商層級
-的 pin；根層級的 `modelPinnedEfforts` 映射是後備。這些是操作者設定，不是 provider registry
-的預設值。它們不會改變模型探索或宣告的 effort 階梯。
+當某個上游需要與全程序代理不同的出口時，請在供應商上設定 `proxy`：
 
-```json
-{
-  "pinnedReasoningEffort": "high",
-  "modelPinnedReasoningEfforts": {
-    "example-model": "max"
-  }
-}
-```
+- 省略 `proxy` 即繼承全域代理與 `NO_PROXY` 的判斷。
+- 把 `proxy` 設為 `"direct"` 或 `null`，可強制此供應商直接連線，即使設定了全域代理也一樣。
+- 把 `proxy` 設為絕對的 `http://` 或 `https://` URL，此供應商就使用該 HTTP 代理。
+- 把 `proxy` 設為絕對的 `socks5://` 或 `socks5h://` URL，此供應商就使用該 SOCKS5 代理。
 
-把這些欄位合併進既有的供應商列。接受的值為 `none`、`minimal`、`low`、`medium`、`high`、
-`xhigh`、`max` 與 `ultra`。**`none` 會移除明確的 effort 欄位**；此時採用供應商的預設行為，
-不保證 reasoning 真的被停用。適用的 effort 上限仍會在 pin 之後套用，供應商的傳輸對映／
-正規化也可能降低或省略不支援的值。`ultra` 會在送到上游線路前先被正規化。Compaction 維護
-請求不受 pin 影響。
+空字串或僅含空白的字串會被刻意拒絕。被清除的欄位不得無聲地從「繼承全域代理」變成「強制直接連線」；
+請移除欄位以繼承，或寫 `"direct"` 來明確選擇直接對外連線。
 
-`PATCH /api/providers?name=<provider>` 接受這些欄位。省略欄位以保留；用 `null` 清除單一值
-或整個映射。映射中某個項目設為 `null` 或 `""` 會移除該項目並保留其他項目。格式錯誤的寫入
-會在儲存前被拒絕。手動編輯檔案中格式錯誤的選填 pin，載入時會被忽略，不會捨棄設定的其餘部分。
-
-### 自動審查（核准）模型選擇
-
-Codex 會從目前回合模型的目錄列讀取 `auto_review_model_override`，用以選擇審查核准請求的
-模型。`$CODEX_HOME/config.toml` 中的根層級 `auto_review_model` 設定，會為每個目錄列套用
-同一個審查者；下方的供應商範圍欄位會依供應商覆寫它。[供應商指南](/zh-tw/guides/providers/#每個供應商各自的核准審查者)
-有操作者的工作流程與實作範例。
-
-`autoReviewModel` 是供應商層級的審查者目標。其值可以是同一供應商的裸模型 id（目錄列會正規化
-為 `provider/model` slug），或完整的公開目錄 slug，例如 `opencode-go/deepseek-v4-flash`。
-裸值會先對照該供應商自己的列解析，再對照裸目錄列解析——這正是像 `gpt-5.6-terra` 這類原生
-模型的命名方式——落在該供應商之外的裸值會印出說明，指名實際供應審查者的那一列；兩者都不相符
-的值則維持未解析狀態。`autoReviewModelOverrides` 的鍵是該供應商的確切上游模型 id，或該
-供應商發布的別名（`modelAliases`）；兩種寫法都指向同一個路由列，其 slug 帶有上游 id。
-單一項目會覆寫該模型的供應商層級值。供應商層級標記優先於根層級選擇器（只在該供應商自己的
-路由列上）；根層級選擇器仍是原生列與沒有供應商標記的路由列的後備。移除某個供應商選擇器只會
-清除該供應商的標記；移除根層級選擇器永不清除供應商標記。含有斜線的模型 id 可以寫成原始形式
-或編碼後的目錄形式；兩種寫法都解析到同一個路由列。模型鍵保留大小寫。每次同步時，選擇器都會
-獨立對照最終目錄解析，且各自 fail closed：未解析的 `autoReviewModel` 會發出診斷並且不標記
-任何供應商層級列，未解析的 `autoReviewModelOverrides` 項目會發出診斷並且不標記該模型的覆寫，
-因此有效的供應商層級目標仍是其後備。任何確實解析成功的選擇器仍會被套用。沒有供應商標記的
-列會保留根層級選擇器，若未設定則採用正常的上游自動審查行為。規範的 `openai` 供應商不接受
-這些欄位。
-
-移除根層級選擇器會清除每一列的根層級標記，包括早期版本標記的原生列——那些早於 OpenCodex
-出處標記機制。這個清理動作是依形狀辨識舊版標記：整個目錄只有一個值、且該值也出現在某個路由
-列上——因此符合這個形狀的真實逐列值也會一併被清除，若目錄已偏離這個形狀，需要手動同步一次。
-供應商標記永不受根層級移除影響。
-
-`PATCH /api/providers?name=<provider>` 接受這兩個欄位。用 `null` 清除單一值或整個映射；
-用 `null` 或 `""` 的映射項目移除該模型並保留其他項目。不相關的供應商儲存操作會保留先前
-設定的值。
-
-這些欄位可透過 `config.json`、供應商管理 API 與儀表板的原始 JSON 供應商編輯器使用。沒有
-專屬的表單控制項。原生根層級標記會記錄先前的值，並在該標記值未被外部改動時，於移除後還原它。
-
-### 探索到的模型顯示名稱
-
-當供應商回傳機器友善的 id、但 Codex 模型選擇器需要更短標籤時，請使用 `modelDisplayNames`。
-此映射屬於單一供應商，因此同一個模型 id 在另一個供應商下可以有不同標籤。請在 `config.json`
-既有的供應商列上加入此欄位，並保留所有其他供應商設定。以下範例包含周圍必要欄位以提供情境：
-
-```json
-{
-  "providers": {
-    "xai": {
-      "adapter": "openai-chat",
-      "baseUrl": "https://api.x.ai/v1",
-      "modelDisplayNames": {
-        "grok-4.6": "Grok 4.6"
-      }
-    }
-  }
-}
-```
-
-本機 Codex 目錄中受支援的裸原生 GPT 列，也接受 `providers.openai.modelDisplayNames` 中的
-確切標籤，例如 `"gpt-6-astra": "GPT 6 Astra"`。啟動時同步與本機目錄收斂都會重新套用這些
-標籤。移除標籤只有在該列的顯示名稱仍與套用的覆寫相符時，才會還原原生名稱。較新的外部顯示
-名稱會依既有的原生中繼資料正規化規則保留；例如 Astra（`gpt-6-astra`）仍會用其 pin 的原生
-名稱取代未 pin 的名稱。標籤覆蓋層不會改變模型 ID、中繼資料（包括能力）、順序、路由 combo
-別名，以及帳號限定的列。此本機目錄覆寫不會重新標記 HTTP 模型清單或虛擬 `*-pro` 列。
-
-有效的標籤順序是：操作者的 `modelDisplayNames`、接著是供應商目錄中繼資料、最後才是一般的
-`provider/model` 後備。路由選擇器仍是 `xai/grok-4.6`，上游線路模型仍是 `grok-4.6`。標籤
-只影響顯示，不會改變認證、轉接器行為、路由、計費或上游請求的構造。移除映射項目只會重設該
-項目的標籤。管理端客戶端可以用 `PUT /api/providers/:provider/model-display-names`，搭配
-`{ "modelId": "grok-4.6", "displayName": "Grok 4.6" }` 這樣的主體，設定或重設單一標籤；
-送出 `displayName: null` 即可重設。供應商 `PATCH` 不會編輯此映射，請用這個專屬的 `PUT`
-端點來變更或移除標籤。
-
-儀表板在**模型**頁面暴露相同的持久設定。展開供應商、找到已探索的模型，選擇**名稱**。對話框
-會在你儲存友善標籤的同時，持續顯示確切的 `provider/model` 選擇器。選擇**重設名稱**可回到
-供應商中繼資料或一般的選擇器後備。**名稱**只改變呈現方式；另外的別名鉛筆圖示才是變更短
-路由別名的地方，不是顯示名稱編輯器。原生 OpenAI 與自訂模型列保留其既有的控制項。
-
-若變更已儲存但重新整理失敗，對話框會反映已儲存的覆寫，並保持**重試**可用。當伺服器回報
-目錄收斂失敗時，重試會重複該收斂；若只是清單請求失敗，重試會重新載入清單。重設復原會保留
-重設操作；它不會還原舊名稱。請求有 60 秒的期限，涵蓋寫入與其後續的清單重新整理。逾時不會
-撤銷寫入：在再次變更之前，請用**重試**確認目前的名稱。
-
-## 供應商診斷對外安全
-
-儀表板連線測試與即時模型探索使用有界的 GET-only 傳輸。在沒有對外代理的情況下，opencodex 解析主機名稱一次並僅連接到該已驗證位址。HTTPS 保留原始 Host、SNI 與憑證驗證；供應商設定無法停用憑證檢查。
-
-這些操作使用[伺服器設定的對外 fetch](/zh-tw/reference/configuration/server/)。以 `config.proxy` 設定或繼承自 SOCKS5 `ALL_PROXY` 的伺服器 SOCKS5 代理，在目標不符合 `NO_PROXY` 時使用 OpenCodex 的內建通道。`HTTP_PROXY` 與 `HTTPS_PROXY` 保留 Bun 的原生 HTTP(S) 處理，而非 SOCKS 的 `ALL_PROXY` 不是原生 HTTP fetch 路由。URL 與字面位址檢查仍會執行，但所選代理會決定最終路由、DNS 答案與對等端，因此 opencodex 無法 pin 或驗證該對等端。這是明確的安全限制。
-
-私有／本機目的地需要 `allowPrivateNetwork: true`，且當對外代理活躍時需要相符的 `NO_PROXY` 項目。回送會自動加入；請明確列出每個 LAN 主機，因為 CIDR 項目不被解讀。比對器支援精確主機、網域後綴、可選連接埠、方括號 IPv6 與 `*`；例如，明確列出 `192.168.1.50`。中繼資料與 link-local 目標保持被封鎖。診斷請求拒絕重新導向並回報已剝離憑證的目標。普通供應商請求的重新導向審查與此診斷防護分開。
-
-針對 Clash / Surge / Mihomo 使用者的 fake-IP DNS 例外有兩種，且都只作用於 DNS *回應*——URL 中的字面位址仍會被拒絕。IANA 基準區段 `198.18.0.0/15`（含 IPv4-mapped IPv6 寫法）在該主機適用對外代理時被接受。Mihomo 預設的 IPv6 fake-IP 區段 `fdfe:dcba:9876::/48` 採更嚴格的門檻：必須設定與 URL 協定相符的代理變數（`https:` 對應 `HTTPS_PROXY`，`http:` 對應 `HTTP_PROXY`）或 SOCKS5 的 `ALL_PROXY`（非 SOCKS 的 `ALL_PROXY` 不算），主機不得命中 `NO_PROXY`，之後請求會被明確綁定到該代理。其他 ULA、相鄰前綴，或與真實私網回應混合的 fake-IP 回應仍需要 `allowPrivateNetwork: true`。提供者儲存時的驗證不套用此 IPv6 例外。
+`noProxy` 接受以逗號分隔的字串，或 `NO_PROXY` 語法的字串陣列。它會針對每個請求評估。符合的目的地一律直接連線，
+無論供應商原本會使用自己的 `proxy` 還是繼承全域代理。
 
 ## Codex 帳號池
 
-Set `providers.<name>.responseTierAuthoritative` to `false` in `config.json` when that
-provider's response `service_tier` cannot establish whether Fast was granted. This is an
-operator declaration about the entire provider route, independent of `supportsServiceTier` and
-`fastWire`. It neither enables Fast nor changes the outgoing `service_tier`.
+在儀表板中使用 **Codex Auth** 新增池帳號並重新整理配額。`config.json` 儲存非秘密中繼資料；access 與 refresh token 使用強化的憑證存放。池路由將新／未綁定指派、基於用量的主動切換與失敗復原分開。綁定任務通常保留親和性。預設（`pool.cacheAffinity`）下，該重新綁定會等到綁定帳號耗盡或無法繼續服務，並且只改綁到確有額度餘裕且用量嚴格更低的帳號；所有帳號都高於閾值時，綁定任務留在原帳號。關閉該設定後，`quota` 可在超過用量閾值後的下一個請求時重新綁定它，但仍只改綁到確有額度餘裕且用量嚴格更低的帳號。暫停、冷卻、重新認證與失敗處理可獨立清除或移動路由。未綁定請求沒有即時帳號綁定；帶有工作階段 ID 的請求（包括一般 Codex CLI 和 App 回合及子代理），或錨定到直接父任務的無工作階段請求，其綁定在關閉時最後一次親和性儲存成功的情況下，代理正常重啟後可保留，閒置時間最長為 24 小時。更深層的無工作階段鏈和 Codex App 主要登入的綁定僅保留在記憶體中，重啟後會重新指派；驅逐、帳號刪除、重新登入、崩潰或親和性重置仍可能使任務未綁定。Pre-stream 的 429 或 402 在同一個請求中於一個合格的備用帳號上重試一次，即使基於用量的主動切換關閉。帳號變更保留並重播對話 context，但跨帳號的供應商端 prompt-cache 重用不保證，cache 可能需要重新暖機。
+
+在 **401/403** 時，App 登入清除該帳號的行程本地親和性並要求重新認證。
+在 **429** 時，opencodex 遵循 `Retry-After`、啟動帳號冷卻、清除親和性，並可能將請求輪換到另一個合格的池帳號。這些失敗轉換在 `autoSwitchThreshold: 0` 時仍然活躍；該設定僅停用基於用量的主動切換。
 
 For example, add this field to an existing gateway provider whose Codex backend has
 non-authoritative response metadata:
 
-```json
-{ "responseTierAuthoritative": false }
-```
+| 策略 | 行為 |
+| --- | --- |
+| `quota`（預設） | 若無現用帳號，跨 5 小時、週與 30 天視窗選擇最低用量的合格帳號。否則將合格現用帳號保持在 `autoSwitchThreshold` 以下；在超過閾值後，未綁定請求可移至較低用量的合格帳號。預設下 cache affinity 優先於配額餘裕，綁定任務會保留到帳號耗盡（已知用量 100%）或無法繼續服務，改綁時只前往確有額度餘裕且用量嚴格更低的帳號。關閉該設定後，也可在閾值將綁定任務的下一個請求改綁到確有額度餘裕且用量嚴格更低的帳號。`0` 停用此用量驅動的重新評估，而非失敗復原。 |
+| `round-robin` | 輪替以計數器為基礎。新指派在仍有低於有效 `autoSwitchThreshold` 的合格帳號時，略過達到或超過閾值的帳號（帳號覆寫值或全域預設值，評分與 `quota` 相同）；用量未知或閾值為 `0` 均視為低於閾值。所有合格帳號均達到或超過閾值時，輪替涵蓋全部帳號。已綁定任務超過閾值仍保留帳號，僅在帳號無法服務（冷卻、配額拒絕、容錯移轉、暫停）時移動；活躍對話的子任務從父任務使用的帳號開始。共用優先順序層級篩選以相同方式評估餘裕。操作者的手動選擇會在每個配額 scope 中取得下一次指派，不論其用量；該 scope 中對此帳號的請求成功後，此選擇即被消耗，之後在該 scope 的指派會再次套用閾值。 `accountPoolStickyLimit`（1–100）計數一次選擇上的指派，而非成功的上游回應。 |
+| `fill-first` | 將未綁定請求指派到現用帳號直到冷卻、重新認證或該帳號的有效排空閾值（帳號覆寫值，未設定則使用全域值）；未知用量不強制切換。健康的綁定任務保留親和性。 |
 
 **Gateway support is opt-in.** Updating OpenCodex alone does not add this declaration to
 existing providers. Without it, an eligible priority request followed by `service_tier: "default"`
@@ -629,9 +607,9 @@ apply the declaration only to the relevant entry.
 | Key | 型別 | 預設值 | 說明 |
 | --- | --- | --- | --- |
 | `anthropicAccountPool.enabled?` | `boolean` | `false` | 啟用 sticky 工作階段親和性與依用量的新工作階段選擇。**429 容錯移轉不由此開關控制**：只要儲存了兩個以上可用帳號就會生效，與其他多憑證供應商一致，且無法關閉。 |
-| `anthropicAccountPool.autoSwitchThreshold?` | `number` | `80` | 對新 session 而言，當現用帳號達到此閾值時，會在設定的視窗中選擇已知快取用量最低的帳號；被選中的帳號本身不必達到或超過這個閾值。`0` 只停用**主動**的用量驅動切換——新 session 選擇，以及合格 429 之後的路由復原，仍會參考 `quotaWindow`。 |
-| `anthropicAccountPool.strategy?` | `"quota" \| "round-robin" \| "fill-first"` | `"quota"` | 新 session 策略；`quota` 依 `quotaWindow` 指定的視窗為帳號排序，`fill-first` 也在同一視窗中判定其排空閾值。 |
-| `anthropicAccountPool.quotaWindow?` | `"five-hour" \| "weekly" \| "max-utilization"` | `"five-hour"` | 用於用量感知帳號選擇的、已快取的供應商回報使用率列。`five-hour` 保留原本行為。`weekly` 為每週列評分，並在仍有其他合格帳號時跳過 5 小時列已耗盡的帳號，但當沒有這樣的帳號時，仍會退回耗盡的候選者。`max-utilization` 為已知的最高列評分，因此在每週用量尚未取得前也能使用 5 小時用量；若兩者都未知，該帳號依未知用量的排序規則處理。只有在選用的 `weekly` 與 `max-utilization` 視窗下，已知用量才會排在未知用量之前；省略或明確設為 `five-hour` 會保留舊有的排序方式。若每個合格帳號都是未知，選擇仍會依合格順序回傳一個。在前述「較低 5 小時優先」的同分判定之後，完全相同時仍保留合格順序。健康、已有 affinity 綁定的 session 不會被主動重新平衡。對於新 session 指派，以及合格 429 替換後的路由復原，`quota` 會直接用這個視窗為合格候選者排序；`fill-first` 會用這個視窗的閾值與耗盡規則，以穩定順序前進；`round-robin` 忽略它。冷卻狀態、容錯移轉上限與重新驗證資格仍是各自獨立的本機狀態。每個帳號的每週列，來自用量探測或觀察到的回應標頭。 |
+| `anthropicAccountPool.autoSwitchThreshold?` | `number` | `80` | 對於新 session，當現用帳號達到此閾值時，選擇設定視窗中已知快取用量最低的帳號，並優先選擇低於自身閾值的帳號；所選帳號本身不必達到閾值。`0` 僅停用基於用量的主動切換；新 session 選擇與符合條件的 429 後路由復原仍會使用 `quotaWindow`。 |
+| `anthropicAccountPool.strategy?` | `"quota" \| "round-robin" \| "fill-first"` | `"quota"` | 新 session 策略。`quota` 保留現用帳號，直到其 `quotaWindow` 用量達到有效 `autoSwitchThreshold`（預設 80）或無法服務，再轉到用量最低的帳號，優先選擇低於自身閾值的帳號；用量未知時保留現用帳號。`round-robin` 不讀取用量閾值，輪替新 session。`fill-first` 在 `quotaWindow` 中評估排空閾值。 |
+| `anthropicAccountPool.quotaWindow?` | `"five-hour" \| "weekly" \| "max-utilization"` | `"five-hour"` | 使用量型帳號選擇所採用、由供應商回報並快取的用量列。`five-hour` 保留原有行為。`weekly` 使用每週用量列，並在仍有其他可用帳號時略過 5 小時用量已用盡的帳號；若沒有其他帳號，則退回使用這些帳號。`max-utilization` 使用已知值中的最高值，因此每週用量尚未取得時仍可使用 5 小時用量；兩者都未知時，帳號遵循 unknown 用量排序。已知用量排在 unknown 之前，但若所有可用帳號都是 unknown，仍會依可用順序選出一個。完成前述較低 5 小時用量的同分判定後，完全相同時也保留可用順序。不會主動重新平衡健康且已有 affinity 的 session。當 `quota` 選擇替代帳號時（現用帳號達到閾值或無法服務的新 session，或符合條件的 429 後復原），優先選擇低於自身閾值的候選帳號並依此視窗排序；`fill-first` 依此視窗的門檻與用盡規則按穩定順序前進；`round-robin` 忽略此設定。冷卻狀態、容錯移轉上限與重新驗證資格仍是獨立的本機狀態。每個帳號的每週用量來自用量探測或觀察到的回應標頭。 |
 | `anthropicAccountPool.stickyLimit?` | `number` | `1` | 在一次 round-robin 選擇上保留的成功新 session 綁定。範圍 1–100。 |
 
 只有共用5小時或每週額度明確拒絕的429才會冷卻帳號並切換。暫時速率限制保留親和性，只暫停該帳號的請求准入；每個請求最多一次短暫的同帳號重試及一次合格兄弟帳號切換。沒有依據回應標頭的429只允許一次同帳號短暫重試，不冷卻帳號，也不產生Retry-After。預設單帳號行為不變。Fable專屬拒絕不限制Sonnet；手動選擇和親和性均檢查請求模型的共用與家族額度。被動家族資訊在30分鐘或已知重設時到期，由一個服務請求依序重新驗證。用量門檻仍是軟偏好，全部候選耗盡時保留原有退回機制，不是用量或帳單硬上限。親和性為行程本地且有界。Token 更新失敗保留原有重新認證規則。已分類的訂閱或帳號計費 403 可在輸出前切換帳號，並按 `Retry-After` 或預設十分鐘冷卻；一般權限拒絕不切換。若所有合格帳號都在冷卻，客戶端收到附帶已知 `Retry-After` 的 429，而非認證錯誤。
@@ -687,6 +665,35 @@ enablement. First-party API Fast is a research preview that requires access. See
 `apiKeys[]` 項目包含 `id`、`name`、生成的 `key` 與 ISO `createdAt` 字串。
 `codexAccounts[]` 項目需要 `id`、`email` 與 `isMain`，可選 `plan`、
 `chatgptAccountId` 與隱私安全的 `logLabel`。這些記錄通常由儀表板管理。
+
+### xAI 優先處理
+
+內建的 `xai` 預設組合在它的兩種傳輸上都支援 Fast，但範圍不同。API 金鑰模式以 `https://api.x.ai/v1` 為目標；
+解析到 `openai-chat` 的路由會透過 Chat Completions 送出 `service_tier: "priority"`，而模型預設值與覆寫也可以改選 `openai-responses` 傳輸。
+`ocx login xai` 則會儲存 Grok 訂閱閘道（`https://cli-chat-proxy.grok.com/v1`；這些憑證會自動重新整理）的 OAuth 憑證，
+在那裡 Fast 是逐模型分類的（2026-09-13 與 2026-09-23 實測）：grok-4.7、grok-4.6、grok-4.5、grok-4.3、grok-4.20-0309-reasoning、
+grok-4.20-0309-non-reasoning、grok-build-0.1 與 grok-composer-2.5-fast 在 Grok OAuth 上接受 `service_tier: "priority"` 並回聲該值，
+所以這些資料列會宣告 Fast、接受 `--fast` 選擇器，並在任一線路上轉送呼叫端送來的層級。grok-4.20-multi-agent-0309 被排除：
+送出 `priority` 時閘道回應的是 `service_tier: "default"`，所以它維持未分類，其呼叫端層級不會被轉送。未列出的模型在兩種傳輸上都維持未分類。
+
+在 OAuth 閘道上，Grok 4.7 的 Fast 運作方式不同。閘道還列出 `grok-4.7-build-fast`，這是在較快服務硬體上的同一個模型，實測約比 `grok-4.7` 快 1.6×。
+`grok-4.7` 上的優先處理實測並沒有更快，每個輸出 token 卻消耗約 6× 的訂閱用量。因此模型清單只顯示一列 Grok 4.7。
+選擇它的 Fast 資料列（`xai/grok-4.7--fast`）、送出 `service_tier: "priority"`，或開啟 Fast 模式，都會以 `grok-4.7-build-fast` 且不帶服務層級送出請求。
+請求記錄把模型保留為 `grok-4.7`，並把 `grok-4.7-build-fast` 記為線路模型。API 金鑰模式不變：build-fast 不在 xAI 的公開 API 上，
+所以那裡的 Grok 4.7 Fast 仍代表優先處理。較早設定中明確的 `xai/grok-4.7-build-fast` 選擇仍可繼續運作。
+
+未設定明確的供應商 `fastWire` 時，受 `allowedModels` 限制的 opencodex API 金鑰，必須允許 `xai/grok-4.7-build-fast`（或其裸模型 ID），才能用於 OAuth Fast。
+只允許 `xai/grok-4.7` 並不授權這個 Fast 模型變體。只允許 Fast 線路模型的金鑰可以使用它；一般請求或停用 Fast 時，仍需要 `xai/grok-4.7`。
+若有明確的供應商 `fastWire`，則改為允許實際的線路模型。例如，`service-tier` 線路維持 `xai/grok-4.7`，並要求該模型的權限。供應商的限制仍然適用。
+這些規則適用於 Responses、Chat Completions、Messages 與路由的壓縮請求。
+
+xAI 對優先處理按標準 token 價格的 2× 計費，涵蓋輸入、輸出、快取與推理 token；快取折扣在乘數之前套用。
+只有 xAI 的回應確認 `service_tier: "priority"` 時，成本估算才使用這個加價。缺少或無法解析的回應層級不算確認，
+回聲的 `default` 是降級；這三種情況都維持標準價格。
+
+對於 `grok-4.6` 與 `grok-4.7`，每 1M token 的標準費率是輸入 $2.00、快取輸入 $0.50、輸出 $6.00。
+提示詞達 200,000 token 以上時，整個請求改按 $4.00 / $1.00 / $12.00 計價。xAI 尚未公布這個長上下文區間如何與優先處理疊加。
+因此當長上下文回應確認了 `priority`，儀表板會以 `≥` 標記與下限說明顯示已公布的長上下文成本；它絕不會自行編造疊加的乘數。
 
 ### `tokenGuardian`（`OcxTokenGuardianConfig`）
 
@@ -1024,32 +1031,6 @@ For a broken `openai-responses` gateway, repair belongs on the provider object:
 
 Placeholder lists are exact matches. Leave the field unset for normal/stateful Responses providers
 so passthrough stays byte-for-byte identical.
-
-### xAI Priority Processing
-
-內建的 `xai` 預設在兩種傳輸上都支援 Fast，範圍不同。API-key 模式指向
-`https://api.x.ai/v1`；解析到 `openai-chat` 的路由透過 Chat Completions 送出
-`service_tier: "priority"`，而模型預設值與覆寫可以改選 `openai-responses` 傳輸。
-`ocx login xai` 則是儲存 Grok 訂閱 gateway 的 OAuth 憑證
-（`https://cli-chat-proxy.grok.com/v1`；這些憑證會自動 refresh），在這裡 Fast 依模型分類
-（2026-09-13 與 2026-09-23 實測）：grok-4.7、grok-4.6、grok-4.5、grok-4.3、
-grok-4.20-0309-reasoning、grok-4.20-0309-non-reasoning、grok-build-0.1 與
-grok-composer-2.5-fast 在 Grok OAuth 上接受 `service_tier: "priority"` 並回顯它，因此這些
-列宣告 Fast、接受 `--fast` 選擇器，並在任一線路上轉發呼叫端送出的層級。
-grok-4.20-multi-agent-0309 被排除：該 gateway 在收到 `priority` 時回答
-`service_tier: "default"`，因此它維持未分類，其呼叫端層級不會被轉發。未列出的模型在兩種
-傳輸上都維持未分類。
-
-xAI 對 Priority Processing 的輸入、輸出、快取與 reasoning token 都收取標準 token 價格的
-2 倍；快取折扣會在乘數之前套用。成本估算只有在 xAI 的回應確認 `service_tier: "priority"`
-時才使用該溢價。缺失或無法解析的回應層級不算確認，回顯 `default` 則是降級；三種情況都維持
-標準價格。
-
-對 `grok-4.6` 與 `grok-4.7`，每百萬 token 的標準費率為輸入 $2.00、快取輸入 $0.50、輸出
-$6.00。至少 200,000 token 的 prompt 會讓整個請求改用 $4.00 / $1.00 / $12.00 計價。xAI
-尚未公布這個長 context 級別如何與 Priority Processing 疊加。當長 context 回應確認
-`priority` 時，儀表板會顯示已公布的長 context 成本並加上 `≥` 標記與下界說明；它絕不會
-自行發明疊加後的乘數。
 
 ### OpenRouter Fast
 

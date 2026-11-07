@@ -1843,6 +1843,8 @@ issue 軸：strict 新列出 `#8181`（desktop takeover 在預設 bind 時，`ru
 - `gui/classic`（上游把舊版 GUI 保留為 `/classic/`）：安裝連結改 `SanHsien/opencodex`、10 行 Hangul 註解與 1 處 Hangul 範例改英文、`main.tsx` 的 `installApiAuthFetch()` 維持無條件；`fork-hygiene` 的 Hangul 與「不連上游 releases」掃描根加入 `gui/classic/src`。
 - `tests/helpers/messages-overflow-assertions.ts`（切片 timeout 改 `COLD_SPAWN_BUDGET_MS`）與 `tests/claude-integration/messages-sse-continuation.test.ts`（冷啟動暖機）：取代上游 quarantine 的 fork 側修法，見 `DECISIONS.md` 決定九。
 - zh-tw 文件補 `web-dashboard.md`「經典儀表板」與 `providers.md`「Mistral：每個請求的圖片數量」兩節，並把取自上游的三個英文路徑連結改為 `/zh-tw/...`。
+- `src/server/claude-messages.ts` 的 no-eligible 分支：fork 固定句實際生效（`localError.message`），overflow 判定仍讀上游 `err.message`，見 `DECISIONS.md` 決定十一。
+- `scripts/ci/test-durations.windows.tsv`：用 run 42403141711 的 11 份 Windows job log 重新量測，補上 75 個新檔的權重，見 `DECISIONS.md` 決定十二。
 - 本機驗證與殘留：見 `REVIEW.md` 2026-11-08 節與 `ROADMAP.md`。
 
 ### 水位

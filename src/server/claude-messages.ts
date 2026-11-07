@@ -995,9 +995,15 @@ async function handleClaudeMessagesWithBudget(
       if (logIds) addFinalRequestLog(logIds.requestId, logIds.start, logCtx, 404, { closeReason: "non_stream" });
       // Fork: the 404 text is fixed so the policy profile id never reaches the client (`err.message`
       // carries it); the owned-error presentation still gives the response the normalized shape.
-      const legacy = anthropicErrorBody(404, "no eligible candidates for routing policy", "invalid_request_error");
+      // That presentation emits `localError.message`, never the carried `legacy` body, so the fixed
+      // sentence has to be the localError one. The overflow verdict is still read from `err.message`:
+      // a client-supplied selector spelling an overflow phrase keeps the recognition it had in the
+      // immutable baseline, and only the constant sentence reaches the wire.
+      const fixed = "no eligible candidates for routing policy";
+      const legacy = anthropicErrorBody(404, fixed, "invalid_request_error");
       return ownedAnthropicErrorResponse({ status: 404, type: "invalid_request_error", evidence: { status: 404 },
-        localError: markProxyError({ message: "No eligible candidates for policy profile" }), overflow: messagesRelayedOverflowPresentation("", legacy) }, legacy);
+        localError: markProxyError({ message: fixed }),
+        overflow: messagesRelayedOverflowPresentation("", anthropicErrorBody(404, err.message, "invalid_request_error")) }, legacy);
     }
     /* unknown model: let handleResponses shape the 404 */
   }

@@ -757,3 +757,7 @@ config 測試首次等待 user test lock：owner PID 57096 在同時查得為 `D
 **既有失敗（非本次引入，基底相同）**：`client-link-stop` 15 案、`codex-cli-windows-plan`「native 8.3 spellings…」、`service-status-json` 1 案；`client-link-connect` 另有既有不穩（DECISIONS 2026-11-07 決定九）。
 
 **順手更正**：2026-11-07 記「本機沒有 `cargo`」不成立（DECISIONS 2026-11-08 決定四）；`ROADMAP.md` 舊列「fork 沒有 web-search 可用性探測」不成立（決定八）。
+
+**CI 後續修正（遠端 Windows 全量 run 42403141711，`ca6480ed6`）**：11 個 Windows shard 中 4、10 失敗、2、11 被 30 分鐘 job 上限取消。
+- shard 10（`routing-policy-surface-parity`「no-eligible policies retain their trace but not their profile id on every wire」）與 shard 4（`messages-overflow-collectors`「local-envelope: origin/dev rows 1-63」，`Expected: true / Received: false`）同一根因，在 `src/server/claude-messages.ts` 的 no-eligible 分支：固定句寫進了沒有輸出的 `legacy`，輸出的 `localError.message` 仍是上游句，overflow 判定又改讀固定句。修法與理由見 DECISIONS 決定十一。沒有放寬任何斷言。**綠**：以 CI 相同旗標（`bun test --isolate --timeout 60000`，Bun 1.4.4）跑這兩個檔，21 pass／0 fail。（不帶 `--timeout 60000` 時，本機預設 5 秒會使 surface-parity 的 afterEach 逾時，與修正無關；CI 的批次腳本一律帶 60000。）
+- shard 2、11 取消：不是測試失敗，是 Windows 權重表缺 v2.98.0 新增的 75 個檔案，負載集中；表由 run 42403141711 的 job log 重新量測。證據與殘留風險見 DECISIONS 決定十二。

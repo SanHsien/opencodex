@@ -655,3 +655,24 @@ config 測試首次等待 user test lock：owner PID 57096 在同時查得為 `D
 驗證範圍：未執行全部 `.test.ts` 產品套件。本輪只動一份測試檔與文件，沒有產品碼變更；該檔的跨檔依賴（暖機 helper、版面清單、結構與 fork 衛生守衛、型別）已聚焦覆蓋，完整 Windows 11 分片覆蓋留給 CI，不宣稱已通過。
 
 暫時的量測用改動（`src/config/process-state.ts` 的計時記錄、測試檔的 `--preload` 與 60s 停頓）都已還原，`git status --porcelain` 只剩本輪四個檔案與既有未追蹤的 `Microsoft/`。
+
+## 2026-11-07：手動 Cross-platform CI `windows 7/11` 的 `main-quota-provenance` 首案例紅燈；診斷輸出補強
+
+基準 HEAD：`2c6d8fa4af0e29f4b15c1e1b819d68a7094bafed`（detached HEAD）；本輪修改一份測試（`tests/codex-integration/main-quota-provenance.test.ts`）與維護文件（`ROADMAP.md`、`docs/fork/DECISIONS.md`、本節），沒有暫存、提交、推送、觸發 workflow 或改產品碼。分類與再次紅燈的讀法見 `docs/fork/DECISIONS.md` 2026-11-07 第一條。
+
+遠端事實（唯讀 `gh run view`）：紅燈 run [42376149161](https://github.com/SanHsien/opencodex/actions/runs/42376149161)（`workflow_dispatch`）只有 `windows 7/11` failure，失敗在 `main-quota-provenance.test.ts:415`，案例為迴圈第一個 `verified replacement`；批次總計 `85 pass / 1 fail`。同一 HEAD 的 Upstream check run [42376151305](https://github.com/SanHsien/opencodex/actions/runs/42376151305) failure 的內容是 56 筆待審 commit、0 筆待審 closed-unmerged PR、5 筆新 platform issue（#8246、#8260、#8262、#8280、#8281），本輪只記計數、不審查。
+
+| 指令 | exit code | 結尾輸出／結果 |
+| --- | --- | --- |
+| `CI=true bun test tests/codex-integration/main-quota-provenance.test.ts`（修改前，連跑 3 次） | 0, 0, 0 | 每次 `38 pass / 0 fail`；重現不到 |
+| 同上加 `TZ=UTC` | 0 | `38 pass / 0 fail` |
+| 同上同時 8 個程序並行 | 0 ×8 | 每個 `0 fail` |
+| 暫時注入：`openClaimDatabase` 在 `OCX_TMP_INJECT_CLAIM_FAIL` 下丟 `EPERM`；`HEAD` 版測試 `-t "verified replacement"` | 1 | `Expected: true / Received: false`，沒有任何原因欄位（與遠端紅燈的輸出相同）。注入已還原 |
+| 同一注入；修改後的測試 `-t "verified replacement"` | 1 | 失敗物件列出 `"failure": "CodexAuthContextError"`、`"code": "NATIVE_MAIN_CLAIM_UNAVAILABLE"` 與 stderr 的注入行。注入已還原 |
+| `CI=true bun test tests/codex-integration/main-quota-provenance.test.ts`（修改後，無注入） | 0 | `38 pass / 0 fail`，235 expect calls |
+| `bun run typecheck` | 0 | `No type errors in 2,305 files` |
+| `pwsh -NoProfile -File tools/dev_check.ps1` | 0 | `WINDOWS DEV CHECK GREEN`，10 份文件零斷鏈 |
+
+沒有先紅後綠的產品修正：遠端紅燈本機重現不到，注入實驗只證明失敗形狀與診斷輸出，不證明 CI 上發生的是同一個原因，也沒有宣稱已消除該次失敗。測試斷言沒有放寬（`exitCode` 與 `selected` 仍是精確比對），沒有加重試，產品碼無差異（`git diff --stat` 只有測試與三份文件）。
+
+驗證範圍：未執行全部 `.test.ts` 產品套件。本輪只動一份測試檔的失敗輸出，與文件；該檔本身與型別、dev_check 已跑，完整 Windows 11 分片覆蓋留給 CI，不宣稱已通過。對手動 run 42378131276（同 HEAD 重跑）的結果本輪未取得完成狀態，不在此作為證據。

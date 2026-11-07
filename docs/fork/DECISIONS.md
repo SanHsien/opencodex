@@ -789,6 +789,31 @@ Dependabot #10、#11、#12 都是 `zip` 4.6.1，只由 updater 帶入。改為 `
 
 **本機先紅後綠**（Windows、Bun 1.4.4）：原樹執行 `bun run test -- tests/ci-workflows/ci-bun-crash-classifier.test.ts tests/lib/stall-timeout.test.ts tests/server/codex-agent-role-routes.test.ts`，exit 1，`26 pass / 1 fail / 1 error`（缺失 job TypeError、故障注入 `denied = 0`）。修正後使用 CI 的 60s test timeout 驗證，結果見 `REVIEW.md`。另一次未帶 timeout 的 npm 單檔本機執行碰到 Bun 預設 5s test timeout；該條件不同於 CI，不能用它歸因夜間 15s／30s 子程序逾時。
 
+## 2026-11-07：手動 Cross-platform CI 的 `windows 7/11` 在 `main-quota-provenance` 首案例紅燈；判為無法重現的暫時性失敗，只補可讀的失敗輸出，不改產品碼、不放寬斷言
+
+**範圍與證據**：[42376149161](https://github.com/SanHsien/opencodex/actions/runs/42376149161)（`workflow_dispatch`，2026-11-07T13:15Z，HEAD `2c6d8fa4af0e29f4b15c1e1b819d68a7094bafed`）。11 個 Windows shard 中只有 `windows 7/11` failure，aggregate `ci` 只報 `windows 7/11 did not report success`。失敗：`tests/codex-integration/main-quota-provenance.test.ts:415` `expect(result.selected).toBe(scenario.selected)`，`Expected: true / Received: false`，案例 `cold keyring Pool preserves quota unless replacement is proven: verified replacement [17101.86ms]`。同一批次（shard 7/11 batch 20/51）的總計是 `85 pass / 1 fail`；同檔其餘案例（包含同迴圈後面七個情境、含另一個 `selected: true` 的 `startup file replacement`）全 pass。同一 job 的失敗案例是該迴圈的第一個子行程。
+
+| 對照 | 結果 |
+| --- | --- |
+| 失敗案例的子行程 | 日誌時間戳 13:25:48.12（暖機結束）到 13:25:49.96（斷言失敗），約 1.8s；同迴圈其餘七個子行程各 0.32～0.61s（紀錄的案例時間 319～609ms） |
+| 失敗案例的收尾 | `[test-temp] final EPERM` 落在 `.opencodex-native-main.claim.sqlite`（`rename:ok`、`icacls` 與 `attrib` 都正常、檔案不是唯讀），暫存樹被搬到 `.trash-*` 延後刪除，整個案例記 17.1s；其餘案例沒有這一段 |
+| 同檔在同一份程式碼上的歷史 | 前一個 HEAD 到 `2c6d8fa4a` 之間只有 `2c6d8fa4a`（`cli-start-owner-absence` 測試與文件）；`git diff abca9cb 2c6d8fa4a -- src/codex tests/codex-integration tests/helpers src/lib/windows-secret-acl.ts` 為空。`abca9cb0d` 上的 [42130890278](https://github.com/SanHsien/opencodex/actions/runs/42130890278) 與 [42309802238](https://github.com/SanHsien/opencodex/actions/runs/42309802238) 的 `windows 7/11` 都是 success |
+| 本機重現 | 單檔 `CI=true bun test tests/codex-integration/main-quota-provenance.test.ts` 連跑 3 次、`TZ=UTC` 1 次、同時 8 個程序並行 1 輪，皆 `38 pass / 0 fail`，重現不到 |
+
+**排除**：
+- 不是日期或時刻相依。夾具的 `weeklyResetAt` 是 `Date.now() / 1000 + 3600`，JWT `exp` 是 `Math.floor(Date.now() / 1000) + 3600`，沒有任何寫死的時間戳或週重置邊界；今天（2026-11-07）本機與 `TZ=UTC` 都是綠，同一天同一 job 內其餘七個情境用同一份夾具也是綠。因此沒有需要注入的時鐘，也沒有可改成確定性的時間來源。
+- 不是回歸。見上表第三列：程式碼與前兩個綠燈 run 相同。
+
+**判定**：Windows 執行器上的暫時性失敗，且是「第一個子行程」才付的冷啟動成本；底層原因**未證實**。與日誌一致的最具體機制是：子行程在 `resolveCodexAuthContext` 內丟出錯誤（`selected` 為 false、子行程 exit 0、`before.weeklyPercent` 100、`stored` 33、`paused` 為空陣列這些其他斷言全部成立，所以不是程序崩潰或夾具寫壞），而 native-main 宣告檔（claim）在開檔／硬化階段遇到非 `SQLITE_BUSY` 的錯誤時，`mapClaimSetupError` 會直接映成 `NATIVE_MAIN_CLAIM_UNAVAILABLE` 且不重試（只有 busy 會在 30s 內重試），預設硬化器在 Windows 又是 `required: true` 的 icacls。暫時把 claim 開檔注入一個 `EPERM` 後，同一個案例的症狀完全相同（`Expected: true / Received: false`，子行程 exit 0），舊斷言形式什麼原因都不顯示。注入只證明「這類失敗會長成這個樣子」，**不證明 CI 上發生的就是它**；收尾那個 claim 檔的 EPERM 與它一致，也可能只是防毒掃描新建檔案的另一個症狀。
+
+**決定**：
+1. **不改產品碼**。沒有證據指向 claim 的行為錯誤，把一個沒看到錯誤訊息的紅燈當成理由去放寬一個 fail-closed 的 ACL 硬化路徑，與 2026-11-07 前一條「不放寬等待界限」同理。
+2. **不放寬任何斷言**，也不加重試。`selected` 與 `exitCode` 仍然要求精確值；改的只是失敗時的輸出：兩個斷言都改成對一個物件做 `toMatchObject`，失敗時會列出子行程的 `failure`（錯誤類別）、`failureDetail`（訊息、cause、code）、`reads` 與 stderr 結尾 1500 字元。原先 `child.stderr` 從未被讀、`failure` 在 `selected` 斷言之後才有機會被看到，所以這次紅燈沒有任何可指認原因的資料。
+3. **先紅後綠（診斷面）**：注入 claim 開檔 `EPERM` 並把測試還原為 `HEAD` 版，輸出只有 `Expected: true / Received: false`；同一注入換成新版斷言，輸出列出 `"failure": "CodexAuthContextError"`、`"code": "NATIVE_MAIN_CLAIM_UNAVAILABLE"` 與子行程 stderr 的注入行。注入已還原，`src/codex/native-main-claim.ts` 與 `HEAD` 無差異。
+4. **保留夜間排程**：停用條件（連續紅燈且與本 fork 無關）不成立，這是手動觸發的一次、一個 shard、一個案例。
+
+**下次再紅時怎麼讀**：看失敗物件的 `detail` 與 `stderr`。`NATIVE_MAIN_CLAIM_UNAVAILABLE` 加 stderr 有 `ACL hardening` 字樣＝claim 檔的 icacls 硬化失敗或逾時（再往下看是 `ETIMEDOUT` 還是 sharing violation）；`CodexMainAccountHardLockError` 或 `CodexPoolAuthenticationError`＝政策判定本身變了，是真實缺陷；`reads` 與預期不同＝選擇路徑改了。到那時才有依據討論讓 claim 的暫時性硬化失敗在其等待窗內重試（需連同 `retryTimedOutOnce` 與逾時備忘的語意一起評估，見 `ROADMAP.md` 中期列）。
+
 ## 2026-11-07：夜間 Windows shard 2/11 的 `cli-start-owner-absence` 逾時；判為執行器暫停，補暖機與可讀的子行程界限，不放寬等待界限
 
 **範圍與證據**：夜間 `Cross-platform CI` 最新一次紅燈 [42309802238](https://github.com/SanHsien/opencodex/actions/runs/42309802238)（schedule，2026-11-06T23:08Z，HEAD `abca9cb0d6d79558ecbe7fe0094985e22b55f9f5`）。24 個 job 中只有 `windows 2/11` failure，其餘十個 Windows shard、gates、structure gate 皆 success；aggregate `ci` 的錯誤只有 `windows 2/11 did not report success`。失敗訊息：`Test failure in shard 2/11 batch 11/46 (exit 1)`，案例 `consecutive transport misses preserve PID and journal for connected-client [47729.46ms] ^ this test timed out after 45000ms`，同檔下一個案例 `an exited recorded owner on a refused port still recovers its journal and stale PID` 雖然通過卻花 37523ms。

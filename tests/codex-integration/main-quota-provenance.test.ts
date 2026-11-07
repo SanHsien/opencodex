@@ -407,12 +407,18 @@ describe("main policy quota durability and lifecycle", () => {
       `;
       const child = Bun.spawnSync({ cmd: [process.execPath, "--eval", script], cwd: repoRoot(), env: process.env,
         timeout: process.platform === "win32" ? SPAWN_BUDGET_MS - INTERNAL_DEADLINE_MS : 10_000 });
-      expect(child.exitCode).toBe(0);
+      // A red here must name its own cause. A remote-only red (run 42376149161, windows 7/11, first
+      // case only) printed `Expected: true / Received: false` and nothing else, because the child's
+      // refusal class and stderr were read after the assertion that discarded them. Both
+      // assertions below still demand the exact value; only the failure output grew.
+      const childStderr = child.stderr.toString().slice(-1_500);
+      expect({ exitCode: child.exitCode, stderr: childStderr }).toMatchObject({ exitCode: 0 });
       const line = child.stdout.toString().split("\n").find(row => row.startsWith('{"fixture":"cold-keyring-quota"'));
       expect(line).toBeDefined();
       const result = JSON.parse(line!);
       expect(result.before.weeklyPercent).toBe(100);
-      expect(result.selected).toBe(scenario.selected);
+      expect({ selected: result.selected, failure: result.failure, detail: result.failureDetail,
+        reads: result.reads, stderr: childStderr }).toMatchObject({ selected: scenario.selected });
       expect(result.stored.weeklyPercent).toBe(33);
       expect(result.paused).toEqual(scenario.paused ? [MAIN] : []);
       if (scenario.source === "file") expect(result.initialized).toBe(true);

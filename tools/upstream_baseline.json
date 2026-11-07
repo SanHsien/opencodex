@@ -1,12 +1,12 @@
 {
   "repo": "https://github.com/lidge-jun/opencodex.git",
   "branch": "main",
-  "reviewed_through": "cab7eb7d0332ae0ebb4289d7c6bac1de666b6e40",
-  "reviewed_date": "2026-11-06",
-  "reviewed_issue_through": 8281,
+  "reviewed_through": "36aa9e8f7933807dc2c873bb93051c7c9c00f4e6",
+  "reviewed_date": "2026-11-08",
+  "reviewed_issue_through": 8320,
   "reviewed_pr_through": 8086,
   "reviewed_pr_closed_before": "2026-10-28",
   "reviewed_pr_numbers": [7614, 7618, 7843, 7863, 7879, 7895, 7906, 7932, 7933, 7953, 7962, 7969, 7971, 8028, 8056, 8073, 8086],
-  "integrated_through": "cab7eb7d0332ae0ebb4289d7c6bac1de666b6e40",
-  "integrated_tag": "v2.97.0"
+  "integrated_through": "36aa9e8f7933807dc2c873bb93051c7c9c00f4e6",
+  "integrated_tag": "v2.98.0"
 }

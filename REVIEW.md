@@ -45,11 +45,11 @@
 ## 上游版本追蹤與整合現況
 
 `tools/upstream_baseline.json` 記錄當前審查水位：
-- `integrated_tag`: `v2.97.0`
-- `integrated_through`: `cab7eb7d0332ae0ebb4289d7c6bac1de666b6e40`
-- `reviewed_through`: `cab7eb7d0332ae0ebb4289d7c6bac1de666b6e40`
-- `reviewed_date`: `2026-11-06`（`v2.98.0` 內容已重放，水位待遠端 CI 後推進）
-- `reviewed_issue_through`: 8281
+- `integrated_tag`: `v2.98.0`
+- `integrated_through`: `36aa9e8f7933807dc2c873bb93051c7c9c00f4e6`
+- `reviewed_through`: `36aa9e8f7933807dc2c873bb93051c7c9c00f4e6`
+- `reviewed_date`: `2026-11-08`（依據 Windows 全量 CI run 42424520793）
+- `reviewed_issue_through`: 8320（#8317、#8318、#8320 已判定，見 UPSTREAM.md 2026-11-08 issue 軸）
 - `reviewed_pr_through`: 8086
 - `reviewed_pr_closed_before`: `2026-10-28`（UTC）
 - `reviewed_pr_numbers`: 17 筆有逐筆判定的 PR
@@ -724,9 +724,9 @@ config 測試首次等待 user test lock：owner PID 57096 在同時查得為 `D
 - **D**：symlink 案例改用能力探測（win32 且 `EPERM` 才 skip，hardlink 案例照跑）：`-t "unsafe"` 為 1 pass／1 skip。
 - **B**：`orphan-token-recovery.ts` 改 bigint 身分，細節與 red／green 見表 H 與 `DECISIONS.md` 決定七。
 
-## 2026-11-08：`v2.97.0..v2.98.0` 全版 tag diff 重放的本機驗證（水位未推進，驗證未完成）
+## 2026-11-08：`v2.97.0..v2.98.0` 全版 tag diff 重放的本機驗證（本機驗證未完成；遠端 Windows 全量 CI 已全綠，水位已推進，見下方「CI 後續修正」）
 
-範圍：868 個上游變更檔（採用 551、已等價 197、適配 85、不適用 35），判定在 `docs/fork/DECISIONS.md` 與 `docs/fork/UPSTREAM.md` 同日節，清冊 `docs/fork/upstream-v2.97.0-v2.98.0-files.tsv`。`tools/upstream_baseline.json` **維持** `v2.97.0`／`cab7eb7d0`（原因與推進條件見 DECISIONS 決定一）。本節只記實際跑過的與沒跑完的。
+範圍：868 個上游變更檔（採用 551、已等價 197、適配 85、不適用 35），判定在 `docs/fork/DECISIONS.md` 與 `docs/fork/UPSTREAM.md` 同日節，清冊 `docs/fork/upstream-v2.97.0-v2.98.0-files.tsv`。`tools/upstream_baseline.json` 當時維持 `v2.97.0`／`cab7eb7d0`，之後已在遠端 CI 全綠後推進（見「CI 後續修正」與 DECISIONS 2026-11-08（續））。本節只記實際跑過的與沒跑完的。
 
 **審查後修正（兩輪審查：處理與安全）**：
 - `gui/classic/src/pages/usage-companion-panel.tsx` 的安裝連結指向上游 releases，改 `SanHsien/opencodex`；`gui/src/pages/usage-companion-sections.tsx` 與 classic 的 `opencodex.me/guides/macos-menu-bar/`（頁面已在 Windows-only 刪除清單）改 `guides/desktop-app/`。
@@ -762,4 +762,4 @@ config 測試首次等待 user test lock：owner PID 57096 在同時查得為 `D
 - shard 10（`routing-policy-surface-parity`「no-eligible policies retain their trace but not their profile id on every wire」）與 shard 4（`messages-overflow-collectors`「local-envelope: origin/dev rows 1-63」，`Expected: true / Received: false`）同一根因，在 `src/server/claude-messages.ts` 的 no-eligible 分支：固定句寫進了沒有輸出的 `legacy`，輸出的 `localError.message` 仍是上游句，overflow 判定又改讀固定句。修法與理由見 DECISIONS 決定十一。沒有放寬任何斷言。**綠**：以 CI 相同旗標（`bun test --isolate --timeout 60000`，Bun 1.4.4）跑這兩個檔，21 pass／0 fail。（不帶 `--timeout 60000` 時，本機預設 5 秒會使 surface-parity 的 afterEach 逾時，與修正無關；CI 的批次腳本一律帶 60000。）
 - shard 2、11 取消：不是測試失敗，是 Windows 權重表缺 v2.98.0 新增的 75 個檔案，負載集中；表由 run 42403141711 的 job log 重新量測。證據與殘留風險見 DECISIONS 決定十二。
 - 後續兩輪：shard 4 因 30 分鐘上限被取消（無失敗案例）、shard 10 的 `cli-start-journal-order` 冷啟動逾時。處理為 12 片 shard 與該案例預算改由 `OWNER_WAIT_MS` 推導（`3 * OWNER_WAIT_MS`），見 DECISIONS 決定十二再補記；斷言與 30 分鐘上限不變。
-- 修復 commit（2026-11-08）：`b34464034`（no-eligible 固定句與首輪權重表）、`689c2d11f`（envelope writer 計數 30 → 31）、`15a0686b0`（兩 run 平均的權重表）、`73c0a8ec4`（12 片 shard 與冷啟動預算）、本節審查後修正的 commit 見 `git log`（預算改回 `OWNER_WAIT_MS`、片數與來源敘述更正）。
+- 修復 commit（2026-11-08）：`b34464034`（no-eligible 固定句與首輪權重表）、`689c2d11f`（envelope writer 計數 30 → 31）、`15a0686b0`（兩 run 平均的權重表）、`73c0a8ec4`（12 片 shard 與冷啟動預算）、`7de8aac44`（審查後修正：預算改回 `OWNER_WAIT_MS`、片數與來源敘述更正）。遠端 Windows 全量 CI run 42424520793（`7de8aac44`）12 個 shard 與 aggregate `ci` 全 success。水位推進的 commit 就是本 commit（`docs(upstream): integrate v2.98.0 — advance watermarks`，hash 以推上去後的 `main` 為準）。

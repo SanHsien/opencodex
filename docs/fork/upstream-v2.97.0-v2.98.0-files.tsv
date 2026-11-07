@@ -1,0 +1,869 @@
+path	upstream_status	fork_before	fork_after	verdict	note
+.github/workflows/ci.yml	M	MOD	fork-adapted	adapt	Windows-only jobs kept; Ubuntu test shards and changes outputs for them not replayed
+CREDITS.md	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+bin/ocx.mjs	M	MOD	fork-adapted	adapt	3-way merge; fork-only hunks retained or conflict resolved per hunk (see section)
+desktop/scripts/generate-icons.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+desktop/src-tauri/Cargo.lock	M	MOD	same-as-upstream	adopt	upstream taken whole; cargo metadata/check --locked passed, zip 9.1.3
+desktop/src-tauri/Cargo.toml	M	MOD	same-as-upstream	adopt	upstream taken whole; zip>=9 via updater 2.14.1 supersedes the fork default-features=false workaround; cargo check --locked passed
+desktop/src-tauri/icons/128x128.png	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+desktop/src-tauri/icons/128x128@2x.png	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+desktop/src-tauri/icons/32x32.png	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+desktop/src-tauri/icons/64x64.png	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+desktop/src-tauri/icons/Square107x107Logo.png	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+desktop/src-tauri/icons/Square142x142Logo.png	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+desktop/src-tauri/icons/Square150x150Logo.png	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+desktop/src-tauri/icons/Square284x284Logo.png	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+desktop/src-tauri/icons/Square30x30Logo.png	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+desktop/src-tauri/icons/Square310x310Logo.png	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+desktop/src-tauri/icons/Square44x44Logo.png	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+desktop/src-tauri/icons/Square71x71Logo.png	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+desktop/src-tauri/icons/Square89x89Logo.png	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+desktop/src-tauri/icons/StoreLogo.png	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+desktop/src-tauri/icons/icon.icns	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+desktop/src-tauri/icons/icon.ico	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+desktop/src-tauri/icons/icon.png	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+desktop/src-tauri/icons/icon.svg	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+desktop/src-tauri/icons/tray/icon-update.png	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+desktop/src-tauri/icons/tray/icon.png	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+desktop/src-tauri/icons/tray/icon.svg	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+desktop/src-tauri/tauri.conf.json	M	MOD	fork-adapted	adapt	3-way merge; fork-only hunks retained or conflict resolved per hunk (see section)
+desktop/ui/cli.html	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+desktop/ui/fonts/OFL.txt	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+desktop/ui/fonts/geist-latin.woff2	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+desktop/ui/fonts/geist-mono-latin.woff2	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+desktop/ui/index.html	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+desktop/ui/logo.png	D	TAKE	absent	adopt	upstream deleted; deleted here too
+desktop/ui/update.html	M	MOD	fork-adapted	adapt	3-way merge; fork-only hunks retained or conflict resolved per hunk (see section)
+devlog/_plan/261107_desktop_cli_selection/000_plan.md	A	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+devlog/_plan/261107_desktop_cli_selection/020_implementation.md	A	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+devlog/_plan/261107_desktop_cli_selection/030_verification.md	A	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+devlog/_plan/261107_orphaned_child_link/010_design.md	A	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+docs-site/public/favicon.ico	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+docs-site/public/favicon.png	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+docs-site/src/content/docs/fr/guides/claude-code.md	M	ABSENT-M	absent	not-applicable	deleted locale (FORK.md:20)
+docs-site/src/content/docs/fr/guides/web-dashboard.md	M	ABSENT-M	absent	not-applicable	deleted locale (FORK.md:20)
+docs-site/src/content/docs/fr/reference/cli/lifecycle.md	M	ABSENT-M	absent	not-applicable	deleted locale (FORK.md:20)
+docs-site/src/content/docs/fr/reference/cli/providers-accounts.md	M	ABSENT-M	absent	not-applicable	deleted locale (FORK.md:20)
+docs-site/src/content/docs/getting-started/installation.md	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+docs-site/src/content/docs/guides/claude-code.md	M	MOD	fork-adapted	adapt	3-way merge; fork-only hunks retained or conflict resolved per hunk (see section)
+docs-site/src/content/docs/guides/desktop-app.md	M	MOD	fork-adapted	adapt	3-way merge; fork-only hunks retained or conflict resolved per hunk (see section)
+docs-site/src/content/docs/guides/providers.md	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+docs-site/src/content/docs/guides/remote-link.md	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+docs-site/src/content/docs/guides/web-dashboard.md	M	MOD	same-as-upstream	adopt	3-way merge / conflict resolved to upstream; result identical to v2.98.0
+docs-site/src/content/docs/ja/guides/claude-code.md	M	ABSENT-M	absent	not-applicable	deleted locale (FORK.md:20)
+docs-site/src/content/docs/ja/guides/web-dashboard.md	M	ABSENT-M	absent	not-applicable	deleted locale (FORK.md:20)
+docs-site/src/content/docs/ja/reference/cli/lifecycle.md	M	ABSENT-M	absent	not-applicable	deleted locale (FORK.md:20)
+docs-site/src/content/docs/ja/reference/cli/providers-accounts.md	M	ABSENT-M	absent	not-applicable	deleted locale (FORK.md:20)
+docs-site/src/content/docs/ko/guides/claude-code.md	M	ABSENT-M	absent	not-applicable	deleted locale (FORK.md:20)
+docs-site/src/content/docs/ko/guides/web-dashboard.md	M	ABSENT-M	absent	not-applicable	deleted locale (FORK.md:20)
+docs-site/src/content/docs/ko/reference/cli/lifecycle.md	M	ABSENT-M	absent	not-applicable	deleted locale (FORK.md:20)
+docs-site/src/content/docs/ko/reference/cli/providers-accounts.md	M	ABSENT-M	absent	not-applicable	deleted locale (FORK.md:20)
+docs-site/src/content/docs/reference/adapters.md	M	MOD	fork-adapted	adapt	3-way merge; fork-only hunks retained or conflict resolved per hunk (see section)
+docs-site/src/content/docs/reference/architecture.md	M	MOD	fork-adapted	adapt	3-way merge; fork-only hunks retained or conflict resolved per hunk (see section)
+docs-site/src/content/docs/reference/cli/lifecycle.md	M	MOD	same-as-upstream	adopt	3-way merge / conflict resolved to upstream; result identical to v2.98.0
+docs-site/src/content/docs/reference/cli/providers-accounts.md	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+docs-site/src/content/docs/reference/configuration/providers.md	M	MOD	fork-adapted	adapt	3-way merge; fork-only hunks retained or conflict resolved per hunk (see section)
+docs-site/src/content/docs/reference/management-api.md	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+docs-site/src/content/docs/reference/proxy-formats.md	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+docs-site/src/content/docs/ru/guides/claude-code.md	M	ABSENT-M	absent	not-applicable	deleted locale (FORK.md:20)
+docs-site/src/content/docs/ru/guides/web-dashboard.md	M	ABSENT-M	absent	not-applicable	deleted locale (FORK.md:20)
+docs-site/src/content/docs/ru/reference/cli/lifecycle.md	M	ABSENT-M	absent	not-applicable	deleted locale (FORK.md:20)
+docs-site/src/content/docs/ru/reference/cli/providers-accounts.md	M	ABSENT-M	absent	not-applicable	deleted locale (FORK.md:20)
+docs-site/src/content/docs/tr/guides/claude-code.md	M	ABSENT-M	absent	not-applicable	deleted locale (FORK.md:20)
+docs-site/src/content/docs/tr/guides/web-dashboard.md	M	ABSENT-M	absent	not-applicable	deleted locale (FORK.md:20)
+docs-site/src/content/docs/tr/reference/cli/lifecycle.md	M	ABSENT-M	absent	not-applicable	deleted locale (FORK.md:20)
+docs-site/src/content/docs/zh-cn/guides/claude-code.md	M	ABSENT-M	absent	not-applicable	deleted locale (FORK.md:20)
+docs-site/src/content/docs/zh-cn/guides/web-dashboard.md	M	ABSENT-M	absent	not-applicable	deleted locale (FORK.md:20)
+docs-site/src/content/docs/zh-cn/reference/cli/lifecycle.md	M	ABSENT-M	absent	not-applicable	deleted locale (FORK.md:20)
+docs-site/src/content/docs/zh-cn/reference/cli/providers-accounts.md	M	ABSENT-M	absent	not-applicable	deleted locale (FORK.md:20)
+docs-site/src/content/docs/zh-tw/guides/claude-code.md	M	MOD	fork-adapted	adapt	3-way merge; fork-only hunks retained or conflict resolved per hunk (see section)
+docs-site/src/content/docs/zh-tw/guides/web-dashboard.md	M	MOD	fork-adapted	adapt	3-way merge; fork-only hunks retained or conflict resolved per hunk (see section)
+docs-site/src/content/docs/zh-tw/reference/cli/lifecycle.md	M	MOD	fork-adapted	adapt	3-way merge; fork-only hunks retained or conflict resolved per hunk (see section)
+docs-site/src/content/docs/zh-tw/reference/cli/providers-accounts.md	M	MOD	fork-adapted	adapt	3-way merge; fork-only hunks retained or conflict resolved per hunk (see section)
+gui/.oxlintrc.json	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/AGENTS.md	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/bun.lock	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/classic/README.md	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/index.html	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/App.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/app-routing.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/components/AccountPoolStrategyControls.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/components/ClaudeDesktopVisibility.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/components/ClaudeFirstPartyBindings.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/components/CodexAccountPool.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/components/CompactionRoutingPanel.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/components/FallbackPanel.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/components/KiroIamLoginForm.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/components/WorkflowBudgetPanel.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/components/account-auto-switch-control.css	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/components/add-provider-form-pane.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/components/app-titlebar.css	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/components/app-titlebar.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/components/codex-account-pool-cards.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/components/codex-account-pool-main-card.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/components/codex-set/BaseVariantDialog.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/components/codex-set/CustomLayerDialog.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/components/combo-workspace-controls.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/components/combo-workspace-jev-decision.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/components/model-price-dialog.css	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/components/native-main-profiles-view.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/components/protocols/ComboProtocolPlan.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/components/protocols/ProtocolPlanPanel.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/components/provider-workspace/ProviderKeyPacing.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/components/provider-workspace/ProviderOverviewDashboard.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/components/provider-workspace/ProviderSettings.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/components/provider-workspace/provider-completion-test.css	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/components/quota-summary-bar/quota-summary-bar.css	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/components/sidebar-github-row.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/components/subagents-workspace/SubagentDelegationSection.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/components/subagents-workspace/SubagentForceControl.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/components/subagents-workspace/SubagentsWorkspace.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/components/theme-switch.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/connect-pairing.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/main.tsx	A	ABSENT-A	fork-adapted	adapt	3-way merge; fork-only hunks retained or conflict resolved per hunk (see section)
+gui/classic/src/nav-groups.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/pages/Advisor.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/pages/ClaudeDesktop.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/pages/Dashboard.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/pages/Debug.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/pages/Integrations.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/pages/Logs.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/pages/Models.tsx	A	ABSENT-A	fork-adapted	adapt	3-way merge; fork-only hunks retained or conflict resolved per hunk (see section)
+gui/classic/src/pages/RemoteLink.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/pages/RemoteWorkspace.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/pages/RoutingProfiles.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/pages/Startup.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/pages/Storage.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/pages/Subagents.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/pages/Tray.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/pages/Usage.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/pages/advisor/AdvisorActivity.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/pages/advisor/advisor.css	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/pages/claude-code-sections.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/pages/codex-desktop-compatibility.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/pages/codex-set-multiauth.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/pages/dashboard-overview-head.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/pages/dashboard-overview-panels.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/pages/dashboard-overview-section.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/pages/dashboard-overview-sections.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/pages/debug-claude-inbound-panel.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/pages/debug-log-viewer.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/pages/debug-settings-panel.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/pages/desktop-compatibility-startup-setting.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/pages/integrations/IntegrationsOverview.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/pages/logs-decode-rate.css	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/pages/logs-filter-bar.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/pages/models-tab-strip.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/pages/startup-sections.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/pages/tray.css	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/pages/usage-companion-chart.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/pages/usage-companion-panel.tsx	A	ABSENT-A	fork-adapted	adapt	3-way merge; fork-only hunks retained or conflict resolved per hunk (see section)
+gui/classic/src/styles-apikeys-workspace.css	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/styles-claudecode-workspace.css	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/styles-codex-set.css	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/styles-combos-workspace.css	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/styles-compatibility-matrix.css	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/styles-dashboard-workspace.css	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/styles-fallback.css	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/styles-integrations.css	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/styles-models-workspace.css	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/styles-remote-link.css	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/styles-remote-workspace.css	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/styles-storage-workspace.css	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/styles-subagents-workspace.css	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/styles-usage-workspace.css	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/styles.css	A	ABSENT-A	fork-adapted	adapt	3-way merge; fork-only hunks retained or conflict resolved per hunk (see section)
+gui/classic/src/styles/anthropic-native-messages.css	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/styles/anthropic-reset-grants.css	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/styles/claude-desktop-mode-picker.css	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/styles/claude-desktop-picker.css	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/styles/claude-first-party-bindings.css	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/styles/claude-page.css	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/styles/codex-credits.css	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/styles/fast-rows-setting.css	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/styles/kiro-device-login.css	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/styles/lazycodex-role-models.css	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/styles/login-url-block.css	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/styles/protocol-evidence.css	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/styles/provider-catalog.css	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/styles/provider-overview-dashboard.css	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/styles/provider-quota.css	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/styles/provider-workspace-settings.css	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/styles/provider-workspace-shell.css	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/styles/section-switcher.css	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/styles/sidebar-brand.css	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/styles/sidebar-zoom.css	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/styles/star-onboarding.css	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/styles/usage-chart-accessibility.css	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/classic/src/ui.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/components.json	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/design-system/decisions/0005-gui-design-token-system.md	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/design-system/decisions/0006-gui-design-system-v2-tailwind.md	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/design-system/foundations.md	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/doctor.config.json	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/index.html	M	MOD	fork-adapted	adapt	3-way merge; fork-only hunks retained or conflict resolved per hunk (see section)
+gui/package.json	M	MOD	fork-adapted	adapt	3-way merge; fork-only hunks retained or conflict resolved per hunk (see section)
+gui/public/favicon.png	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/public/favicon.svg	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/src/App.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/src/api-targets.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/src/api.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/src/app-routing.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/src/components/AccountPoolStrategyControls.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/src/components/ClaudeDesktopVisibility.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/src/components/ClaudeFirstPartyBindings.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/src/components/CodexAccountPool.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/src/components/CompactionRoutingPanel.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/src/components/FallbackPanel.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/src/components/KiroIamLoginForm.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/src/components/WorkflowBudgetPanel.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/src/components/account-auto-switch-control.css	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/src/components/add-provider-form-pane.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/src/components/app-titlebar.css	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/src/components/app-titlebar.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/src/components/codex-account-pool-cards.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/src/components/codex-account-pool-main-card.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/src/components/codex-set/BaseVariantDialog.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/src/components/codex-set/CustomLayerDialog.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/src/components/combo-workspace-controls.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/src/components/combo-workspace-jev-decision.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/src/components/model-price-dialog.css	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/src/components/native-main-profiles-view.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/src/components/protocols/ComboProtocolPlan.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/src/components/protocols/ProtocolPlanPanel.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/src/components/provider-workspace/ProviderKeyPacing.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/src/components/provider-workspace/ProviderOverviewDashboard.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/src/components/provider-workspace/ProviderSettings.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/src/components/provider-workspace/provider-completion-test.css	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/src/components/quota-summary-bar/quota-summary-bar.css	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/src/components/sidebar-github-row.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/src/components/sidebar-nav.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/src/components/subagents-workspace/SubagentDelegationSection.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/src/components/subagents-workspace/SubagentForceControl.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/src/components/subagents-workspace/SubagentsWorkspace.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/src/components/theme-switch.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/src/components/ui-v2/brand-mark.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/src/components/ui-v2/button.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/src/components/ui-v2/hub-card.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/src/components/ui-v2/proxy-controls.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/src/components/ui-v2/proxy-lever.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/src/components/ui-v2/segment-thumb-features.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/src/components/ui-v2/segment-thumb.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/src/components/ui-v2/segmented-control.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/src/components/v2-accounts/account-quota-meters.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/src/components/v2-accounts/account-row.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/src/components/v2-accounts/serving-account.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/src/components/v2-accounts/serving-summary.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/src/components/v2-accounts/surface.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/src/components/v2-accounts/use-help.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/src/components/v2-connect/classes.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/src/components/v2-connect/code-block.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/src/components/v2-connect/help-toggle.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/src/components/v2-logs/classes.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/src/components/v2-logs/columns-menu.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/src/components/v2-logs/live-toggle.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/src/components/v2-logs/status-pill.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/src/components/v2-models/models-about.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/src/components/v2-models/models-provider-rail.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/src/components/v2-models/provider-mark.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/src/components/v2-proxy/section-index.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/src/components/v2-proxy/settings-layout.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/src/components/v2-startup/option-card.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/src/components/v2-startup/primitives.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/src/components/v2-startup/remote-link-parts.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/src/components/v2-startup/use-help.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/src/components/v2-subagents/InEffectSummary.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/src/components/v2-subagents/StepperInput.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/src/components/v2-subagents/frame-classes.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/src/components/v2-subagents/frame.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/src/components/v2-subagents/use-help-disclosure.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/src/components/v2-usage/usage-activity.tsx	A	ABSENT-A	fork-adapted	adapt	3-way merge; fork-only hunks retained or conflict resolved per hunk (see section)
+gui/src/components/v2-usage/usage-breakdown.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/src/components/v2-usage/usage-metrics.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/src/components/v2-usage/usage-model.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/src/components/v2-usage/usage-source-picker.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/src/components/v2-usage/usage-source.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/src/components/v2-usage/usage-toolbar.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/src/components/v2-usage/usage-validation.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/src/components/v2-usage/use-usage-report.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/src/components/v2-usage/use-usage-session.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/src/connect-pairing-transport.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/src/connect-pairing.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/src/design/base.css	A	ABSENT-A	fork-adapted	adapt	3-way merge; fork-only hunks retained or conflict resolved per hunk (see section)
+gui/src/design/bridge.css	A	ABSENT-A	fork-adapted	adapt	3-way merge; fork-only hunks retained or conflict resolved per hunk (see section)
+gui/src/design/pages/accounts.css	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/src/design/pages/connect.css	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/src/design/pages/logs.css	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/src/design/pages/models.css	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/src/design/pages/proxy.css	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/src/design/pages/startup.css	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/src/design/pages/subagents.css	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/src/design/pages/usage.css	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/src/design/theme.css	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/src/i18n/de.ts	M	ABSENT-M	absent	not-applicable	deleted locale (FORK.md:20)
+gui/src/i18n/en.ts	M	MOD	same-as-upstream	adopt	3-way merge / conflict resolved to upstream; result identical to v2.98.0
+gui/src/i18n/fr.ts	M	ABSENT-M	absent	not-applicable	deleted locale (FORK.md:20)
+gui/src/i18n/ja.ts	M	ABSENT-M	absent	not-applicable	deleted locale (FORK.md:20)
+gui/src/i18n/ko.ts	M	ABSENT-M	absent	not-applicable	deleted locale (FORK.md:20)
+gui/src/i18n/pt.ts	M	ABSENT-M	absent	not-applicable	deleted locale (FORK.md:20)
+gui/src/i18n/ru.ts	M	ABSENT-M	absent	not-applicable	deleted locale (FORK.md:20)
+gui/src/i18n/shell-v2-copy.ts	A	ABSENT-A	fork-adapted	adapt	upstream rows kept for en and zh-TW only; other locale columns removed
+gui/src/i18n/tr.ts	M	ABSENT-M	absent	not-applicable	deleted locale (FORK.md:20)
+gui/src/i18n/v2-pages/accounts-copy.ts	A	ABSENT-A	fork-adapted	adapt	upstream rows kept for en and zh-TW only; other locale columns removed
+gui/src/i18n/v2-pages/connect-copy.ts	A	ABSENT-A	fork-adapted	adapt	upstream rows kept for en and zh-TW only; other locale columns removed
+gui/src/i18n/v2-pages/copy-table.ts	A	ABSENT-A	fork-adapted	adapt	upstream rows kept for en and zh-TW only; other locale columns removed
+gui/src/i18n/v2-pages/logs-copy.ts	A	ABSENT-A	fork-adapted	adapt	upstream rows kept for en and zh-TW only; other locale columns removed
+gui/src/i18n/v2-pages/models-copy.ts	A	ABSENT-A	fork-adapted	adapt	upstream rows kept for en and zh-TW only; other locale columns removed
+gui/src/i18n/v2-pages/proxy-copy.ts	A	ABSENT-A	fork-adapted	adapt	upstream rows kept for en and zh-TW only; other locale columns removed
+gui/src/i18n/v2-pages/startup-copy.ts	A	ABSENT-A	fork-adapted	adapt	upstream rows kept for en and zh-TW only; other locale columns removed
+gui/src/i18n/v2-pages/subagents-copy.ts	A	ABSENT-A	fork-adapted	adapt	upstream rows kept for en and zh-TW only; other locale columns removed
+gui/src/i18n/v2-pages/usage-copy.ts	A	ABSENT-A	fork-adapted	adapt	upstream rows kept for en and zh-TW only; other locale columns removed
+gui/src/i18n/vi.ts	M	ABSENT-M	absent	not-applicable	deleted locale (FORK.md:20)
+gui/src/i18n/zh-TW.ts	M	MOD	fork-adapted	adapt	3-way merge; fork-only hunks retained or conflict resolved per hunk (see section)
+gui/src/i18n/zh.ts	M	ABSENT-M	absent	not-applicable	deleted locale (FORK.md:20)
+gui/src/icons.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/src/lib/dashboard-edition.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/src/lib/nav-shortcuts.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/src/lib/proxy-health.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/src/lib/utils.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/src/main.tsx	M	MOD	fork-adapted	adapt	3-way merge; fork-only hunks retained or conflict resolved per hunk (see section)
+gui/src/nav-groups.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/src/pages/AdvancedHub.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/src/pages/Advisor.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/src/pages/ClaudeDesktop.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/src/pages/Dashboard.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/src/pages/Debug.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/src/pages/Home.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/src/pages/Integrations.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/src/pages/Logs.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/src/pages/Models.tsx	M	MOD	fork-adapted	adapt	3-way merge; fork-only hunks retained or conflict resolved per hunk (see section)
+gui/src/pages/RemoteLink.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/src/pages/RemoteWorkspace.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/src/pages/RoutingProfiles.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/src/pages/SetupHub.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/src/pages/Startup.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/src/pages/Storage.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/src/pages/Subagents.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/src/pages/Tray.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/src/pages/Usage.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/src/pages/advisor/AdvisorActivity.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/src/pages/advisor/AdvisorConsentCallout.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/src/pages/advisor/advisor.css	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/src/pages/claude-code-sections.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/src/pages/codex-desktop-compatibility.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/src/pages/codex-set-multiauth.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/src/pages/dashboard-overview-head.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/src/pages/dashboard-overview-panels.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/src/pages/dashboard-overview-section.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/src/pages/dashboard-overview-sections.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/src/pages/dashboard-section-ids.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/src/pages/dashboard-vision-popover.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/src/pages/debug-claude-inbound-panel.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/src/pages/debug-log-viewer.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/src/pages/debug-settings-panel.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/src/pages/desktop-compatibility-startup-setting.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/src/pages/home-failures.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/src/pages/integrations/IntegrationsOverview.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/src/pages/logs-columns.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/src/pages/logs-decode-rate.css	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/src/pages/logs-filter-bar.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/src/pages/models-tab-strip.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/src/pages/startup-sections.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/src/pages/tray.css	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/src/pages/tray/TrayAccounts.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/src/pages/tray/TrayParts.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/src/pages/tray/TrayUsage.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/src/pages/usage-companion-chart.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/src/pages/usage-companion-panel.tsx	M	MOD	same-as-upstream	adopt	3-way merge / conflict resolved to upstream; result identical to v2.98.0
+gui/src/pages/usage-companion-sections.tsx	A	ABSENT-A	fork-adapted	adapt	release link points at SanHsien/opencodex
+gui/src/quota-summary.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+gui/src/select-position.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/src/styles-combos-workspace.css	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/src/styles-compatibility-matrix.css	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/src/styles-dashboard-workspace.css	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/src/styles-fallback.css	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/src/styles-remote-link.css	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/src/styles-remote-workspace.css	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/src/styles-subagents-workspace.css	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/src/styles.css	M	MOD	fork-adapted	adapt	3-way merge; fork-only hunks retained or conflict resolved per hunk (see section)
+gui/src/styles/anthropic-native-messages.css	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/src/styles/claude-page.css	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/src/styles/codex-credits.css	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/src/styles/kiro-device-login.css	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/src/styles/section-switcher.css	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/src/styles/sidebar-brand.css	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/src/ui.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/tests/add-provider-subscription-cli.test.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/tests/advisor-save-feedback.test.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/tests/anthropic-pool-conditions.test.tsx	M	MOD	fork-adapted	adapt	3-way merge; fork-only hunks retained or conflict resolved per hunk (see section)
+gui/tests/api-auth-memory.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/tests/api-targets.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/tests/app-sidebar-actions.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/tests/brand-home-control.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/tests/claude-desktop-row-disclosure.test.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/tests/claude-desktop-visibility-card.test.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/tests/combo-capability-hidden-targets.test.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/tests/combo-protocol-plan.test.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/tests/combo-workspace-empty.test.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/tests/connect-pairing.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/tests/control-size-rule.test.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/tests/dashboard-edition.test.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/tests/dashboard-tabs.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/tests/form-controls-rule.test.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/tests/fr-localization.test.ts	M	REMOVED-LIST	absent	not-applicable	Windows-only removed list / not carried
+gui/tests/helpers/custom-select.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/tests/home-errors.test.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/tests/home-failures.test.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/tests/i18n-language-switch.test.tsx	M	MOD	fork-adapted	adapt	3-way merge; fork-only hunks retained or conflict resolved per hunk (see section)
+gui/tests/jev-auto-combo.test.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/tests/jev-decision-fields.test.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/tests/kiro-device-login.test.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/tests/logs-auto-refresh.test.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/tests/logs-columns-menu.test.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/tests/logs-filter-bar.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/tests/nav-shortcuts.test.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/tests/page-loading-contract.test.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/tests/page-polish-minimal.test.ts	M	MOD	fork-adapted	adapt	3-way merge; fork-only hunks retained or conflict resolved per hunk (see section)
+gui/tests/professional-rules.test.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/tests/provider-same-origin-api-base.test.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/tests/provider-settings-account-mode.test.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/tests/provider-settings-cursor-transport.test.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/tests/provider-settings-live-models-provenance.test.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/tests/provider-settings-reasoning-replay.test.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/tests/provider-settings-request-pacing.test.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/tests/providers-hash-history.test.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/tests/proxy-controls-status-dot.test.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/tests/proxy-lever-dom.test.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/tests/quota-summary.test.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+gui/tests/remote-link.test.tsx	M	MOD	fork-adapted	adapt	3-way merge; fork-only hunks retained or conflict resolved per hunk (see section)
+gui/tests/routing-profiles.test.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/tests/section-switcher.test.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/tests/select-extensions.test.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/tests/serving-account.test.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/tests/sidebar-codex-mark.test.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/tests/sidebar-codex-set.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/tests/sidebar-health.test.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/tests/sidebar-nav-search.test.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/tests/sidebar-rows.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/tests/sidebar-version-layout.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/tests/startup-minimal.test.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/tests/startup-usage-loading-race.test.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/tests/storage-loading-race.test.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/tests/subagents-classic.test.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/tests/subagents-fallback.test.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/tests/subagents-force.test.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/tests/switch-rule.test.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/tests/theme-switch-dom.test.tsx	M	MOD	fork-adapted	adapt	3-way merge; fork-only hunks retained or conflict resolved per hunk (see section)
+gui/tests/tray-hub-routing-dom.test.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/tests/usage-chart-interactions.test.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/tests/usage-custom-range.test.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/tests/usage-grok-filter.test.ts	M	MOD	fork-adapted	adapt	3-way merge; fork-only hunks retained or conflict resolved per hunk (see section)
+gui/tests/usage-incomplete-consumers.test.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/tests/usage-layout.test.ts	M	MOD	fork-adapted	adapt	3-way merge; fork-only hunks retained or conflict resolved per hunk (see section)
+gui/tests/usage-source-picker.test.tsx	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/tests/vision-sidecar-dashboard.test.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/tsconfig.app.json	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/tsconfig.json	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/tsconfig.node.json	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+gui/vite.classic.config.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+gui/vite.config.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+package.json	M	MOD	fork-adapted	adapt	3-way merge; fork-only hunks retained or conflict resolved per hunk (see section)
+scripts/brand-favicons.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+scripts/brand/opencodex-mark.svg	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+scripts/ci/test-durations.tsv	M	MOD	fork-adapted	adapt	upstream rows filtered to files present in this tree, fork-only rows kept
+scripts/diagnostics/windows-version-control/tests/async_contracts.test.rs	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+scripts/file-size-ratchet.ts	M	MOD	fork-adapted	adapt	3-way merge; fork-only hunks retained or conflict resolved per hunk (see section)
+scripts/generate-ocx-skill-surface.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+scripts/test-layout/layout-codex-collision.json	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+scripts/test-layout/layout-providers.json	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+scripts/test-layout/layout-responses.json	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+scripts/test-layout/layout-server-inbound.json	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+scripts/test-layout/layout-usage.json	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+scripts/test-layout/layout.json	M	MOD	fork-adapted	adapt	3-way merge; fork-only hunks retained or conflict resolved per hunk (see section)
+skills/ocx/references/01_management_surface.md	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+skills/ocx/references/01_surface_access-remote.md	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+skills/ocx/references/01_surface_lifecycle.md	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+skills/ocx/references/01_surface_providers-models.md	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+skills/ocx/references/05_remote_hub.md	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+src/adapters/anthropic.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+src/adapters/google.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+src/adapters/kiro-constants.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+src/adapters/kiro-tools.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+src/adapters/kiro-wire.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+src/adapters/kiro/adapter.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+src/adapters/kiro/conversation.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+src/adapters/kiro/payload.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+src/adapters/kiro/stream.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+src/adapters/kiro/structured-output-json.ts	A	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+src/adapters/kiro/structured-output-schema.ts	A	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+src/adapters/kiro/structured-output.ts	A	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+src/adapters/openai-chat/messages.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+src/adapters/openai-chat/mistral-image-limit.ts	A	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+src/adapters/openai-chat/passthrough.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+src/adapters/openai-chat/tool-schema.ts	M	MOD	fork-adapted	adapt	3-way merge; fork-only hunks retained or conflict resolved per hunk (see section)
+src/adapters/openai-responses/opengateway-input.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+src/adapters/openai-responses/tool-output-recovery.ts	M	MOD	fork-adapted	adapt	3-way merge; fork-only hunks retained or conflict resolved per hunk (see section)
+src/adapters/qoder/live-models.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+src/claude/failure-verdict.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+src/claude/inbound-content-options.ts	M	MOD	same-as-upstream	adopt	3-way merge / conflict resolved to upstream; result identical to v2.98.0
+src/claude/inbound-model-options.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+src/claude/inbound-records.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+src/claude/inbound.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+src/claude/outbound.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+src/cli/capabilities-access-remote.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+src/cli/capabilities-base.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+src/cli/capabilities-provider-models.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+src/cli/codex-shim-autorestore.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+src/cli/config-command.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+src/cli/connect.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+src/cli/dispatch.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+src/cli/doctor.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+src/cli/index.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+src/cli/link-apply-restart.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+src/cli/models.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+src/cli/registry.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+src/cli/restart-failure.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+src/cli/stop-approval.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+src/cli/sync-command.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+src/cli/sync-fanout.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+src/cli/system-restart-client.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+src/cli/uninstall-client-state.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+src/cli/update-restart-child.ts	M	MOD	fork-adapted	adapt	3-way merge; fork-only hunks retained or conflict resolved per hunk (see section)
+src/cli/update-restart-home.ts	M	MOD	fork-adapted	adapt	3-way merge; fork-only hunks retained or conflict resolved per hunk (see section)
+src/cli/update-restart.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+src/client/connect.ts	M	MOD	fork-adapted	adapt	3-way merge; fork-only hunks retained or conflict resolved per hunk (see section)
+src/client/hub-client.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+src/client/link-management-relay.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+src/client/link-readiness.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+src/client/machine-api.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+src/client/machine-listener.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+src/client/orphan-token-recovery.ts	A	A-DIFF	fork-adapted	adapt	fork bigint file identity retained (DECISIONS 2026-11-07 decision 7); upstream unchanged since 7b51475
+src/codex/catalog/provider-models.ts	M	MOD	fork-adapted	adapt	3-way merge; fork-only hunks retained or conflict resolved per hunk (see section)
+src/codex/native-profile-api.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+src/codex/shim-diagnostics.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+src/codex/shim-legacy-record.ts	A	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+src/codex/shim-windows-refresh.ts	M	MOD	fork-adapted	adapt	3-way merge; fork-only hunks retained or conflict resolved per hunk (see section)
+src/codex/shim-wrapper-write.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+src/codex/shim.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+src/config/diagnostics.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+src/config/load-degrade.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+src/config/provider-validation.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+src/config/removed-opencode-free-backup.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+src/config/tracked-runtime-inspection.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+src/images/loop.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+src/lib/client-error-body.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+src/lib/config-ownership-removal.ts	A	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+src/lib/config-ownership.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+src/lib/context-overflow-verdict.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+src/lib/crash-guard.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+src/lib/desktop-cli-handoff.d.mts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+src/lib/desktop-cli-handoff.mjs	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+src/lib/errors.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+src/lib/local-management-capability.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+src/lib/messages-error-body.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+src/lib/messages-sse-error-presentation.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+src/lib/passive-read.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+src/lib/socks5-fetch.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+src/lib/upstream-retry.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+src/lib/windows-owner-acl.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+src/lib/winsw.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+src/lib/workflow-budget.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+src/oauth/index.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+src/oauth/store.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+src/protocols/codecs/messages-ir.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+src/protocols/encoders/adapter-events.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+src/protocols/encoders/messages.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+src/providers/antigravity-models.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+src/providers/free-directory.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+src/providers/reasoning-metadata.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+src/providers/registry/entries-extended.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+src/reasoning-effort.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+src/remote/hub-usage.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+src/server/admission-model-scope.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+src/server/admitted-http-turn.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+src/server/anthropic-rate-limit-headers.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+src/server/claude-messages.ts	M	MOD	fork-adapted	adapt	upstream normalization; fork keeps the fixed no-eligible 404 text (profile id never reaches the client)
+src/server/gui-static.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+src/server/hub-usage.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+src/server/index/link-management.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+src/server/index/ollama-routes.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+src/server/index/serve-options.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+src/server/index/startup-warnings.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+src/server/index/websocket-handler.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+src/server/inference/client-encoder-delivery.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+src/server/management/logs-usage-routes.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+src/server/management/provider-routes.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+src/server/management/qoder-provider-probe.ts	A	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+src/server/management/route-registry.ts	M	MOD	same-as-upstream	adopt	3-way merge / conflict resolved to upstream; result identical to v2.98.0
+src/server/management/usage-aggregate-cache.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+src/server/management/usage-source-facets.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+src/server/messages-native-tool-guard.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+src/server/messages-native.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+src/server/messages-response-headers.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+src/server/messages-shared.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+src/server/messages-sse-error-filter.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+src/server/request-log.ts	M	MOD	fork-adapted	adapt	3-way merge; fork-only hunks retained or conflict resolved per hunk (see section)
+src/server/responses/adapter-continuation.ts	M	MOD	same-as-upstream	adopt	3-way merge / conflict resolved to upstream; result identical to v2.98.0
+src/server/responses/adapter-delivery.ts	M	MOD	same-as-upstream	adopt	3-way merge / conflict resolved to upstream; result identical to v2.98.0
+src/server/responses/adapter-dispatch.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+src/server/responses/anthropic-thinking-recovery.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+src/server/responses/codex-auth-error.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+src/server/responses/codex-ws-wire.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+src/server/responses/compact.ts	M	MOD	fork-adapted	adapt	3-way merge; fork-only hunks retained or conflict resolved per hunk (see section)
+src/server/responses/core-auth.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+src/server/responses/core-combo-failure.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+src/server/responses/core-combo.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+src/server/responses/core-errors.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+src/server/responses/core-options.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+src/server/responses/empty-completion-guard.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+src/server/responses/pacing-overload.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+src/server/responses/passthrough-dispatch.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+src/server/responses/request-prepare.ts	M	MOD	fork-adapted	adapt	3-way merge; fork-only hunks retained or conflict resolved per hunk (see section)
+src/server/responses/request-transport.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+src/server/responses/response-effects.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+src/server/responses/terminal-guard.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+src/server/restart-replacement.ts	M	MOD	fork-adapted	adapt	3-way merge; fork-only hunks retained or conflict resolved per hunk (see section)
+src/server/sse-payload-rewrite.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+src/server/workflow-refusal.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+src/server/ws-bridge.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+src/service-manager-probe.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+src/service/definition.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+src/service/launchd.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+src/service/logging.ts	M	MOD	fork-adapted	adapt	3-way merge; fork-only hunks retained or conflict resolved per hunk (see section)
+src/service/plist-xml.ts	A	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+src/service/state.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+src/service/systemd-env.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+src/service/systemd.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+src/service/windows-taskxml.ts	M	MOD	fork-adapted	adapt	3-way merge; fork-only hunks retained or conflict resolved per hunk (see section)
+src/types/provider.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+src/types/request.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+src/update/config-preflight.ts	A	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+src/update/index.ts	M	MOD	fork-adapted	adapt	3-way merge; fork-only hunks retained or conflict resolved per hunk (see section)
+src/usage/client.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+src/usage/error-detail.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+src/usage/log.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+src/usage/source-facets.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+src/usage/source-filter.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+src/usage/summary.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+src/web-search/anthropic-executor.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+src/web-search/executor.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+src/web-search/loop.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+src/web-search/progress-stream.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+structure/INDEX.md	M	MOD	fork-adapted	adapt	3-way merge; fork-only hunks retained or conflict resolved per hunk (see section)
+structure/catalog.md	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+structure/cli-management.md	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+structure/clients/claude-desktop.md	M	MOD	fork-adapted	adapt	3-way merge; fork-only hunks retained or conflict resolved per hunk (see section)
+structure/codex-home.md	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+structure/config-ownership.md	A	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+structure/config.md	M	MOD	fork-adapted	adapt	3-way merge; fork-only hunks retained or conflict resolved per hunk (see section)
+structure/dashboard-and-usage.md	M	MOD	fork-adapted	adapt	3-way merge; fork-only hunks retained or conflict resolved per hunk (see section)
+structure/data-planes/error-detail.md	M	MOD	same-as-upstream	adopt	3-way merge / conflict resolved to upstream; result identical to v2.98.0
+structure/data-planes/inbound-compat.md	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+structure/data-planes/protocol-paths.md	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+structure/decisions/ADR-8071-kiro-structured-output-emulation.md	A	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+structure/desktop-shell.md	M	MOD	fork-adapted	adapt	3-way merge; fork-only hunks retained or conflict resolved per hunk (see section)
+structure/desktop-terminal-command.md	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+structure/manifest.json	M	MOD	fork-adapted	adapt	3-way merge; fork-only hunks retained or conflict resolved per hunk (see section)
+structure/ops/cross-platform-ci.md	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+structure/ops/docs-and-release.md	M	MOD	fork-adapted	adapt	3-way merge; fork-only hunks retained or conflict resolved per hunk (see section)
+structure/ops/service-and-sidecars.md	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+structure/ops/service-logging.md	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+structure/overview.md	M	MOD	fork-adapted	adapt	3-way merge; fork-only hunks retained or conflict resolved per hunk (see section)
+structure/providers-and-adapters.md	M	MOD	fork-adapted	adapt	3-way merge; fork-only hunks retained or conflict resolved per hunk (see section)
+structure/providers/anthropic-key-billing.md	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+structure/providers/chat-compat.md	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+structure/providers/codex-pool-affinity.md	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+structure/providers/google.md	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+structure/providers/kiro.md	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+structure/remote-link.md	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+structure/runtime.md	M	MOD	fork-adapted	adapt	3-way merge; fork-only hunks retained or conflict resolved per hunk (see section)
+structure/transports/byte-accounting.md	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+structure/transports/inventory.md	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+structure/transports/responses-wire-shapes.md	M	MOD	fork-adapted	adapt	3-way merge; fork-only hunks retained or conflict resolved per hunk (see section)
+structure/transports/responses.md	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+structure/transports/streaming-health.md	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+structure/usage-client-attribution.md	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+tests/adapters/anthropic/anthropic-model-routes.test.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+tests/adapters/google/antigravity-discovered-families.test.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+tests/adapters/google/gemini-4-argon-antigravity.test.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+tests/adapters/google/gemini-web-search.test.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+tests/adapters/openai/openai-chat-dangling-toolcalls.test.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+tests/adapters/openai/openai-chat-tool-result-images.test.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+tests/adapters/openai/opengateway-input.test.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+tests/ci-workflows/brand-favicons.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+tests/ci-workflows/build-desktop-icon-set.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+tests/ci-workflows/ci-review-lanes.test.ts	M	MOD	fork-adapted	adapt	Ubuntu shard assertions not replayed (job removed)
+tests/ci-workflows/ci-shard-balance.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+tests/ci-workflows/ci-workflows.test.ts	M	MOD	fork-adapted	adapt	Ubuntu shard assertions not replayed (job removed)
+tests/ci-workflows/skill-ocx-generated.test.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+tests/claude-integration/claude-529-mapping.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+tests/claude-integration/claude-client-refusal-status.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+tests/claude-integration/claude-messages-endpoint.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+tests/claude-integration/claude-native-passthrough.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+tests/claude-integration/claude-native-rate-limit-headers.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+tests/claude-integration/claude-outbound.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+tests/claude-integration/claude-prompt-too-long.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+tests/claude-integration/claude-translated-cache-ttl.test.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+tests/claude-integration/messages-error-contracts.test.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+tests/claude-integration/messages-error-normalization.test.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+tests/claude-integration/messages-header-normalization.test.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+tests/claude-integration/messages-lane-errors.test.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+tests/claude-integration/messages-native-oauth.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+tests/claude-integration/messages-native-stream-parity.test.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+tests/claude-integration/messages-native.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+tests/claude-integration/messages-overflow-baseline-contract.test.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+tests/claude-integration/messages-overflow-builtin.test.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+tests/claude-integration/messages-overflow-collectors.test.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+tests/claude-integration/messages-overflow-native.test.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+tests/claude-integration/messages-overflow-stream.test.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+tests/claude-integration/messages-overflow-translated.test.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+tests/claude-integration/messages-overflow-verdicts.test.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+tests/claude-integration/messages-proxy-refusals.test.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+tests/claude-integration/messages-request-id-endpoint.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+tests/claude-integration/messages-request-id-headers.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+tests/claude-integration/messages-review-regressions.test.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+tests/claude-integration/messages-revoked-token.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+tests/claude-integration/messages-sse-baseline-contract.test.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+tests/claude-integration/messages-sse-builtin-errors.test.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+tests/claude-integration/messages-sse-continuation.test.ts	A	ABSENT-A	fork-adapted	adapt	3-way merge; fork-only hunks retained or conflict resolved per hunk (see section)
+tests/claude-integration/messages-sse-control-fields.test.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+tests/claude-integration/messages-sse-count-tokens-errors.test.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+tests/claude-integration/messages-sse-delivery.test.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+tests/claude-integration/messages-sse-fold-errors.test.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+tests/claude-integration/messages-sse-guard-errors.test.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+tests/claude-integration/messages-sse-native-errors.test.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+tests/claude-integration/messages-sse-passthrough-errors.test.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+tests/claude-integration/messages-sse-tap-tails.test.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+tests/claude-integration/messages-sse-workflow-refusal.test.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+tests/claude-integration/messages-success-media-types.test.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+tests/cli/cli-models.test.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+tests/cli/cli-restart-health.test.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+tests/cli/cli-stop-json.test.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+tests/cli/cli-sync-expect-link.test.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+tests/cli/cli-update-restart-admission.test.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+tests/cli/cli-update-restart-child.test.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+tests/cli/cli-update-restart-home.test.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+tests/cli/cli-update-restart.test.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+tests/cli/link-apply-restart.test.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+tests/cli/ocx-launcher-desktop-handoff.test.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+tests/cli/sync-command-fanout.test.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+tests/cli/sync-fanout.test.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+tests/cli/system-restart-client.test.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+tests/cli/uninstall.test.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+tests/clients/client-hub-usage.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+tests/clients/client-link-connect.test.ts	M	MOD	fork-adapted	adapt	fork symlink capability probe kept
+tests/clients/client-link-relay.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+tests/clients/client-link-stop.test.ts	M	MOD	fork-adapted	adapt	3-way merge; fork-only hunks retained or conflict resolved per hunk (see section)
+tests/clients/client-machine-listener.test.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+tests/clients/desktop-compatibility-build-probe.test.ts	M	TAKE	fork-adapted	adapt	3-way merge; fork-only hunks retained or conflict resolved per hunk (see section)
+tests/clients/link-readiness.test.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+tests/codex-integration/codex-auth-context.test.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+tests/codex-integration/codex-cli-windows-plan.test.ts	M	MOD	fork-adapted	adapt	upstream rewrite (fc60746) supersedes the fork isPaired fixture fix; quarantine skips removed
+tests/codex-integration/codex-profile-preservation.test.ts	M	MOD	same-as-upstream	adopt	upstream rewrite (child-process home) supersedes the fork protectedCodexHomeForTests guard
+tests/codex-integration/codex-shim-autorestore.test.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+tests/codex-integration/codex-shim-legacy-record.test.ts	A	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+tests/codex-integration/codex-shim-migration.test.ts	M	REMOVED-LIST	absent	not-applicable	Windows-only removed list / not carried
+tests/codex-integration/codex-shim-runtime-preflight.test.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+tests/codex-integration/codex-shim-windows-revision.test.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+tests/codex-integration/codex-systemd-env-probe.test.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+tests/codex-integration/doctor.test.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+tests/codex-integration/main-quota-provenance.test.ts	M	MOD	fork-adapted	adapt	3-way merge; fork-only hunks retained or conflict resolved per hunk (see section)
+tests/codex-integration/native-profile-api.test.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+tests/codex-integration/native-profile-route-security.test.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+tests/codex-integration/reasoning-metadata.test.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+tests/config/config-ownership-concurrent-record.test.ts	A	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+tests/config/config-ownership-removal.test.ts	A	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+tests/config/config-ownership-uninstall.test.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+tests/fixtures/messages-native-stream-parity.json	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+tests/fixtures/messages-overflow-decisions.json	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+tests/fixtures/messages-sse-895a85989.json	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+tests/fixtures/test-layout-expected.json	M	MOD	fork-adapted	adapt	upstream entries merged with fork-only entries; removed tests dropped
+tests/gui/gui-static.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+tests/gui/models-free-filter.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+tests/gui/models-workspace-tabs.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+tests/gui/rate-limit-reset-credits.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+tests/gui/startup-health-ui.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+tests/helpers/messages-overflow-assertions.ts	A	ABSENT-A	fork-adapted	adapt	3-way merge; fork-only hunks retained or conflict resolved per hunk (see section)
+tests/helpers/messages-overflow-case.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+tests/helpers/messages-overflow-cases.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+tests/helpers/messages-overflow-differential.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+tests/helpers/messages-proxy-refusal-case.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+tests/helpers/messages-sse-assertions.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+tests/helpers/messages-sse-cases.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+tests/helpers/messages-sse-continuation-cases.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+tests/helpers/messages-sse-continuation-run.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+tests/helpers/messages-sse-control-cases.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+tests/helpers/messages-sse-control-run.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+tests/helpers/messages-sse-differential.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+tests/helpers/messages-sse-fold-exceptions.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+tests/helpers/messages-sse-observer.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+tests/helpers/messages-sse-run.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+tests/helpers/messages-sse-workflow-case.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+tests/helpers/messages-stream-differential.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+tests/helpers/profile-plan-case.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+tests/helpers/update-import-policy.ts	M	MOD	fork-adapted	adapt	3-way merge; fork-only hunks retained or conflict resolved per hunk (see section)
+tests/helpers/update-primitive-allowlist.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+tests/helpers/windows-ci-quarantine.ts	A	ABSENT-A	absent	not-applicable	hosted-Windows quarantine not adopted (issue #8262); fork does not mask red lights
+tests/helpers/windows-cli-plan-unsafe-case.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+tests/helpers/windows-jobstore-pairing-case.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+tests/helpers/windows-plan-child-processes.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+tests/helpers/windows-plan-fixture-job.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+tests/helpers/windows-plan-job-proof.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+tests/helpers/windows-plan-junction-observer.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+tests/images/loop-reasoning-replay.test.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+tests/images/loop.test.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+tests/lib/messages-sse-error-presentation.test.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+tests/lib/socks5-reader-lifecycle.test.ts	A	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+tests/lib/socks5-timeout-cleanup.test.ts	A	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+tests/lib/upstream-retry.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+tests/lib/workflow-budget.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+tests/oauth/oauth-store-multi.test.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+tests/providers/claude-chat-gateway-tool-schema.test.ts	A	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+tests/providers/kiro/kiro-adapter.test.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+tests/providers/kiro/kiro-single-final.test.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+tests/providers/kiro/kiro-structured-output-strict.test.ts	A	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+tests/providers/kiro/kiro-structured-output.test.ts	A	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+tests/providers/mistral-image-limit.test.ts	A	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+tests/providers/provider-config-validation.test.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+tests/providers/provider-registry-parity.test.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+tests/providers/qoder-discovery-timeout.test.ts	A	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+tests/responses/chat-error-body-normalization.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+tests/responses/protocol-direct-encoders-messages.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+tests/responses/responses-combo-bridge-usage.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+tests/responses/responses-native-compact-ocx-envelope.test.ts	A	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+tests/responses/responses-pool-overload-failover.test.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+tests/responses/responses-repeated-tool-outputs.test.ts	A	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+tests/responses/sse-payload-rewrite-continuation.test.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+tests/responses/ws-pre-output-refusal.test.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+tests/routing/routing-policy-surface-parity.test.ts	M	MOD	fork-adapted	adapt	3-way merge; fork-only hunks retained or conflict resolved per hunk (see section)
+tests/server/api-key-attribution.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+tests/server/error-fidelity.test.ts	M	MOD	fork-adapted	adapt	3-way merge; fork-only hunks retained or conflict resolved per hunk (see section)
+tests/server/hub-usage.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+tests/server/link-management-relay.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+tests/server/link-management-routes.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+tests/server/local-management-capability.test.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+tests/server/messages-sse-error-filter.test.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+tests/server/messages-sse-error-lifecycle.test.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+tests/server/server-anthropic-billing-boundaries.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+tests/server/server-anthropic-billing.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+tests/server/server-kiro-completion-e2e.test.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+tests/server/server-kiro-structured-output-e2e.test.ts	A	A-DIFF	same-as-upstream	adopt	upstream version (error normalization expectations)
+tests/server/terminal-guard-server.test.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+tests/server/terminal-guard.test.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+tests/service/process-state.test.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+tests/service/service-definition-escaping.test.ts	A	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+tests/service/service-log.test.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+tests/service/service-pinned-homes.test.ts	A	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+tests/service/service-runtime-preflight.test.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+tests/service/service.test.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+tests/service/shutdown-launcher.test.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+tests/service/winsw.test.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+tests/update/update-config-preflight.test.ts	A	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+tests/update/update-stop-first.test.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+tests/usage/request-log-normalization.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+tests/usage/usage-aggregate-cache.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.97.0; upstream blob taken
+tests/usage/usage-client-attribution.test.ts	A	ABSENT-A	same-as-upstream	adopt	new upstream file added
+tests/web-search/web-search-anthropic.test.ts	M	MOD	fork-adapted	adapt	3-way merge; fork-only hunks retained or conflict resolved per hunk (see section)
+tests/web-search/web-search-progress-stream.test.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+tests/web-search/web-search-sidecar-429.test.ts	M	EQ	same-as-upstream	already-equivalent	fork blob identical to v2.98.0 before this pass (adopted 2026-11-07 commit axis)
+tests/windows/windows-codex-cli-job-store.test.ts	M	MOD	fork-adapted	adapt	3-way merge; fork-only hunks retained or conflict resolved per hunk (see section)

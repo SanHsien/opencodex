@@ -1,0 +1,56 @@
+import { copyTable, type Row } from "./copy-table";
+
+/*
+ * Copy for the v2 Usage page. Columns: en, zh-TW (this fork keeps only these two locales).
+ * Keys render as `usageV2.<key>`.
+ */
+const rows = {
+  otherApps: ["Other Chat API apps", "其他 Chat API 應用程式"],
+  otherDetail: ["Chat API", "Chat API"],
+  codexDetail: ["CLI · Desktop · IDE", "CLI · Desktop · IDE"],
+  codexUnclassified: ["{count} unclassified", "{count} 筆未分類"],
+  classificationHelp: ["App counts use recognized client signatures; other traffic remains unknown.", "應用程式計數依已識別的客戶端統計，其餘流量保持未知。"],
+  clientUnverified: ["This app is not identified automatically yet; its traffic may appear as unknown.", "此應用程式尚無法自動識別，其流量可能顯示為未知。"],
+  remoteLink: ["Remote Link", "Remote Link"],
+  unknownLinkedDevice: ["Unknown linked device {number}", "未知連結裝置 {number}"],
+  unknownDeviceNumber: ["Unknown device {number}", "未知裝置 {number}"],
+  thisMac: ["This Mac", "此 Mac"],
+  thisDevice: ["This device", "此裝置"],
+  homeDevice: ["Home device", "Home 裝置"],
+  source: ["Usage source", "用量來源"],
+  searchSources: ["Search apps and devices", "搜尋應用程式與裝置"],
+  apps: ["Apps", "應用程式"],
+  devices: ["Devices", "裝置"],
+  allApps: ["All apps", "所有應用程式"],
+  allDevices: ["All devices", "所有裝置"],
+  noKey: ["No key", "無金鑰"],
+  unconfigured: ["Unconfigured keys", "未設定的金鑰"],
+  other: ["Other", "其他"],
+  unknown: ["Unknown", "未知"],
+  last30: ["Last 30 days", "最近 30 天"],
+  noKeyHelp: ["No key includes older and environment traffic; it does not prove the originating device.", "無金鑰包含舊紀錄和環境流量，無法證明來源裝置。"],
+  unconfiguredHelp: ["Unconfigured keys are absent from the current configuration; deletion is not established.", "未設定的金鑰不在目前設定中，不能證明已刪除。"],
+  locked: ["This connection is restricted to its authenticated device key.", "此連線僅限其已驗證的裝置金鑰。"],
+  unavailableKeys: ["Configured keys unavailable for selection: {count}. Their IDs cannot be used in this filter.", "無法選取的已設定金鑰：{count} 個。其 ID 無法用於此篩選器。"],
+  countsUnavailable: ["Counts unavailable or incomplete.", "計數無法使用或不完整。"],
+  legacy: ["{count} older requests could not be classified by app.", "{count} 筆舊請求無法依應用程式分類。"],
+  rangeLabel: ["Time range", "時間範圍"],
+  activeDaysFoot: ["Active on {days} days", "{days} 天有活動"],
+  tokensSplit: ["In {input} · Out {output}", "輸入 {input} · 輸出 {output}"],
+  costLabel: ["Estimated cost", "預估費用"],
+  costFoot: ["An estimate, not a bill", "估算值，並非帳單"],
+  costMissing: ["This proxy does not report prices", "此代理不提供價格"],
+  coverageHint: ["Share of requests whose token counts are known, measured by the proxy or reported by the provider. The rest are still counted as requests but never shown as zero tokens.", "已知 token 數的請求比例，由代理測量或由供應商回報。其餘請求仍計入請求數，但不會顯示為 0 token。"],
+  coverageFoot: ["{measured} of {requests} requests measured", "{requests} 個請求中已測量 {measured} 個"],
+  chartCaption: ["{tokens} tokens in this window", "此期間共 {tokens} token"],
+  chartView: ["Chart view", "圖表檢視"],
+  viewBars: ["Bars", "長條"],
+  viewCalendar: ["Calendar", "日曆"],
+  emptyFiltered: ["Nothing in this window or source. Available history or another source may show older usage.", "此時間範圍或來源中沒有紀錄。選擇「可用歷史」或其他來源可能會看到更早的用量。"],
+  companionPreview: ["Widget preview", "小工具預覽"],
+  companionSettings: ["Display settings", "顯示設定"],
+  companionMenuBar: ["Menu bar", "選單列"],
+  companionChart: ["Chart", "圖表"],
+} satisfies Record<string, Row>;
+
+export const usageV2Copy = copyTable("usageV2", rows);

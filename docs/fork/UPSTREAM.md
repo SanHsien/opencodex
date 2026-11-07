@@ -1796,3 +1796,55 @@ issue 軸：strict 新列出 `#8181`（desktop takeover 在預設 bind 時，`ru
 - `6b3044f` test(update): classify read-only config preflight (#8241)：提前採用（`b4cc5e8` 的 update import 政策測試輔助）
 - `2c8b397` fix(tests): use native homes in launchd fixture (#8245)：提前採用（`c43a86b` launchd 測試 fixture 用原生 home）
 - `47f9e2d` test: quarantine hosted Windows CI failures for 2.98.0 (#8264)：只提前採用 `tests/clients/client-link-connect.test.ts` 的 fixture 變更；`tests/helpers/windows-ci-quarantine.ts` 的 hosted-Windows 隔離不採用，fork 不遮蔽紅燈，其餘 quarantine 檔未動
+
+## 2026-11-08：全版 tag diff 重放 `v2.97.0..v2.98.0`（`36aa9e8f7`），收掉 8 筆延後項與最後 7 筆 commit
+
+`git diff refs/upstream-tags/v2.97.0 refs/upstream-tags/v2.98.0` 共 868 個檔案（322 新增、545 修改、1 刪除；`v2.98.0` = `36aa9e8f7933807dc2c873bb93051c7c9c00f4e6`），以單一 parent、不 merge 上游的 tag-diff 法套到 `main`（fork 基準 `a13d292e9`）。逐檔清冊在 [`upstream-v2.97.0-v2.98.0-files.tsv`](upstream-v2.97.0-v2.98.0-files.tsv)（欄位與 2026-11-05 那份相同，由 blob 雜湊比對機器產生，**不手改**；`/docs/` 在 `.gitignore`，要 `git add -f`）。方法、Windows-only 刪除清單、已刪語系與生成物規則同 2026-11-05 節；本節只寫數字與例外。
+
+### 計數（868 個上游變更檔）
+
+| 判定 | 檔數 | 說明 |
+| --- | --- | --- |
+| 已等價（重放前 fork blob 即與 `v2.98.0` 相同） | 197 | 2026-11-07 commit 軸前 49 筆與提前採用項已帶進來的檔案 |
+| 採用（重放後與 `v2.98.0` blob 逐位元相同） | 551 | 乾淨採用、新增檔（含 GUI v2 的 `gui/classic`、`gui/src` 新檔）、3-way 無衝突者 |
+| 適配（重放後與上游不同，fork 保留／改寫部分 hunk） | 85 | 多數是先前已適配的 fork 差異原樣保留；逐檔原因在 TSV 備註欄 |
+| 不適用 | 35 | 已刪語系 32（docs-site 六語系頁 23、`gui/src/i18n` 九個非 en／zh-TW 語系檔 9）、Windows-only 刪除清單 2（`codex-shim-migration.test.ts`、`gui/tests/fr-localization.test.ts`）、`tests/helpers/windows-ci-quarantine.ts` 1 |
+
+分類中途的修正：第一版分類用 `gui/src/i18n/(?!en|zh-tw|…)` 判已刪語系，大小寫不符會把 `zh-TW.ts` 誤當已刪語系，已改走 3-way；`shell-v2-copy.ts` 與 `v2-pages/*-copy.ts` 是 11 欄列表，不是單一語系檔，改成保留 en／zh-TW 兩欄（決定見 `DECISIONS.md` 同日決定三）。
+
+### 最後 7 筆 commit（`6b3044f` 起）
+
+| Commit | 判定 | 證據與理由 |
+| --- | --- | --- |
+| `6b3044f` test(update): classify read-only config preflight (#8241) | 採用 | 2026-11-07 已提前採用，tag diff 內為已等價。 |
+| `2c8b397` fix(tests): use native homes in launchd fixture (#8245) | 採用 | 同上。 |
+| `fc60746` fix(tests): pair Windows CLI update plan session (#8228) | 採用 | `codex-cli-windows-plan.test.ts` 與 5 個 `tests/helpers/windows-*` 子行程輔助檔（unsafe-ledger 案例搬進子行程並自帶 `isPaired`）。整檔取上游，取代 fork 2026-11-06 補的 `isPaired` 一行（`DECISIONS.md` 決定六）；`git diff` 顯示 fork 對上游前態的唯一差異就是那一行。 |
+| `a589903` test(link): hand the stop/sync fixtures the native CODEX_HOME spelling (#8265) | 採用（已等價） | `client-link-stop.test.ts` 的 `realpathSync.native` 與 fork 2026-11-06 的修正逐字相同，只採上游的註解文字。 |
+| `47f9e2d` test: quarantine hosted Windows CI failures for 2.98.0 (#8264) | 部分採用 | 只留 `client-link-connect.test.ts` 的 fixture 修正（2026-11-07 已採）；`windows-ci-quarantine.ts` 與五個使用點不採（`DECISIONS.md` 決定五）。 |
+| `247ad32` release: promote frozen tip `47f9e2d` to main as 2.98.0 | 採用 | ours merge，樹與 `47f9e2d` 完全相同（`git diff 47f9e2dc4 247ad32cb` 為空），所以內容就是上面的 tag diff；版號 2.98.0（`package.json`、`Cargo.toml`／`Cargo.lock`、`tauri.conf.json`）由 2026-11-07 判「等整合一併取」的 `345c428` 帶入。 |
+| `36aa9e8` Merge pull request #8267 | 不適用 | merge commit，樹與 `247ad32` 相同（`git diff 247ad32cb 36aa9e8f7` 為空）；`reviewed_through` 直接停在它。 |
+
+### 8 筆延後項的結案
+
+| 延後項 | 結果 | 證據 |
+| --- | --- | --- |
+| Messages 錯誤正規化叢集 `895a859`、`0a30c55`、`8d7d48d`、`0d2de73`、`7757a2f` | 整叢採用；`claude-messages.ts` 的 no-eligible 404 保留 fork 固定句 | tag diff 內為同一批檔案，無半套問題；`claude-messages.ts` 3-way 只有該分支一個衝突，解法與理由見 `DECISIONS.md` 決定二；`routing-policy-surface-parity` 釘住「不含 profile id」。叢集的新測試與 `tests/helpers/messages-*` 輔助檔都在樹內（`structure:check` 通過）。`server-kiro-structured-output-e2e.test.ts` 的期望字串隨叢集改為上游版。 |
+| `aec37c1` GUI design system v2 | 依 TSV 流程採用，語系收斂為 en／zh-TW | 決定三；`gui` 的 `tsc -b` 與兩個 vite 建置通過，`bun run typecheck` 2,323 檔 0 錯誤；macOS 專屬的 `lib.rs` traffic light 區段沒有進 tag diff（`desktop/src-tauri/src` 兩 tag 間無差異）。 |
+| `b7e01c1` updater 2.14.1／Rust 1.90 | 採用，取代 fork 的 `zip` feature 關閉 | `cargo metadata --locked`、`cargo check --lib --locked` exit 0；鎖檔 `zip` 9.1.3 ≥ 9.0.5（決定四）。 |
+| `a98a6bf` Rust 診斷測試 | 採用 | `cargo test --locked`（`scripts/diagnostics/windows-version-control`）16 案過。 |
+
+### 適配重點（不是單純取上游）
+
+- `src/client/orphan-token-recovery.ts`：維持 bigint 檔案身分（2026-11-07 決定七）；上游自 `7b51475` 起未再改這檔。
+- `.github/workflows/ci.yml`、`tests/ci-workflows/ci-workflows.test.ts`、`ci-review-lanes.test.ts`：Ubuntu 五片 `test` job 與 `changes` 對它的輸出不重放。
+- `structure/runtime.md`、`structure/ops/docs-and-release.md`：fork 句子與上游新句並存或擇一，見 `DECISIONS.md` 決定七。
+- `scripts/ci/test-durations.tsv`、`scripts/test-layout/layout.json`、`tests/fixtures/test-layout-expected.json`、`structure/manifest.json`、`structure/INDEX.md`：上游版剔除 fork 沒有的測試、補回 fork 條目（前兩者的衝突以程式化方式合併，再驗 JSON 解析與檔案存在）。
+- 語系：`docs-site` 六個已刪語系頁不重放；`zh-tw` 的三處衝突（`claude-code.md`、`reference/cli/lifecycle.md`、`providers-accounts.md`）取上游新繁中段落，英文原文行不新增。
+- `gui/classic`（上游把舊版 GUI 保留為 `/classic/`）：安裝連結改 `SanHsien/opencodex`、10 行 Hangul 註解與 1 處 Hangul 範例改英文、`main.tsx` 的 `installApiAuthFetch()` 維持無條件；`fork-hygiene` 的 Hangul 與「不連上游 releases」掃描根加入 `gui/classic/src`。
+- `tests/helpers/messages-overflow-assertions.ts`（切片 timeout 改 `COLD_SPAWN_BUDGET_MS`）與 `tests/claude-integration/messages-sse-continuation.test.ts`（冷啟動暖機）：取代上游 quarantine 的 fork 側修法，見 `DECISIONS.md` 決定九。
+- zh-tw 文件補 `web-dashboard.md`「經典儀表板」與 `providers.md`「Mistral：每個請求的圖片數量」兩節，並把取自上游的三個英文路徑連結改為 `/zh-tw/...`。
+- 本機驗證與殘留：見 `REVIEW.md` 2026-11-08 節與 `ROADMAP.md`。
+
+### 水位
+
+**暫不推進**：`tools/upstream_baseline.json` 維持 `integrated_tag = v2.97.0`、`integrated_through`／`reviewed_through = cab7eb7d0332ae0ebb4289d7c6bac1de666b6e40`、`reviewed_date = 2026-11-06`（`--strict` 仍回報 56 筆 commit）。內容與版號 2.98.0 已重放；推進條件與理由見 `DECISIONS.md` 2026-11-08 決定一（遠端 Windows 全量 CI 綠燈後，`reviewed_through` 直接跳到 `36aa9e8f7`，因為 `cab7eb7d0..36aa9e8f7` 的 56 筆全落在這份 tag diff 內）。PR 水位不動（`reviewed_pr_through = 8086`、17 筆 `reviewed_pr_numbers`），`reviewed_issue_through` 維持 8281。

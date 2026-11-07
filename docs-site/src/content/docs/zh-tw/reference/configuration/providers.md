@@ -34,6 +34,12 @@ have a 60-second upload deadline, a 128 MiB input cap and at most two simultaneo
 provider pacing/concurrency still applies. Oversized text or unconvertible images still need
 compaction; this transport repair does not extend the model's context window.
 
+## Mistral：每個請求的圖片數量
+
+Mistral 限制單一 API 請求可攜帶的圖片數量，且計入重放歷史中每一輪的圖片。其[視覺指南](https://docs.mistral.ai/capabilities/vision/)記載為 8 張，多數 Mistral 視覺模型會以 HTTP 400 拒絕第 9 張。有些模型可接受更多：實測上限為 `deepseek-v4-1-flash-1017` 20 張（超過時回覆不透明的 HTTP 503、代碼 `3800`）、`mistral-large-4` 與其別名 `mistral-large-4-0` 100 張，`zai-glm-5-3-flash` 則到 256 張都沒有被拒絕。若不修剪，含大量螢幕截圖的長工作階段會在每一輪失敗，即使 token 上下文仍有空間。
+
+對第一方 Chat 目的地（`https://api.mistral.ai/v1/chat/completions`），opencodex 只在送出的請求中保留上限內最新的圖片，並把較舊的圖片換成簡短的文字說明；轉譯後的 Responses 輪次與原生 Chat Completions 請求都適用。用戶端歷史與壓縮維持不變；token 用量是 Mistral 針對實際送出（替換之後）的請求所回報的數字。從工具結果提升而來的圖片與其他圖片一樣計算。實測上限以 registry 的 `modelCapabilities` 列提供，所以改名但仍指向 Mistral 目的地的供應商會保留它們；其他模型一律使用 8。要為某個模型宣告自己的上限，請使用 `modelCapabilities: { "mistral-small-2603": { mistralMaxImages: 8 } }`（1 到 1000 的整數）。宣告的優先順序高於 registry 列，對該軸 PATCH `null` 會移除它。修剪不會新增獨立的上傳或持久化；保留在上限內的圖片會隨送出的請求傳給 Mistral，其他目的地不變。
+
 ## GPT-6.1 Terra
 
 [GPT-6.1 Terra](https://openai.com/index/introducing-gpt-6-1-terra/) 於 2026 年 10 月 26 日發布，作為 GPT-5.6 Terra 的後繼。`gpt-6.1-terra` 與 `gpt-5.6-terra` 並存可用；預設模型與子代理名冊皆不變。GitHub Copilot 使用 Responses；OpenRouter 列出 `openai/gpt-6.1-terra`，上下文 1,050,000，每 1M token 輸入 $1.00／輸出 $5.00。

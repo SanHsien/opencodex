@@ -61,7 +61,7 @@ export const HANGUL_ALLOWLIST: HangulAllowance[] = [
 ];
 
 /** Roots whose text must stay Hangul-free (outside the allowlist). */
-export const HANGUL_ROOTS = ["src", "gui/src", "scripts", "desktop", "bin"];
+export const HANGUL_ROOTS = ["src", "gui/src", "gui/classic/src", "scripts", "desktop", "bin"];
 const SKIP_DIRS = new Set(["node_modules", "target", "gen", "dist", ".git"]);
 const SKIP_EXT = /\.(png|jpe?g|gif|ico|icns|woff2?|ttf|otf|lock|zip|gz|wasm|node|exe|dll)$/i;
 

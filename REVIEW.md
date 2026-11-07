@@ -45,14 +45,14 @@
 ## 上游版本追蹤與整合現況
 
 `tools/upstream_baseline.json` 記錄當前審查水位：
-- `integrated_tag`: `v2.93.0`
-- `integrated_through`: `88aaa754566d119b6b8fc898f8fb47602387d82e`
-- `reviewed_through`: `88aaa754566d119b6b8fc898f8fb47602387d82e`
-- `reviewed_date`: `2026-10-28`
-- `reviewed_issue_through`: 7860
+- `integrated_tag`: `v2.97.0`
+- `integrated_through`: `cab7eb7d0332ae0ebb4289d7c6bac1de666b6e40`
+- `reviewed_through`: `cab7eb7d0332ae0ebb4289d7c6bac1de666b6e40`
+- `reviewed_date`: `2026-11-06`（`v2.98.0` 內容已重放，水位待遠端 CI 後推進）
+- `reviewed_issue_through`: 8281
 - `reviewed_pr_through`: 8086
 - `reviewed_pr_closed_before`: `2026-10-28`（UTC）
-- `reviewed_pr_numbers`: 15 筆有逐筆判定的 PR
+- `reviewed_pr_numbers`: 17 筆有逐筆判定的 PR
 
 每週一由 `.github/workflows/upstream-check.yml` 排程執行 `tools/check-upstream-updates.ts`，未審查的 commit、未合併關閉的 PR 與 `platform` issue 會自動回報。上游後續釋出更新的 stable tag 時，依 [`docs/fork/UPSTREAM.md`](docs/fork/UPSTREAM.md) 的重放程序整合。
 
@@ -723,3 +723,37 @@ config 測試首次等待 user test lock：owner PID 57096 在同時查得為 `D
 - **C（既有不穩對照）**：`client-link-connect`「link disconnect restores the prior catalog …」。乾淨基底（`git archive fa81b4d4f`，junction 共用 `node_modules`）3 次：1 pass、2 fail；移植後 3 次：1 pass、2 fail；失敗皆為 `Config mutation already in progress` 後接 `EBUSY … rm ocx-client-link-contract-*`，單案約 12–14 秒。結論：不是移植造成。同檔整檔執行時，其後的「cancellation during catalog download …」與「a new link enrollment succeeds after explicitly preserving the orphan token」偶爾跟著失敗，錯誤同為 `Config mutation already in progress`／`EBUSY`（上一案留下的鎖與暫存樹連鎖），兩案單獨跑皆 1 pass。
 - **D**：symlink 案例改用能力探測（win32 且 `EPERM` 才 skip，hardlink 案例照跑）：`-t "unsafe"` 為 1 pass／1 skip。
 - **B**：`orphan-token-recovery.ts` 改 bigint 身分，細節與 red／green 見表 H 與 `DECISIONS.md` 決定七。
+
+## 2026-11-08：`v2.97.0..v2.98.0` 全版 tag diff 重放的本機驗證（水位未推進，驗證未完成）
+
+範圍：868 個上游變更檔（採用 551、已等價 197、適配 85、不適用 35），判定在 `docs/fork/DECISIONS.md` 與 `docs/fork/UPSTREAM.md` 同日節，清冊 `docs/fork/upstream-v2.97.0-v2.98.0-files.tsv`。`tools/upstream_baseline.json` **維持** `v2.97.0`／`cab7eb7d0`（原因與推進條件見 DECISIONS 決定一）。本節只記實際跑過的與沒跑完的。
+
+**審查後修正（兩輪審查：處理與安全）**：
+- `gui/classic/src/pages/usage-companion-panel.tsx` 的安裝連結指向上游 releases，改 `SanHsien/opencodex`；`gui/src/pages/usage-companion-sections.tsx` 與 classic 的 `opencodex.me/guides/macos-menu-bar/`（頁面已在 Windows-only 刪除清單）改 `guides/desktop-app/`。
+- 守衛看不到 `gui/classic/src`：`tools/fork-hygiene-guards.ts` 的 `HANGUL_ROOTS` 與 `tests/ci-workflows/fork-hygiene.test.ts` 的「不連上游 releases」掃描根加入 `gui/classic/src`。**紅**：加入根、未修內容時 `fork-hygiene` 2 fail（classic 的上游 releases 連結 1 處、Hangul 11 行：`Models.tsx` 1、`styles.css` 10）；**綠**：連結改 SanHsien、Hangul 註解改英文後 39 pass／0 fail。
+- `gui/classic/src/main.tsx`：上游是 `if (isTray) installApiAuthFetch();`，fork 自 `87ddc1cd3` 起無條件呼叫（`gui/src/main.tsx`），classic 改回無條件，不當成可接受差異。
+- zh-TW 文件：補 `guides/web-dashboard.md`「經典儀表板」與 `reference/configuration/providers.md`「Mistral：每個請求的圖片數量」兩節；取上游新繁中段落後有三處英文路徑連結，改為 `/zh-tw/...`。`docs-zh-tw-parity`、`docs-link-targets` 13 pass／0 fail。
+- 水位相關敘述全部還原（`FORK.md`、本檔表頭、DECISIONS 決定一、UPSTREAM 水位段、ROADMAP 現況），版號 2.98.0 保留；ROADMAP 恢復「整合上游下一個 stable 版（`v2.98.0` 之後）」常設列，並以「驗收 `v2.98.0` 重放的 Windows 全量 CI，通過後推進水位」列取代原驗收列。
+
+**隔離過的六組（上游 #8262）**：逐組結論在 DECISIONS 決定九。fork 側修了兩組：overflow 矩陣切片 timeout（30000 → `COLD_SPAWN_BUDGET_MS`，取樣切片 `translated-fold rows 1-64` 1 pass，未修時 12 切片逾時）、`messages-sse-continuation` 冷啟動（紅 7 pass／1 fail → 綠 8 pass／0 fail）。其餘四組沒有 skip：`desktop-compatibility-build-probe`、`codex-cli-windows-plan`、`main-quota-provenance` 三檔合跑 76 pass／1 fail（失敗案是 `native 8.3 spellings…`，在 `git archive a13d292e9` 基底同樣失敗）；`client-link-stop` 39 pass／15 fail，基底相同名單。
+
+**各群組實際結果**（每組一個新程序；repo 的使用者層級測試鎖使同一使用者的測試程序無法並行，7 程序並行時多數被鎖擋住直到 timeout，所以後來改循序）：
+
+| 群組 | 結果 |
+| --- | --- |
+| 新增的 25 個非 overflow 測試檔（`tests/claude-integration`、`tests/server`、`tests/lib`、`tests/responses`、`tests/usage` 內新檔） | 615 pass／0 fail |
+| `tests/claude-integration/messages-sse-continuation.test.ts` | 8 pass／0 fail |
+| overflow 矩陣取樣切片（`translated-fold rows 1-64`） | 1 pass／0 fail；**其餘切片沒跑** |
+| 解除 quarantine 的 5 檔 | 見上段（76 pass／1 既有失敗；`client-link-stop` 39 pass／15 既有失敗） |
+| `tests/ci-workflows`（scratch index 下） | 1392 pass／3 fail：`build-release-changelog` 與 `test-runner` 兩案是 `GIT_INDEX_FILE` 環境變數干擾暫存 repo，去掉後兩檔 126 pass／0 fail；`packaged keyring native binding … symlinked wrapper` 是此帳號沒有建立 symlink 的權限（環境，未在基底驗證） |
+| 安全重點（`tests/cli/cli-native-profile`、`tests/clients/*shim*`、`tests/codex-integration/{codex-shim,native-profile-*}`、`tests/lib/file-identity-callers`、local-management、update-async-routes，22 檔合跑） | 469 pass／12 fail；12 案全在 `codex-shim.test.ts`，該檔單獨跑 96 pass／0 fail，基底 96 pass／0 fail（合併程序殘留，ROADMAP 既有「只在合併程序失敗的測試」列的同型現象） |
+| `gui`（`bun test`）／`gui` 建置 | 3831 pass／0 fail（classic 修改前）；建置見下 |
+| `service-status-json.test.ts` | 17 pass／1 fail，基底相同（本機真實 schtasks `opencodex-proxy`，DECISIONS 決定十） |
+| `fork-hygiene`＋`structure-ssot`、`docs-zh-tw-parity`＋`docs-link-targets`＋`docs-developer-role-policy` | 39 pass／0 fail、13 pass／0 fail |
+| Rust | `cargo check --lib --locked` exit 0；`cargo test --locked`（`windows-version-control`）16 pass |
+
+**沒跑完（無通過計數，不能當綠燈）**：`tests/claude-integration` 其餘約 117 個既有檔、`tests/routing`＋`tests/web-search`（106 檔，240 秒上限逾時）、`tests/usage`＋`tests/update`＋`tests/service`（420 秒上限逾時）、overflow 矩陣其餘切片（每切片約 33 秒、共 6 個 lane）。這些要在 CI 或乾淨主機以 fresh-process 分批重跑。
+
+**既有失敗（非本次引入，基底相同）**：`client-link-stop` 15 案、`codex-cli-windows-plan`「native 8.3 spellings…」、`service-status-json` 1 案；`client-link-connect` 另有既有不穩（DECISIONS 2026-11-07 決定九）。
+
+**順手更正**：2026-11-07 記「本機沒有 `cargo`」不成立（DECISIONS 2026-11-08 決定四）；`ROADMAP.md` 舊列「fork 沒有 web-search 可用性探測」不成立（決定八）。

@@ -525,7 +525,7 @@ describe("fork update paths never reach upstream", () => {
  }, TREE_SCAN_TIMEOUT_MS);
 
   test("no product code links or calls upstream releases", () => {
-    const files = listTextFiles(ROOT, ["src", "gui/src", "bin", "desktop/ui", "desktop/src-tauri/src", "desktop/scripts"]);
+    const files = listTextFiles(ROOT, ["src", "gui/src", "gui/classic/src", "bin", "desktop/ui", "desktop/src-tauri/src", "desktop/scripts"]);
     expect(findUpstreamUpdateRefs(files, read, UPSTREAM_RELEASE_REF)).toEqual([]);
  }, TREE_SCAN_TIMEOUT_MS);
 

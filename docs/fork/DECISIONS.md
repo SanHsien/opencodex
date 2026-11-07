@@ -789,6 +789,29 @@ Dependabot #10、#11、#12 都是 `zip` 4.6.1，只由 updater 帶入。改為 `
 
 **本機先紅後綠**（Windows、Bun 1.4.4）：原樹執行 `bun run test -- tests/ci-workflows/ci-bun-crash-classifier.test.ts tests/lib/stall-timeout.test.ts tests/server/codex-agent-role-routes.test.ts`，exit 1，`26 pass / 1 fail / 1 error`（缺失 job TypeError、故障注入 `denied = 0`）。修正後使用 CI 的 60s test timeout 驗證，結果見 `REVIEW.md`。另一次未帶 timeout 的 npm 單檔本機執行碰到 Bun 預設 5s test timeout；該條件不同於 CI，不能用它歸因夜間 15s／30s 子程序逾時。
 
+## 2026-11-07：夜間 Windows shard 2/11 的 `cli-start-owner-absence` 逾時；判為執行器暫停，補暖機與可讀的子行程界限，不放寬等待界限
+
+**範圍與證據**：夜間 `Cross-platform CI` 最新一次紅燈 [42309802238](https://github.com/SanHsien/opencodex/actions/runs/42309802238)（schedule，2026-11-06T23:08Z，HEAD `abca9cb0d6d79558ecbe7fe0094985e22b55f9f5`）。24 個 job 中只有 `windows 2/11` failure，其餘十個 Windows shard、gates、structure gate 皆 success；aggregate `ci` 的錯誤只有 `windows 2/11 did not report success`。失敗訊息：`Test failure in shard 2/11 batch 11/46 (exit 1)`，案例 `consecutive transport misses preserve PID and journal for connected-client [47729.46ms] ^ this test timed out after 45000ms`，同檔下一個案例 `an exited recorded owner on a refused port still recovers its journal and stale PID` 雖然通過卻花 37523ms。
+
+| 對照 | 結果 |
+| --- | --- |
+| 同一 HEAD 的前一晚 schedule [42130890278](https://github.com/SanHsien/opencodex/actions/runs/42130890278)（2026-11-05T23:38Z） | 11 個 Windows shard 與 aggregate `ci` 全部 success；這個檔案的八個案例各 963～1566ms |
+| 紅燈 run 同檔的前六個案例 | 6371、5201、4490、4046、2890、7871ms，是前一晚的 2.7～7.9 倍 |
+| 紅燈 run 的最後兩個案例 | 47729ms（逾時）、37523ms，是前一晚的 40 倍、24 倍 |
+| 兩個 run 共同出現的 1290 個案例 | 紅燈 run 合計 490.9s，前一晚 321.6s，1.53 倍；不是整個 shard 均勻變慢，也不是只有一個案例慢 |
+
+**排除**：同一個 commit 的程式碼沒變，所以不是產品或測試回歸；「connected-client」案例與其他六個場景用同一份子行程腳本，差別只在被 stub 的 `readClientConnectionState`，沒有自己的慢路徑。`start` 場景的子行程在本機以暫時的 spawn 記錄量測：生命期內零個孫行程（沒有 WMIC／PowerShell／icacls 探測），記錄用的暫時改動已還原；本機 `CI=true` 八個案例各 2.1～3.4s 全過，重現不到。
+
+**判定**：執行器層級的暫停（Bun 子行程啟動與載入模組圖時的 I/O 或排程），底層原因（防毒掃描、磁碟、CPU 搶占）**未證實**。舊測試用 `Bun.spawn` 加 `Promise.all` 等子行程，測試計時器先到就殺掉並丟棄子行程輸出（只剩 `Received: 143`），所以日誌裡沒有任何能指出哪一段花了時間的資料。這與 `tests/helpers/test-budget.ts` 記錄的 `COLD_SPAWN_BUDGET_MS` 起因同型（run 35118018849 的第一個子行程 50.7s、下一個 1.8s）。
+
+**決定**：
+1. **不放寬子行程的等待界限**。子行程界限仍是 `watchdogMs(30_000)`（Windows CI 45s、本機 30s），沒有提高；案例計時器只多出回收餘裕（見第 3 點）。`test-budget.ts` 要求「等待是斷言本身」與「還原被測行為後仍會紅」兩項都成立；沒有分段資料就無法證明第二項，`cold-spawn-warmup.ts` 也明文拒絕以 `watchdogMs` 放寬子行程界限。
+2. **暖機**（repo 對「計時中的子行程第一次載入模組圖」的既定補法）：`beforeAll` 以 `warmModuleGraph` 預載這個檔案兩個子行程腳本 `import` 區段的聯集（各子行程仍保留自己原本的 import 清單，所以暖機子行程可能多載一個該子行程用不到的模組，代價只是暖機多做一點事），圖名 `cli-start-owner-absence/children`；暖機失敗是 setup 失敗而不是重試。本機暖機 3.1s，整個檔案由 25.1s 降到 19.5s。
+3. **子行程界限可讀**：兩個案例改用 `spawnTestChild`，子行程界限維持原本的 `watchdogMs(30_000)`（Windows CI 45s），案例計時器 = 子行程界限 + 一段回收預留（`TEST_CHILD_REAP_RESERVE_MS`，5s；`spawnTestChild` 只在界限到期擊殺後啟動一次回收預留，所以最壞情況就是界限加一段），Windows CI 由 45s 變 50s、本機由 30s 變 35s，只增加回收餘裕，使案例計時器不再是終止卡住子行程的那一個。子行程在每個階段把 `[owner-absence-child] <階段> at <ms>` 寫到 stderr；逾時時失敗訊息列出已走到的階段。已用暫時注入的 60s 停頓與 3s 界限確認訊息為 `child killed at the 3000ms deadline; exit=null elapsedMs=3048` 加 `[owner-absence-child] modules-loaded at 1317ms`，注入已還原。
+4. **保留夜間排程**。`ROADMAP.md` 中期列「停用夜間排程」記的停用條件（連續紅燈且與本 fork 無關）不成立：前一晚全綠，這次只有一個 shard 的一個檔案，且是 fork 自己的測試。
+
+**下次再逾時時怎麼讀**：看失敗訊息的階段行。`modules-loaded` 之前沒有出現＝模組圖載入（暖機沒生效或磁碟停頓）；`fixture-owner-exited` 沒出現＝fixture 的 `bun --version` 孫行程；`recovery-returned` 或 `command-returned` 沒出現＝被測的恢復或命令本體。到那時才有依據討論預算或平台層處理。
+
 ## 2026-11-03：Upstream check PR／issue 分類；commit 軸仍待審
 
 開工確認最新 [Upstream check run 41430272684](https://github.com/SanHsien/opencodex/actions/runs/41430272684) 為 failure，HEAD 為 `91a176f94bb20c3059ba6f870a0d8958b4b11abb`。本機 strict 檢查另列出 209 筆新 commit（上游 main `684ad75d254ae96a9971387d09ae428b96ada9c2`）、15 筆 closed-unmerged PR、0 筆新 open platform issue。逐筆讀取下表 PR 本文與留言後，PR 水位由 7794 推到 8086；issue 無新增，水位保持 7860，不能虛增。

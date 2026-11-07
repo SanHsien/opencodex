@@ -630,3 +630,28 @@ config 測試首次等待 user test lock：owner PID 57096 在同時查得為 `D
 `test:changed` 在壓縮歷史 fork 無共同祖先的限制仍存在；沒有繞過 ancestry 或將失敗描述成通過。依 `src/AGENTS.md` 的實作期規則與資源例外，用明列的 18 個工具／adapter／API／guard 測試及 layout／admission 補足選測，再跑完整 fork dev check。完整產品套件、非虛擬化 Windows coordinator 與跨平台 CI 不由這些 focused results 代表；完整 stable 整合計畫仍保留。
 
 文字完整性：所有 40 個改動檔案無 NUL／Unicode 控制字元（TAB／CR／LF 除外），原有檔案換行格式保持；`git diff --check` exit 0。
+
+## 2026-11-07：夜間 Windows shard 2/11 逾時（`cli-start-owner-absence`）暖機與子行程界限驗證
+
+基準 HEAD：`abca9cb0d6d79558ecbe7fe0094985e22b55f9f5`（detached HEAD）；本輪修改一份測試與維護文件（`ROADMAP.md`、`docs/fork/DECISIONS.md`、本節），沒有暫存、提交、推送、觸發 workflow 或改產品碼。分類、對照與再次發生時的讀法見 `docs/fork/DECISIONS.md` 2026-11-07 條目。
+
+遠端事實（唯讀 `gh run view`）：紅燈 run [42309802238](https://github.com/SanHsien/opencodex/actions/runs/42309802238) 只有 `windows 2/11` failure；同一 HEAD 的前一晚 run [42130890278](https://github.com/SanHsien/opencodex/actions/runs/42130890278) 11 個 Windows shard 與 aggregate `ci` 全 success，這同時是 2026-11-02／03 修正（`91a176f94`、`eea76a63b`，皆為 `abca9cb0d` 的祖先）的遠端驗收。
+
+| 指令 | exit code | 結尾輸出／結果 |
+| --- | --- | --- |
+| 暫時注入：子行程在 `modules-loaded` 後停 60s、界限改 3s，`bun test tests/cli/cli-start-owner-absence.test.ts -t "for start"` | 1 | `child killed at the 3000ms deadline; exit=null elapsedMs=3048` 與 `[owner-absence-child] modules-loaded at 1317ms`；舊寫法同情境只有 `Received: 143`。注入已還原 |
+| `CI=true bun test tests/cli/cli-start-owner-absence.test.ts --timeout 60000`（修正後） | 0 | `8 pass / 0 fail`，90 expect calls；暖機 `elapsedMs=3055 loaded=5/5` |
+| 同檔修正前（本機，無 CI） | 0 | `8 pass / 0 fail`，25.1s；本機無法重現紅燈，修正前後都是綠 |
+| `bun run test -- tests/cli/cli-start-owner-absence.test.ts`（repo 的測試入口） | 0 | `8 pass / 0 fail`，`suite finished in 15.6s (exit 0)` |
+| `CI=true bun test` 同檔加 `cold-spawn-warmup`、`warmup-registration`、`ci-watchdog`、`test-layout`、`test-layout-tooling`、`structure-ssot`、`fork-hygiene`（共 8 檔，`--timeout 60000`） | 0 | `171 pass / 0 fail`，1013 expect calls |
+| `bun run typecheck` | 0 | `No type errors in 2,305 files` |
+| `bun scripts/file-size-ratchet.ts` | 0 | `file-size ratchet passed` |
+| `bun run structure:check` | 0 | `structure/ SSOT checks passed` |
+| `bun run privacy:scan` | 0 | `Privacy scan passed` |
+| `pwsh -NoProfile -File tools/dev_check.ps1` | 0 | fork hygiene 39 pass／0 fail；10 份文件零斷鏈；`WINDOWS DEV CHECK GREEN` |
+
+沒有先紅後綠的修正前紅燈：這次沒有找到可在本機重現的缺陷，紅燈只存在於 run 42309802238 的日誌；修正的是「卡住時看不到哪一段」與「第一個子行程付模組圖冷載入」兩件事，不宣稱已消除該次暫停，也不宣稱遠端已驗證。遠端驗收要等下一次 schedule 的 11 個 Windows shard 與 aggregate `ci` 全部 success；再次紅燈就讀失敗訊息裡的階段行。
+
+驗證範圍：未執行全部 `.test.ts` 產品套件。本輪只動一份測試檔與文件，沒有產品碼變更；該檔的跨檔依賴（暖機 helper、版面清單、結構與 fork 衛生守衛、型別）已聚焦覆蓋，完整 Windows 11 分片覆蓋留給 CI，不宣稱已通過。
+
+暫時的量測用改動（`src/config/process-state.ts` 的計時記錄、測試檔的 `--preload` 與 60s 停頓）都已還原，`git status --porcelain` 只剩本輪四個檔案與既有未追蹤的 `Microsoft/`。

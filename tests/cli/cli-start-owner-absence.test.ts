@@ -1,22 +1,82 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, beforeAll, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { COLD_SPAWN_WARMUP_HOOK_BUDGET_MS, warmModuleGraph } from "../helpers/cold-spawn-warmup";
 import { removeTreeWithRetry } from "../helpers/remove-tree";
 import { repoPath } from "../helpers/repo-root";
 import { watchdogMs } from "../helpers/ci-watchdog";
+import { spawnTestChild, TEST_CHILD_REAP_RESERVE_MS } from "../helpers/spawn-test-child";
 
 const roots: string[] = [];
-const children: Array<ReturnType<typeof Bun.spawn>> = [];
-afterEach(async () => {
-  while (children.length) {
-    const child = children.pop()!;
-    if (child.exitCode === null) child.kill();
-    await child.exited;
-  }
+afterEach(() => {
   while (roots.length) removeTreeWithRetry(roots.pop()!);
 });
+
+// Every case runs its real command bodies in a fresh Bun child, and the child's first act is to load
+// this module graph. The nightly Windows run 42309802238 (shard 2/11) spent 47.7s and 37.5s in the
+// last two cases of this file where run 42130890278, on the same commit, spent about 1.2s and 1.6s
+// each, with six cases in between at 2.9s to 7.9s. The log held nothing else: the child's output
+// was never read once the test timer killed it (`Received: 143`). So the graph is paid once here,
+// in setup, instead of inside a timed child, and the child bound below reports the phase it was in.
+const ABSENCE_CHILD_IMPORTS = `
+  import * as liveness from ${JSON.stringify(repoPath("src/server/proxy-liveness.ts"))};
+  import { readAlivePid, readPidFileValue, removePidIfValueIs } from ${JSON.stringify(repoPath("src/config/process-state.ts"))};
+  import { reconcileStartupJournal, markCrossHomeSibling } from ${JSON.stringify(repoPath("src/cli/cross-home-owner.ts"))};
+  import { recoverStartStateUnderOwnershipLease } from ${JSON.stringify(repoPath("src/cli/start-owner-fence.ts"))};
+  import { decideStartWithLiveOwner } from ${JSON.stringify(repoPath("src/cli/dispatch.ts"))};
+`;
+const DEAD_OWNER_CHILD_IMPORTS = `
+  import { readAlivePid } from ${JSON.stringify(repoPath("src/config/process-state.ts"))};
+  import { recoverStartJournalAfterOwnerRecheck, recoverStartStateUnderOwnershipLease } from ${JSON.stringify(repoPath("src/cli/start-owner-fence.ts"))};
+`;
+
+beforeAll(async () => {
+  await warmModuleGraph({
+    graph: "cli-start-owner-absence/children",
+    // The union of both children: the dead-owner child's modules are the absence child's plus one
+    // export, and concatenating the two lists would redeclare bindings. Each child keeps its own
+    // import list, so the warm-up may load a module a given child does not; that costs only the
+    // warm-up child a little extra work.
+    source: ABSENCE_CHILD_IMPORTS + `
+      import { recoverStartJournalAfterOwnerRecheck } from ${JSON.stringify(repoPath("src/cli/start-owner-fence.ts"))};
+    `,
+  });
+}, COLD_SPAWN_WARMUP_HOOK_BUDGET_MS);
+
+// The child's own bound is the one the whole case used to get (watchdogMs(30_000), 45s on Windows
+// CI). The case timer gains only the reap headroom: spawnTestChild arms its reap reserve once, after
+// the deadline kill, so the worst case is the deadline plus one reserve. That keeps the case timer
+// from being the thing that ends a stalled child, and the stall is reported with its phases.
+const CHILD_DEADLINE_MS = watchdogMs(30_000);
+const CASE_BUDGET_MS = CHILD_DEADLINE_MS + TEST_CHILD_REAP_RESERVE_MS;
+
+/**
+ * Phase markers a child writes to stderr, so a stalled case names where it stopped. Stderr is
+ * only read when a case fails. A static import is evaluated before the first marker, so
+ * `modules-loaded` carries the whole module-graph load time of the child.
+ */
+const PHASE_MARKER = String.raw`
+  const phase = name => process.stderr.write("[owner-absence-child] " + name + " at " + Math.round(performance.now()) + "ms\n");
+  phase("modules-loaded");
+`;
+
+async function runChild(root: string, home: string, codex: string, script: string): Promise<string> {
+  const result = await spawnTestChild([process.execPath, script], {
+    cwd: root,
+    env: {
+      HOME: root, USERPROFILE: root, OPENCODEX_HOME: home, CODEX_HOME: codex,
+      OCX_OWNER_REGISTRY_DIR: join(root, "registry"), XDG_RUNTIME_DIR: root,
+    },
+    deadlineMs: CHILD_DEADLINE_MS,
+  });
+  const diagnostics = (result.timedOut ? `child killed at the ${CHILD_DEADLINE_MS}ms deadline; ` : "")
+    + `exit=${String(result.exitCode)} elapsedMs=${result.elapsedMs.toFixed(0)}\n${result.stderr}`;
+  expect(result.timedOut, diagnostics).toBe(false);
+  expect(result.exitCode, diagnostics).toBe(0);
+  return result.stdout;
+}
 
 // Exercise the real command bodies, lease wrapper, liveness retries, cross-home
 // discovery and journal recovery. Only command IO and probe transport are supplied.
@@ -46,12 +106,7 @@ for (const scenario of ["start", "ensure", "service", "supervised", "sibling", "
     const recheck = fence.slice(fence.indexOf("export async function recoverStartJournalAfterOwnerRecheck("), fence.indexOf("/** Hold ownership stable"));
     const executable = new Bun.Transpiler({ loader: "ts" }).transformSync(commands + recheck.replace("export ", ""));
     const script = join(root, "consecutive-misses.ts");
-    writeFileSync(script, `
-      import * as liveness from ${JSON.stringify(repoPath("src/server/proxy-liveness.ts"))};
-      import { readAlivePid, readPidFileValue, removePidIfValueIs } from ${JSON.stringify(repoPath("src/config/process-state.ts"))};
-      import { reconcileStartupJournal, markCrossHomeSibling } from ${JSON.stringify(repoPath("src/cli/cross-home-owner.ts"))};
-      import { recoverStartStateUnderOwnershipLease } from ${JSON.stringify(repoPath("src/cli/start-owner-fence.ts"))};
-      import { decideStartWithLiveOwner } from ${JSON.stringify(repoPath("src/cli/dispatch.ts"))};
+    writeFileSync(script, `${ABSENCE_CHILD_IMPORTS}${PHASE_MARKER}
       const events = [], messages = [];
       let probes = 0, attempts = 0, leased = false;
       const scenario = ${JSON.stringify(scenario)}, pid = ${process.pid};
@@ -107,15 +162,10 @@ for (const scenario of ["start", "ensure", "service", "supervised", "sibling", "
         if (error instanceof StartCommandExit) fakeProcess.exitCode = error.exitCode;
         else { refusal = error.message; fakeProcess.exitCode = 1; }
       }
+      phase("command-returned");
       console.log(JSON.stringify({ events, probes, attempts, exitCode: fakeProcess.exitCode, refusal, messages }));
     `);
-    const child = Bun.spawn([process.execPath, script], { env: {
-      HOME: root, USERPROFILE: root, OPENCODEX_HOME: home, CODEX_HOME: codex,
-      OCX_OWNER_REGISTRY_DIR: join(root, "registry"), XDG_RUNTIME_DIR: root,
-    }, stdout: "pipe", stderr: "pipe" });
-    children.push(child);
-    const [exitCode, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
-    expect(exitCode, stderr).toBe(0);
+    const stdout = await runChild(root, home, codex, script);
     const result = JSON.parse(stdout);
     expect(readFileSync(configPath, "utf8"), stdout).toBe(injected);
     expect(existsSync(journalPath), stdout).toBe(true);
@@ -127,7 +177,7 @@ for (const scenario of ["start", "ensure", "service", "supervised", "sibling", "
     expect(result.exitCode).toBe(1);
     expect(result.refusal).toMatch(/ownership.*unverified/i);
     expect(result.refusal).not.toContain("untrusted-secret");
-  }, watchdogMs(30_000));
+  }, CASE_BUDGET_MS);
 }
 
 test("an exited recorded owner on a refused port still recovers its journal and stale PID", async () => {
@@ -146,14 +196,14 @@ test("an exited recorded owner on a refused port still recovers its journal and 
   }));
   const script = join(root, "dead-owner.ts");
   writeFileSync(script, `
-    import { writeFileSync } from "node:fs";
-    import { readAlivePid } from ${JSON.stringify(repoPath("src/config/process-state.ts"))};
-    import { recoverStartJournalAfterOwnerRecheck, recoverStartStateUnderOwnershipLease } from ${JSON.stringify(repoPath("src/cli/start-owner-fence.ts"))};
+    import { writeFileSync } from "node:fs";${DEAD_OWNER_CHILD_IMPORTS}${PHASE_MARKER}
     const dead = Bun.spawn([process.execPath, "--version"], { stdout: "ignore", stderr: "ignore" });
     if (await dead.exited !== 0) throw new Error("fixture child failed");
+    phase("fixture-owner-exited");
     const listener = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response(null) });
     const port = listener.port;
     await listener.stop(true);
+    phase("fixture-port-released");
     writeFileSync(${JSON.stringify(join(home, "config.json"))}, JSON.stringify({ port, hostname: "127.0.0.1", providers: {} }));
     writeFileSync(${JSON.stringify(join(home, "ocx.pid"))}, String(dead.pid));
     writeFileSync(${JSON.stringify(join(home, "runtime-port.json"))}, JSON.stringify({ pid: dead.pid, port, hostname: "127.0.0.1" }));
@@ -164,17 +214,12 @@ test("an exited recorded owner on a refused port still recovers its journal and 
       decide: () => ({ kind: "proceed" }), stayOut: () => { throw new Error("unexpected stay-out"); },
       recover: () => recoverStartJournalAfterOwnerRecheck(owner),
     });
+    phase("recovery-returned");
     console.log(JSON.stringify({ sibling, live: owner.live, events }));
   `);
-  const child = Bun.spawn([process.execPath, script], { env: {
-    HOME: root, USERPROFILE: root, OPENCODEX_HOME: home, CODEX_HOME: codex,
-    OCX_OWNER_REGISTRY_DIR: join(root, "registry"), XDG_RUNTIME_DIR: root,
-  }, stdout: "pipe", stderr: "pipe" });
-  children.push(child);
-  const [exitCode, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
-  expect(exitCode, stderr).toBe(0);
+  const stdout = await runChild(root, home, codex, script);
   expect(JSON.parse(stdout.trim().split("\n").at(-1)!)).toEqual({ sibling: false, live: null, events: ["lease", "release"] });
   expect(readFileSync(configPath, "utf8")).toBe(original);
   expect(existsSync(journalPath)).toBe(false);
   expect(existsSync(join(home, "ocx.pid"))).toBe(false);
-}, watchdogMs(30_000));
+}, CASE_BUDGET_MS);

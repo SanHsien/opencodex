@@ -1844,7 +1844,7 @@ issue 軸：strict 新列出 `#8181`（desktop takeover 在預設 bind 時，`ru
 - `tests/helpers/messages-overflow-assertions.ts`（切片 timeout 改 `COLD_SPAWN_BUDGET_MS`）與 `tests/claude-integration/messages-sse-continuation.test.ts`（冷啟動暖機）：取代上游 quarantine 的 fork 側修法，見 `DECISIONS.md` 決定九。
 - zh-tw 文件補 `web-dashboard.md`「經典儀表板」與 `providers.md`「Mistral：每個請求的圖片數量」兩節，並把取自上游的三個英文路徑連結改為 `/zh-tw/...`。
 - `src/server/claude-messages.ts` 的 no-eligible 分支：fork 固定句實際生效（`localError.message`），overflow 判定仍讀上游 `err.message`，見 `DECISIONS.md` 決定十一。
-- `scripts/ci/test-durations.windows.tsv`：用 run 42403141711 的 11 份 Windows job log 重新量測，補上 75 個新檔的權重，見 `DECISIONS.md` 決定十二。
+- `scripts/ci/test-durations.windows.tsv`：先用 run 42403141711 的 11 份 Windows job log 量測，補上 75 個新檔的權重；之後改用 run 42415040854 與 run 42412302217 兩個 run 共 22 份 Windows job log 取每檔平均（現行表的來源），shard 數由 11 增為 12，見 `DECISIONS.md` 決定十二。
 - 本機驗證與殘留：見 `REVIEW.md` 2026-11-08 節與 `ROADMAP.md`。
 
 ### 水位

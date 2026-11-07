@@ -10,7 +10,6 @@ import { join, resolve } from "node:path";
 import { watchdogMs } from "../helpers/ci-watchdog";
 import { removeTreeWithRetry } from "../helpers/remove-tree";
 import { repoPath } from "../helpers/repo-root";
-import { COLD_SPAWN_BUDGET_MS } from "../helpers/test-budget";
 import { captureStartupChildOutput } from "../helpers/startup-child-output";
 import {
   inspectServiceStateRecords,
@@ -32,13 +31,15 @@ const OWNER_WAIT_MS = watchdogMs(10_000);
 // is derived from the deadline rather than pinned next to it.
 const JOURNAL_OWNERSHIP_BUDGET_MS = Math.max(30_000, OWNER_WAIT_MS * 4);
 
-// The connected-client case starts two real `ocx start` children in sequence and waits for each
-// one's runtime record. The first child of a Windows process is a cold start (run 42418480772
-// timed out waiting for it at the case's old fixed 30s budget, while the same file passed with a
-// 52s first-child start in the two runs before), so that wait takes the cold-start budget and the
-// case budget is derived from it instead of being pinned below the internal deadline.
-const CONNECTED_CLIENT_WAIT_MS = COLD_SPAWN_BUDGET_MS;
-const CONNECTED_CLIENT_BUDGET_MS = CONNECTED_CLIENT_WAIT_MS * 2 + OWNER_WAIT_MS;
+// The connected-client case starts two real `ocx start` children in sequence and waits up to
+// OWNER_WAIT_MS for each one's runtime record, then makes three local HTTP requests. Its budget was
+// a fixed 30s, below that internal deadline (45s on CI Windows), so a slow child was cut by Bun's
+// own timeout before the wait could name the step that stalled (run 42418480772, shard 10). The
+// budget now clears the deadline by derivation: two waits, plus one more OWNER_WAIT_MS for the
+// requests, the SIGTERM exits and fixture teardown of both iterations. The wait itself stays at
+// OWNER_WAIT_MS: six earlier cases in this file already spawned Bun children, so this is not the
+// file's first child and test-budget.ts allows the cold-start budget only once, there.
+const CONNECTED_CLIENT_BUDGET_MS = OWNER_WAIT_MS * 3;
 
 const cliPath = repoPath("src/cli/index.ts");
 const roots: string[] = [];
@@ -125,8 +126,8 @@ async function runCli(fx: Fixture, argv: string[]): Promise<{ exitCode: number; 
   return { exitCode: completed[0], stdout: completed[1], stderr: completed[2] };
 }
 
-async function waitFor<T>(read: () => T | null | Promise<T | null>, label: string, waitMs = OWNER_WAIT_MS): Promise<T> {
-  const deadline = Date.now() + waitMs;
+async function waitFor<T>(read: () => T | null | Promise<T | null>, label: string): Promise<T> {
+  const deadline = Date.now() + OWNER_WAIT_MS;
   while (Date.now() < deadline) {
     const value = await read();
     if (value !== null) return value;
@@ -324,7 +325,7 @@ describe("start and ensure journal ownership (#1230)", () => {
           const value = JSON.parse(readFileSync(runtimePath, "utf8")) as { pid?: number; port?: number; hostname?: string };
           return value.pid === child.pid && typeof value.port === "number" && value.port > 0 ? value : null;
         } catch { return null; }
-      }, "connected client runtime record", CONNECTED_CLIENT_WAIT_MS);
+      }, "connected client runtime record");
       try {
         const health = await fetch(`http://127.0.0.1:${runtime.port}/healthz`).then(response => response.json()) as { role?: string };
         expect(health.role).toBe("client");

@@ -164,7 +164,7 @@ const envelopeWriterRows = [
   ["src/claude/outbound.ts", 6, "shared baseline helpers, original verdict and incomplete/unfinished presentation construction"],
   ["src/protocols/encoders/messages.ts", 4, "original verdict construction and fixed local collection failures"],
   ["src/server/messages-native.ts", 4, "local/evidence legacy formatters, original combo and fold envelopes"],
-  ["src/server/claude-messages.ts", 30, "mapped local ingress/bypass constructors, original combo and defensive JSON presentation envelopes"],
+  ["src/server/claude-messages.ts", 31, "mapped local ingress/bypass constructors, original combo and defensive JSON presentation envelopes, and the no-eligible 404 (fixed legacy body plus the overflow verdict read from the upstream message)"],
   ["src/server/index/serve-options.ts", 4, "fixed endpoint auth/origin bypasses"],
   ["src/server/messages-native-tool-guard.ts", 1, "deferred local guard terminal"],
 ] as const;

@@ -10,6 +10,7 @@ import { join, resolve } from "node:path";
 import { watchdogMs } from "../helpers/ci-watchdog";
 import { removeTreeWithRetry } from "../helpers/remove-tree";
 import { repoPath } from "../helpers/repo-root";
+import { COLD_SPAWN_BUDGET_MS } from "../helpers/test-budget";
 import { captureStartupChildOutput } from "../helpers/startup-child-output";
 import {
   inspectServiceStateRecords,
@@ -30,6 +31,14 @@ const OWNER_WAIT_MS = watchdogMs(10_000);
 // waits (owner runtime record, owner health, and two CLI children), so the budget
 // is derived from the deadline rather than pinned next to it.
 const JOURNAL_OWNERSHIP_BUDGET_MS = Math.max(30_000, OWNER_WAIT_MS * 4);
+
+// The connected-client case starts two real `ocx start` children in sequence and waits for each
+// one's runtime record. The first child of a Windows process is a cold start (run 42418480772
+// timed out waiting for it at the case's old fixed 30s budget, while the same file passed with a
+// 52s first-child start in the two runs before), so that wait takes the cold-start budget and the
+// case budget is derived from it instead of being pinned below the internal deadline.
+const CONNECTED_CLIENT_WAIT_MS = COLD_SPAWN_BUDGET_MS;
+const CONNECTED_CLIENT_BUDGET_MS = CONNECTED_CLIENT_WAIT_MS * 2 + OWNER_WAIT_MS;
 
 const cliPath = repoPath("src/cli/index.ts");
 const roots: string[] = [];
@@ -116,8 +125,8 @@ async function runCli(fx: Fixture, argv: string[]): Promise<{ exitCode: number; 
   return { exitCode: completed[0], stdout: completed[1], stderr: completed[2] };
 }
 
-async function waitFor<T>(read: () => T | null | Promise<T | null>, label: string): Promise<T> {
-  const deadline = Date.now() + OWNER_WAIT_MS;
+async function waitFor<T>(read: () => T | null | Promise<T | null>, label: string, waitMs = OWNER_WAIT_MS): Promise<T> {
+  const deadline = Date.now() + waitMs;
   while (Date.now() < deadline) {
     const value = await read();
     if (value !== null) return value;
@@ -315,7 +324,7 @@ describe("start and ensure journal ownership (#1230)", () => {
           const value = JSON.parse(readFileSync(runtimePath, "utf8")) as { pid?: number; port?: number; hostname?: string };
           return value.pid === child.pid && typeof value.port === "number" && value.port > 0 ? value : null;
         } catch { return null; }
-      }, "connected client runtime record");
+      }, "connected client runtime record", CONNECTED_CLIENT_WAIT_MS);
       try {
         const health = await fetch(`http://127.0.0.1:${runtime.port}/healthz`).then(response => response.json()) as { role?: string };
         expect(health.role).toBe("client");
@@ -329,7 +338,7 @@ describe("start and ensure journal ownership (#1230)", () => {
         await child.exited;
       }
     }
-  }, 30_000);
+  }, CONNECTED_CLIENT_BUDGET_MS);
 
   test("a healthy proxy owner preserves the journal for both start and ensure", async () => {
     const fx = fixture();

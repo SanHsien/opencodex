@@ -20,6 +20,7 @@ export interface UpdateRestartHome {
   codex: UpdateRestartDirectory;
   revision: number;
   serviceRecord: UpdateRestartServiceRecord;
+  diagnosedHostname: string | null;
 }
 
 export type UpdateRestartDirectoryStat = Pick<BigIntStats, "dev" | "ino" | "isDirectory">;
@@ -46,7 +47,9 @@ export function readUpdateRestartHome(deps: UpdateRestartHomeDeps = {}): UpdateR
     throw new Error("update_restart_owner_unverified");
   }
   const stat = deps.statDirectory ?? (path => statSync(path, { bigint: true }));
-  return { config: physicalDirectory(getConfigDir(), stat), codex: physicalDirectory(currentCodexHome(), stat), revision: owner.revision, serviceRecord };
+  const diagnostics = readConfigDiagnostics({ passive: true });
+  if (diagnostics.error) throw new Error("update_restart_configuration_unverified");
+  return { config: physicalDirectory(getConfigDir(), stat), codex: physicalDirectory(currentCodexHome(), stat), revision: owner.revision, serviceRecord, diagnosedHostname: diagnostics.config.hostname ?? null };
 }
 
 export function assertUpdateRestartHome(expected: UpdateRestartHome, deadlineAt = Date.now() + 2000, deps: UpdateRestartHomeDeps = {}): void {
@@ -64,7 +67,7 @@ export function assertUpdateRestartHome(expected: UpdateRestartHome, deadlineAt 
 
 /** Read-only eligibility shared by parent pre-stop and child admission. */
 export function assertUpdateRestartConfiguration(hostname: string): void {
-  const diagnostics = readConfigDiagnostics();
+  const diagnostics = readConfigDiagnostics({ passive: true });
   if (readClientConnectionState().kind !== "disconnected" || diagnostics.error
-    || (diagnostics.config.hostname ?? "") !== hostname) throw new Error("update_restart_configuration_changed");
+    || (diagnostics.config.hostname === undefined ? hostname !== "127.0.0.1" : diagnostics.config.hostname !== hostname)) throw new Error("update_restart_configuration_changed");
 }

@@ -77,6 +77,8 @@ ocx start --socks5-off
 停止或更新後的連接埠復原，即使 PID 是在關閉前記錄的，仍會尊重一次失敗的 OCX process 檢查。被
 拒絕的現用持有者會繼續執行，並阻止 TCP-row 清理。若它始終無法被驗證，有時限的復原等待可能會在
 連接埠仍被佔用的情況下逾時。請檢查目前的連接埠持有者，並在衝突解決後重試重啟。
+如果更新後的重新啟動回報執行階段紀錄中的主機名稱為空白，這次嘗試不會停止代理。請參閱[狀態與復原指引](/reference/cli/lifecycle/#status-and-health)（英文），先確認擁有權與實際綁定位址；若確認不完整，請洽擁有者或管理員。
+
 
 ### `ocx ensure`
 
@@ -113,6 +115,10 @@ ocx eject back
 ### `ocx uninstall` · `ocx remove`
 
 停止服務與代理、移除服務與 Codex shim、還原原生 Codex，然後僅在所有還原步驟成功時移除 opencodex 本機設定。`remove` 是 `uninstall` 的別名。設定清理需要由全新安裝建立的擁有權中繼資料；舊版或共享目錄會被原樣保留。
+
+當 `ocx uninstall` 以 root 身分或在已提升（系統管理員）權限的 Windows 提示字元中執行時，會先確認其他帳號無法變更設定目錄、其上層目錄以及其中的任何目錄，並確認設定目錄內沒有指向其外部的連結（在 Windows 上則是完全沒有連結）。只要有一項不符合，解除安裝就會在做出任何變更之前停止並說明原因。請以擁有設定目錄的帳號、不使用 `sudo` 或系統管理員權限執行 `ocx uninstall`，或將這些目錄限制為僅該帳號可寫入並移除此類連結，然後再次執行。在無法判斷提示字元是否已提升權限的 Windows ARM64 上也會進行相同檢查；若檢查無法完成，請先停止 opencodex，再手動移除設定目錄。
+
+若某個已記錄項目在設定目錄內的上層目錄是連結（符號連結或連接點），該項目會保留原樣並列為剩餘路徑，本次執行以部分解除安裝結束。將該連結換成實際目錄或將其移除後，再次執行 `ocx uninstall` 即可完成。
 
 ## 狀態與健康
 
@@ -288,7 +294,7 @@ upstream status but never consumes or resumes a grant.
 
 ### `ocx sync [--expect-link <linkId> | --expect-hub-key <apiKeyId>] [--local-only] [--json] [--restart-codex] [--restart-app-server-only]` <span id="ocx-sync---restart-codex---restart-app-server-only"></span>
 
-在 Remote Link Home 上成功提交最新目錄後，`ocx sync` 也會向符合條件的已連結 Child 同步。`--local-only` 可停用這個傳播。`--json` 會輸出單一 `ocx.sync.fanout/1` 文件，包含 Home 的結果與各 Child 的狀態；遭略過的 Child 也會顯示原因。Home 自身的非零結束碼會原樣回傳。Home 成功時，若 Child 失敗、逾時或連結儲存區無法讀取，指令以結束碼 6 結束；其他情況均以 0 結束，包括 Child 遭略過時。文字模式下，連結儲存區無法讀取的錯誤不包含路徑。結束碼 7 保留給進行中的更新。JSON 模式下若 Home 同步擲出例外，stdout 仍只包含一份結果文件，stderr 則輸出經安全轉義的診斷訊息。
+在 Remote Link Home 上成功提交最新目錄後，`ocx sync` 也會向符合條件的已連結 Child 同步。`--local-only` 可停用這個傳播。`--json` 會輸出單一 `ocx.sync.fanout/1` 文件，包含 Home 的結果與各 Child 的狀態；遭略過的 Child 也會顯示原因。Home 自身的非零結束碼會原樣回傳。Home 成功時，若傳播時略過已連結的 Child，或 Child 失敗、逾時或連結儲存區無法讀取，指令以結束碼 6 結束。用戶端發起的連結和 `--local-only` 等刻意略過的情況保留原有行為；遭略過的已連結 Child 會附帶操作建議 `hint`。文字模式下，連結儲存區無法讀取的錯誤不包含路徑。結束碼 7 保留給進行中的更新。JSON 模式下若 Home 同步擲出例外，stdout 仍只包含一份結果文件，stderr 則輸出經安全轉義的診斷訊息。
 
 傳播不會要求重新啟動 Child 上的 Codex 應用程式或 app-server。若需要重新啟動，請使用 GOAT 或在該 Child 執行 `ocx sync --restart-codex`。不過，Child 的固定目標同步在套用變更後的 Home 設定時，仍可能重新啟動它自己的 OpenCodex 用戶端執行階段。Home 逾時並停止本機 SSH 程序後，已開始的遠端同步仍可能在 Child 上繼續。
 

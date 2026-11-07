@@ -1122,3 +1122,29 @@ Windows 適用性：只用 `node:crypto` 與環境變數，不碰檔案系統、
 **決定二（`#8181` 適用但延後）**：desktop takeover 在預設 bind 時，`runtime-port.json` 缺 `hostname`，`tracked-runtime-inspection.ts` 讀成空字串、liveness 讀成 `127.0.0.1`，`stop-approval.ts` 比對永遠回 `approvalChanged`。fork 有同一份程式，Windows 同樣受影響（回報者在 macOS，但根因與平台無關）。這是 stop 授權比對的安全邊界，上游尚未提出修正，因此不自行放寬比對；`reviewed_issue_through` 推到 8181，延後項與觸發條件寫在 `ROADMAP.md` 中期列。
 
 **未處理的限制**：MSIX 虛擬化終端下 `codex-native-residue` 的 3 個案例回 `unavailable`（環境限制），需在非虛擬化 Windows 終端複驗，記在 `ROADMAP.md`。
+
+## 2026-11-07：commit 軸前 49 筆（審查止於 `7b514759e`）與 5 筆 platform issue 的審查；`reviewed_through` 維持 `cab7eb7d0`，`reviewed_issue_through` 推到 8281，`#8181` 由 `250ef01` 修掉
+
+逐筆證據在 `docs/fork/UPSTREAM.md` 同日節。決定：
+
+**決定一（水位）**：`reviewed_issue_through` 8181 到 8281（5 筆 platform issue 全數分類）。`reviewed_through` **不動**，維持 `cab7eb7d0`。理由是工具語意，不是審查不足：上游把 dev 歷史以「ours merge」併回 main（`36aa9e8f7` 的第一父是 `cab7eb7d0`，第二父 `247ad32cb` 才帶入 dev 線），所以 `cab7eb7d0` 之後的 56 筆全在 dev 線上；`tools/check-upstream-updates.ts` 用 `reviewed_through..upstream/main`，把 `reviewed_through` 設成 dev 線中途的 `ebeb1dc8a`（當時的審查終點）實測會讓待審數從 56 變成 205（把 `cf762b1` 起所有 main 線的舊 release merge 又列回來）。因此前 49 筆（止於 `7b514759e`）的判定只記在 `docs/fork/UPSTREAM.md` 同日節，水位要等整合 `v2.98.0`（`reviewed_through` 直接跳到 `36aa9e8f7`）或讓檢查工具同時排除 `integrated_through` 才能前進。`integrated_*` 與 PR 水位不動。前 49 筆內有 8 筆以「延後」結案（Messages 錯誤正規化叢集 `895a859`、`0a30c55`、`8d7d48d`、`0d2de73`、`7757a2f`，GUI design system v2 `aec37c1`，Cargo 相依 `b7e01c1`，Rust 診斷測試 `a98a6bf`），每筆都有重審條件，一律併入「整合 `v2.98.0`」那一列；前綴之後還有 7 筆未審（`6b3044f` 起；其中 `6b3044f`、`2c8b397` 與 `47f9e2d` 的 fixture 已提前採用）。
+
+**決定二（`v2.98.0` 觸發成立）**：上游 `main` 與 stable `v2.98.0` 同為 `36aa9e8f7`，`ROADMAP.md` 的整合觸發條件已成立。這輪沒有做整版 tag diff，原因是 commit 軸逐筆審查先釐清哪些叢集與 fork 的刻意差異衝突（尤其 `src/server/claude-messages.ts:964-966` 的固定 404 訊息、`Cargo.lock` 的 `zip` feature），整版重放時直接帶著這份清單。
+
+**決定三（`#8181`）**：fork 缺陷成立，上游已由 `250ef01`（#8221）修正：舊 runtime 記錄缺 hostname 時，只在其餘核准與擁有權檢查一致時接受預設 loopback，記錄含 hostname 則必須完全相符；pid／port／attestation 比對沒有放寬。已採用並先紅（8 案）後綠，`ROADMAP.md` 中期 `#8181` 列刪除。
+
+**決定四（不採 hosted-Windows quarantine）**：上游 `47f9e2d`／`#8262` 用 `GITHUB_ACTIONS` 條件在 hosted Windows 跳過五組測試。fork 不遮蔽紅燈，只提前採用 `client-link-connect.test.ts` 的 fixture 修正（改用模擬 home，這個案例原本就是在 Windows 上模擬 Linux systemd 檢查，與產品行為無關）；`main-quota-provenance` 維持 `ROADMAP.md` 既有的重審條件。
+
+**決定五（提前採用的相依）**：`8f43924`、`2c8b397`、`92e8f87`（`c43a86b` 新測試在 Windows 的 `/bin/sh`、原生 home 修正）、`5001aa5`、`63ff32a`、`7ea41c3`（`af3f8f8` 的鎖檔、首次註冊 `SQLITE_BUSY`、symlink 權限情境）、`6b3044f`（`b4cc5e8` 的 update import 政策）。沒有它們，被採用 commit 的新測試在 Windows 上先天紅。
+
+**決定六（#8246 延後）**：「MSI 成功但舊 runtime 繼續服務」在 fork 成立，上游尚無修正，不在沒有上游設計時自改 MSI 流程。觸發條件寫在 UPSTREAM.md 同日節。
+
+**本機環境限制（不是產品缺陷，也沒有放寬任何斷言）**：(1) 此帳號沒有建立 symlink 的權限，`client-link-connect` 的 symlink 案例原本回 `EPERM`，現依本 repo 的能力探測慣例（2026-11-03 條目，只在 win32 且 `EPERM` 時 skip，hardlink 案例照跑）skip；(2) 主機負載高時預設 5 秒的 `cli-sync-expect-link`、`client-link-connect`、`oauth-store-multi` 的 manifest 填滿案例逾時，`--timeout 120000` 下全過；(3) `tests/codex-integration/doctor.test.ts` 的 7 個端到端案例在未修改的 HEAD 版本同樣 5 秒逾時（已用 HEAD 版的 `doctor.ts` 與測試對照），不是本輪引入。(4) `bun run structure:check` 與 `tests/ci-workflows/structure-ssot.test.ts` 以 `git ls-files` 判斷檔案存在，新檔案未暫存時會誤報「this tree does not have」；提交者暫存新檔案後才會綠，本輪用暫存索引驗證通過。
+
+**決定七（`ebeb1dc` 的 fork 差異：bigint 檔案身分）**：上游 `src/client/orphan-token-recovery.ts` 用 Number 的 `lstatSync`／`fstatSync` 比 `dev`／`ino`，會在 NTFS 大 file ID 上失去精度，違反 `86b72a689` 起的精確身分規則（見 2026-11-03 條目）。fork 版改用 `src/lib/file-identity.ts` 的 `lstatFileIdentity`／`fstatFileIdentity` 與 `sameFileIdentity`，`nlink`、`size` 維持 Number；`OpenSource`／`Sources` 的 `dev`／`ino` 改 `bigint`。`tests/lib/file-identity-callers.test.ts` 的 scopes 加入 `openSource`、`readSources`、`verifyPinnedFile`、`releasePins`、`moveToPrivateBackup`，tripwire 也改為把這三個 helper 視為合格的 bigint 觀察（並保留對同函式內數值 `lstatSync` 的拒絕）。先紅（上游版本在該 scope 回 `numeric stat`）後綠。下次重放 `v2.98.0` 時此檔不得整檔取上游。
+
+**決定八（`7b51475` 部分採用）**：採用 `src/`、`tests/`、`structure/runtime.md`、remote-link 文件與 en／zh-TW 字串；GUI 接線（`App.tsx`、`api-targets.ts`、`connect-pairing*.tsx`、`gui/tests/*`）不採，因 fork 的 `connect-pairing.tsx` 與上游前態不同、需與 `v2.98.0` 重放一起合；在那之前 `connection.clientStateChanged` 沒有 GUI 使用者（無害的未用字串）。修的是：中斷的 Windows 復原留下與原 token 硬連結的 `.<name>.identity`，之後每次復原都因 `nlink > 1` 被拒且訊息不明；現在 `releasePins()` 在失敗路徑釋放、拒絕訊息具名。
+
+**決定九（`client-link-connect`「link disconnect restores the prior catalog」不是移植造成的）**：在 `git archive fa81b4d4f` 的乾淨基底（`node_modules` 以 junction 共用）與移植後的工作樹各以 `bun test --timeout 120000 tests/clients/client-link-connect.test.ts -t "link disconnect restores the prior catalog"` 跑 3 次：基底 1 pass、2 fail，移植後 1 pass、2 fail，失敗訊息相同（`Config mutation already in progress`，接著 `EBUSY … rm ocx-client-link-contract-*`）。判定為既有不穩（單案約 12 秒，遠高於其他案例），移植 `af3f8f8`／`ebeb1dc`／`7ea41c3` 沒有改變失敗率。同檔整檔執行時，其後的「cancellation during catalog download …」與「a new link enrollment succeeds after explicitly preserving the orphan token」偶爾跟著失敗，錯誤同為 `Config mutation already in progress`／`EBUSY`（上一案留下的鎖與暫存樹連鎖），兩案單獨跑皆 1 pass。追蹤在 `ROADMAP.md` 中期「釐清只在合併程序失敗的測試」。
+
+**決定十（追蹤）**：`#8246` MSI 舊 runtime 與只在合併程序失敗的測試各有 `ROADMAP.md` 中期列，不再只記在 UPSTREAM／REVIEW。

@@ -34,6 +34,8 @@ const scopes: Record<string, string[]> = {
   "src/providers/cc-switch-import-source.ts": ["readSourceRows"],
   "src/adapters/command-code-project-context.ts": ["openedFileIsConfined"],
   "src/codex/catalog/write-audit.ts": ["appendCatalogWriteAudit"],
+  // Fork divergence (DECISIONS 2026-11-07): upstream compares Number dev/ino here; the fork uses the bigint helpers.
+  "src/client/orphan-token-recovery.ts": ["openSource", "readSources", "verifyPinnedFile", "releasePins", "moveToPrivateBackup"],
 };
 
 const REGEX_PRECEDES = new Set(["", "(", ",", "=", ":", "[", "!", "&", "|", "?", "{", "}", ";", "+", "-", "*", "%", "<", ">", "~", "^"]);
@@ -157,8 +159,10 @@ function inspect(source: string, names: string[], droid = false): string[] {
     const range = declarationBody(code, name);
     if (!range) { problems.push(`missing declaration: ${name}`); continue; }
     let observed = 0;
-    for (const match of code.slice(range[0], range[1]).matchAll(/\b(?:lstatSync|fstatSync|statSync|lstat|stat|handle\.stat)\s*\(/g)) {
+    for (const match of code.slice(range[0], range[1]).matchAll(/\b(?:lstatFileIdentity|fstatFileIdentity|statFileIdentity|lstatSync|fstatSync|statSync|lstat|stat|handle\.stat)\s*\(/g)) {
       const start = range[0] + match.index!;
+      // The src/lib/file-identity.ts helpers always stat with { bigint: true }: a real observation.
+      if (/FileIdentity\s*\($/.test(match[0])) { observed++; continue; }
       const close = matching(code, start + match[0].length - 1, "(", ")");
       if (close < 0) { problems.push(`unbalanced stat call in: ${name}`); continue; }
       const call = source.slice(start, close + 1);
@@ -204,6 +208,9 @@ describe("file identity caller stats", () => {
     expect(inspect("check()\n{ lstatSync(p, { bigint: true }); }\nfunction check() { return lstatSync(path).ino; }", ["check"]))
       .toEqual(["numeric stat: lstatSync(path)"]);
     expect(inspect("function check() { return 1; }", ["check"])).toEqual(["no stat call in: check"]);
+    // Fork: the bigint helpers count as an observation; numeric Stats are still rejected beside them.
+    expect(inspect("function check() { return lstatFileIdentity(p).ino; }", ["check"])).toEqual([]);
+    expect(inspect("function check() { return fstatFileIdentity(fd).ino + lstatSync(p).ino; }", ["check"])).toEqual(["numeric stat: lstatSync(p)"]);
     expect(inspect('function check(): { kind: "a" } | { kind: "b"; n: number } { return lstatSync(p).ino; }', ["check"]))
       .toEqual(["numeric stat: lstatSync(p)"]);
     expect(inspect("function check() { lstatSync(root); }", ["check"], true)).toEqual(["no stat call in: check"]);

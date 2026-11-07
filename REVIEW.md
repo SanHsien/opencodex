@@ -676,3 +676,50 @@ config 測試首次等待 user test lock：owner PID 57096 在同時查得為 `D
 沒有先紅後綠的產品修正：遠端紅燈本機重現不到，注入實驗只證明失敗形狀與診斷輸出，不證明 CI 上發生的是同一個原因，也沒有宣稱已消除該次失敗。測試斷言沒有放寬（`exitCode` 與 `selected` 仍是精確比對），沒有加重試，產品碼無差異（`git diff --stat` 只有測試與三份文件）。
 
 驗證範圍：未執行全部 `.test.ts` 產品套件。本輪只動一份測試檔的失敗輸出，與文件；該檔本身與型別、dev_check 已跑，完整 Windows 11 分片覆蓋留給 CI，不宣稱已通過。對手動 run 42378131276（同 HEAD 重跑）的結果本輪未取得完成狀態，不在此作為證據。
+
+## 2026-11-07：上游 commit 軸前 49 筆與 5 筆 platform issue 的採用驗證
+
+基準：`origin/main` `fa81b4d4f`（detached HEAD）。本輪採用 37 筆上游 commit（含 `7b51475` 的 src／tests／字串部分；另提前採用 3 筆相依，見 `docs/fork/UPSTREAM.md` 2026-11-07 節），延後 8、不適用 2、不另採 2。沒有暫存、提交、推送、觸發 workflow，也沒有停止或重啟 `127.0.0.1:10100` 的 live proxy。驗證用的暫存索引是獨立檔案（`GIT_INDEX_FILE`），不影響 repo 的索引。
+
+先紅後綠（每批先只套測試端，確認新測試失敗，再套來源端）：
+
+| 批次 | 先紅 | 後綠 |
+| --- | --- | --- |
+| A（`ad6a80e`、`b9ddb31`、`68a8f60`、`b855356`、`723b2aa`、`13d2184`、`3b23d46`、`3dc4060`、`62578b5`、`650cbc6`） | 263 pass／41 fail | 與 B 合併後 664 pass／1 fail（`kiro-adapter` 的「never borrows」，單檔 106 pass／0 fail，兩次） |
+| B（`911443e`、`cd8d26d`） | 121 pass／4 fail（缺模組） | 同上 |
+| C（`c43a86b`） | 446 pass／24 fail | 546 pass／15 fail：7 個 `doctor.test.ts` 端到端案例在未修改的 HEAD 版 `doctor.ts` 與測試下同樣 5 秒逾時（對照已做，80 pass／7 fail）；其餘 8 個是 POSIX `/bin/sh` 與原生 home fixture，由 `8f43924`、`2c8b397`、`92e8f87` 修掉後 `service-definition-escaping`、`service-pinned-homes`、`service` 三檔 0 fail |
+| D（`af3f8f8`、`bc11b07`、`fdad3da`、`72e80d2`） | 158 pass／13 fail | 547 pass／7 fail，加 `5001aa5`、`63ff32a`、`7ea41c3` 後 133 pass／39 skip／1 fail（`oauth-store-multi` manifest 填滿案例預設 5 秒逾時，`--timeout 120000` 下 1 pass） |
+| E（`d0c8151`、`f202b2d`、`708cd06`、`092b496`、`a0d4b40`、`b19daa4`、`b4cc5e8`、`250ef01`，加 `6b3044f`） | 379 pass／97 fail | 566 pass／0 fail，exit 0；`gui/tests/quota-summary.test.ts` 8 pass |
+| F（`f1d1a32`、`540100d`、`3924f21`、`cdb64a9`、`ebeb1dc`） | 98 pass／14 fail | 173 pass／22 skip／7 fail；`--timeout 120000` 下 `cli-sync-expect-link` 30 pass／0 fail，`client-link-connect` 剩 2 案（見下） |
+| G（`7b51475` 的 `src/`、`tests/`、字串） | `client-link-connect` 與 `client-machine-listener` 77 pass／5 fail（新增的 identity pin 兩案、readiness 一案，加兩個既有失敗） | 80 pass／2 fail（兩個既有失敗，見 C、D） |
+| H（bigint 身分：`tests/lib/file-identity-callers.test.ts` scopes 加 `orphan-token-recovery`） | 以上游 `7b514759e` 版 `orphan-token-recovery.ts` 跑：29 pass／1 fail（該 scope 回 `numeric stat`） | 以 fork 版（`lstatFileIdentity`／`fstatFileIdentity`＋`sameFileIdentity`）跑：全過；`client-link-connect`＋`client-machine-listener`＋identity 三檔 110 pass／2 fail（同 C、D 的前身） |
+
+以下為 A–F 完成當時（尚未含 G、H 與 D 的 skip）的合併程序一次性結果：全部 77 個被動到的測試檔加 `test-layout`、`test-layout-tooling`、`fork-hygiene`、`structure-ssot`，單一程序、`--timeout 90000`：2478 tests／80 files，2393 pass、81 skip、4 fail，822 秒。4 個失敗的歸因：
+
+1. `structure/ SSOT`：`scripts/structure-ssot.ts` 以 `git ls-files` 判斷檔案存在，新檔案未暫存時回「this tree does not have」。以暫存索引（含新檔案）重跑 `bun run structure:check` exit 0。**提交者必須暫存新檔案**。
+2. `client-link-connect`「orphan recovery preserves an unsafe symlink token」：`EPERM: operation not permitted, symlink`，此帳號沒有建立 symlink 的權限，環境限制，不是產品行為。
+3. `client-link-connect`「link disconnect restores the prior catalog…」：單獨跑 1 pass（12.98 秒，主機負載高）；合併程序內失敗，未判定根因，列為待觀察。
+4. `kiro-adapter`「an account with no stored Kiro metadata never borrows…」：合併程序內失敗、單檔 106 pass，疑似跨檔環境殘留；專案實際以分片逐檔隔離執行，未判定根因，列為待觀察。
+
+閘門：
+
+| 指令 | exit code | 結果 |
+| --- | --- | --- |
+| `bun run typecheck` | 0 | `No type errors in 2,315 files` |
+| `pwsh -NoProfile -File tools/dev_check.ps1`（暫存索引含新檔案） | 0 | `WINDOWS DEV CHECK GREEN`，10 份文件零斷鏈 |
+| `bun run privacy:scan`、`bun run structure:check`、`bun run docs:clients:check`（同上） | 0, 0, 0 | passed |
+| `bun test tests/ci-workflows/file-size-ratchet.test.ts` | 0 | 9 pass |
+| `bun tools/check-upstream-updates.ts`（修改前） | 0 | 56 commit、0 PR、5 issue |
+| 同上（修改後） | 0 | 56 commit、0 PR、0 issue，`Triaged through #8281` |
+| `bun tools/check-upstream-updates.ts --strict` | 1 | 56 commit（前後相同；commit 軸水位不能中途推進，見 `DECISIONS.md` 2026-11-07 決定一） |
+
+水位實測：把 `reviewed_through` 暫設為 `ebeb1dc8a` 時，檢查工具回報 205 筆待審（上游以 ours merge 併回 main，範圍運算 `reviewed_through..upstream/main` 把更早的 main 線 release merge 全列回來），故已還原為 `cab7eb7d0`。
+
+未驗證：Rust 診斷測試（`a98a6bf`）與 `Cargo.lock`（`b7e01c1`）因本機沒有 `cargo` 未驗證，兩者皆延後；整版 Windows 11 分片 CI 沒有跑，GitHub Actions 上的結果以提交後的 run 為準。
+
+補充（同日第二輪修正後）：
+
+- **合併程序失敗清單不完整**：上面 4 個失敗只是那一次執行印出的；審查者另回報 `tests/server/anthropic2-management.test.ts:109` 在合併程序失敗，本輪未獨立重現。**`tests/server` 與 `tests/providers` 的全量執行沒有跑完**，只跑了被動到的檔案，所以「其餘全過」不能宣稱。專案實際以分片逐檔隔離，該清單只能當作待追蹤線索（`ROADMAP.md` 中期「釐清只在合併程序失敗的測試」）。
+- **C（既有不穩對照）**：`client-link-connect`「link disconnect restores the prior catalog …」。乾淨基底（`git archive fa81b4d4f`，junction 共用 `node_modules`）3 次：1 pass、2 fail；移植後 3 次：1 pass、2 fail；失敗皆為 `Config mutation already in progress` 後接 `EBUSY … rm ocx-client-link-contract-*`，單案約 12–14 秒。結論：不是移植造成。同檔整檔執行時，其後的「cancellation during catalog download …」與「a new link enrollment succeeds after explicitly preserving the orphan token」偶爾跟著失敗，錯誤同為 `Config mutation already in progress`／`EBUSY`（上一案留下的鎖與暫存樹連鎖），兩案單獨跑皆 1 pass。
+- **D**：symlink 案例改用能力探測（win32 且 `EPERM` 才 skip，hardlink 案例照跑）：`-t "unsafe"` 為 1 pass／1 skip。
+- **B**：`orphan-token-recovery.ts` 改 bigint 身分，細節與 red／green 見表 H 與 `DECISIONS.md` 決定七。

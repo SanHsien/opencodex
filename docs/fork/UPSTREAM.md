@@ -1862,3 +1862,35 @@ issue 軸：strict 新列出 `#8181`（desktop takeover 在預設 bind 時，`ru
 | [#8320](https://github.com/lidge-jun/opencodex/issues/8320) macOS：`ocx connect --clients codex` 之後，Dock 啟動的 GUI Codex app 拿不到 Hub 金鑰（要求提示或 LaunchAgent 以 `launchctl setenv` 提供） | open（enhancement／gui／cli／platform）。macOS GUI app 的環境來自 launchd，只有 shell 啟動器 `~/.opencodex/bin/codex` 會把 `OPENCODEX_API_AUTH_TOKEN` 放進環境；回報者要求至少警告，更好是由 `ocx connect` 安裝不含金鑰的 per-user LaunchAgent。延續 #2713（Linux 側已收）。 | 需求本身綁 `launchctl`／LaunchAgent／Dock 啟動，fork 只支援 Windows（`FORK.md` 差異表），沒有對應程式。Windows 上 GUI 程式的環境變數來源（使用者環境變數／登錄檔）是另一個機制，這個 issue 沒有描述，這次沒有查，也不把它當成已知問題。 | **不適用（macOS 專屬）**，與 #8161、#8280、#8281 同類處理。若日後在 Windows 看到 GUI Codex app 報 "Missing environment variable"，那是新的 Windows 問題，另開判定，不引用本條。 |
 
 `reviewed_issue_through` 8281 到 8320。#8317、#8318 的延後項登記在 `ROADMAP.md` 中期表。
+
+## 2026-11-08（續）：上游 PR／issue 分類（#7608、#7619、#8224、#8314、#8315 與 issue #8336；Windows 複查 #7771、#7808、#7810）
+
+本輪針對 Upstream check 報告列出的 5 筆未合併關閉 PR 與 1 筆新 open `platform` issue 進行分類，並複查 Windows 相關 issue。
+
+### 上游未合併關閉的 PR（5 筆，fork 全部不採用）
+
+| PR | 標題 | 上游狀態與事實 | 判定與理由 |
+| --- | --- | --- | --- |
+| #7608 | docs(responses): register and document citation replay coverage | 關閉未合併（Draft，2026-10-28 關閉）。僅記錄 URL-citation 重放回歸測試與文件，作者因工作負載期限與未完成當前 head CI 維持 Draft，上游維護者已把它 carry 成 #7865（squash d67feddd7，在 v2.94.0 內），已由 #7865 併入、fork 隨 v2.94.0 整合取得。 | **不另採**。跟隨上游關閉；已由 #7865 併入且 fork 隨 v2.94.0 整合取得，不另行採用未完成的 Draft PR 分支。 |
+| #7619 | feat(codex): verify Windows CLI archive and shim layouts | 關閉未合併（2026-10-28 關閉）。驗證 Windows x64 Codex CLI 封存檔與安裝 layout。上游維護者以 #7648 consolidation commit（`c3a6b27903b`）明確取代 #7614、#7618 與 #7619。 | **不採用（已被 #7648 取代）**。跟隨上游維護者處置，不重疊採用已關閉分支；相關功能隨 #7648 整合（fork 早前已記錄 #7614、#7618 之相同判定）。 |
+| #8224 | fix(gui): show WorkBuddy credits in quota summary | 關閉未合併（2026-11-06 關閉）。在 GUI QuotaSummaryBar 顯示 WorkBuddy 餘額明細。上游維護者 `lidge-jun` 判定因 stale quota freshness 與 safe validation 尚未解決而 defer 此 PR；關聯 issue #8131 已在 2026-11-08 06:29Z 關閉（上游 #8323 於 06:28Z 合進 dev，比 v2.99.0 晚，會隨下一個 stable 進來）。 | **不採用**。跟隨上游維護者決策關閉；上游修復已由 #8323 合進 dev，待隨下一個 stable 整合。 |
+| #8314 | [WRONG BRANCH] release: promote frozen tip eedbb2b0a9 to preview as 2.99.0-preview.20261108 | 關閉未合併（2026-11-07 關閉）。發版 PR 投錯分支（標題載明 `[WRONG BRANCH]`），由作者關閉。 | **不採用**。發版操作失誤投錯分支，非產品變更。 |
+| #8315 | [WRONG BRANCH] release: promote frozen tip eedbb2b0a9 to main as 2.99.0 | 關閉未合併（2026-11-07 關閉）。發版 PR 投錯分支（標題載明 `[WRONG BRANCH]`），關閉後由後續 PR #8322（`release/promote-main-2.99.0-r2`）取代。 | **不採用**。發版操作失誤投錯分支，後續由 #8322 取代。 |
+
+### 上游 platform issue（1 筆：#8336）
+
+| Issue | 上游事實 | fork 證據與判定 |
+| --- | --- | --- |
+| [#8336](https://github.com/lidge-jun/opencodex/issues/8336) Use independent expected paths in Windows release contract test | open（bug／platform）。指出上游開放中 PR #8335（修復 release attachment contract 測試 harness）裡的 Windows release-contract PATH 單元斷言使用與實作相同的 win32 操作構造期望值，建議改用獨立期望值。 | **相關但延後**。指涉上游尚未合併之 PR #8335，且本 fork 專注於 Windows runtime / proxy 與自有的 `fork-release-windows.yml`，不跑上游的 npm release pipeline。待上游 PR #8335 與 #8336 落地於下一個 stable tag 時，隨穩定版 tag diff 檢視適配。 |
+
+### Windows 相關上游 issue 複查（#7771、#7808、#7810）
+
+- **#7771**（`[Bug][Windows]: desktop 2.92.0 stuck at taking-over when an npm package runtime runs under the Task Scheduler service; ocx stop / service stop do not free the port`）：上游仍 open。本機 2026-10-28 已移除指向舊 npm 安裝的 `\opencodex-proxy` 排程，現況只由 desktop 啟動，本機不重現；持續等上游修正。
+- **#7808**（`[Bug]: Windows client path overrides accept drive-less rooted paths`）：上游已於 2026-10-28 由 PR #7824（commit `07161c5b951`）修復關閉（Windows client path override 要求 drive letter 或 UNC share，拒絕無磁碟代號的根路徑如 `\tmp\client`）。本 fork 在整合 `v2.93.0`..`v2.97.0` 時已包含此修復。
+- **#7810**（`[Bug]: some CLI tests fail on Windows workstations with a long TEMP path or a running local proxy`）：上游已於 2026-10-28 由 commit `95cfa30ec`（#7823，長 TEMP 下 `\\?\` 擴充路徑）及 `fb22d055e`（#7852，私有 known-folder namespace 隔離 client lifecycle 鎖）修復關閉。本 fork 已包含此修復。
+
+### 水位更新
+
+- `reviewed_pr_numbers`：加入 7608, 7619, 8224, 8314, 8315（共 22 筆）。
+- `reviewed_issue_through`：8320 推進至 8336。
+- 執行 `bun tools/check-upstream-updates.ts` 後，PR 軸與 issue 軸兩節皆回報無新項目待審。

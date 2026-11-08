@@ -1192,3 +1192,24 @@ Windows 適用性：只用 `node:crypto` 與環境變數，不碰檔案系統、
 ## 2026-11-08（續）：v2.98.0 整合驗收與水位推進
 
 **決定（推進水位）**：`tools/upstream_baseline.json` 的 `integrated_tag` 由 `v2.97.0` 推到 `v2.98.0`，`integrated_through`／`reviewed_through` 為 `36aa9e8f7933807dc2c873bb93051c7c9c00f4e6`，`reviewed_date` 為 2026-11-08。理由：決定一寫的推進條件成立。`v2.97.0..v2.98.0` 全版 tag diff（868 檔）已逐檔判定（`docs/fork/upstream-v2.97.0-v2.98.0-files.tsv`），分支 `ci/tagdiff-v2.98.0` 在 `7de8aac44` 的 `Cross-platform CI` run 42424520793 的 12 個 Windows shard 與 aggregate `ci` 全 success（CodeQL、Fork maintenance、Catalog async contracts 同為 success），`cab7eb7d0..36aa9e8f7` 的 56 筆 commit 全落在這份 diff 內，連續前綴成立。到這個結果前的 run：42403141711（決定十一、十二的根因）、42412302217、42415040854、42418480772、42421667819 與 42424520793，每一輪的失敗與修法見決定十一、十二及其補記。PR 水位與 17 筆 `reviewed_pr_numbers` 不動，`reviewed_issue_through` 由 8281 推到 8320：水位推進後的 `--strict` 列出 #8317、#8318、#8320 三筆新 `platform` issue，已逐筆判定（#8317、#8318 適用但延後並登記 `ROADMAP.md` 中期列，#8320 macOS 專屬不適用），見 `UPSTREAM.md` 2026-11-08 的 issue 軸一節。決定一提到的決定九重審條件（`client-link-stop` 與 `codex-cli-windows-plan` 的 8.3 案）：這些案例在遠端 Windows 全量 CI 都過了，本機既有失敗的差異沒有另外查證，維持決定九的記載。
+
+## 2026-11-08（續）：上游 PR（#7608、#7619、#8224、#8314、#8315）與 issue（#8336）分類；Windows 相關 issue 複查（#7771、#7808、#7810）
+
+逐筆證據在 `docs/fork/UPSTREAM.md` 同日節。決定：
+
+**決定一（PR 軸 5 筆全部不採用，加入 `reviewed_pr_numbers`）**：
+- #7608（URL-citation 重放覆蓋文件／測試）：上游維護者已把它 carry 成 #7865（squash d67feddd7，在 v2.94.0 內），已由 #7865 併入、fork 隨 v2.94.0 整合取得；維持不另採。
+- #7619（Windows CLI archive 驗證）：已被上游 #7648 consolidation 取代，不重複採用。
+- #8224（GUI WorkBuddy 餘額）：上游維護者因 stale quota freshness 與 safe validation 未決而關閉；關聯 issue #8131 已在 2026-11-08 06:29Z 關閉（上游 #8323 於 06:28Z 合進 dev，比 v2.99.0 晚，會隨下一個 stable 進來）；跟隨上游關閉。
+- #8314、#8315（2.99.0 發版 PR）：標記 `[WRONG BRANCH]` 投錯分支關閉，非產品程式碼變更（#8315 已由 #8322 取代）。
+逐筆加入 `tools/upstream_baseline.json` 的 `reviewed_pr_numbers`（共 22 筆）。
+
+**決定二（issue #8336 相關但延後，水位推至 8336）**：
+- #8336 指出上游未合併 PR #8335 中 release contract 測試 harness 的 PATH 期望值構造問題。本 fork 走 `fork-release-windows.yml`，不執行上游 release 流程；待上游合併至日後 stable tag 後再隨整合處理。`reviewed_issue_through` 推進至 8336。
+
+**決定三（Windows 相關 issue 複查）**：
+- #7771 上游仍 open，本機無排程服務不重現，持續觀察。
+- #7808、#7810 上游均已修復關閉（#7824、#7823、#7852），本 fork 均已包含其修正。
+
+**決定四（ROADMAP 中期列維持）**：
+- Upstream check 報告的 PR 與 issue 兩節已清空，中期的「分類 Upstream check 列出的新 PR／issue」屬反覆觸發項目維持保留，證據欄更新為這次的分類結果（5 筆未合併關閉 PR 與 1 筆 platform issue 已分類，PR 與 issue 兩節清空；commit 軸 28 筆待隨 v2.99.0 整合清空）。

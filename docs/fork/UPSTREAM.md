@@ -1894,3 +1894,230 @@ issue 軸：strict 新列出 `#8181`（desktop takeover 在預設 bind 時，`ru
 - `reviewed_pr_numbers`：加入 7608, 7619, 8224, 8314, 8315（共 22 筆）。
 - `reviewed_issue_through`：8320 推進至 8336。
 - 執行 `bun tools/check-upstream-updates.ts` 後，PR 軸與 issue 軸兩節皆回報無新項目待審。
+
+## 2026-11-09：`v2.98.0..v2.99.0` commit 軸整合前審查（28 筆，未整合）
+
+上游已於 2026-11-08 05:26Z 發布 `v2.99.0`（release tag 指向 `667662903a6c139524506667d12656d9ad50fad0`）。本節針對 `36aa9e8f7..refs/upstream-tags/v2.99.0` 間的 28 筆 commit 進行逐筆整合前審查（逐檔 numstat 皆以 `git diff --numstat <c>^1 <c>` 實算，對 fork 影響使用 `git log origin/main -- <path>` 查驗 fork 獨有 commit）。
+本節**僅建立 commit 軸之逐筆審查文件，不執行整合**（不 merge、不改動產品碼、不推進 `tools/upstream_baseline.json` 水位，待後續獨立 CI 分支依 tag diff 重放）。
+
+### Commit 軸清冊（28 筆）
+
+| Commit | 日期 | 變更規模 | 標記 | 判定 | 主旨 |
+| --- | --- | --- | --- | --- | --- |
+| `e804cd418` | 2026-11-07 | 4 檔 +4/-4 | — | 採用 | chore(release): open dev at 2.99.0 before releasing 2.98.0 (#8263) |
+| `afd76e0b8` | 2026-11-07 | 9 檔 +172/-10 | — | 採用 | fix(mistral): ship per-model effort ladders and fold native Chat ultra (#8259) |
+| `e838c30f2` | 2026-11-07 | 6 檔 +343/-16 | Windows 修正 | 採用（適配） | test: bound Windows overflow slices and preserve child cleanup (#8229) |
+| `508a53563` | 2026-11-07 | 3 檔 +5/-3 | — | 適配 | fix(link): hedge leftover-pin refusal and count in-flight readiness reads (#8261) |
+| `05eaaa388` | 2026-11-07 | 11 檔 +335/-206 | Windows 修正 | 採用（適配） | test: stabilize Windows fixture setup and source checks (#8176) |
+| `06764fddc` | 2026-11-07 | 5 檔 +93/-6 | — | 採用 | perf(kiro): count streamed tool argument bytes incrementally (#8140) |
+| `af92fb4e9` | 2026-11-07 | 12 檔 +120/-14 | 安全 | 採用 | fix(ollama): bound tool-call validation work (#8147) |
+| `f1ce135e8` | 2026-11-07 | 35 檔 +1551/-183 | — | 採用 | fix(responses): preserve mandatory tool choices through routing and recovery (#8146) |
+| `a369a4a32` | 2026-11-07 | 15 檔 +1074/-29 | — | 採用 | fix(responses): preserve late Devin signatures for DSH clients (#8230) |
+| `803d6c0b4` | 2026-11-07 | 60 檔 +2069/-167 | — | 採用 | fix(anthropic): batch affinity writes and confirm operator resets (#8020) |
+| `4b821cf29` | 2026-11-07 | 58 檔 +3092/-272 | Windows 修正 | 採用 | fix(workflows): enforce root send ceilings at physical admission (#8149) |
+| `41f316f40` | 2026-11-07 | 21 檔 +540/-28 | — | 採用 | feat(messaging): add opt-in stored Codex turn reply reads (#8053) |
+| `35d5010f5` | 2026-11-07 | 44 檔 +397/-108 | — | 採用 | Fix dashboard switch and combo layout regressions (#8269) |
+| `bc635c805` | 2026-11-07 | 22 檔 +779/-73 | — | 採用 | Fix clipped Models rows and dashboard control layout (#8272) |
+| `883bf0fd7` | 2026-11-07 | 65 檔 +1500/-169 | Windows 修正、安全 | 採用 | Clarify Desktop startup safety and mask OAuth account labels (#8271) |
+| `19d14bc79` | 2026-11-07 | 6 檔 +78/-25 | — | 採用 | fix(qoder): accept unambiguous selected tool aliases (#8235) |
+| `05408a312` | 2026-11-07 | 30 檔 +542/-36 | — | 採用 | fix(mistral): sanitize Chat fields and normalize native thinking content (#8278) |
+| `66e5b12e0` | 2026-11-07 | 4 檔 +68/-5 | — | 採用 | Fix omitted effort on dual-control Chat wires (#8279) |
+| `a503cd708` | 2026-11-07 | 42 檔 +1139/-221 | — | 採用 | Show app breakdowns and client chips (#8282) |
+| `ac2e7dfb0` | 2026-11-07 | 3 檔 +66/-5 | — | 採用 | Honor max omission before native ultra clamping (#8284) |
+| `c61e95790` | 2026-11-07 | 7 檔 +174/-9 | — | 適配 | fix(desktop,gui): align macOS traffic lights on Sequoia and keep chips rounded in WKWebView (#8285) |
+| `1b87631d5` | 2026-11-07 | 6 檔 +151/-1 | — | 採用 | test: isolate Codex CLI update fixture process scans (#8283) |
+| `aaa3c20f3` | 2026-11-07 | 14 檔 +190/-72 | Windows 修正 | 採用 | Fix launcher signal race and chat-completions network flake (#8289) |
+| `6df9e1176` | 2026-11-07 | 3 檔 +68/-7 | — | 採用 | perf(command-code): measure fragmented NDJSON incrementally (#8277) |
+| `eedbb2b0a` | 2026-11-08 | 1 檔 +5/-2 | — | 採用 | test(config): retain uninstall refusal diagnostics (#8242) |
+| `de411020e` | 2026-11-08 | 2 檔 +30/-1 | 安全 | 採用 | fix(privacy): keep masked account label validation linear (#8316) |
+| `ee0e275e6` | 2026-11-08 | 0 檔 +0/-0 | — | 不適用 | release: promote frozen tip de411020ed5e6df2a2223589bbeeedb412f57bfb to main as 2.99.0 (ours merge of main) |
+| `667662903` | 2026-11-08 | 410 檔 +14575/-1662 | Windows 包含 | 整版整合 | Merge pull request #8322 from lidge-jun/release/promote-main-2.99.0-r2 |
+
+### 逐筆審查細節與 fork 影響分析
+
+#### 1. `e804cd418` chore(release): open dev at 2.99.0 before releasing 2.98.0 (#8263)
+- **實算規模**：4 檔 +4/-4（`desktop/src-tauri/Cargo.lock`, `desktop/src-tauri/Cargo.toml`, `desktop/src-tauri/tauri.conf.json`, `package.json`）。
+- **內容說明**：上游在發布 2.98.0 前將 dev 分支版號推進至 2.99.0。
+- **對 fork 影響**：4 個檔案皆為 fork 既有維護檔（fork 目前為 2.98.0）。本 fork 不獨立重放版號推進 commit，待後續 stable tag diff 整合時統一更新版號。
+- **衝突預判與調整**：無衝突；判定為**採用**（隨 tag diff 整版重放）。
+
+#### 2. `afd76e0b8` fix(mistral): ship per-model effort ladders and fold native Chat ultra (#8259)
+- **實算規模**：9 檔 +172/-10（`docs-site/.../providers.md`, `scripts/test-layout/layout.json`, `src/adapters/openai-chat/passthrough.ts`, `src/adapters/openai-chat/reasoning-wire.ts`, `src/providers/registry/entries-extended.ts`, `structure/catalog.md`, `tests/codex-integration/model-pinned-effort.test.ts`, `tests/fixtures/test-layout-expected.json`, `tests/providers/mistral-reasoning-efforts.test.ts`）。
+- **內容說明**：Mistral 依模型提供 reasoning effort 階梯，並折疊原生 Chat ultra；新增 `mistral-reasoning-efforts.test.ts`。
+- **對 fork 影響**：變更碰觸 fork 的 `passthrough.ts`、`reasoning-wire.ts` 與 `entries-extended.ts`。fork 在這些檔案均為標準 proxy 適配，無 fork 特有邏輯分歧。
+- **衝突預判與調整**：無衝突；判定為**採用**。
+
+#### 3. `e838c30f2` test: bound Windows overflow slices and preserve child cleanup (#8229) 【Windows 修正】
+- **實算規模**：6 檔 +343/-16（`scripts/ci/test-durations.windows.tsv`, `tests/claude-integration/messages-overflow-baseline-contract.test.ts`, `tests/helpers/messages-overflow-assertions.ts`, `tests/helpers/messages-overflow-child.ts`, `tests/helpers/messages-overflow-differential.ts`, `tests/helpers/messages-overflow-spawn-tracker.ts`）。
+- **內容說明**：Windows 專用測試修復：針對 Windows 限制 messages overflow 切片並保留子行程清理。新增 `messages-overflow-child.ts` 與 `messages-overflow-spawn-tracker.ts`。
+- **對 fork 影響**：直接改善 Windows CI 與本機 messages overflow 測試的行程殘留與逾時問題。需特別注意 `scripts/ci/test-durations.windows.tsv`：fork 在 commit `15a0686b0` 與 `b34464034` 已獨立調校 Windows shard 權重，而 12 個 shard 與 cold-start budget 是在 `73c0a8ec4` 於 `ci.yml` 等檔配置。
+- **衝突預判與調整**：測試與 helper 變更直接採用；`test-durations.windows.tsv` 需適配保留 fork 自行維護的分片權重配置，避免被上游覆蓋。判定為**採用（適配）**。
+
+#### 4. `508a53563` fix(link): hedge leftover-pin refusal and count in-flight readiness reads (#8261)
+- **實算規模**：3 檔 +5/-3（`docs-site/src/content/docs/guides/remote-link.md`, `src/client/orphan-token-recovery.ts`, `tests/clients/client-machine-listener.test.ts`）。
+- **內容說明**：Remote Link 對 leftover-pin 拒絕增加避險，並計算 in-flight readiness reads。
+- **對 fork 影響**：`src/client/orphan-token-recovery.ts` 在 fork 上曾針對 Windows NTFS file identity 進行重要適配（commit `a13d292e9`，改用 `lstatFileIdentity`／`fstatFileIdentity` 與 `sameFileIdentity`，並納入 `tests/lib/file-identity-callers.test.ts` 守衛）。上游本 commit 僅在 `:208` 微調 pin 拒絕字串與 listener 計數。
+- **衝突預判與調整**：整合時不可直接整檔覆蓋 `orphan-token-recovery.ts`，必須手動保留 fork 的 bigint file identity 比對實作。判定為**適配**。
+
+#### 5. `05eaaa388` test: stabilize Windows fixture setup and source checks (#8176) 【Windows 修正】
+- **實算規模**：11 檔 +335/-206（`AGENTS.md`, `tests/adapters/anthropic/anthropic-image-retry-e2e.test.ts`, `tests/claude-integration/claude-529-mapping.test.ts`, `tests/claude-integration/messages-error-contracts.test.ts`, `tests/helpers/messages-overflow-case.ts`, `tests/helpers/messages-overflow-differential.ts`, `tests/helpers/remove-tree.ts`, `tests/providers/forward-admission-separation.test.ts`, `tests/providers/kiro/kiro-pool-load-settings.test.ts`, `tests/providers/kiro/kiro-quota-metrics.test.ts`, `tests/windows/windows-tray.test.ts`）。
+- **內容說明**：Windows 專用穩定性修正：`remove-tree.ts` 新增常數 `BACKGROUND_WORK_TEARDOWN_TIMEOUT_MS = 2 * REMOVE_RETRY_BUDGET_MS + 5_000`（+4/-0）、`windows-tray.test.ts` 在 probe 就緒時等待 PID 寫入、強化 source checks 與 fixture 初始化。
+- **對 fork 影響**：對 Windows 執行環境有直接益處。需注意 `AGENTS.md`：上游更新了測試說明，但 fork 頂部有專屬的維護型 fork overlay（`origin`、`upstream`、`FORK.md` 規則等）。
+- **衝突預判與調整**：測試與 helper 程式碼直接採用；`AGENTS.md` 需手動保留 fork overlay 檔頭。判定為**採用（適配）**。
+
+#### 6. `06764fddc` perf(kiro): count streamed tool argument bytes incrementally (#8140)
+- **實算規模**：5 檔 +93/-6（`scripts/test-layout/layout.json`, `src/adapters/kiro/stream.ts`, `structure/transports/byte-accounting.md`, `tests/fixtures/test-layout-expected.json`, `tests/providers/kiro/kiro-tool-byte-accounting.test.ts`）。
+- **內容說明**：Kiro adapter 在串流工具參數時改為增量計算位元組，提升高頻 tool-call 效能；更新架構文件並新增測試。
+- **對 fork 影響**：純 runtime 效能改善與 layout 更新，fork 無相依分歧。
+- **衝突預判與調整**：無衝突；判定為**採用**。
+
+#### 7. `af92fb4e9` fix(ollama): bound tool-call validation work (#8147) 【安全】
+- **實算規模**：12 檔 +120/-14（8 份 `ollama-clients.md`〔英文 1＋7 語系〕、`src/protocols/codecs/ollama.ts`、`structure/data-planes/ollama-inbound.md`、`tests/responses/responses-ollama-codec.test.ts`、`tests/server/server-ollama-inbound.test.ts`，共 12 檔）。
+- **內容說明**：限制 Ollama inbound protocol 中的 tool-call 驗證工作量，防止惡意請求造成 CPU 密集阻塞。
+- **對 fork 影響**：Ollama 協議編解碼器改進；依同檔 L1654 規則，已刪語系（fr／ja／ko／ru／tr／zh-cn，fork 的 `docs-site/src/content/docs/` 下僅保留 `zh-tw`）不重放，只採英文與 zh-tw。
+- **衝突預判與調整**：無衝突；判定為**採用**。
+
+#### 8. `f1ce135e8` fix(responses): preserve mandatory tool choices through routing and recovery (#8146)
+- **實算規模**：35 檔 +1551/-183（`src/server/responses/` 下多個模組、`src/server/request-log.ts`、新增 `tests/responses/responses-direct-chat-tool-choice.test.ts` 等）。
+- **內容說明**：重大 pipeline 修正：在請求 routing 與 recovery 過程中完整保留強制的 tool choice（`tool_choice: "required"` / `"tool"`），防止重試或降級時丟失 tool choice。
+- **對 fork 影響**：變更涵蓋 responses 核心流程。fork 在 `src/server/responses/` 曾適配 401 refresh wires 與參數剝除，需在整合時檢視 `request-transport.ts` 與 `adapter-dispatch.ts` 的邊界。
+- **衝突預判與調整**：預期無邏輯衝突；整合時執行 `bun test tests/responses/` 完整驗證。判定為**採用**。
+
+#### 9. `a369a4a32` fix(responses): preserve late Devin signatures for DSH clients (#8230)
+- **實算規模**：15 檔 +1074/-29（Devin adapter continuation、reasoning envelope、新增 `tests/providers/devin-reasoning-continuation.test.ts` 等）。
+- **內容說明**：為 DSH clients 保留 late Devin signatures，修復 reasoning continuation 簽名遺失問題。
+- **對 fork 影響**：Devin provider 專屬邏輯，fork 在此無分歧。
+- **衝突預判與調整**：無衝突；判定為**採用**。
+
+#### 10. `803d6c0b4` fix(anthropic): batch affinity writes and confirm operator resets (#8020)
+- **實算規模**：60 檔 +2069/-167（Anthropic session pool affinity 模組、新增 `tests/helpers/claude-endpoint-lifetime.ts`、多項 session 測試等）。
+- **內容說明**：優化 Anthropic 帳號池 affinity 寫入機制（批次化寫入）並確認 operator reset 行為，減少高並發磁碟 I/O。
+- **對 fork 影響**：affinity 寫入改為批次化，對 Windows 本機磁碟 I/O 延遲有正面改善。
+- **衝突預判與調整**：無衝突；判定為**採用**。
+
+#### 11. `4b821cf29` fix(workflows): enforce root send ceilings at physical admission (#8149) 【Windows 修正】
+- **實算規模**：58 檔 +3092/-272（`src/server/responses/core.ts`、新增 `tests/responses/responses-workflow-send-ceiling.test.ts`、`tests/responses/responses-websocket-workflow-ceiling.test.ts` 等）。
+- **內容說明**：在 physical admission 層強制執行 root send 預算上限，健全 workflow 執行控制；測試新增 `flushWindowsSecretAclReapsBeforeRemoval` 確保 Windows 秘密目錄清理。
+- **對 fork 影響**：改動了核心請求路徑 `src/server/responses/core.ts`。AGENTS.md 明文規定 `src/server/responses/core.ts` 絕對不可引入 `src/lab/`。
+- **衝突預判與調整**：整合時必須以 `bun test tests/lab/core-lab-boundary.test.ts` 驗證 core-lab boundary 未被打破。判定為**採用**。
+
+#### 12. `41f316f40` feat(messaging): add opt-in stored Codex turn reply reads (#8053)
+- **實算規模**：21 檔 +540/-28（`src/messaging/`、CLI 命令、docs 文件、新增 `tests/codex-integration/messaging-mcp-replies.test.ts` 等）。
+- **內容說明**：新增 opt-in 的 stored Codex turn 回覆讀取功能與 MCP 佇列支援。
+- **對 fork 影響**：messaging 擴充功能。實際 fork 在 messaging 的分歧是 `src/messaging/remote-files.ts` 改用 file-identity，這筆 commit 沒動那個檔，所以無衝突。
+- **衝突預判與調整**：無衝突；判定為**採用**。
+
+#### 13. `35d5010f5` Fix dashboard switch and combo layout regressions (#8269)
+- **實算規模**：44 檔 +397/-108（GUI 控制元件、CSS 樣式、瀏覽器 fixture 與測試）。
+- **內容說明**：修復 GUI dashboard switch 切換器與 combo layout 的樣式回歸問題。
+- **對 fork 影響**：純 GUI 前端元件與測試，fork 無衝突。
+- **衝突預判與調整**：無衝突；判定為**採用**。
+
+#### 14. `bc635c805` Fix clipped Models rows and dashboard control layout (#8272)
+- **實算規模**：22 檔 +779/-73（`gui/src/pages/Models.tsx`, `quota-summary-bar.css`, browser tests 等）。
+- **內容說明**：修復 Models 頁面中的項目被截斷問題及 dashboard 控制項配置。
+- **對 fork 影響**：純 GUI 前端變更，fork 無衝突。
+- **衝突預判與調整**：無衝突；判定為**採用**。
+
+#### 15. `883bf0fd7` Clarify Desktop startup safety and mask OAuth account labels (#8271) 【Windows 修正、安全】
+- **實算規模**：65 檔 +1500/-169（`desktop/src-tauri/src/native_tray_accounts.rs`, `src/lib/privacy.ts`, `tests/service/service-desktop-supervision-windows.test.ts` 等）。
+- **內容說明**：Windows 托盤與桌面啟動安全性改善，並遮罩 OAuth 帳號標籤；更新 i18n（含 zh-TW）。
+- **對 fork 影響**：直接改善 Windows 托盤帳號顯示安全，符合 fork `privacy:scan` 零個資洩漏標準；`gui/src/i18n` 的 de／fr／ja／ko／pt／ru／tr／vi／zh 9 檔為 fork 已刪語系不重放，fork 只有 `en.ts` 與 `zh-TW.ts`。
+- **衝突預判與調整**：Rust 托盤程式碼與 Windows 服務監督測試皆適用；需確認 `bun run privacy:scan` 通過，且重放時排除已刪語系檔。判定為**採用**。
+
+#### 16. `19d14bc79` fix(qoder): accept unambiguous selected tool aliases (#8235)
+- **實算規模**：6 檔 +78/-25（`src/adapters/qoder.ts`, `tests/providers/qoder-adapter.test.ts` 等）。
+- **內容說明**：Qoder adapter 支援明確的選定工具別名解析。
+- **對 fork 影響**：純 adapter 功能修復，fork 無分歧。
+- **衝突預判與調整**：無衝突；判定為**採用**。
+
+#### 17. `05408a312` fix(mistral): sanitize Chat fields and normalize native thinking content (#8278)
+- **實算規模**：30 檔 +542/-36（Mistral Chat 欄位過濾、thinking 內容正規化與測試）。
+- **內容說明**：淨化 Mistral Chat 欄位，並將 native thinking content 統一正規化。
+- **對 fork 影響**：無衝突；判定為**採用**。
+
+#### 18. `66e5b12e0` Fix omitted effort on dual-control Chat wires (#8279)
+- **實算規模**：4 檔 +68/-5（`src/adapters/openai-chat/reasoning-wire.ts`, `tests/adapters/openai/openai-chat-reasoning-wire-policy.test.ts` 等）。
+- **內容說明**：修復在雙控制 Chat wires 上遺漏傳遞 effort 參數的缺陷。
+- **對 fork 影響**：無衝突；判定為**採用**。
+
+#### 19. `a503cd708` Show app breakdowns and client chips (#8282)
+- **實算規模**：42 檔 +1139/-221（`src/usage/app-breakdown.ts`, GUI 元件, usage tests 等）。
+- **內容說明**：在 GUI 與用量統計中新增 app 分類明細與 client chips 顯示。
+- **對 fork 影響**：純 usage 統計與前端展示擴充，無衝突。
+- **衝突預判與調整**：無衝突；判定為**採用**。
+
+#### 20. `ac2e7dfb0` Honor max omission before native ultra clamping (#8284)
+- **實算規模**：3 檔 +66/-5（`src/adapters/openai-chat/reasoning-wire.ts` 等）。
+- **內容說明**：在執行 native ultra clamping 前遵循 max omission 設定。
+- **對 fork 影響**：無衝突；判定為**採用**。
+
+#### 21. `c61e95790` fix(desktop,gui): align macOS traffic lights on Sequoia and keep chips rounded in WKWebView (#8285)
+- **實算規模**：7 檔 +174/-9（`desktop/src-tauri/src/lib.rs`, `desktop/src-tauri/src/traffic_lights.rs`, GUI theme 等）。
+- **內容說明**：macOS Sequoia traffic light 排版對齊與 WKWebView 圓角修正。
+- **對 fork 影響**：`traffic_lights.rs` 為 macOS 專屬實作。fork 是 Windows-only，需確認在 Windows 建置時該檔案被 `#[cfg(target_os = "macos")]` 隔離，避免引入非 Windows 平台相依。
+- **衝突預判與調整**：需確保 Windows cargo build / typecheck 不受影響；判定為**適配**。
+
+#### 22. `1b87631d5` test: isolate Codex CLI update fixture process scans (#8283)
+- **實算規模**：6 檔 +151/-1（`tests/codex-integration/codex-cli-update-process-fixture.test.ts` 等）。
+- **內容說明**：隔離 Codex CLI 更新測試 fixture 的行程掃描，避免跨測試進程污染。
+- **對 fork 影響**：測試穩定性優化，對 Windows 的行程釋放與鎖定問題特別有益。
+- **衝突預判與調整**：無衝突；判定為**採用**。
+
+#### 23. `aaa3c20f3` Fix launcher signal race and chat-completions network flake (#8289) 【Windows 修正】
+- **實算規模**：14 檔 +190/-72（`bin/ocx.mjs`, `src/lib/launcher-signal-forwarding.mjs`, `tests/cli/ocx-launcher-desktop-handoff.test.ts` 等）。
+- **內容說明**：修復 launcher 信號競爭問題（`launcher-signal-forwarding.mjs` 在 win32 只轉發 SIGINT／SIGTERM），並降低 chat-completions 網路測試 flake。
+- **對 fork 影響**：`bin/ocx.mjs` 為 CLI 啟動入口。fork 在 `structure/runtime.md` 規定 Windows 永遠走 package 路徑（跳過 POSIX desktop handoff）。
+- **衝突預判與調整**：整合時需確認 Windows 上的啟動路徑不退化，信號轉發模組在 Windows 下正常運作。判定為**採用**。
+
+#### 24. `6df9e1176` perf(command-code): measure fragmented NDJSON incrementally (#8277)
+- **實算規模**：3 檔 +68/-7（`src/adapters/command-code.ts`, `structure/transports/byte-accounting.md`, `tests/providers/command-code-buffer-budget.test.ts`）。
+- **內容說明**：Command Code adapter 增量計量分段 NDJSON 效能優化。
+- **對 fork 影響**：純 adapter 效能改善，無衝突。
+- **衝突預判與調整**：無衝突；判定為**採用**。
+
+#### 25. `eedbb2b0a` test(config): retain uninstall refusal diagnostics (#8242)
+- **實算規模**：1 檔 +5/-2（`tests/config/config-ownership-concurrent-record.test.ts`）。
+- **內容說明**：在測試中保留 config 卸載拒絕時的診斷訊息。
+- **對 fork 影響**：無衝突；判定為**採用**。
+
+#### 26. `de411020e` fix(privacy): keep masked account label validation linear (#8316) 【安全】
+- **實算規模**：2 檔 +30/-1（`src/lib/privacy.ts`, `tests/lib/privacy-mask-account.test.ts`）。
+- **內容說明**：使遮罩帳號標籤的驗證維持線性時間複雜度，修復隱私欄位驗證可能出現的效能瓶頸（防 DoS 安全改善）。
+- **對 fork 影響**：提升 privacy 驗證效能，無衝突。
+- **衝突預判與調整**：無衝突；判定為**採用**。
+
+#### 27. `ee0e275e6` release: promote frozen tip de411020ed5e6df2a2223589bbeeedb412f57bfb to main as 2.99.0 (ours merge of main)
+- **實算規模**：0 檔 +0/-0（First parent 為 `de411020e`，second parent 為 `36aa9e8f7`）。
+- **內容說明**：上游 release promotion commit，採用 ours merge 將 frozen tip 提拔至發布狀態。
+- **對 fork 影響**：發版流程專屬 commit，無實際程式碼改動。本 fork 採 tag diff 整合，不重放 promotion PR。
+- **衝突預判與調整**：判定為**不適用**。
+
+#### 28. `667662903` Merge pull request #8322 from lidge-jun/release/promote-main-2.99.0-r2 【Windows 包含】
+- **實算規模**：410 檔 +14575/-1662（First parent 為 `36aa9e8f7` 即 `v2.98.0`，second parent 為 `ee0e275e6`）。
+- **內容說明**：上游 PR #8322 將 2.99.0 發版 tip 合併回 main 分支，為 release tag `v2.99.0` 的所在節點。
+- **對 fork 影響**：此 commit 匯總了 `v2.98.0` 至 `v2.99.0` 的所有變更（上述 1～26 項之總和）。fork 依據維護守則，將在後續整版整合時以 `git diff refs/upstream-tags/v2.98.0 refs/upstream-tags/v2.99.0` 全版重放至 `main`。
+- **衝突預判與調整**：待後續獨立 CI 分支依下節清單進行適配重放。判定為**整版整合**。
+
+### 整合時注意與調整清單（Checklist）
+
+在後續獨立分支進行 `v2.99.0` 整版 tag diff 重放時，需特別核對以下 7 處 fork 特有差異：
+
+1. **Windows CI Shard 權重**（`scripts/ci/test-durations.windows.tsv`，涉及 `e838c30f2`）：
+   - fork 在 commit `15a0686b0` 與 `b34464034` 已獨立配置 Windows shard 權重（12 個 shard 與 cold-start budget 則由 `73c0a8ec4` 在 `ci.yml` 配置）；重放時不可直接覆蓋，需保留 fork 專屬分片權重。
+2. **NTFS Bigint File Identity 比對**（`src/client/orphan-token-recovery.ts`，涉及 `508a53563`）：
+   - fork 在 commit `a13d292e9` 將其改為 `lstatFileIdentity`／`fstatFileIdentity` 與 `sameFileIdentity`（處理 NTFS 64-bit file ID），重放上游 pin refusal 微調時需手動保留此邏輯，切勿回退為上游 Number 比對。
+3. **AGENTS.md 檔頭 Overlay**（`AGENTS.md`，涉及 `05eaaa388`）：
+   - 上游修訂測試說明時會更動 `AGENTS.md`，重放時需完整保留 fork 頂部的 SanHsien 維護型 fork overlay 宣告。
+4. **macOS 專屬 Rust 程式碼隔離**（`desktop/src-tauri/src/traffic_lights.rs`，涉及 `c61e95790`）：
+   - fork 為 Windows-only 環境，需確認該模組在 Windows 上具備完整的 `#[cfg(target_os = "macos")]` 條件編譯，或由 fork hygiene 排除，避免 Windows cargo check 失敗。
+5. **CLI 啟動路徑**（`bin/ocx.mjs`，涉及 `aaa3c20f3`）：
+   - fork 規定 Windows 環境永遠使用 package 路徑（不走 POSIX desktop handoff），信號轉發更新需維持此行為契約。
+6. **Core-Lab 邊界守衛**（`src/server/responses/core.ts`，涉及 `4b821cf29`）：
+   - responses core 大幅改動後，重放後必須執行 `bun test tests/lab/core-lab-boundary.test.ts` 確認零 lab 模組滲漏至 core 路徑。
+7. **已刪語系不重放**（涉及 `af92fb4e9`、`883bf0fd7` 等）：
+   - 整份 tag diff 有 36 個已刪語系檔（docs-site 的 fr／ja／ko／ru／tr／zh-cn 27 檔、`gui/src/i18n` 非 en／zh-TW 的 9 檔）；依維護規則（同檔 L1654）一律不重放，僅採英文與 zh-tw / zh-TW。
+
+### 上游分支狀態事實紀錄
+
+經由 `git ls-remote --symref https://github.com/lidge-jun/opencodex.git HEAD` 實查，上游已刪除 `main` 分支，目前遠端 HEAD 指向 `refs/heads/dev`。因 `tools/upstream_baseline.json` 設定之 `"branch": "main"`，`tools/check-upstream-updates.ts` 執行時 fetch `+refs/heads/main` 會失敗；上游分支追蹤目標待後續另行決定（本節僅記錄事實，不變更工具與 baseline 設定）。

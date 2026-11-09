@@ -36,6 +36,7 @@ import { atomicWriteFileNoFollowUnclaimed } from "../config/atomic-write";
 import { assertNotRealHomeUnderTest } from "../lib/test-home-guard";
 import { recordOwnedConfigPath, registerOwnedConfigPath, type OwnedPathRegistration } from "../lib/config-ownership";
 import { statTimeMs } from "../lib/file-identity";
+import { readBoundedRegularFile } from "../lib/bounded-file-read";
 import { MAX_PENDING_OAUTH_MUTATIONS } from "../lib/translator-budget";
 import { publishAccountSelection, publishOAuthAccountPauseChange, publishOAuthAccountRoutingPolicyChange } from "../lib/account-selection-events";
 import {
@@ -520,11 +521,22 @@ function scrubLegacyBackup(providers: readonly string[]): void {
   }
 }
 
-/** Provider entries of the backup; empty (so the file is removed) when unreadable or not a regular file. */
+/** Largest legacy backup read; it is a copy of the pre-migration credential file, so far smaller in practice. */
+const LEGACY_BACKUP_MAX_BYTES = 16 * 1024 * 1024;
+
+/**
+ * Provider entries of the backup; empty (so the file is removed) when unreadable or not a regular file.
+ * A missing backup throws ENOENT, which the caller treats as nothing to scrub.
+ *
+ * The type check and the read go through one descriptor: a lstat followed by a read by path are two
+ * resolutions of the name, and a file swapped in between would have its entries rewritten into the backup.
+ */
 function readLegacyBackupEntries(backup: string): Record<string, unknown> {
-  if (!lstatSync(backup).isFile()) return {};
+  const read = readBoundedRegularFile(backup, LEGACY_BACKUP_MAX_BYTES);
+  if (read.kind === "absent") throw Object.assign(new Error("legacy credential backup is absent"), { code: "ENOENT" });
+  if (read.kind !== "present") return {};
   try {
-    const parsed: unknown = JSON.parse(readFileSync(backup, "utf-8"));
+    const parsed: unknown = JSON.parse(read.content);
     return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? { ...(parsed as Record<string, unknown>) } : {};
   } catch {
     return {};

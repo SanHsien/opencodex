@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { INTERNAL_DEADLINE_MS, STORE_BUDGET_MS } from "../helpers/test-budget";
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import * as fs from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, renameSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as atomicWrite from "../../src/config/atomic-write";
@@ -319,6 +320,37 @@ describe("multi-account auth store", () => {
 
     expect(JSON.parse(readFileSync(authPath, "utf-8"))).toEqual({});
     expect(existsSync(`${authPath}.pre-multiauth`)).toBe(false);
+  });
+
+  test("a legacy credential backup swapped in after the type check is not rewritten into the backup", async () => {
+    const authPath = join(TEST_DIR, "auth.json");
+    const backup = `${authPath}.pre-multiauth`;
+    const forgedPath = join(TEST_DIR, "forged-backup.json");
+    mkdirSync(TEST_DIR, { recursive: true, mode: 0o700 });
+    const legacy = {
+      xai: { access: "legacy-access", refresh: "legacy-refresh", expires: Date.now() + 1000 },
+    };
+    writeFileSync(authPath, JSON.stringify(legacy));
+    writeFileSync(backup, JSON.stringify(legacy));
+    writeFileSync(forgedPath, JSON.stringify({ "swapped-in-entry": { access: "other-file", refresh: "other-file", expires: 1 } }));
+    const accountId = getAccountSet("xai")!.activeAccountId;
+    let swapped = false;
+    const lstat = fs.lstatSync;
+    const spy = spyOn(fs, "lstatSync").mockImplementation(((path: fs.PathLike, options?: fs.StatOptions) => {
+      const stat = lstat(path, options as never);
+      // Only the stat taken while the backup is being read counts; other probes of the name are not the trigger.
+      if (!swapped && String(path) === backup && new Error().stack?.includes("readLegacyBackupEntries")) {
+        swapped = true;
+        renameSync(forgedPath, backup);
+      }
+      return stat;
+    }) as typeof fs.lstatSync);
+    try {
+      expect(await removeAccount("xai", accountId)).toBe(true);
+    } finally { spy.mockRestore(); }
+    expect(swapped).toBe(true);
+    // The backup that was checked is gone from the name; what replaced it must not be adopted.
+    if (existsSync(backup)) expect(readFileSync(backup, "utf8")).not.toContain("swapped-in-entry");
   });
 
   test("logout on a migrated store still removes a stale credential backup", async () => {

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import * as fs from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -105,6 +106,41 @@ describe("owned config uninstall", () => {
       expect(removeOwnedConfigState(dir).status).toBe("partial");
       expect(existsSync(path)).toBe(false);
     } finally {
+      removeTreeWithRetry(parent);
+    }
+  });
+
+  test("a manifest swapped in after the type check is not adopted as the uninstall list", () => {
+    const parent = mkdtempSync(join(tmpdir(), "ocx-config-manifest-swap-"));
+    const dir = join(parent, "config");
+    const victim = join(dir, "victim.txt");
+    const forgedPath = join(parent, "forged.json");
+    let swapped = false;
+    const lstat = fs.lstatSync;
+    const spy = spyOn(fs, "lstatSync");
+    try {
+      expect(recordOwnedConfigPath(dir, join(dir, "owned.txt"))).toBe(true);
+      writeFileSync(join(dir, "owned.txt"), "owned");
+      writeFileSync(victim, "keep");
+      const forged = JSON.parse(readFileSync(join(dir, CONFIG_UNINSTALL_MANIFEST), "utf8")) as { paths: string[] };
+      forged.paths.push("victim.txt");
+      writeFileSync(forgedPath, JSON.stringify(forged));
+      // Replace the manifest between the metadata check and the read; only the stat taken while
+      // the manifest is being read counts, so the earlier existence probes are not the trigger.
+      spy.mockImplementation(((path: fs.PathLike, options?: fs.StatOptions) => {
+        const stat = lstat(path, options as never);
+        if (!swapped && String(path).endsWith(CONFIG_UNINSTALL_MANIFEST) && new Error().stack?.includes("readBoundedJsonSized")) {
+          swapped = true;
+          renameSync(forgedPath, String(path));
+        }
+        return stat;
+      }) as typeof fs.lstatSync);
+      removeOwnedConfigState(dir);
+    } finally {
+      spy.mockRestore();
+      expect(swapped).toBe(true);
+      // The recorded list never named victim.txt; only a swapped-in manifest could delete it.
+      expect(readFileSync(victim, "utf8")).toBe("keep");
       removeTreeWithRetry(parent);
     }
   });

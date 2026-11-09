@@ -2,7 +2,6 @@ import {
   existsSync,
   lstatSync,
   mkdirSync,
-  readFileSync,
   readdirSync,
   realpathSync,
   rmdirSync,
@@ -14,6 +13,7 @@ import { Database } from "bun:sqlite";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { GenerationContext } from "./state-store-sweeper";
 import { renameAtomicFile } from "./windows-atomic-replace";
+import { readBoundedRegularFile } from "./bounded-file-read";
 import {
   canonicalRootUnchanged,
   elevatedRemovalRefusal,
@@ -233,16 +233,14 @@ function readBoundedJson(path: string, maxBytes = METADATA_MAX_BYTES): unknown {
 }
 
 function readBoundedJsonSized(path: string, maxBytes: number): { value: unknown; size: number } {
-  const metadata = lstatSync(path);
-  if (!metadata.isFile() || metadata.isSymbolicLink()) {
+  // One descriptor decides the type, the size and the bytes. A lstat followed by a path read are two
+  // resolutions of the name, so a file swapped in between would be read unbounded and unvetted.
+  const read = readBoundedRegularFile(path, maxBytes);
+  if (read.kind !== "present") {
+    if (read.kind === "refused" && read.reason === "too-large") throw new Error("ownership metadata is too large");
     throw new Error("ownership metadata is not a regular file");
   }
-  // Size first, so an oversized file is refused before it is read; the read is rechecked for a
-  // file that grew in between.
-  if (metadata.size > maxBytes) throw new Error("ownership metadata is too large");
-  const bytes = readFileSync(path);
-  if (bytes.length > maxBytes) throw new Error("ownership metadata is too large");
-  return { value: JSON.parse(bytes.toString("utf8")) as unknown, size: bytes.length };
+  return { value: JSON.parse(read.content) as unknown, size: read.bytes.length };
 }
 
 function isOwner(value: unknown): value is ConfigOwner {

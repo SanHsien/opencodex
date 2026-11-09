@@ -1,5 +1,6 @@
-import { closeSync, constants, fstatSync, lstatSync, openSync, readSync, realpathSync } from "node:fs";
+import { closeSync, constants, openSync, readSync, realpathSync } from "node:fs";
 import { join } from "node:path";
+import { fstatFileIdentity, lstatFileIdentity } from "../lib/file-identity";
 import { assertNotRealHomeUnderTest } from "../lib/test-home-guard";
 import { probeEndpointLiveness, proveLiveProxyOwnedByHome } from "../server/proxy-liveness";
 import { processIdentity, procfs, windowsProcessPair } from "../service/desktop-supervision.mjs";
@@ -9,16 +10,16 @@ function readRuntimeRecord(home: string): { kind: "record"; raw: string } | { ki
   const path = join(home, "runtime-port.json");
   let observed = false, fd: number | undefined;
   try {
-    const before = lstatSync(path);
+    const before = lstatFileIdentity(path);
     observed = true;
     if (!before.isFile() || before.size > 32_768) return { kind: "unreadable" };
     fd = openSync(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
-    const opened = fstatSync(fd);
+    const opened = fstatFileIdentity(fd);
     if (!opened.isFile() || opened.dev !== before.dev || opened.ino !== before.ino || opened.size !== before.size) return { kind: "unreadable" };
     const bytes = Buffer.alloc(32_769);
     const count = readSync(fd, bytes, 0, bytes.length, 0);
     if (count !== opened.size || count > 32_768) return { kind: "unreadable" };
-    const after = lstatSync(path);
+    const after = lstatFileIdentity(path);
     if (before.dev !== after.dev || before.ino !== after.ino || before.size !== after.size || before.mtimeMs !== after.mtimeMs) return { kind: "unreadable" };
     return { kind: "record", raw: new TextDecoder("utf-8", { fatal: true }).decode(bytes.subarray(0, count)) };
   } catch (error) {

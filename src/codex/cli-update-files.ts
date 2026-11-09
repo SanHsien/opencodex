@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
-import { accessSync, closeSync, constants, fstatSync, lstatSync, openSync, readdirSync, readSync, realpathSync } from "node:fs";
+import { accessSync, closeSync, constants, lstatSync, openSync, readdirSync, readSync, realpathSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { fstatFileIdentity, lstatFileIdentity } from "../lib/file-identity";
 import { MAX_CODEX_MEMBER_BYTES, MAX_CODEX_UNPACKED_BYTES, type CodexArchiveFiles } from "./cli-update-artifacts";
 
 interface FileProof { readonly size: number; readonly digest: string; readonly executable: boolean; readonly mode?: number }
@@ -49,11 +50,12 @@ export function observeCodexCliFileSet(roots: readonly string[]): CodexCliFileSe
   let total = 0, entries = 0;
   const walk = (path: string) => {
     if (++entries > 8192 || realpathSync.native(path) !== path) throw new Error("install_tree_unverified");
-    const lexical = lstatSync(path);
+    // Identity comes from bigint stats: NTFS file IDs exceed 2^53, where Number cannot tell neighbours apart.
+    const lexical = lstatFileIdentity(path);
     if (lexical.isSymbolicLink()) throw new Error("install_tree_unverified");
     if (lexical.isDirectory()) {
       for (const name of readdirSync(path)) walk(join(path, name));
-      const after = lstatSync(path);
+      const after = lstatFileIdentity(path);
       if (lexical.dev !== after.dev || lexical.ino !== after.ino || lexical.mtimeMs !== after.mtimeMs) throw new Error("install_tree_changed");
       return;
     }
@@ -62,7 +64,7 @@ export function observeCodexCliFileSet(roots: readonly string[]): CodexCliFileSe
     if (total > MAX_CODEX_UNPACKED_BYTES || files.size >= 4096) throw new Error("install_tree_limit");
     const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
     try {
-      const before = fstatSync(fd);
+      const before = fstatFileIdentity(fd);
       if (!before.isFile() || before.dev !== lexical.dev || before.ino !== lexical.ino || before.size !== lexical.size) throw new Error("install_tree_changed");
       const hash = createHash("sha256").update("codex-cli-observed-file-v1\0");
       const chunk = Buffer.allocUnsafe(64 * 1024);
@@ -74,7 +76,7 @@ export function observeCodexCliFileSet(roots: readonly string[]): CodexCliFileSe
         if (offset > before.size) throw new Error("install_tree_changed");
         hash.update(chunk.subarray(0, count));
       }
-      const after = fstatSync(fd), final = lstatSync(path);
+      const after = fstatFileIdentity(fd), final = lstatFileIdentity(path);
       if (offset !== before.size || before.size !== after.size || before.mtimeMs !== after.mtimeMs
         || before.ctimeMs !== after.ctimeMs || final.isSymbolicLink() || final.dev !== before.dev || final.ino !== before.ino
         || final.mode !== before.mode) throw new Error("install_tree_changed");

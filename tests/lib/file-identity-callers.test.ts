@@ -32,6 +32,8 @@ const scopes: Record<string, string[]> = {
   "src/integrations/aside-profile-context.ts": ["storeGuard"],
   "src/integrations/hermes-profiles.ts": ["lstatOrNull"],
   "src/providers/cc-switch-import-source.ts": ["readSourceRows"],
+  "src/codex/cli-update-files.ts": ["observeCodexCliFileSet"],
+  "src/update/orchestrated-live-identity.ts": ["readRuntimeRecord"],
   "src/adapters/command-code-project-context.ts": ["openedFileIsConfined"],
   "src/codex/catalog/write-audit.ts": ["appendCatalogWriteAudit"],
   // Fork divergence (DECISIONS 2026-11-07): upstream compares Number dev/ino here; the fork uses the bigint helpers.

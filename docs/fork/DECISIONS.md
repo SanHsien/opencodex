@@ -50,30 +50,32 @@
 
 **範圍**：`code-scanning/alerts?state=open` 在 `57c5a284e` 有 34 筆。逐筆對照 `refs/upstream-tags/v2.98.0` 後，28 個被標檔案中 26 個與上游逐位元相同；只有 `provider-models.ts`（log 清洗、Vertex host 比對，與告警位置無關）與 `bounded-config-reader.ts`（只把過大檔的錯誤分類成 `EFBIG`，不動 `openSync` 與身分比對）有 fork 修正。判準沿用 2026-10-28 條目：CodeQL 看到「檢查再使用」就標；先看使用端是否在同一個 descriptor 上做了身分比對，有就是 false positive，沒有而且讀的是憑證或解除安裝清單才改。
 
-**修正 2 筆（上游碼，沿用 2026-10-28 的 fork 修正作法：改走 `readBoundedRegularFile`）**：
+**修正 4 筆（上游碼，沿用 2026-10-28 的 fork 修正作法：改走 `readBoundedRegularFile`／bigint 身分）**：
 
 | 告警 | 位置 | 問題 | 修法與釘住測試 |
 | --- | --- | --- | --- |
 | #633 `js/file-system-race` | `src/lib/config-ownership.ts` `readBoundedJsonSized` | `lstat` 確認一般檔後以路徑 `readFileSync`，兩次解析同一個名稱；解除安裝清單（`.opencodex-uninstall.json`）在其間被換成別的檔就會被當成要刪的清單 | 改由同一個 descriptor 決定型別、大小與位元組。`tests/config/config-ownership-uninstall.test.ts`「a manifest swapped in after the type check is not adopted as the uninstall list」：讀取清單的那次 `lstat` 之後把清單換成多列 `victim.txt` 的版本，`victim.txt` 必須留著。先紅：還原原碼，`victim.txt` 被刪（`ENOENT`）；後綠 |
 | #477 `js/file-system-race` | `src/oauth/store.ts` `readLegacyBackupEntries` | 同型：`lstat` 後以路徑讀舊憑證備份 `auth.json.pre-multiauth`，再把剩餘項目寫回備份；被換掉的檔案內容會寫進備份 | 改走 `readBoundedRegularFile`（上限 16 MiB）；備份不存在仍拋 `ENOENT` 讓呼叫端靜默略過，不可讀或被換掉回空物件（備份被移除，與原本「不可讀就移除」一致）。`tests/oauth/oauth-store-multi.test.ts`「a legacy credential backup swapped in after the type check is not rewritten into the backup」。先紅：原碼下備份內容為換進來的 `swapped-in-entry`；後綠 |
+| #618 `js/file-system-race` | `src/codex/cli-update-files.ts` `observeCodexCliFileSet` | descriptor 身分比對已在，但 `lstatSync`／`fstatSync` 取的是 Number 型別 dev／ino；NTFS 檔案編號超過 2^53 時，只差最後一位的兩個檔案會被判為同一個 | 改用 `lstatFileIdentity`／`fstatFileIdentity`（bigint 身分，其餘欄位維持 Number），比對端不用改（兩側皆 bigint）。**先紅的方式**：無法造出編號超過 2^53 的檔案，也沒有可抽出的比對函式（比對寫在函式內）；改把 `observeCodexCliFileSet` 登記進 `tests/lib/file-identity-callers.test.ts` 的 `scopes`，該測試逐一檢查範圍內每個 stat 呼叫都帶 `{ bigint: true }` 或走 `*FileIdentity` helper。原碼下兩個新範圍各紅（`numeric stat: lstatSync(path)`／`fstatSync(fd)`），修正後綠；超過 2^53 的鄰近編號判為不同，則由既有 `tests/lib/file-identity.test.ts` 對 `sameFileIdentity` 的案例釘住 |
+| #623 `js/file-system-race` | `src/update/orchestrated-live-identity.ts` `readRuntimeRecord` | 同 #618 | 同 #618（登記範圍 `readRuntimeRecord`） |
 
-兩個測試都只在「讀取那一次」的 `lstat` 之後換檔（以呼叫堆疊上的函式名判斷），避免被其他函式對同一路徑的探測提早觸發。
+兩個 TOCTOU 測試都只在「讀取那一次」的 `lstat` 之後換檔（以呼叫堆疊上的函式名判斷），避免被其他函式對同一路徑的探測提早觸發。
 
-**dismiss 32 筆（28 false positive、4 won't fix）**，理由逐筆（含檔案：行號）寫在 GitHub 的 dismiss 說明：
+**dismiss 32 筆（28 false positive、4 won't fix）；其中 #618、#623 已改 bigint 但仍保留 dismiss**，理由逐筆（含檔案：行號）寫在 GitHub 的 dismiss 說明：
 
 | 規則 | 告警 | 判定 | 依據 |
 | --- | --- | --- | --- |
 | `js/insufficient-password-hash` | #607 #608 #609 #610 #611 #612 #630 #631 | false positive | 雜湊的是高熵 API key／PAT／識別碼，只用來當行程內或檔名的鍵（H2 連線池、探索 flight、模型快取範圍、affinity 檔名、turn-state 綁定）或 HMAC 證明；沒有任何一處儲存或驗證密碼，換成慢速 KDF 只增加每個請求的延遲。與 2026-11-04 #604 同判 |
 | `js/stack-trace-exposure` | #614 #634 | false positive | `.stack` 只在 `crash-guard.ts` 與 `cli/secret-args.ts` 讀取（寫入日誌）；回應本文經 `ownedChatErrorPayload` 只含固定或白名單訊息；#634 的 `new Response` 是行程內重讀有界本文用，不送給客戶端 |
-| `js/file-system-race`（身分已綁定） | #493 #479 #618 #619 #620 #621 #622 #623 #624 #625 | false positive | 讀取前後都在 descriptor 上比對 dev／ino（多數加 size、mtime、mode），換檔或換連結即拒絕。與 2026-11-04 #602、#603 同型。備註：#618、#623 的 dev／ino 是 Number 型別，NTFS 檔案編號超過 2^53 時精度不足（2026-10-28 曾把 6 處改 bigint）；兩處另比 size 與 mtime，沒有可利用的路徑，改 bigint 留給整合上游該檔時一併處理 |
+| `js/file-system-race`（身分已綁定） | #493 #479 #618 #619 #620 #621 #622 #623 #624 #625 | false positive | 讀取前後都在 descriptor 上比對 dev／ino（多數加 size、mtime、mode），換檔或換連結即拒絕。與 2026-11-04 #602、#603 同型。#618、#623 另已改 bigint 身分（見上表）；CodeQL 的 file-system-race 規則不模型化這個修正（它只看 lstat 後開檔的形狀），預期重掃後仍會標記，所以保留 dismiss |
 | `js/file-system-race`（不改） | #480 #626 #627 #617 | won't fix | #480 的標記檔只決定是否刪除一個已驗為真目錄的暫存區，換檔無法改變刪除目標；#626、#627 讀隨套件安裝的宣告檔且 fork 關閉自我更新（`selfUpdateAllowed: false`），路徑不會執行；#617 是開發者文件產生器，只讀寫自己的 checkout |
 | `js/file-access-to-http` | #615 #616 | false positive | 主機固定為 `127.0.0.1`，或為經身分檢查的 live proxy 自己記錄的 host／port（`runtimeBaseUrl()`），與其他 `ocx` 管理指令相同；2026-09-19 已有同型判定 |
 | `js/polynomial-redos` | #605 #606 | false positive | 該正規式只在 `JSON.parse(args)` 成功之後執行（`tool-argument-integers.ts:317`），有效 JSON 的字串一定有結尾，全域掃描是線性；CodeQL 的最壞情況（未結尾字串）進不來 |
 | 其他 | #632 #613 #628 #629 | false positive | #632 跳脫的是編譯期常數檔名；#613 的輸入是 repo 自己提交的資料檔；#628 寫入前已通過固定白名單 `boundKeys`（`path`、`pathext`、傳輸環境名），`__proto__` 進不去；#629 是 Bun Worker 與父執行緒的私有通道，沒有 origin，且處理器自己驗 request id、job id 與訊息形狀 |
 
-**不改產品碼的理由**：上述 32 筆的缺口若存在，都已由使用端的描述子身分比對、固定白名單或前置的 `JSON.parse` 封住；為了讓 CodeQL 看得懂而改寫只會換形狀，還會讓每次上游整合在這些檔案上衝突。修的 2 筆是唯一「檢查與使用各解析一次名稱、而且使用端沒有身分比對」的地方。
+**不改產品碼的理由**：上述 32 筆的缺口若存在（#618、#623 的 Number 精度缺口已另修），都已由使用端的描述子身分比對、固定白名單或前置的 `JSON.parse` 封住；為了讓 CodeQL 看得懂而改寫只會換形狀，還會讓每次上游整合在這些檔案上衝突。#633、#477 是唯二「檢查與使用各解析一次名稱、而且使用端沒有身分比對」的地方。
 
-**處置**：dismiss 清單由維護者核對後執行（本輪不用 `gh` 寫入）；#633、#477 隨修正推送後由下一次 CodeQL 掃描關閉。
+**處置**：dismiss 清單由維護者核對後執行（本輪不用 `gh` 寫入）；#633、#477 隨修正推送後由下一次 CodeQL 掃描關閉；#618、#623 預期仍被標記，重掃後若重現就依清單 dismiss。
 
 ## 2026-11-04：上游 tag 放 `refs/upstream-tags/`，不進本機 `refs/tags/`
 

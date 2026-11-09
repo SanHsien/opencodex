@@ -367,6 +367,8 @@ NO_PROXY hostname normalization removes only a terminal run of dots with a linea
 backward scan; a non-terminal dot run remains part of the hostname.
 `tests/server/proxy-env.test.ts` covers both long terminal and non-terminal runs.
 
+Base URL recognition in `src/adapters/openai-chat/tool-schema.ts` (the Zen sanitization hosts and the Volcengine Ark `/api/v3` path match) removes only terminal `/` characters with a linear backward scan; a slash run followed by other text remains part of the configured URL. `tests/adapters/openai/openai-chat-bounded-tool-names.test.ts` covers Zen and `tests/providers/volcengine-ark-assistant-content.test.ts` covers Ark.
+
 The tunnel reader keeps incomplete framing separate from queued socket bytes,
 waits for new input, and caps headers even when the terminating delimiter arrives
 in the same chunk. Cancellation removes the exact queued waiter; socket errors

@@ -2,7 +2,7 @@
 
 ## 2026-11-10：補回 `js/polynomial-redos` 修補（`1d102c6db`）的非結尾回傳值斷言與 Zen 計時覆蓋
 
-**決定**：`1d102c6db` 把 `cursorLiveRosterScope`、Zen／Ark 的 base URL 正規化與 `normalizeProxyHostname` 的結尾斜線／點正規式換成線性掃描，cursor、Ark、proxy 三處各附一條 200k 非結尾連續字元（後接一字元）的計時測試，但那些測試不斷言回傳值。舊工作樹另有一批配套沒進 main，本次逐條比對後只補缺的部分：在 `tests/providers/cursor/cursor-catalog.test.ts`、`tests/providers/volcengine-ark-assistant-content.test.ts`、`tests/server/proxy-env.test.ts` 各加一條回傳值斷言（結尾 run 被剝除、後面接文字的 run 保留），不重複計時；在 `tests/adapters/openai/openai-chat-bounded-tool-names.test.ts` 加 Zen 長斜線測試（該呼叫點原本沒有任何覆蓋，故保留 1 秒計時；新增 `toolsToChatFormatForProvider` 匯入）。說明段落補在 `structure/providers/cursor.md`、`structure/providers/chat-compat.md`（`tool-schema.ts` 的 Zen／Ark base URL 辨識）、`structure/transports/inventory.md`。
+**決定**：`1d102c6db` 把 `cursorLiveRosterScope`、Zen／Ark 的 base URL 正規化與 `normalizeProxyHostname` 的結尾斜線／點正規式換成線性掃描，cursor、Ark、proxy 三處各附一條 200k 非結尾連續字元（後接一字元）的計時測試，但那些測試不斷言回傳值。舊工作樹另有一批配套沒進 main，本次逐條比對後只補缺的部分：在 `tests/providers/cursor/cursor-catalog.test.ts`、`tests/providers/volcengine-ark-assistant-content.test.ts`、`tests/server/proxy-env.test.ts` 各加一條回傳值斷言（結尾 run 被剝除、後面接文字的 run 保留），不重複計時；在 `tests/adapters/openai/openai-chat-bounded-tool-names.test.ts` 加 Zen 長斜線測試（該呼叫點原本沒有任何覆蓋，故保留 1 秒計時；新增 `toolsToChatFormatForProvider` 匯入）。說明段落補在 `structure/providers/cursor.md` 與 `structure/transports/inventory.md`（含 `tool-schema.ts` 的 Zen／Ark base URL 辨識；`structure/providers/chat-compat.md` 已達 600 行上限，不擠進去）。
 
 **上游檔改寫**：以上都是上游檔，改動只新增測試與說明段落，不動既有斷言與產品碼；下次整合上游 tag 時，若上游同檔有改動，保留上游版本再重放這幾段即可。
 

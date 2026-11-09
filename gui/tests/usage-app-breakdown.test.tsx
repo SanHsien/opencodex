@@ -165,8 +165,9 @@ test.each(invalidApps)("rejects invalid optional app data: %s", async (_name, ap
   expect(host.textContent).not.toContain("UNSAFE"); expect(section()).toBeNull();
 });
 
-test("App breakdown copy is present in all eleven locales", () => {
-  for (const locale of ["en", "ko", "de", "fr", "zh", "zh-TW", "ru", "ja", "tr", "vi", "pt"] as const) {
+test("App breakdown copy is present in every locale this fork keeps", () => {
+  // Fork: only en and zh-TW exist (FORK.md); upstream lists eleven.
+  for (const locale of ["en", "zh-TW"] as const) {
     const copy = usageV2Copy(locale) as Record<string, string>;
     for (const key of ["apps", "app", "unclassified", "appsUnavailable", "appsEmpty"]) expect(copy[`usageV2.${key}`]?.trim().length).toBeGreaterThan(0);
   }

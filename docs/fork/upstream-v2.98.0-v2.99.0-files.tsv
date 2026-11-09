@@ -176,7 +176,7 @@ gui/tests/switch-geometry.html	A	NEW	same-as-upstream	adopt	new upstream file ad
 gui/tests/switch-labeled-dom.test.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.98.0; upstream blob taken
 gui/tests/switch-rule.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.98.0; upstream blob taken
 gui/tests/tray-data.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.98.0; upstream blob taken
-gui/tests/usage-app-breakdown.test.tsx	A	NEW	same-as-upstream	adopt	new upstream file added
+gui/tests/usage-app-breakdown.test.tsx	A	NEW	fork-adapted	adapt	locale loop reduced to en and zh-TW (CI gates run 42627438708 failed on the eleven-locale list)
 gui/tests/usage-chart-interactions.test.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.98.0; upstream blob taken
 gui/tests/usage-custom-range.test.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.98.0; upstream blob taken
 gui/tests/usage-layout.test.ts	M	MOD	fork-adapted	adapt	3-way merge; fork-only hunks retained (see DECISIONS 2026-11-09)

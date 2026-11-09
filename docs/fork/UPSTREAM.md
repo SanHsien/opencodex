@@ -1266,6 +1266,14 @@ issue 軸：strict 新列出 `#8181`（desktop takeover 在預設 bind 時，`ru
 - 檔案行數上限：`docs/fork/UPSTREAM.md` 在整合前審查那一版已是 2123 行，超過 `scripts/file-size-ratchet.ts` 的 2000 行門檻（`NEW_OVERSIZED`），上限只能靠搬移處理，所以把 2026-08-23 至 2026-10-03 的 909 行歷史逐字搬到 [`UPSTREAM-archive-2026-08-to-10.md`](UPSTREAM-archive-2026-08-to-10.md)，並刷新檔頭過時的「追蹤分支」「下一次要做什麼」與兩處行號引用。
 - 追蹤目標與工具變更：`DECISIONS.md` 2026-11-09 決定二。
 
+### CI 後續修正（分支 `ci/tagdiff-v2.99.0`）
+
+| Run（head） | 結果 | 失敗與修正 |
+| --- | --- | --- |
+| 42627438708（`eaa0b2520`） | `gates` 與 `windows 5/12` 失敗，其餘 11 片、`keyring windows`、Fork maintenance 42627443847、Catalog async contracts 42627449712 成功 | (1) `gates` 的 GUI 測試：新增檔 `gui/tests/usage-app-breakdown.test.tsx` 的「App breakdown copy is present in all eleven locales」對 `ko` 等九個 fork 已刪語系取文案，`Expected and actual values must be numbers or bigints`；迴圈縮成 `["en", "zh-TW"]`（`d01c71cd6`，清冊該列改為適配）。(2) `windows 5/12` batch 40/43 的 `update-mutation-guard`「known-pattern lint finds no unclassified update primitive references」與「known-pattern helper inventory has explicit control-site contracts」：`src/update/orchestrated-live-identity.ts` 在 2026-11-09 的 `595ee1e27`（CodeQL #623 的 bigint identity 修正，不在這份 tag diff 內）改 import 為 `lstatFileIdentity`／`fstatFileIdentity` 後，`tests/helpers/update-review-orchestrated-entry.ts` 的審查列仍寫舊的 `node:fs` import，所以 `main` 本身就是紅的，只是 `main` 沒有跑 Windows 全量；審查列更新後該檔 4 pass／0 fail（`df6a0ad47`） |
+| 42631654245（`df6a0ad47`） | `ci` success：12 個 Windows shard、`keyring windows`、`gates` 全 success | shard 1 到 12 的耗時依序為 22.1、15.4、19.0、15.8、23.9、20.2、25.6、25.4、22.6、25.1、21.7、23.8 分鐘（取自各 job 的 startedAt／completedAt），最長 25.6 分鐘，距 30 分鐘上限只剩約 4.4 分鐘；60 個新增檔當時沒有權重列 |
+| 42637255094（`3357585fd`） | success：12 個 Windows shard 與 aggregate `ci` 全 success；shard 1 到 12 耗時 26.1、22.4、25.1、23.9、19.9、24.0、26.9、21.8、21.7、17.6、24.7、26.7 分鐘，最長 26.9 | 以 24 份 job log（上列兩個 run 的 12 片各一）重新量測 `scripts/ci/test-durations.windows.tsv`（2948 檔全部有量測值，模擬 12 片分配每片 1248 秒），`3357585fd` |
+
 ### 水位
 
-**尚未推進**：`tools/upstream_baseline.json` 的 `integrated_tag` 仍是 `v2.98.0`，`reviewed_through` 仍是 `36aa9e8f7`。推進條件同前兩次：分支 `ci/tagdiff-v2.99.0` 的 `Cross-platform CI` 12 個 Windows shard 與 aggregate `ci` 全 success。
+**已推進（2026-11-09）**：`tools/upstream_baseline.json` 的 `integrated_tag` 由 `v2.98.0` 推到 `v2.99.0`，`integrated_through`／`reviewed_through` 為 `667662903a6c139524506667d12656d9ad50fad0`，`reviewed_date` 為 2026-11-09，PR 水位新增 #8252（共 23 筆 `reviewed_pr_numbers`，判定見 `DECISIONS.md` 決定五），`reviewed_issue_through` 維持 8336。依據：分支 `ci/tagdiff-v2.99.0` 的 `Cross-platform CI` run 42631654245（`df6a0ad47`）與 run 42637255094（`3357585fd`，權重刷新後）12 個 Windows shard 與 aggregate `ci` 全 success，且 `36aa9e8f7..667662903` 的 28 筆 commit 全落在這份 tag diff 內。推進後 `bun tools/check-upstream-updates.ts --strict` 的結果見 `REVIEW.md` 2026-11-09 節。

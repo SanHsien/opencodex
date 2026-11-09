@@ -525,9 +525,11 @@ describe("upstream checker", () => {
       git(fresh, "init", "--quiet");
       expect(() => fetchUpstream({ ...baseline, repo: empty }, fresh)).toThrow(UpstreamCheckError);
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      // Windows can still hold git's pack files for a moment after the last child exits (EBUSY).
+      rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
     }
-  });
+    // Six git processes on a cold Windows runner exceed Bun's default 5 s.
+  }, 60_000);
 
   test("loadBaseline rejects a missing file", () => {
     expect(() => loadBaseline(join(ROOT, "tools", "nope.json"))).toThrow(

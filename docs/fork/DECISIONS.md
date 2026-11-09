@@ -46,7 +46,7 @@
 
 **處置**：以 `false positive` dismiss，理由寫在 GitHub 的 dismiss 說明。不改產品碼。
 
-## 2026-11-09：CodeQL 34 筆 open 警示逐筆判讀：修 2 筆、其餘 32 筆附程式碼依據 dismiss
+## 2026-11-09：CodeQL 34 筆 open 警示逐筆判讀：修 4 筆（其中 #618、#623 仍 dismiss）、dismiss 32 筆
 
 **範圍**：`code-scanning/alerts?state=open` 在 `57c5a284e` 有 34 筆。逐筆對照 `refs/upstream-tags/v2.98.0` 後，28 個被標檔案中 26 個與上游逐位元相同；只有 `provider-models.ts`（log 清洗、Vertex host 比對，與告警位置無關）與 `bounded-config-reader.ts`（只把過大檔的錯誤分類成 `EFBIG`，不動 `openSync` 與身分比對）有 fork 修正。判準沿用 2026-10-28 條目：CodeQL 看到「檢查再使用」就標；先看使用端是否在同一個 descriptor 上做了身分比對，有就是 false positive，沒有而且讀的是憑證或解除安裝清單才改。
 
@@ -60,6 +60,8 @@
 | #623 `js/file-system-race` | `src/update/orchestrated-live-identity.ts` `readRuntimeRecord` | 同 #618 | 同 #618（登記範圍 `readRuntimeRecord`） |
 
 兩個 TOCTOU 測試都只在「讀取那一次」的 `lstat` 之後換檔（以呼叫堆疊上的函式名判斷），避免被其他函式對同一路徑的探測提早觸發。
+
+**行為改變（#633、#477 的副作用）**：讀不出可信檔案編號（file index／ino 為 0，例如部分網路磁碟）時，`readBoundedRegularFile` 回 `untrusted-identity`。解除安裝清單的讀取因此改為拒絕，ownership 判 null，解除安裝不刪任何 owned 檔（偏保守）；舊憑證備份在不可讀、超過 16 MiB 或編號不可信時回 `{}`，整個備份檔被刪，不再只刪指定 provider 的項目。
 
 **dismiss 32 筆（28 false positive、4 won't fix）；其中 #618、#623 已改 bigint 但仍保留 dismiss**，理由逐筆（含檔案：行號）寫在 GitHub 的 dismiss 說明：
 
@@ -75,7 +77,7 @@
 
 **不改產品碼的理由**：上述 32 筆的缺口若存在（#618、#623 的 Number 精度缺口已另修），都已由使用端的描述子身分比對、固定白名單或前置的 `JSON.parse` 封住；為了讓 CodeQL 看得懂而改寫只會換形狀，還會讓每次上游整合在這些檔案上衝突。#633、#477 是唯二「檢查與使用各解析一次名稱、而且使用端沒有身分比對」的地方。
 
-**處置**：dismiss 清單由維護者核對後執行（本輪不用 `gh` 寫入）；#633、#477 隨修正推送後由下一次 CodeQL 掃描關閉；#618、#623 預期仍被標記，重掃後若重現就依清單 dismiss。
+**處置**：dismiss 清單由維護者核對後執行；#633、#477 隨修正推送後由下一次 CodeQL 掃描關閉；#618、#623 預期仍被標記，重掃後若重現就依清單 dismiss。
 
 ## 2026-11-04：上游 tag 放 `refs/upstream-tags/`，不進本機 `refs/tags/`
 

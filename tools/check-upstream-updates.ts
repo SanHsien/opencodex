@@ -157,8 +157,10 @@ export function newestStableTagAbove(tags: string[], integratedTag: string): str
 export function fetchUpstream(baseline: Baseline, repoDir: string): string {
   if (baseline.track === "stable-tags") {
     // Local ref names stay out of `refs/tags` so this never creates a tag the fork could publish.
+    // `--prune` only touches refs matching the destination of the refspec given here, so a tag
+    // upstream deleted disappears from `refs/upstream-check/tags/` and nothing else.
     runGit(
-      ["fetch", "--quiet", "--no-tags", baseline.repo, `+refs/tags/v*:${STABLE_TAG_REF_PREFIX}/v*`],
+      ["fetch", "--quiet", "--no-tags", "--prune", baseline.repo, `+refs/tags/v*:${STABLE_TAG_REF_PREFIX}/v*`],
       repoDir,
     );
     const listed = runGit(

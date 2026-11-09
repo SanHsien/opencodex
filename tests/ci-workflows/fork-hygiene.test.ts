@@ -510,6 +510,19 @@ describe("upstream checker", () => {
       expect(collectNewCommits(caught, fork, quietRef)).toEqual([]);
       expect(renderMarkdown(caught, [])).toContain("stable release tags above `v1.1.0`");
 
+      // A tag upstream deletes must not linger locally: a stale v1.1.0 would keep winning as
+      // "newest" after a retracted release. Only the checker's own namespace is pruned.
+      git(upstream, "tag", "-d", "v1.1.0");
+      git(fork, "tag", "local-only-tag", first);
+      const afterDelete = fetchUpstream(baseline, fork);
+      const remaining = runGit(["for-each-ref", "--format=%(refname)", "refs/upstream-check/tags"], fork).split("\n");
+      expect(remaining).not.toContain("refs/upstream-check/tags/v1.1.0");
+      expect(remaining).toContain("refs/upstream-check/tags/v1.1.0-preview.1");
+      expect(afterDelete).toBe(first);
+      expect(collectNewCommits(baseline, fork, afterDelete)).toEqual([]);
+      expect(runGit(["tag", "--list"], fork).trim()).toBe("local-only-tag");
+      git(upstream, "tag", "v1.1.0", third);
+
       // Branch mode keeps working for a repository that still has the branch.
       const legacy = { repo: upstream, branch: "dev", reviewed_through: first, reviewed_date: "2026-11-09" };
       expect(collectNewCommits(legacy, fork, fetchUpstream(legacy, fork)).map(item => item.sha)).toEqual([second, third]);

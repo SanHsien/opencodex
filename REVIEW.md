@@ -766,7 +766,7 @@ config 測試首次等待 user test lock：owner PID 57096 在同時查得為 `D
 
 ## 2026-11-09：`v2.98.0..v2.99.0` 全版 tag diff 重放的本機驗證（分支 `ci/tagdiff-v2.99.0`；遠端結果見下方「CI 後續修正」）
 
-範圍：410 個上游變更檔（已等價 1、採用 331、適配 41、不適用 37），判定在 `docs/fork/DECISIONS.md` 與 `docs/fork/UPSTREAM.md` 同日節，清冊 `docs/fork/upstream-v2.98.0-v2.99.0-files.tsv`。所有指令以 BelowNormal 優先權、fresh process 執行（同一使用者的測試鎖使程序無法並行，所以循序）。
+範圍：410 個上游變更檔（已等價 1、採用 330、適配 42、不適用 37），判定在 `docs/fork/DECISIONS.md` 與 `docs/fork/UPSTREAM.md` 同日節，清冊 `docs/fork/upstream-v2.98.0-v2.99.0-files.tsv`。所有指令以 BelowNormal 優先權、fresh process 執行（同一使用者的測試鎖使程序無法並行，所以循序）。
 
 | 指令 | 結果 |
 | --- | --- |
@@ -785,4 +785,3 @@ config 測試首次等待 user test lock：owner PID 57096 在同時查得為 `D
 **CI 後續修正（遠端 Windows 全量，分支 `ci/tagdiff-v2.99.0`）**：逐 run 結果與根因在 `docs/fork/UPSTREAM.md` 同日節的 CI 表與 `DECISIONS.md` 決定六、七。摘要：首輪 run 42627438708 只有 `gates`（GUI 測試的十一語系清單，`d01c71cd6`）與 `windows 5/12`（`update-mutation-guard`，`595ee1e27` 遺留的審查列，`df6a0ad47`）兩處紅燈；修後 run 42631654245 的 12 個 Windows shard、`keyring windows`、`gates` 與 aggregate `ci` 全 success；權重表刷新後 run 42637255094 為 success（12 個 Windows shard 與 aggregate `ci` 全 success，最長一片 26.9 分鐘）。GUI 完整測試（`cd gui && bun test --isolate tests`）在修正後本機 4020 pass／0 fail（上方「沒跑」一句中的 GUI 部分以此取代；`vite build` 仍未在本機跑，遠端 `gates` 的 GUI 步驟已覆蓋）。
 
 **水位推進後的 strict 檢查**：`bun tools/check-upstream-updates.ts --strict` exit 0：「stable release tags above `v2.99.0`」、`Reviewed through: 6676629`、`No new upstream commits`，PR 軸「No untriaged closed-unmerged pull requests」（23 筆 `reviewed_pr_numbers`），issue 軸「Triaged through #8336」、沒有新 `platform` issue。推進前同一指令為 exit 1、28 筆待審 commit 與 1 筆待審 PR（#8252）。
-

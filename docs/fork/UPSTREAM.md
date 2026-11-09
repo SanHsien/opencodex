@@ -1224,8 +1224,8 @@ issue 軸：strict 新列出 `#8181`（desktop takeover 在預設 bind 時，`ru
 | 判定 | 檔數 | 說明 |
 | --- | --- | --- |
 | 已等價（重放前 fork blob 即與 `v2.99.0` 相同） | 1 | `gui/tests/codex-stale-banner.test.ts` |
-| 採用（重放後與 `v2.99.0` blob 逐位元相同） | 331 | 乾淨採用 271（fork 與 `v2.98.0` 相同）＋新增檔 60 |
-| 適配（重放後與上游不同，fork 保留／改寫部分 hunk） | 41 | 3-way 合併的 41 個檔案：31 個無衝突、10 個有衝突；逐檔原因在 TSV 備註欄 |
+| 採用（重放後與 `v2.99.0` blob 逐位元相同） | 330 | 乾淨採用 271（fork 與 `v2.98.0` 相同）＋新增檔 59 |
+| 適配（重放後與上游不同，fork 保留／改寫部分 hunk） | 42 | 3-way 合併的 41 個檔案（31 個無衝突、10 個有衝突）加 1 個新增檔（`gui/tests/usage-app-breakdown.test.tsx`，CI 後語系迴圈縮成 en／zh-TW）；逐檔原因在 TSV 備註欄 |
 | 不適用 | 37 | 已刪語系 36（docs-site 的 fr 4、ja 4、ko 6、ru 4、tr 5、zh-cn 4 共 27，`gui/src/i18n` 九個非 en／zh-TW 語系檔 9）、Windows-only 刪除清單 1（`tests/service/service-desktop-startup-linux.test.ts`） |
 
 36 個已刪語系檔與整合前審查清單第 7 條的數字相同。生成物（`scripts/ci/test-durations.windows.tsv`、`scripts/test-layout/layout.json`、`tests/fixtures/test-layout-expected.json`、`structure/manifest.json`、`structure/INDEX.md`）依方法第 3 點處理，見下。

@@ -43,6 +43,12 @@ describe("normalizeProxyHostname", () => {
     normalizeProxyHostname(`a${".".repeat(200_000)}b`);
     expect(performance.now() - started).toBeLessThan(1_000);
   });
+
+  test("keeps a non-terminal dot run in the hostname", () => {
+    const dots = ".".repeat(100_000);
+    expect(normalizeProxyHostname(`api.example.test${dots}`)).toBe("api.example.test");
+    expect(normalizeProxyHostname(`api.example.test${dots}suffix`)).toBe(`api.example.test${dots}suffix`);
+  });
 });
 
 describe("resolveProxyRoute", () => {

@@ -174,4 +174,10 @@ describe("tool-schema base URL normalization", () => {
     isVolcengineArkPaygChatTarget(provider(`https://ark.cn-beijing.volces.com/${"/".repeat(200_000)}x`));
     expect(performance.now() - started).toBeLessThan(1_000);
   });
+
+  test("Volcengine Ark path matching trims only a terminal slash run, not one followed by more text", () => {
+    const slashes = "/".repeat(100_000);
+    expect(isVolcengineArkPaygChatTarget(provider(`https://ark.cn-beijing.volces.com/api/v3${slashes}`))).toBe(true);
+    expect(isVolcengineArkPaygChatTarget(provider(`https://ark.cn-beijing.volces.com/api/v3${slashes}suffix`))).toBe(false);
+  });
 });

@@ -363,6 +363,9 @@ configured outbound fetch, preserving physical-send admission and dispatch overr
 Native WebSocket selection stays on HTTP SSE while SOCKS5 is configured.
 Proxy-selected discovery peers remain unpinnable, and private destinations still
 require explicit private-network permission plus NO_PROXY before direct transport.
+NO_PROXY hostname normalization removes only a terminal run of dots with a linear
+backward scan; a non-terminal dot run remains part of the hostname.
+`tests/server/proxy-env.test.ts` covers both long terminal and non-terminal runs.
 
 The tunnel reader keeps incomplete framing separate from queued socket bytes,
 waits for new input, and caps headers even when the terminating delimiter arrives

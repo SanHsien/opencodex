@@ -1,5 +1,15 @@
 # 維護決策
 
+## 2026-11-10：補回 `js/polynomial-redos` 修補（`1d102c6db`）的非結尾回傳值斷言與 Zen 計時覆蓋
+
+**決定**：`1d102c6db` 把 `cursorLiveRosterScope`、Zen／Ark 的 base URL 正規化與 `normalizeProxyHostname` 的結尾斜線／點正規式換成線性掃描，cursor、Ark、proxy 三處各附一條 200k 非結尾連續字元（後接一字元）的計時測試，但那些測試不斷言回傳值。舊工作樹另有一批配套沒進 main，本次逐條比對後只補缺的部分：在 `tests/providers/cursor/cursor-catalog.test.ts`、`tests/providers/volcengine-ark-assistant-content.test.ts`、`tests/server/proxy-env.test.ts` 各加一條回傳值斷言（結尾 run 被剝除、後面接文字的 run 保留），不重複計時；在 `tests/adapters/openai/openai-chat-bounded-tool-names.test.ts` 加 Zen 長斜線測試（該呼叫點原本沒有任何覆蓋，故保留 1 秒計時；新增 `toolsToChatFormatForProvider` 匯入）。說明段落補在 `structure/providers/cursor.md`、`structure/providers/chat-compat.md`（`tool-schema.ts` 的 Zen／Ark base URL 辨識）、`structure/transports/inventory.md`。
+
+**上游檔改寫**：以上都是上游檔，改動只新增測試與說明段落，不動既有斷言與產品碼；下次整合上游 tag 時，若上游同檔有改動，保留上游版本再重放這幾段即可。
+
+**價值驗證**：把三個產品檔（`src/adapters/cursor/catalog.ts`、`src/adapters/openai-chat/tool-schema.ts`、`src/lib/proxy-env.ts`）暫時還原到 `1d102c6db^`：main 既有的 200k 計時測試同樣變紅（本機 BelowNormal 實測約 21–22 秒），Zen 新測試也紅（超過 1 秒上限）；還原回現行版後皆綠。cursor、Ark、proxy 的新回傳值斷言保護的是「非結尾 run 不被誤剝」這個語意，與計時測試互補。
+
+**略過**：舊工作樹 diff 中的產品碼與 `Cargo.lock` rustls 已在 main，不重複。
+
 ## 2026-11-04：多帳號 session／device／installation ID 隔離（`e04aae068`、`ba880dfae`、`007dbfd89`）
 
 **決定一（採用，重放最終狀態）**：Pool 帳號對上游的身分識別碼不再共用。Claude OAuth：`metadata.user_id.device_id` 由帳號 UUID 確定性衍生，`X-Claude-Code-Session-Id` 由 token＋對話 key 衍生（`e04aae068`）。Codex Pool：`x-codex-installation-id`、`x-codex-turn-metadata.installation_id`、`client_metadata` 內的兩個欄位一律換成該帳號專屬 ID，涵蓋 Responses HTTP／WebSocket、compact、context-history、search、images、live、audio live／dictation、live-sideband 幀、vision 與 web-search 兩個 sidecar（`007dbfd89`）；帳號切換時 `x-codex-turn-state` 標頭與 body 內欄位一併清除（`ba880dfae`）。`ba880dfae` 的 HMAC(caller ID) 衍生被 `007dbfd89` 的私有 secret 方案整套取代，中間版不落地。

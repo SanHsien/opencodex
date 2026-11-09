@@ -273,6 +273,14 @@ describe("cursor umbrella catalog (devlog 260828_cursor_umbrella_catalog)", () =
       expect(performance.now() - started).toBeLessThan(1_000);
     });
 
+    test("live roster scope strips only a terminal slash run, not one followed by more text", () => {
+      const slashes = "/".repeat(100_000);
+      const credential = "fixture-token";
+      const bare = cursorLiveRosterScope("https://cursor.test/v1", credential);
+      expect(cursorLiveRosterScope(`https://cursor.test/v1${slashes}`, credential)).toBe(bare);
+      expect(cursorLiveRosterScope(`https://cursor.test/v1${slashes}suffix`, credential)).not.toBe(bare);
+    });
+
     test("live roster spellings stay isolated by provider credential scope and clear with its cache", () => {
       const trusted = cursorLiveRosterScope("https://trusted.cursor.test", "trusted-token");
       const untrusted = cursorLiveRosterScope("https://other.cursor.test", "other-token");

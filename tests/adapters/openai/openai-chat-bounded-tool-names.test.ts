@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { createOpenAIChatAdapter } from "../../../src/adapters/openai-chat";
+import { toolsToChatFormatForProvider } from "../../../src/adapters/openai-chat/tool-schema";
 import { createOpenAIChatToolNameRegistry } from "../../../src/adapters/openai-chat/tool-name-registry";
 import { compileGoogleWireBody } from "../../../src/adapters/google-wire-compiler";
 import { kiroToolName } from "../../../src/adapters/kiro-wire";
@@ -35,7 +36,27 @@ function parsedWith(
   return { modelId: "test-model", stream: false, options, context: { tools, messages } };
 }
 
+function formattedParameters(baseUrl: string): Record<string, unknown> {
+  const formatted = toolsToChatFormatForProvider(parsedWith([{
+    name: "lookup",
+    description: "Test tool",
+    parameters: { anyOf: [{ type: "object" }] },
+  }]), { ...provider(), baseUrl });
+  if (!formatted) throw new Error("fixture must format one tool");
+  return (formatted[0] as { function: { parameters: Record<string, unknown> } }).function.parameters;
+}
+
 describe("bounded OpenAI Chat tool wire names (#4679)", () => {
+  test("Zen detection strips only a terminal slash run from a long base URL, in linear time", () => {
+    const slashes = "/".repeat(100_000);
+    const started = performance.now();
+    expect(formattedParameters(`https://opencode.ai/zen/v1${slashes}`)).toEqual({ type: "object" });
+    expect(formattedParameters(`https://opencode.ai/zen/v1${slashes}suffix`)).toEqual({
+      anyOf: [{ type: "object" }], type: "object",
+    });
+    expect(performance.now() - started).toBeLessThan(1_000);
+  });
+
   test("bounds and restores the exact reported identity across request, replay, tool_choice, and response", async () => {
     const declared = tool(LONG_NAMESPACE, REPORTED_NAME);
     const originalWireName = namespacedToolName(LONG_NAMESPACE, REPORTED_NAME);

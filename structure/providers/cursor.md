@@ -12,6 +12,11 @@ Cursor's direct adapter does not enter the OpenAI Chat serializer's
 
 Shared parsing and streaming follow the [request-copy](../transports/byte-accounting.md#request-copy-accounting) and [stream-buffer accounting](../transports/byte-accounting.md#stream-buffer-accounting) contracts.
 
+Cursor live-roster credential scopes normalize a configured destination by removing only a
+terminal `/` run with a linear backward scan. A slash run followed by other text remains part
+of that destination, so it cannot share a scope with the terminal-slash form.
+`tests/providers/cursor/cursor-catalog.test.ts` covers both long forms.
+
 ## Cursor Native Exec
 
 Cursor's experimental live transport can receive server-driven local read/write/delete/ls/grep,

@@ -244,3 +244,9 @@ Exclusive reservations, SSH receipts and bounded lost-port recovery are exercise
 Upstream's POSIX-only interop and native-artifact qualification tests are not
 carried by this Windows-only fork; Windows remote transport is unsupported. Mesh, dashboard, cached discovery, isolation, cross-harness
 messaging, managed skills, prompt policy and idle watches remain outside this slice.
+
+
+The optional local MCP reply-read surface belongs to
+[stored reply reads](local-messaging.md#explicit-stored-reply-reads). Its explicit
+CLI-home content-read permission does not widen remote-peer admission, expose a
+remote read endpoint or change this foreground ownership/return-route contract.

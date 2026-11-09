@@ -9,6 +9,29 @@ Linux/macOS Unix sockets are supported; Windows fails explicitly. The existing
 Codex daemon must support experimental `thread/queue/add`. No CLI version pin or
 `CODEX_CLI_PATH` selection is required.
 
+## 選擇性啟用：讀取已儲存的回合回覆
+
+在 MCP 佇列主機（`ocx message mcp`）既有的參數後加上 `--allow-reply-read`，會多開放第三個工具 `codex_read_reply`。不加這個旗標時，原有的兩個工具與只含中繼資料的探索行為完全不變。這個選項明確允許對話文字抵達 MCP 用戶端；本機使用者能存取所選家目錄，並不等於對個別專案或對話串的授權。用戶端訊息 ID 只是對應資料，不是憑證，也不代表使用者許可。
+
+```sh
+ocx message mcp --codex /absolute/path/to/codex --codex-home /absolute/path/to/.codex --allow-reply-read
+```
+
+呼叫 `codex_read_reply` 時，帶入精確的 `threadId`，以及佇列收據中的 `clientMessageId`。每次呼叫最多搜尋一頁、共 50 個已儲存項目。比對到某筆輸入就確定一個回合，工具回傳該回合明確標示為 `final_answer` 的代理文字（一頁）；不回傳使用者內文、推理、指令、引用與工具輸出。整個呼叫共用 20 秒預算，最多依序執行三個輔助程序，另加自有程序的清理時間；每個輔助程序仍維持既有的 12 秒 RPC 期限與 1 MiB 輸出上限。每頁結果的文字上限為 16 KiB、保證是有效的 UTF-8，且每個項目都有明確的 `truncated` 旗標。`nextCursor` 接續的是項目，不是被截斷項目的剩餘位元組。
+
+結果區分以下幾種觀察：
+
+- `observed`：比對到該輸入。`replies` 仍可能是空的。關聯性固定為 `same_turn_not_exclusive`：結果是同一回合的最終文字，不保證是專屬於該輸入的答案；共用回合中，文字可能早於後續的輸入。`turnStatus` 取自最新 50 個回合摘要，超出該範圍時為 `unverified`；回合完成不代表目標完成。
+- `not_observed`：這一頁搜尋中沒有比對到輸入。這不代表未送達、已刪除或沒有回應。`reachedHistoryEnd` 描述的是這次搜尋的位置，不是送達或處理狀態。要搜尋更舊的項目，請沿用非 null 的 `nextCursor`。
+- `ambiguous`：這一頁搜尋中有多個符合的輸入，不回傳任何文字。
+- `available: false`：存取被停用、輸入或游標無效、歷史格式錯誤、原生方法不可用或不支援、被取消，或其他讀取失敗。不公開原生診斷訊息，失敗也不會被當成空的成功結果。
+
+把 `nextCursor` 當作 `cursor` 傳回，即可繼續搜尋或讀取已比對回合的下一頁。比對到之後，`refreshCursor` 會從該回合開頭重新掃描，使先前只有部分內容的項目在完成後得以出現。回合很長時請重看所有頁面；呼叫端要保留或更新項目 ID 以避免重複，主機本身不新增持久收件匣，也不在背景輪詢。`nextCursor` 為 null 只代表目前這份歷史快照結束，不代表之後不會有新輸出。
+
+游標是有界、由呼叫端持有的位置資料，同時綁定兩個請求 ID，不是簽章過的權限。接續已比對回合時，會重新讀取該使用者項目，確認其 ID、回合與用戶端對應都相符，才投影回合文字。過期、格式錯誤或跨範圍的位置一律失敗關閉，不會重新從整份歷史開始。原生方法為 `thread/items/list`、`thread/items/read` 與 `thread/turns/list`，不會恢復對話、引導、開始回合或變更佇列。
+
+這項選用契約是以 Codex CLI 0.166.0 觀察到的。較舊的版本或舊式儲存可能無法使用；沒有無上限的整份歷史備援。這些讀取不能證明收件端是否仍在運作、目標是否完成，或 Claude Desktop 是否已註冊，也不新增自動回覆投遞或反向的 Claude 傳輸。
+
 ## Discover and send
 
 ```bash

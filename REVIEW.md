@@ -763,3 +763,21 @@ config 測試首次等待 user test lock：owner PID 57096 在同時查得為 `D
 - shard 2、11 取消：不是測試失敗，是 Windows 權重表缺 v2.98.0 新增的 75 個檔案，負載集中；表由 run 42403141711 的 job log 重新量測。證據與殘留風險見 DECISIONS 決定十二。
 - 後續兩輪：shard 4 因 30 分鐘上限被取消（無失敗案例）、shard 10 的 `cli-start-journal-order` 冷啟動逾時。處理為 12 片 shard 與該案例預算改由 `OWNER_WAIT_MS` 推導（`3 * OWNER_WAIT_MS`），見 DECISIONS 決定十二再補記；斷言與 30 分鐘上限不變。
 - 修復 commit（2026-11-08）：`b34464034`（no-eligible 固定句與首輪權重表）、`689c2d11f`（envelope writer 計數 30 → 31）、`15a0686b0`（兩 run 平均的權重表）、`73c0a8ec4`（12 片 shard 與冷啟動預算）、`7de8aac44`（審查後修正：預算改回 `OWNER_WAIT_MS`、片數與來源敘述更正）。遠端 Windows 全量 CI run 42424520793（`7de8aac44`）12 個 shard 與 aggregate `ci` 全 success。水位推進的 commit 就是本 commit（`docs(upstream): integrate v2.98.0 — advance watermarks`，hash 以推上去後的 `main` 為準）。
+
+## 2026-11-09：`v2.98.0..v2.99.0` 全版 tag diff 重放的本機驗證（分支 `ci/tagdiff-v2.99.0`；遠端結果見下方「CI 後續修正」）
+
+範圍：410 個上游變更檔（已等價 1、採用 331、適配 41、不適用 37），判定在 `docs/fork/DECISIONS.md` 與 `docs/fork/UPSTREAM.md` 同日節，清冊 `docs/fork/upstream-v2.98.0-v2.99.0-files.tsv`。所有指令以 BelowNormal 優先權、fresh process 執行（同一使用者的測試鎖使程序無法並行，所以循序）。
+
+| 指令 | 結果 |
+| --- | --- |
+| `bun run typecheck` | exit 0，2,334 個檔案 0 錯誤 |
+| `bun run structure:check`、`bun run privacy:scan`、`bun run docs:clients:check`、`bun scripts/file-size-ratchet.ts` | 皆 exit 0（第一次 privacy 與 ratchet 紅：自己新增的測試把 git 作者信箱寫成字面值、`UPSTREAM.md` 2123 行與 `responses-pool-401-refresh.test.ts` 剛好 2000 行；處理見 DECISIONS 決定四與 UPSTREAM 衝突表，修後重跑為綠） |
+| 新增的 11 個測試檔（`bun test --isolate --timeout 60000`） | 110 pass／0 fail |
+| 版面、hygiene、結構、邊界（`test-layout*`、`file-size-ratchet`、`structure-ssot`、`fork-hygiene`、`docs-zh-tw-parity`、`docs-link-targets`、`docs-developer-role-policy`、`core-lab-boundary`） | 178 pass／0 fail。第一次 `docs-zh-tw-parity` 紅 2 案（`messaging.md` 段落 5／6、fence 18／20），補譯新段後轉綠 |
+| `fork-hygiene` 單檔（含新增的 3 個 stable-tags 測試） | 42 pass／0 fail |
+| `tools/dev_check.ps1` | `WINDOWS DEV CHECK GREEN`，exit 0 |
+| 衝突與關鍵檔：`messages-error-contracts`、`responses-pool-401-refresh`、`web-search-anthropic`、launcher 三檔、`client-machine-listener`、`routing-policy-surface-parity`（8 檔合跑） | 320 pass／2 fail。兩案是計時型：`responses-pool-401-refresh`「a post-refresh credit hold in the pacing queue does not announce a replay send」（18.4 秒）與 `web-search-anthropic`「synchronous empty chunks cannot starve the bounded EOF probe」（5.0 秒），同時有 cargo 編譯在跑。單檔重跑：前者 75 pass／0 fail，後者 53 pass／0 fail |
+| `cargo check --lib --locked`（`TAURI_CONFIG` 清空 `externalBin`／`resources`）、`cargo test --lib --locked traffic_lights` | exit 0；3 案過。證明 `traffic_lights.rs` 在 Windows 可編譯（`#[cfg_attr(not(target_os = "macos"), allow(dead_code))]`） |
+| `bun tools/check-upstream-updates.ts --strict`（新的 stable-tags 模式，水位尚在 `v2.98.0`） | 28 筆待審 commit、PR 軸 1 筆（#8252）、issue 軸 0 筆，exit 1；與整合前審查的 28 筆一致 |
+
+**沒跑**：`tests/` 其餘約 2,600 個既有檔的完整分批（由 Windows 12 片 CI 負責）；`gui` 的 `bun test` 與 `vite build`（`gui/` 依賴已安裝，沒有在這個分支跑）。這些不能當綠燈。

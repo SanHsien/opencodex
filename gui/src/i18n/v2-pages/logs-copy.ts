@@ -5,6 +5,9 @@ import { copyTable, type Row } from "./copy-table";
  * Keys render as `logsV2.<key>`.
  */
 const rows = {
+  client: ["Client", "用戶端"],
+  clientUnknown: ["Unknown", "未知"],
+  clientOther: ["Other", "其他"],
   requests: ["Requests", "請求"],
   live: ["Live", "即時"],
   paused: ["Paused", "已暫停"],

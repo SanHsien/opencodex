@@ -81,6 +81,7 @@ test("Usage workspace sections mount report panels in order", async () => {
     "<UsageHeatmapPanel",
     "<UsageModelsTable",
     "<UsageProvidersTable",
+    "<UsageAppsTable",
     "<UsageCoveragePanel",
   ];
   let cursor = -1;
@@ -146,7 +147,7 @@ test("Usage breakdown tables distinguish priced zero totals from excluded reques
   globalThis.fetch = (async () => Response.json({
     range: "30d",
     surface: "all",
-    sourceFilter: { client: "codex", device: { kind: "all" } }, legacyUnclassifiedRequests: 0,
+    sourceFilter: { client: "all", device: { kind: "all" } }, legacyUnclassifiedRequests: 0,
     since: null,
     generatedAt: Date.now(),
     summary: {
@@ -242,7 +243,7 @@ test("Usage renders Available history and a persistent qualification when histor
   globalThis.fetch = (async () => Response.json({
     range: "30d",
     surface: "all",
-    sourceFilter: { client: "codex", device: { kind: "all" } }, legacyUnclassifiedRequests: 0,
+    sourceFilter: { client: "all", device: { kind: "all" } }, legacyUnclassifiedRequests: 0,
     since: null,
     generatedAt: Date.now(),
     summary: {
@@ -332,7 +333,7 @@ test("Usage rejects a report whose timestamp exceeds the safe numeric range", as
   globalThis.fetch = (async () => Response.json({
     range: "30d",
     surface: "all",
-    sourceFilter: { client: "codex", device: { kind: "all" } }, legacyUnclassifiedRequests: 0,
+    sourceFilter: { client: "all", device: { kind: "all" } }, legacyUnclassifiedRequests: 0,
     since: null,
     generatedAt: Date.now(),
     summary: {

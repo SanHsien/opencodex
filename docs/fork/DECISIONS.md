@@ -1246,3 +1246,25 @@ Windows 適用性：只用 `node:crypto` 與環境變數，不碰檔案系統、
 
 **決定四（ROADMAP 中期列維持）**：
 - Upstream check 報告的 PR 與 issue 兩節已清空，中期的「分類 Upstream check 列出的新 PR／issue」屬反覆觸發項目維持保留，證據欄更新為這次的分類結果（5 筆未合併關閉 PR 與 1 筆 platform issue 已分類，PR 與 issue 兩節清空；commit 軸 28 筆待隨 v2.99.0 整合清空）。
+
+## 2026-11-09：重放上游 stable `v2.99.0`（`667662903`）；上游已刪 `main`，追蹤目標改為 stable tag
+
+逐檔清冊在 `docs/fork/upstream-v2.98.0-v2.99.0-files.tsv`（`/docs/` 被 `.gitignore` 擋，要 `git add -f`），計數、衝突取捨與整合前審查清單 7 條的結果在 `docs/fork/UPSTREAM.md` 同日（續）節。
+
+**決定一（重放方式：tag diff、單一 parent，不 git merge；水位另一個 commit）**：「合上游 tag」在本 fork 的意思是 `git diff refs/upstream-tags/v2.98.0 refs/upstream-tags/v2.99.0`（410 檔）逐檔套到 `main`，不是 `git merge`。這不是偏好：`git merge-base HEAD refs/upstream-tags/v2.99.0` 輸出為空、exit 1，fork 與上游沒有共同祖先（2026-10-06 維護者確認的壓縮歷史），真的 merge 會把整棵樹當成雙方新增。做法與 2026-11-05、11-08 相同：fork 與 `v2.98.0` blob 相同取上游、fork 與 `v2.99.0` 相同略過、其餘 3-way，已刪語系與 Windows-only 刪除清單先套。分支 `ci/tagdiff-v2.99.0`，只推這條分支；`tools/upstream_baseline.json` 的 `integrated_tag`／`reviewed_through` 不在重放 commit 內推進，等 Windows 12 片 CI 全綠後另開 commit（決定一在 11-08 的同一套理由：先驗證、再宣稱）。
+
+**決定二（追蹤目標：stable release tag，不追 `dev`）— (a) 改工具**。事實：2026-11-08 起上游沒有 `main`，遠端 HEAD 是 `dev`（`git ls-remote --symref` 實查），所以 `tools/check-upstream-updates.ts` 對 `+refs/heads/main` 的 fetch 會失敗，`Upstream check` 每週一都會變成「檢查失敗」而不是「有新東西」。可選的三條：
+
+| 選項 | 實測 | 取捨 |
+| --- | --- | --- |
+| 改追 `dev`（`branch: "dev"`） | `dev` 頭 `4a22eda84998d4b64dbb2d3a7c478c48ce8bcc4a`；`git merge-base --is-ancestor refs/upstream-tags/v2.99.0 refs/upstream-check/dev` exit 1（發版是 ours-merge，tag 不在 `dev` 的祖先鏈上）；`reviewed_through = 667662903` 之後 `667662903..dev` 仍有 103 筆，`36aa9e8f7..dev` 為 129 筆 | `dev` 是 PR 整合線，含尚未發版的 commit。fork 只在 stable 時整合（`ROADMAP.md`「維護方式」：不跟 dev／preview），103 筆未發版 commit 會讓每週檢查永遠紅，被當成雜訊而忽略 |
+| 維持 `main` | fetch 失敗 | 不可行 |
+| 改追 stable tag | 新工具對真實上游實跑（`bun tools/check-upstream-updates.ts --strict`，水位尚在 `v2.98.0`）：「stable release tags above `v2.98.0`」、28 筆待審 commit，與整合前審查的 28 筆相同，exit 1 | 採用：`v2.98.0..v2.99.0` 的第一父鏈就是 `reviewed_through..tag`，且推進水位後（`integrated_tag = v2.99.0`）會回到「沒有新 commit」 |
+
+實作（最小改動）：`upstream_baseline.json` 新增 `track` 欄位，`"stable-tags"` 時不再需要 `branch`，改要求 `integrated_tag` 是 `vX.Y.Z`；預設（沒有 `track`）維持原本的 `branch` 行為，所以舊基準檔仍可讀。`fetchUpstream` 在 stable-tags 模式抓 `+refs/tags/v*:refs/upstream-check/tags/v*`（不進本機 `refs/tags/`，避免上游 tag 混進 `release-version-line.test.ts` 讀的 tag 清單，`UPSTREAM.md`「上游 tag 放 `refs/upstream-tags/`」那節的同一個理由），只認 `^v\d+\.\d+\.\d+$`，以數字排序（不是字典序：`v2.100.0` 要大於 `v2.99.0`），取比 `integrated_tag` 高的最高一個；`-preview.*` 不算。沒有更高的 stable tag 時比較範圍是 `reviewed_through..reviewed_through`（空），回報「沒有新 commit」；**抓完一個 stable tag 都找不到會拋錯**，不回報「沒有新東西」，因為那等於把壞掉的 fetch 當成健康（核心原則：查不到不等於沒有）。PR 與 issue 兩條軸（`gh`）不變。釘住的測試在 `tests/ci-workflows/fork-hygiene.test.ts`：數字排序與 pre-release 排除、基準檔驗證（stable-tags 缺 `integrated_tag` 或帶 pre-release tag 會拒絕、branch 模式缺 `branch` 會拒絕、不認得的 `track` 會拒絕）、以及一個沒有 `main`、釋出 commit 不在 `dev` 祖先鏈上的本機假上游（有較新 stable tag 時回正好那些 commit、整合到最新時回空、branch 模式仍可用、只有 pre-release tag 時拋錯、本機 `refs/tags` 不被污染）。
+
+**決定三（Messages overflow 矩陣：採上游 16 列切片、不採隔離，timeout 預算維持 fork 的）**：`e838c30f2`（#8229）在 Windows 慢速 lane（`passthrough`、`count_tokens`、`native-http`、`native-fold`、`native-fold-builtin`、`translated-http`、`translated-fold`、`translated-json`）把切片由 64 列改 16 列，並新增 `messages-overflow-child.ts`／`messages-overflow-spawn-tracker.ts` 保證子行程清理。這與決定九第 1 點（64 列 × 約 0.5 秒 > 30 秒字面預算）是同一個問題，上游的修法比 fork 的預算更根本，所以採用。兩處不跟上游：(1) 該檔仍用上游的 `hostedWindowsQuarantine`（#8262）跳過慢速 lane，fork 不採隔離（決定五），匯入與 `test.skipIf` 一起移除；(2) 每個切片的 timeout 維持 `COLD_SPAWN_BUDGET_MS`（Windows 90 秒）而不是上游的 `30000`，16 列的預期時間約 8 秒，留著較寬的預算只是冷啟動緩衝，斷言沒有動。
+
+**決定四（`docs/fork/UPSTREAM.md` 超過行數上限：把 2026-08-23 至 2026-10-03 的 909 行搬去歸檔）**：整合前審查那一版的 `UPSTREAM.md` 是 2123 行，`bun scripts/file-size-ratchet.ts` 回報 `NEW_OVERSIZED docs/fork/UPSTREAM.md 2123`（門檻 2000，Markdown 也在掃描範圍；`AGENTS.md` 明寫上限只能靠搬移、不能調數字）。搬移 909 行（`v2.34.0` 到 `v2.76.0` 之間的分組審查與 replay）到 `docs/fork/UPSTREAM-archive-2026-08-to-10.md`，逐字未改，原處留一節指向它。順便更正檔頭三處過時敘述：「追蹤分支：`main`」「下一次要做什麼」寫死的 2026-09-08 水位，以及兩處引用行號 `L1654`（搬移後行號會變，改成節名）。同一個 gate 還抓到 `tests/responses/responses-pool-401-refresh.test.ts` 合併後剛好 2000 行，見 `UPSTREAM.md` 衝突表。
+
+**決定五（`#8252` 判定）**：Upstream check 的 PR 軸新列出一筆關閉未合併的 PR：[#8252](https://github.com/lidge-jun/opencodex/pull/8252) `fix(chat): convert Mistral typed content on native Chat passthrough`（Draft，2026-11-08 22:52Z 關閉，作者留言：被 #8278 取代，同一做法）。`#8278` 是整合前審查的第 17 筆 `05408a312`，在這次 tag diff 內（含 `tests/responses/chat-native-mistral-content.test.ts` 與 `src/server/chat-native*.ts`）。**不另採**，已由 `v2.99.0` 帶入。

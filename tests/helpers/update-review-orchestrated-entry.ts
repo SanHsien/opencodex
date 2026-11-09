@@ -48,7 +48,8 @@ export const orchestratedEntryReview: UpdateReviewTable = {
       "import { proxyIdentityAt } from \"../server/proxy-liveness\";", // read-only: probe proxy health and identity
     ],
     "src/update/orchestrated-live-identity.ts": [
-      "import { closeSync, constants, fstatSync, lstatSync, openSync, readSync, realpathSync } from \"node:fs\";", // read-only: open and inspect bounded runtime record
+      "import { closeSync, constants, openSync, readSync, realpathSync } from \"node:fs\";", // read-only: open and read bounded runtime record
+      "import { fstatFileIdentity, lstatFileIdentity } from \"../lib/file-identity\";", // read-only: bigint file identity of the runtime record
       "import { join } from \"node:path\";", // read-only: construct runtime record path
       "import { assertNotRealHomeUnderTest } from \"../lib/test-home-guard\";", // read-only: reject unsafe test home
       "import { probeEndpointLiveness, proveLiveProxyOwnedByHome } from \"../server/proxy-liveness\";", // read-only: probe and attest live endpoint
@@ -65,7 +66,7 @@ export const orchestratedEntryReview: UpdateReviewTable = {
     ["src/update/orchestrated-entry.ts:runOrchestratedUpdate:probeSpawn(exe, args, options)", "ordinary launcher for the orchestrated update child, as job.ts spawnGuiUpdateWorker; the child takes the sync/update mutex, ownership lease, plan-token and attested identity checks and its own home authorization before any mutation"],
     ["src/update/orchestrated-entry.ts:applyOrchestratedBun:deps.spawn(process.execPath, selfLaunchArgv(args), { env: { ...process.env, OCX_UPDATE_ORCHESTRATED_CHILD: \"1\", OCX_UPDATE_RESULT_CAPABILITY: channel.capability }, stdio: [\"ignore\", 2, 2] })", "ordinary launcher for the orchestrated update child, as job.ts spawnGuiUpdateWorker; the child takes the sync/update mutex, ownership lease, plan-token and attested identity checks and its own home authorization before any mutation"],
     ["src/update/orchestrated-entry.ts:<module>:import { mkdtempSync, readFileSync, realpathSync, rmSync } from \"node:fs\";", "registry probe cache directory and its cleanup, plus manifest and canonical path reads; package mutation remains separately guarded"],
-    ["src/update/orchestrated-live-identity.ts:<module>:import { closeSync, constants, fstatSync, lstatSync, openSync, readSync, realpathSync } from \"node:fs\";", "read-only runtime record inspection using a bounded descriptor"],
+    ["src/update/orchestrated-live-identity.ts:<module>:import { closeSync, constants, openSync, readSync, realpathSync } from \"node:fs\";", "read-only runtime record inspection using a bounded descriptor"],
     ["src/update/orchestrated-entry.ts:<module>:probeSpawnSync", "bounded registry version probe passed to latestVersion"],
     ["src/update/orchestrated-identity-probe-entry.ts:<module>:import.meta.main", "direct probe entry detection only"],
     ["src/update/orchestrated-entry.ts:<module>:mkdtempSync(join(tmpdir(), \"ocx-registry-probe-\"))", "exclusive disposable registry probe cache under OS temp"],

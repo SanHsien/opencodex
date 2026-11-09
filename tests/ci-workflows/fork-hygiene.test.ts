@@ -22,14 +22,19 @@ import {
   UPSTREAM_REPO,
 } from "../../tools/fork-hygiene-guards";
 import {
+  collectNewCommits,
   collectUnmergedPullRequests,
+  fetchUpstream,
   filterUnmergedPullRequests,
   loadBaseline,
+  newestStableTagAbove,
   PULL_REQUEST_LIST_LIMIT,
   renderIssueSection,
   renderMarkdown,
   UpstreamCheckError,
   renderPullRequestSection,
+  runGit,
+  sortStableTags,
   upstreamSlug,
 } from "../../tools/check-upstream-updates";
 
@@ -187,7 +192,10 @@ describe("upstream checker", () => {
   test("baseline file is valid and complete", () => {
     const baseline = loadBaseline();
     expect(baseline.repo.endsWith("opencodex.git")).toBe(true);
-    expect(baseline.branch).toBe("main");
+    // Upstream deleted `main` on 2026-11-08 and the fork integrates at release tags, so the
+    // checker follows stable tags (DECISIONS 2026-11-09). A fetch of `+refs/heads/main` would fail.
+    expect(baseline.track).toBe("stable-tags");
+    expect(baseline.integrated_tag).toMatch(/^v\d+\.\d+\.\d+$/);
     expect(baseline.reviewed_through).toHaveLength(40);
     // Not a frozen value: this date moves every time the upstream review runs, and
     // pinning it turns a completed review into a red test. What matters is that it
@@ -413,6 +421,109 @@ describe("upstream checker", () => {
         writeFileSync(file, JSON.stringify({ ...legacy, reviewed_pr_numbers: numbers }));
         expect(() => loadBaseline(file)).toThrow("reviewed_pr_numbers");
       }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("stable tag order is numeric and never counts a pre-release", () => {
+    const tags = ["v2.99.0", "v2.100.0", "v2.100.0-preview.20261201", "v2.98.0", "v2.99.0-preview.20261108", "v2.99.1", "latest"];
+    expect(sortStableTags(tags)).toEqual(["v2.98.0", "v2.99.0", "v2.99.1", "v2.100.0"]);
+    // Lexicographic order would put v2.100.0 below v2.99.0 and silently stop reporting releases.
+    expect(newestStableTagAbove(tags, "v2.99.0")).toBe("v2.100.0");
+    expect(newestStableTagAbove(tags, "v2.100.0")).toBeUndefined();
+    expect(newestStableTagAbove(["v2.100.0-preview.1"], "v2.99.0")).toBeUndefined();
+  });
+
+  test("baseline validation: stable-tags needs a stable integrated_tag, branch mode needs a branch", () => {
+    mkdirSync(join(ROOT, ".tmp"), { recursive: true });
+    const dir = mkdtempSync(join(ROOT, ".tmp", "upstream-baseline-"));
+    try {
+      const file = join(dir, "baseline.json");
+      const base = { repo: "https://example.invalid/u.git", reviewed_through: "a".repeat(40), reviewed_date: "2026-11-09" };
+      writeFileSync(file, JSON.stringify({ ...base, track: "stable-tags" }));
+      expect(() => loadBaseline(file)).toThrow("integrated_tag");
+      writeFileSync(file, JSON.stringify({ ...base, track: "stable-tags", integrated_tag: "v2.99.0-preview.1" }));
+      expect(() => loadBaseline(file)).toThrow("integrated_tag");
+      writeFileSync(file, JSON.stringify({ ...base, track: "stable-tags", integrated_tag: "v2.99.0" }));
+      expect(loadBaseline(file).track).toBe("stable-tags");
+      writeFileSync(file, JSON.stringify(base));
+      expect(() => loadBaseline(file)).toThrow("branch");
+      writeFileSync(file, JSON.stringify({ ...base, branch: "main" }));
+      expect(loadBaseline(file).branch).toBe("main");
+      writeFileSync(file, JSON.stringify({ ...base, track: "tags", branch: "main" }));
+      expect(() => loadBaseline(file)).toThrow("track");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("stable-tags tracking works against an upstream with no main branch", () => {
+    // The 2026-11-08 situation: upstream HEAD is `dev`, releases exist only as tags (the
+    // release commit is an ours-merge, so it is not reachable from `dev`), and the old
+    // `+refs/heads/main` fetch fails. The checker must still say what is new, and must say
+    // "nothing" only when no stable tag is above the integrated one.
+    mkdirSync(join(ROOT, ".tmp"), { recursive: true });
+    const dir = mkdtempSync(join(ROOT, ".tmp", "upstream-tags-"));
+    const git = (cwd: string, ...args: string[]) => {
+      const result = Bun.spawnSync(
+        ["git", "-c", "user.name=t", "-c", `user.email=${["t", "example.invalid"].join("@")}`, "-c", "commit.gpgsign=false", "-c", "init.defaultBranch=dev", ...args],
+        { cwd, stdout: "pipe", stderr: "pipe" },
+      );
+      if (result.exitCode !== 0) throw new Error(`git ${args.join(" ")}: ${new TextDecoder().decode(result.stderr)}`);
+      return new TextDecoder().decode(result.stdout).trim();
+    };
+    try {
+      const upstream = join(dir, "upstream");
+      const fork = join(dir, "fork");
+      mkdirSync(upstream); mkdirSync(fork);
+      git(upstream, "init", "--quiet");
+      const commit = (message: string) => { git(upstream, "commit", "--quiet", "--allow-empty", "-m", message); return git(upstream, "rev-parse", "HEAD"); };
+      const first = commit("release 1.0.0");
+      git(upstream, "tag", "v1.0.0");
+      const second = commit("feature after 1.0.0");
+      git(upstream, "tag", "v1.1.0-preview.1");
+      const third = commit("release 1.1.0");
+      git(upstream, "tag", "v1.1.0");
+      git(upstream, "tag", "v1.0.10", first);
+      git(fork, "init", "--quiet");
+      expect(git(upstream, "branch", "--list", "main")).toBe("");
+
+      const baseline = {
+        repo: upstream,
+        track: "stable-tags" as const,
+        integrated_tag: "v1.0.10",
+        reviewed_through: first,
+        reviewed_date: "2026-11-09",
+      };
+      // A newer stable tag exists: the report lists exactly the commits it adds.
+      const ref = fetchUpstream(baseline, fork);
+      expect(ref).toEndWith("/tags/v1.1.0");
+      expect(collectNewCommits(baseline, fork, ref).map(item => item.sha)).toEqual([second, third]);
+      // Local ref names must not shadow real tags.
+      expect(runGit(["tag", "--list"], fork)).toBe("");
+
+      // Integrated up to the newest stable tag: nothing to review, even though a pre-release
+      // and a lower-numbered tag exist.
+      const caught = { ...baseline, integrated_tag: "v1.1.0", reviewed_through: third };
+      const quietRef = fetchUpstream(caught, fork);
+      expect(collectNewCommits(caught, fork, quietRef)).toEqual([]);
+      expect(renderMarkdown(caught, [])).toContain("stable release tags above `v1.1.0`");
+
+      // Branch mode keeps working for a repository that still has the branch.
+      const legacy = { repo: upstream, branch: "dev", reviewed_through: first, reviewed_date: "2026-11-09" };
+      expect(collectNewCommits(legacy, fork, fetchUpstream(legacy, fork)).map(item => item.sha)).toEqual([second, third]);
+
+      // A fetch that finds no stable tag at all is an error, never "nothing to review".
+      const empty = join(dir, "empty");
+      mkdirSync(empty);
+      git(empty, "init", "--quiet");
+      git(empty, "commit", "--quiet", "--allow-empty", "-m", "x");
+      git(empty, "tag", "v9.0.0-preview.1");
+      const fresh = join(dir, "fresh");
+      mkdirSync(fresh);
+      git(fresh, "init", "--quiet");
+      expect(() => fetchUpstream({ ...baseline, repo: empty }, fresh)).toThrow(UpstreamCheckError);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

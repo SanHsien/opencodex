@@ -8,7 +8,14 @@ import { fileURLToPath } from "node:url";
 export const REPO_ROOT = resolve(fileURLToPath(new URL("..", import.meta.url)));
 export const BASELINE_PATH = resolve(REPO_ROOT, "tools", "upstream_baseline.json");
 const UPSTREAM_REF_PREFIX = "refs/upstream-check";
-const REQUIRED_FIELDS = ["repo", "branch", "reviewed_through", "reviewed_date"] as const;
+const REQUIRED_FIELDS = ["repo", "reviewed_through", "reviewed_date"] as const;
+/**
+ * Upstream deleted `main` and moved HEAD to `dev` (2026-11-08), so a branch head no longer
+ * names "what was released". This fork integrates at release tags, so the baseline can
+ * instead track the newest stable tag. See `docs/fork/DECISIONS.md`.
+ */
+export const STABLE_TAG_PATTERN = /^v(\d+)\.(\d+)\.(\d+)$/;
+const STABLE_TAG_REF_PREFIX = `${UPSTREAM_REF_PREFIX}/tags`;
 /**
  * Upstream tickets the fork tracks.
  *
@@ -26,9 +33,20 @@ const UNIT_SEPARATOR = "\u001f";
 
 export class UpstreamCheckError extends Error {}
 
+export type TrackMode = "branch" | "stable-tags";
+
 export type Baseline = {
   repo: string;
-  branch: string;
+  /**
+   * What the commit axis compares against. `branch` (default): the head of `branch`.
+   * `stable-tags`: the newest stable `vX.Y.Z` tag above `integrated_tag`; nothing is
+   * reported until a newer one exists. Pre-releases (`-preview.*`) never count.
+   */
+  track?: TrackMode;
+  /** Required unless `track` is `stable-tags`. */
+  branch?: string;
+  /** Last stable tag whose full diff was replayed; required when `track` is `stable-tags`. */
+  integrated_tag?: string;
   reviewed_through: string;
   reviewed_date: string;
   /** Highest upstream issue number already triaged; only higher ones are reported. */
@@ -79,6 +97,16 @@ export function loadBaseline(path = BASELINE_PATH): Baseline {
   if (String(baseline.reviewed_through).length !== FULL_SHA_LENGTH) {
     throw new UpstreamCheckError("reviewed_through must be a full 40-character SHA");
   }
+  if (baseline.track !== undefined && baseline.track !== "branch" && baseline.track !== "stable-tags") {
+    throw new UpstreamCheckError('track must be "branch" or "stable-tags"');
+  }
+  if (baseline.track === "stable-tags") {
+    if (typeof baseline.integrated_tag !== "string" || !STABLE_TAG_PATTERN.test(baseline.integrated_tag)) {
+      throw new UpstreamCheckError("track stable-tags needs integrated_tag as a stable vX.Y.Z tag");
+    }
+  } else if (!baseline.branch) {
+    throw new UpstreamCheckError("baseline missing fields: branch");
+  }
   if (baseline.reviewed_pr_numbers !== undefined && (
     !Array.isArray(baseline.reviewed_pr_numbers) ||
     baseline.reviewed_pr_numbers.some(number => !Number.isSafeInteger(number) || number <= 0)
@@ -108,7 +136,44 @@ export function runGit(args: string[], cwd: string): string {
   return new TextDecoder().decode(result.stdout);
 }
 
+/** Stable `vX.Y.Z` tags sorted ascending by version; pre-releases and other tags are dropped. */
+export function sortStableTags(tags: string[]): string[] {
+  const version = (tag: string) => STABLE_TAG_PATTERN.exec(tag)!.slice(1).map(Number);
+  return tags
+    .filter((tag) => STABLE_TAG_PATTERN.test(tag))
+    .sort((left, right) => {
+      const [a, b] = [version(left), version(right)];
+      return a[0]! - b[0]! || a[1]! - b[1]! || a[2]! - b[2]!;
+    });
+}
+
+/** The newest stable tag strictly above `integratedTag`, or `undefined` when there is none. */
+export function newestStableTagAbove(tags: string[], integratedTag: string): string | undefined {
+  const sorted = sortStableTags([...tags, integratedTag]);
+  const newest = sorted[sorted.length - 1];
+  return newest !== undefined && newest !== integratedTag ? newest : undefined;
+}
+
 export function fetchUpstream(baseline: Baseline, repoDir: string): string {
+  if (baseline.track === "stable-tags") {
+    // Local ref names stay out of `refs/tags` so this never creates a tag the fork could publish.
+    runGit(
+      ["fetch", "--quiet", "--no-tags", baseline.repo, `+refs/tags/v*:${STABLE_TAG_REF_PREFIX}/v*`],
+      repoDir,
+    );
+    const listed = runGit(
+      ["for-each-ref", "--format=%(refname:strip=3)", STABLE_TAG_REF_PREFIX],
+      repoDir,
+    ).split("\n").map((item) => item.trim()).filter(Boolean);
+    if (sortStableTags(listed).length === 0) {
+      // An empty list would read as "no release yet" and hide a broken fetch.
+      throw new UpstreamCheckError("no stable vX.Y.Z tags found upstream; refusing to report 'nothing to review'");
+    }
+    const newest = newestStableTagAbove(listed, baseline.integrated_tag!);
+    // No newer release: compare the watermark with itself (empty range). The watermark commit is
+    // an ancestor of the integrated tag, so the fetch above guarantees the object exists.
+    return newest ? `${STABLE_TAG_REF_PREFIX}/${newest}` : baseline.reviewed_through;
+  }
   const ref = `${UPSTREAM_REF_PREFIX}/${baseline.branch}`;
   runGit(
     ["fetch", "--quiet", "--no-tags", baseline.repo, `+refs/heads/${baseline.branch}:${ref}`],
@@ -370,7 +435,9 @@ export function renderMarkdown(
   const lines = [
     "# Upstream review report",
     "",
-    `- Upstream: \`${baseline.repo}\` (\`${baseline.branch}\`)`,
+    baseline.track === "stable-tags"
+      ? `- Upstream: \`${baseline.repo}\` (stable release tags above \`${baseline.integrated_tag}\`)`
+      : `- Upstream: \`${baseline.repo}\` (\`${baseline.branch}\`)`,
     `- Reviewed through: \`${baseline.reviewed_through.slice(0, 7)}\``,
     `- Last review date: ${baseline.reviewed_date}`,
     "",

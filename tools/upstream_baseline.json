@@ -1,6 +1,6 @@
 {
   "repo": "https://github.com/lidge-jun/opencodex.git",
-  "branch": "main",
+  "track": "stable-tags",
   "reviewed_through": "36aa9e8f7933807dc2c873bb93051c7c9c00f4e6",
   "reviewed_date": "2026-11-08",
   "reviewed_issue_through": 8336,

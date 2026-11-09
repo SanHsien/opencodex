@@ -7,7 +7,7 @@
 
 - 在 Windows 11 本機跑 `ocx`：把 Claude、Gemini、Grok、DeepSeek、Ollama 等接到 Codex / Claude Code。
 - 使用並審查 **ChatGPT account pool**（多帳號、配額、thread affinity）。
-- 上游仍在快速發版；本線要能逐筆審查 `upstream/main`，而不是盲目跟。
+- 上游仍在快速發版；本線要能逐筆審查上游每個 stable release tag，而不是盲目跟。
 - 不當成第二個官方產品站，也不在本 fork 發 `@bitkyc08/opencodex`。
 
 **回貢判準：修的是上游 proxy / 帳號池 / 測試的 bug 就送回 `lidge-jun/opencodex`；這裡獨創的文件／Windows 維護骨架留在這裡。**
@@ -23,7 +23,7 @@
 | `docs/fork/` | Windows 開發、上游審查、決策 |
 | `tools/dev_check.ps1` | Windows 本機一鍵 fork gate |
 | `.github/workflows/fork-maintenance.yml` | fork 文件與連結檢查 |
-| `.github/workflows/upstream-check.yml` | 每週對 `upstream/main` 做未審查 commit 檢查 |
+| `.github/workflows/upstream-check.yml` | 每週檢查上游有沒有比 `tools/upstream_baseline.json` 的 `integrated_tag` 更新的 stable release tag，並列出它帶來的未審查 commit（上游已無 `main`，見 [`docs/fork/DECISIONS.md`](docs/fork/DECISIONS.md) 2026-11-09） |
 | 上游 `release.yml` / `deploy-docs.yml` / issue·PR 治理 workflow | 加上只在官方 `lidge-jun/opencodex` 執行的 guard |
 | 上游 `ci.yml` | **保留並在本 fork 跑**，這是產品回歸；macOS 與 Linux 專屬 job（Ubuntu 測試分片、macOS 分片／control／widget、docker、npm-global、Linux 桌面打包）已移除，完整測試只留 Windows 九分片（排程與手動 dispatch） |
 | Windows-only 檔案層級移除 | 2026-10-28 起只支援 Windows：`app/`、`docker/`、`Dockerfile`／`compose.yaml`、macOS／Linux 打包與安裝腳本、只在非 Windows 跑的測試與 docs 頁整檔刪除（清單：`tools/fork-hygiene-guards.ts` 的 `REMOVED_DIRECTORIES`／`REMOVED_FILES`／`REMOVED_CI_JOBS`）。**檔案內的平台分支一律保留**（`process.platform === "win32" ? … : …`、POSIX 程式路徑、混合測試檔的 `skipIf`），因為同步靠整檔刪除重放、檔案內編輯會每次衝突。`release.yml` 原樣保留（官方 repo 專用）。`tests/ci-workflows/fork-hygiene.test.ts` 在被刪路徑／job／非 Windows runner 標籤回來時失敗；同步時的處理見 [`docs/fork/UPSTREAM.md`](docs/fork/UPSTREAM.md) 的「Windows-only 刪除清單」，理由見 [`docs/fork/DECISIONS.md`](docs/fork/DECISIONS.md) |
@@ -37,7 +37,7 @@
 ## 分支與 remote
 
 - `origin/main`：SanHsien 維護主線。產品基底為最近一次同步的上游穩定版（`tools/upstream_baseline.json` 的 `integrated_tag`／`integrated_through`，目前 `v2.98.0`）加上 fork overlay；此產品來源不會自行推進 `tools/upstream_baseline.json` 的審查水位。
-- `upstream/main`：上游發版線；`upstream/dev` 是上游 PR 整合線，需要時再 fetch。
+- 上游發版線：以 stable release tag（`vX.Y.Z`）為準。上游已於 2026-11-08 刪除 `main`，遠端 HEAD 為 `dev`（PR 整合線，含尚未發版的 commit，不追蹤）；上游 tag 抓進 `refs/upstream-tags/`，見 [`docs/fork/UPSTREAM.md`](docs/fork/UPSTREAM.md)。
 - 本 fork **刻意維持壓縮歷史**（2026-09-27 壓縮，2026-10-06 維護者確認），與上游沒有共同祖先，也不建立 ancestry bridge。上游更新一律以 tag 間的 diff（`git diff <integrated_tag> <新 tag>`）套到 `main`，以單一 parent 的 commit 提交，再推進 `integrated_through`／`integrated_tag`。2026-10-03 的 `v2.76.0`、2026-10-19 的 `v2.88.0`、2026-10-23 的 `v2.91.0`、2026-10-25 的 `v2.92.0`、2026-10-27 的 `v2.93.0`、2026-11-06 的 `v2.97.0` 整合皆用此法。細節見 [`docs/fork/UPSTREAM.md`](docs/fork/UPSTREAM.md) 與 [`docs/fork/DECISIONS.md`](docs/fork/DECISIONS.md)。絕不推送上游。
 - 本 fork 的一般修改**直接推 `origin/main`**，不開功能分支、不開維護 PR（維護者 2026-08-22 指示，與其他 repo 一致）。
   只有在需要他人審查、或改動風險高到值得先讓 CI 在 PR 上跑一輪時，才退回 branch → PR → CI → squash merge。

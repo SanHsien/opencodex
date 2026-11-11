@@ -883,6 +883,7 @@ async fn run(app: &AppHandle, started: Instant) {
     match resolve::live_verdict(&resolution) {
         resolve::LiveVerdict::Attach => {
             let choices = guest_choice::directory(app);
+            forget_stale_guest_choice(answer, choices.as_deref());
             let consent = launch_consent(
                 answer,
                 registration.install_id.as_deref(),
@@ -1168,6 +1169,21 @@ fn remember_guest_choice(answer: &resolve::Resolved, choices: Option<&std::path:
             "the guest choice could not be remembered",
             &error.to_string(),
         );
+    }
+}
+
+/// A runtime a background service supervises ends any earlier "no" for that home.
+///
+/// The remembered answer was given in another situation: with no service the prompt was about
+/// the app owning the runtime. While the service exists nothing is asked, and once it is
+/// uninstalled the owner reads as none again, so a surviving "no" would silence the offer the
+/// docs promise after `ocx service uninstall`.
+fn forget_stale_guest_choice(answer: &resolve::Resolved, choices: Option<&std::path::Path>) {
+    if matches!(
+        &answer.takeover,
+        resolve::Takeover::Blocked { reason, .. } if reason == "service-managed"
+    ) {
+        forget_guest_choice(answer, choices);
     }
 }
 
@@ -1904,11 +1920,11 @@ fn elapsed(started: Instant) -> u64 {
 mod tests {
     use super::{
         approval_still_current, attach_plan, claim_after_silence, consent_version_note,
-        forget_guest_choice, keeps_update_page, launch_consent, loads_dashboard_on_ready,
-        navigate_once, remember_guest_choice, return_ready_dashboard, shows_window,
-        stop_after_approval, unavailable, waits_on_child, AttachPlan, ConsentState, Expiry,
-        LaunchOrigin, Mode, Phase, Progress, Startup, AUTOSTART_FLAG, CHILD_START_GRACE, DEADLINE,
-        PHASES, POLL,
+        forget_guest_choice, forget_stale_guest_choice, keeps_update_page, launch_consent,
+        loads_dashboard_on_ready, navigate_once, remember_guest_choice, return_ready_dashboard,
+        shows_window, stop_after_approval, unavailable, waits_on_child, AttachPlan, ConsentState,
+        Expiry, LaunchOrigin, Mode, Phase, Progress, Startup, AUTOSTART_FLAG, CHILD_START_GRACE,
+        DEADLINE, PHASES, POLL,
     };
     use crate::claim::ClaimResult;
     use crate::ownership::{Claim, Consent, Owner, Recorded};
@@ -2222,6 +2238,46 @@ mod tests {
             launch_consent(&answer, Some("abc"), Some(&directory)),
             Consent::AskFirstTime
         );
+        let _ = std::fs::remove_dir_all(&directory);
+    }
+
+    #[test]
+    fn removing_the_service_asks_again_after_an_earlier_no() {
+        // Declined while no service existed, then a service was installed, then uninstalled: the
+        // runtime reads as unowned again, and "uninstall first, then open the app" has to offer
+        // the takeover its docs promise instead of being answered by a stale "no".
+        let directory = consent_scratch("service-gap");
+        let unowned = unowned_answer(supported());
+        remember_guest_choice(&unowned, Some(&directory));
+        assert_eq!(
+            launch_consent(&unowned, Some("abc"), Some(&directory)),
+            Consent::Declined
+        );
+        // While the service is installed the CLI reports service-managed; seeing that ends the
+        // earlier answer, which was about a different situation.
+        let supervised = unowned_answer(service_managed());
+        forget_stale_guest_choice(&supervised, Some(&directory));
+        assert_eq!(
+            launch_consent(&unowned, Some("abc"), Some(&directory)),
+            Consent::AskFirstTime
+        );
+        let _ = std::fs::remove_dir_all(&directory);
+    }
+
+    #[test]
+    fn only_a_service_managed_answer_ends_an_earlier_no() {
+        let directory = consent_scratch("other-blocked");
+        let unowned = unowned_answer(supported());
+        remember_guest_choice(&unowned, Some(&directory));
+        // Any other blocked reason is not evidence that the situation changed.
+        forget_stale_guest_choice(&unowned_answer(blocked()), Some(&directory));
+        forget_stale_guest_choice(&unowned, Some(&directory));
+        assert_eq!(
+            launch_consent(&unowned, Some("abc"), Some(&directory)),
+            Consent::Declined
+        );
+        // Nowhere to look is a quiet no-op.
+        forget_stale_guest_choice(&unowned_answer(service_managed()), None);
         let _ = std::fs::remove_dir_all(&directory);
     }
 

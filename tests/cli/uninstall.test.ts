@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import {
   setUninstallServiceHooksForTests,
+  uninstallServiceDetailed,
   uninstallServiceIfInstalled,
 } from "../../src/service";
 import { pathToFileURL } from "node:url";
@@ -189,6 +190,37 @@ describe("uninstall gates shared teardown on a proven service stop", () => {
     // The darwin and linux arms return "failed", not the absence value.
     expect(serviceSource).toContain('try { uninstallLaunchd(); removeServiceInstallState(); return "removed"; } catch { return "failed"; }');
     expect(serviceSource).toContain('try { unlinkSync(unitPath()); removeServiceInstallState(); return "removed"; } catch { return "failed"; }');
+  });
+
+  test("wrapper residue with the scheduler task proven absent is removed, not reported as absence", () => {
+    // `ocx service uninstall` already deletes the wrapper trio; the full-uninstall path used to
+    // return early on an absent task and leave the files behind. `ocx resolve` reads them as
+    // evidence of a registered service while the task still exists or cannot be queried.
+    const calls: string[] = [];
+    const hooks = (residue: () => boolean, status: "absent" | "unknown" = "absent") => ({
+      platform: "win32" as const,
+      assertEnvironment: () => {},
+      probeWindowsTask: () => (status === "absent" ? { status } : { status, detail: "schtasks failed" }) as never,
+      uninstallWindowsTask: () => { calls.push("scheduler"); },
+      nativeStatus: () => "nonexistent" as const,
+      uninstallNative: () => { calls.push("native"); },
+      removeInstallState: () => { calls.push("state"); },
+      removeWindowsWrapperResidue: residue,
+    });
+    setUninstallServiceHooksForTests(hooks(() => { calls.push("residue"); return true; }) as never);
+    expect(uninstallServiceDetailed()).toBe("removed");
+    expect(calls).toEqual(["residue", "state"]);
+
+    calls.length = 0;
+    setUninstallServiceHooksForTests(hooks(() => { calls.push("residue"); return false; }) as never);
+    expect(uninstallServiceDetailed()).toBe("absent");
+    expect(calls).toEqual(["residue"]);
+
+    // A scheduler that cannot be asked keeps refusing before anything is deleted.
+    calls.length = 0;
+    setUninstallServiceHooksForTests(hooks(() => { calls.push("residue"); return true; }, "unknown") as never);
+    expect(() => uninstallServiceDetailed()).toThrow("Could not determine Task Scheduler state");
+    expect(calls).toEqual([]);
   });
 
   test("a live orphan with no pid file blocks the teardown", async () => {

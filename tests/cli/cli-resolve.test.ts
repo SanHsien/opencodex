@@ -608,20 +608,37 @@ describe("the production wrapper probe reads the config home", () => {
     }
   }
 
+  const writeWrapper = (home: string, file = "opencodex-service.cmd") => {
+    mkdirSync(home, { recursive: true });
+    writeFileSync(join(home, file), "@echo off");
+  };
+  const probeIs = (status: "present" | "absent" | "unknown") => () =>
+    status === "unknown" ? { status, detail: "schtasks failed" } as const : { status } as const;
+
   test("an empty home has no wrapper, so the first-time offer is untouched", () => {
-    withHome(() => {}, () => expect(windowsServiceWrapperPresent()).toBe(false));
+    let probed = false;
+    withHome(() => {}, () => expect(windowsServiceWrapperPresent(() => { probed = true; return probeIs("present")(); })).toBe(false));
+    // No file means no reason to spend a Task Scheduler query on the launch path.
+    expect(probed).toBe(false);
   });
 
   test("either half of the scheduler wrapper pair is the registered service's footprint", () => {
     for (const file of ["opencodex-service.cmd", "opencodex-service-launcher.vbs"]) {
       withHome(
-        home => {
-          mkdirSync(home, { recursive: true });
-          writeFileSync(join(home, file), "@echo off");
-        },
-        () => expect(windowsServiceWrapperPresent()).toBe(true),
+        home => writeWrapper(home, file),
+        () => expect(windowsServiceWrapperPresent(probeIs("present"))).toBe(true),
       );
     }
+  });
+
+  test("a leftover wrapper with the scheduler task proven absent is not a registration", () => {
+    // Residue from a failed or partial uninstall must not become a prompt-less permanent block.
+    withHome(home => writeWrapper(home), () => expect(windowsServiceWrapperPresent(probeIs("absent"))).toBe(false));
+  });
+
+  test("a scheduler that cannot be asked leaves the wrapper as evidence, the guest-safe direction", () => {
+    withHome(home => writeWrapper(home), () => expect(windowsServiceWrapperPresent(probeIs("unknown"))).toBe(true));
+    withHome(home => writeWrapper(home), () => expect(windowsServiceWrapperPresent(() => { throw new Error("spawn"); })).toBe(true));
   });
 });
 

@@ -911,6 +911,21 @@ export function uninstallWindows(): void {
 }
 
 /**
+ * Delete the scheduler wrapper trio when the task that ran it is already gone.
+ *
+ * `uninstallWindows` removes these files on every call; the full-uninstall path returned early
+ * on an absent task and left them, and `ocx resolve` reads a surviving wrapper as a registered
+ * service. Returns whether anything was removed. The caller has already proven the task absent.
+ */
+export function removeWindowsServiceWrapperResidue(): boolean {
+  let removed = false;
+  for (const file of [windowsServiceScriptPath(), windowsLauncherVbsPath(), windowsTaskXmlPath()]) {
+    if (existsSync(file)) { unlinkSync(file); removed = true; }
+  }
+  return removed;
+}
+
+/**
  * Collapse the Windows backend observations into one outcome.
  *
  * Extracted so the precedence is testable by calling it. The rule that matters: a readable

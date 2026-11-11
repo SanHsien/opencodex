@@ -51,7 +51,9 @@ A runtime that a registered background service supervises is never offered for t
 `declineTakeoverOfRegisteredService` in `src/cli/resolve.ts` turns a would-be `supported` answer
 into `blocked` with the wire reason `service-managed` when the service-registration observation is
 `observed` (or, for a lost or never-written install state, the scheduler wrapper script or launcher
-is still in the config home, via `windowsServiceWrapperPresent`) and the recorded owner is absent
+is still in the config home and Task Scheduler does not prove the task absent, via
+`windowsServiceWrapperPresent`; a task proven absent makes the files residue, an unanswerable
+scheduler keeps them as evidence, and no file means no query) and the recorded owner is absent
 or an explicit `cli` claim. The service's wrapper
 relaunches `ocx start` on its own schedule, and a takeover has a window between the guarded stop and
 the recorded claim in which that wrapper starts a replacement, so the offer was a fight for the port
@@ -59,8 +61,13 @@ that the user also could not answer once and be done with. The shell already att
 asking nothing and stopping nothing, on any blocked offer; only the CLI's answer changed. A desktop
 claim (this installation's or another's) is not covered: the service stands down for it, so another
 installation asking to take over remains a real question. Older blocked reasons keep their
-precedence, `ocx service claim` still revalidates the unmodified compatibility assessment, and the
-way to let the app own a service-supervised runtime is `ocx service uninstall` first.
+precedence, and the way to let the app own a service-supervised runtime is `ocx service uninstall`
+first, which also deletes the wrapper files (the full-uninstall path `uninstallServiceDetailed`
+removes that residue when the task is already gone, via `removeWindowsServiceWrapperResidue`).
+`ocx service claim` is not blocked by this rule and does not need to be: a claim carries the
+compatibility token `ocx resolve` issues, a blocked answer issues none, and the assessment the claim
+revalidates internally (`assessServiceTakeoverCompatibility`) does not apply the `service-managed`
+rule, which lives only in the resolve layer.
 
 A "Stay a guest" answer is remembered. `desktop/src-tauri/src/guest_choice.rs` keeps it in the app's
 own config directory next to the install id (`guest-choice.json`), keyed by the configuration home
@@ -71,7 +78,10 @@ already-declined subject, so a different owner or another home asks afresh. Held
 unreadable record are untouched: nothing is remembered against an unreadable owner, and a record
 nobody could read stays a refusal. Only an answer is recorded; a prompt dropped by a retry reads as
 declined for that run but is not a decision. Approving a takeover forgets earlier answers for that
-home. A missing, corrupt or unwritable file reads as nothing remembered, which is the previous
+home. Seeing a `service-managed` answer for a home also forgets its earlier answers
+(`forget_stale_guest_choice`): a "no" given before a service existed describes another situation, and
+after `ocx service uninstall` the owner reads as none again, so keeping it would silence the offer
+the uninstall step promises. A missing, corrupt or unwritable file reads as nothing remembered, which is the previous
 behaviour of asking, never a silent takeover.
 
 Live supervision is a third independent fact, alongside liveness and durable ownership.

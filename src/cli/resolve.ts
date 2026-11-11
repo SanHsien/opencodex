@@ -60,6 +60,7 @@ import {
   type ManagingCliRole,
 } from "../service/ownership-compatibility";
 import { observeManagingClis } from "../service/managing-cli";
+import { probeWindowsSchedulerTask } from "../service/windows-scheduler";
 import { SERVICE_OWNERSHIP_MINIMUM_CLI_VERSION } from "../service/install-state-contract.mjs";
 import { inspectDesktopSupervision } from "../service/desktop-supervision.mjs";
 import { computeVersionSkew, type VersionSkew } from "./version-skew";
@@ -68,9 +69,26 @@ import { existsSync } from "node:fs";
 /** Wire version of the resolve document. Bump only on an incompatible shape change. */
 export const RESOLVE_SCHEMA = "ocx-resolve/1";
 
-/** The scheduler wrapper pair `ocx service install` leaves in the config home on Windows. */
-export function windowsServiceWrapperPresent(): boolean {
-  return existsSync(windowsServiceScriptPath()) || existsSync(windowsLauncherVbsPath());
+/**
+ * Whether the scheduler wrapper pair `ocx service install` leaves in the config home still
+ * stands for a registered service.
+ *
+ * The files alone are not enough: a failed or partial uninstall leaves them behind, and
+ * taking residue for a registration would block takeover with no prompt and no way out. So
+ * once a file is found, Task Scheduler is asked and a task it proves absent means residue.
+ * A scheduler that cannot be asked keeps the files as evidence, the direction that only
+ * ever makes the app a guest. With no file there is no query at all: the common launch pays
+ * nothing. A wrapper process whose task is gone is a leftover instance, not a registration.
+ */
+export function windowsServiceWrapperPresent(
+  probeTask: () => { status: "present" | "absent" | "unknown" } = probeWindowsSchedulerTask,
+): boolean {
+  if (!existsSync(windowsServiceScriptPath()) && !existsSync(windowsLauncherVbsPath())) return false;
+  try {
+    return probeTask().status !== "absent";
+  } catch {
+    return true;
+  }
 }
 
 /** The port every preferred-port selection in the CLI falls back to. */

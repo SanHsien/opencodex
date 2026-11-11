@@ -45,6 +45,35 @@ terminal before its own silence wait or claim. Only parsed `stopped` or validate
 (`desktop/src-tauri/src/claim.rs`), which rechecks the approved subject and compatibility.
 Declining attaches as a guest; a failed claim does not pretend a stopped runtime was restored.
 
+Two things keep a person from being asked the same question on every launch.
+
+A runtime that a registered background service supervises is never offered for takeover.
+`declineTakeoverOfRegisteredService` in `src/cli/resolve.ts` turns a would-be `supported` answer
+into `blocked` with the wire reason `service-managed` when the service-registration observation is
+`observed` (or, for a lost or never-written install state, the scheduler wrapper script or launcher
+is still in the config home, via `windowsServiceWrapperPresent`) and the recorded owner is absent
+or an explicit `cli` claim. The service's wrapper
+relaunches `ocx start` on its own schedule, and a takeover has a window between the guarded stop and
+the recorded claim in which that wrapper starts a replacement, so the offer was a fight for the port
+that the user also could not answer once and be done with. The shell already attaches as a guest,
+asking nothing and stopping nothing, on any blocked offer; only the CLI's answer changed. A desktop
+claim (this installation's or another's) is not covered: the service stands down for it, so another
+installation asking to take over remains a real question. Older blocked reasons keep their
+precedence, `ocx service claim` still revalidates the unmodified compatibility assessment, and the
+way to let the app own a service-supervised runtime is `ocx service uninstall` first.
+
+A "Stay a guest" answer is remembered. `desktop/src-tauri/src/guest_choice.rs` keeps it in the app's
+own config directory next to the install id (`guest-choice.json`), keyed by the configuration home
+and `ownership::subject_key`: the owner, installation and consent generation, never the record's
+revision, because service repair and update move the revision without changing who owns the runtime.
+`ownership::consent_with_choice` turns an `AskFirstTime` or `AskAgain` into `Declined` for an
+already-declined subject, so a different owner or another home asks afresh. Held consent and an
+unreadable record are untouched: nothing is remembered against an unreadable owner, and a record
+nobody could read stays a refusal. Only an answer is recorded; a prompt dropped by a retry reads as
+declined for that run but is not a decision. Approving a takeover forgets earlier answers for that
+home. A missing, corrupt or unwritable file reads as nothing remembered, which is the previous
+behaviour of asking, never a silent takeover.
+
 Live supervision is a third independent fact, alongside liveness and durable ownership.
 On macOS and Linux, the read-only probe verifies that the runtime's direct parent is
 `opencodex-desktop` and the child executable is that app's sibling `ocx`; two complete

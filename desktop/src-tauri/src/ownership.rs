@@ -88,6 +88,9 @@ pub enum Consent {
     AskAgain,
     /// The record could not be read for a decision, so nothing is taken over on a guess.
     Refuse,
+    /// The user was asked about exactly this subject and chose to stay a guest. The answer was
+    /// given, so it is not asked for again until the recorded owner changes.
+    Declined,
 }
 
 pub fn consent(recorded: &Recorded, install_id: &str) -> Consent {
@@ -101,6 +104,40 @@ pub fn consent(recorded: &Recorded, install_id: &str) -> Consent {
                 Consent::AskAgain
             }
         }
+    }
+}
+
+/// [`consent`], with the user's earlier "stay a guest" taken into account.
+///
+/// `declined` is whether this exact subject was declined before (see `guest_choice`). It only
+/// turns a question into silence: consent already held stays held, and an unreadable record stays a
+/// refusal instead of being relabelled as a decision the user made about something nobody read.
+pub fn consent_with_choice(recorded: &Recorded, install_id: &str, declined: bool) -> Consent {
+    match consent(recorded, install_id) {
+        Consent::AskFirstTime | Consent::AskAgain if declined => Consent::Declined,
+        other => other,
+    }
+}
+
+/// What a guest decision is remembered against: the claim, not the record's revision.
+///
+/// Service repair, update and install move the revision without changing who owns the runtime, so
+/// a key that included it would forget the decision after routine maintenance. A different owner,
+/// installation or consent generation is a different question and gets asked afresh. An unreadable
+/// record is no subject at all: nothing is remembered against it and nothing is looked up.
+pub fn subject_key(recorded: &Recorded) -> Option<String> {
+    match recorded {
+        Recorded::None { .. } => Some("none".to_owned()),
+        Recorded::Owned { ownership, .. } => Some(format!(
+            "owned/{}/{}/{}",
+            match ownership.owner {
+                Owner::Cli => "cli",
+                Owner::Desktop => "desktop",
+            },
+            ownership.install_id,
+            ownership.consent_generation
+        )),
+        Recorded::Unknown { .. } => None,
     }
 }
 
@@ -148,15 +185,22 @@ pub fn owner_label(recorded: &Recorded) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{consent, describe, granted_to, owner_label, Claim, Consent, Owner, Recorded};
+    use super::{
+        consent, consent_with_choice, describe, granted_to, owner_label, subject_key, Claim,
+        Consent, Owner, Recorded,
+    };
+
+    fn claim_with_generation(owner: Owner, install_id: &str, generation: u64) -> Claim {
+        Claim {
+            owner,
+            install_id: install_id.to_owned(),
+            consent_generation: generation,
+        }
+    }
 
     fn owned(owner: Owner, install_id: &str, generation: u64) -> Recorded {
         Recorded::Owned {
-            ownership: Claim {
-                owner,
-                install_id: install_id.to_owned(),
-                consent_generation: generation,
-            },
+            ownership: claim_with_generation(owner, install_id, generation),
             revision: 4,
         }
     }
@@ -206,6 +250,71 @@ mod tests {
         assert_eq!(
             consent(&owned(Owner::Cli, "abc", 1), "abc"),
             Consent::AskAgain
+        );
+    }
+
+    #[test]
+    fn a_remembered_guest_choice_is_not_asked_again() {
+        let none = Recorded::None { revision: 0 };
+        // Nothing remembered: the first discovery still asks, once.
+        assert_eq!(
+            consent_with_choice(&none, "abc", false),
+            Consent::AskFirstTime
+        );
+        // The same subject, declined earlier: the answer was given, so nothing is asked.
+        assert_eq!(consent_with_choice(&none, "abc", true), Consent::Declined);
+        assert_eq!(
+            consent_with_choice(&owned(Owner::Desktop, "other", 2), "abc", false),
+            Consent::AskAgain
+        );
+        assert_eq!(
+            consent_with_choice(&owned(Owner::Desktop, "other", 2), "abc", true),
+            Consent::Declined
+        );
+    }
+
+    #[test]
+    fn a_remembered_guest_choice_never_overrides_held_or_an_unreadable_record() {
+        // Held is already silent, and a record nobody could read stays a refusal rather than
+        // being relabelled as a decision the user made.
+        assert_eq!(
+            consent_with_choice(&owned(Owner::Desktop, "abc", 1), "abc", true),
+            Consent::Held
+        );
+        let unknown = Recorded::Unknown {
+            reason: "why".to_owned(),
+        };
+        assert_eq!(consent_with_choice(&unknown, "abc", true), Consent::Refuse);
+    }
+
+    #[test]
+    fn the_subject_key_names_the_claim_and_not_the_revision() {
+        // A service repair or an update moves the record's revision without changing who owns
+        // the runtime; a decision keyed on it would be forgotten by routine maintenance.
+        assert_eq!(
+            subject_key(&Recorded::None { revision: 0 }),
+            subject_key(&Recorded::None { revision: 9 })
+        );
+        assert_eq!(
+            subject_key(&owned(Owner::Desktop, "abc", 3)),
+            subject_key(&Recorded::Owned {
+                ownership: claim_with_generation(Owner::Desktop, "abc", 3),
+                revision: 99,
+            })
+        );
+        // A different claim is a different question and must be asked afresh.
+        let key = subject_key(&owned(Owner::Desktop, "abc", 3));
+        assert!(key.is_some());
+        assert_ne!(key, subject_key(&owned(Owner::Desktop, "abc", 4)));
+        assert_ne!(key, subject_key(&owned(Owner::Desktop, "def", 3)));
+        assert_ne!(key, subject_key(&owned(Owner::Cli, "abc", 3)));
+        assert_ne!(key, subject_key(&Recorded::None { revision: 0 }));
+        // An unreadable record is not a subject: nothing is remembered against it.
+        assert_eq!(
+            subject_key(&Recorded::Unknown {
+                reason: "why".to_owned()
+            }),
+            None
         );
     }
 

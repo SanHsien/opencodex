@@ -186,6 +186,7 @@ A source area can be described by more than one doc, because these docs are orga
 | `desktop/src-tauri/src/cli_command_record.rs` | [`desktop-terminal-command.md`](desktop-terminal-command.md) |
 | `desktop/src-tauri/src/cli_command_windows.rs` | [`desktop-terminal-command.md`](desktop-terminal-command.md) |
 | `desktop/src-tauri/src/first_run.rs` | [`desktop-start-at-login.md`](desktop-start-at-login.md)<br>[`ops/desktop-supervision.md`](ops/desktop-supervision.md) |
+| `desktop/src-tauri/src/guest_choice.rs` | [`ops/desktop-supervision.md`](ops/desktop-supervision.md) |
 | `desktop/src-tauri/src/identity.rs` | [`ops/desktop-supervision.md`](ops/desktop-supervision.md) |
 | `desktop/src-tauri/src/login_registration.rs` | [`desktop-start-at-login.md`](desktop-start-at-login.md) |
 | `desktop/src-tauri/src/ownership.rs` | [`ops/desktop-supervision.md`](ops/desktop-supervision.md) |

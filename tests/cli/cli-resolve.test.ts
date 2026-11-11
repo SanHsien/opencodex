@@ -1,15 +1,19 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   RESOLVE_DEFAULT_PORT,
   RESOLVE_SCHEMA,
   buildResolveJson,
   parseResolveArgs,
   runResolve,
+  windowsServiceWrapperPresent,
 } from "../../src/cli/resolve";
 import type { LiveProxy } from "../../src/server/proxy-liveness";
 import type { ConfigDiagnostics } from "../../src/config";
 import { repoPath } from "../helpers/repo-root";
+import { removeTreeWithRetry } from "../helpers/remove-tree";
 
 const OWNERSHIP_NONE = { kind: "none", revision: 0 } as const;
 const OWNERSHIP_OWNED = {
@@ -126,6 +130,8 @@ function ioOwnership(
   managers?: ReturnType<NonNullable<Parameters<typeof runResolve>[1]>["observeManagers"]> ,) {
   return {
     inspectSupervision: () => ({ kind: "none" as const }),
+    // Deterministic: the production default looks for the service wrapper in the config home.
+    serviceArtifactsPresent: () => false,
     resolveOwnership: () => ownership,
     resolveState: () => ({ kind: "none", revision: 0, needsRepair: false }) as const,
     observeManagers: () => managers ?? ({
@@ -454,18 +460,126 @@ describe("resolve ownership and takeover fields", () => {
     expect(json.takeover).toMatchObject({ kind: "blocked", reason: "managing-cli-unsupported" });
   });
 
-  test("both managers at or above the floor answer supported with a token", async () => {
+  test("a managing CLI at or above the floor with no service registration answers supported with a token", async () => {
     const { json } = await resolveWith({
       ...ioOwnership(),
-      // An observed registration must be backed by an ownership-aware install state.
-      resolveState: () => ({ kind: "state", state: { ownershipProtocolVersion: 1 } as never, revision: 0, needsRepair: false }),
       observeManagers: () => ({
-        "service-registration": { status: "observed", version: "2.62.0", identity: "registered" },
+        "service-registration": { status: "absent" },
         path: { status: "observed", version: "2.61.0", identity: "path" },
       }),
     });
     expect(json.takeover).toMatchObject({ kind: "supported", protocolVersion: 1, minimumCliVersion: "2.61.0" });
     expect(typeof (json.takeover as { token?: unknown }).token).toBe("string");
+  });
+
+  // A registered background service restarts its runtime on its own schedule, so a takeover
+  // would race the supervisor for the port and then ask again on every launch the user
+  // declined. The app attaches as a guest instead, which the shell already does for any
+  // blocked offer, so no prompt appears and nothing is stopped.
+  describe("a registered background service owns the runtime it supervises", () => {
+    const REGISTERED = {
+      resolveState: () => ({ kind: "state", state: { ownershipProtocolVersion: 1 } as never, revision: 0, needsRepair: false }) as const,
+      observeManagers: () => ({
+        "service-registration": { status: "observed", version: "2.62.0", identity: "registered" },
+        path: { status: "observed", version: "2.61.0", identity: "path" },
+      }) as const,
+    };
+    const OWNED_BY_CLI = {
+      kind: "owned",
+      ownership: { owner: "cli", installId: "npm-1", consentGeneration: 1 },
+      revision: 3,
+    } as const;
+
+    test("no recorded claim plus a registration offers no takeover", async () => {
+      const { code, json } = await resolveWith({ ...ioOwnership(), ...REGISTERED });
+      expect(code).toBe(0);
+      expect(json.ownership).toEqual(OWNERSHIP_NONE);
+      expect(json.takeover).toMatchObject({ kind: "blocked", reason: "service-managed", minimumCliVersion: "2.61.0" });
+      expect((json.takeover as { detail?: string }).detail).toContain("ocx service uninstall");
+      expect(json.takeover).not.toHaveProperty("token");
+    });
+
+    test("an explicit CLI claim is the same case as no claim", async () => {
+      const { json } = await resolveWith({
+        ...ioOwnership(),
+        resolveOwnership: () => OWNED_BY_CLI,
+        ...REGISTERED,
+      });
+      expect(json.takeover).toMatchObject({ kind: "blocked", reason: "service-managed" });
+    });
+
+    test("a desktop claim is not service-managed: the service stands down for it", async () => {
+      const { json } = await resolveWith({ ...ioOwnership(OWNERSHIP_OWNED), ...REGISTERED });
+      expect(json.takeover).toMatchObject({ kind: "supported", protocolVersion: 1 });
+    });
+
+    test("the service wrapper on disk counts even when its install state is gone", async () => {
+      // A lost or never-written state record leaves the registration unobservable, but the
+      // scheduler wrapper that relaunches the runtime is still there to race the app.
+      const withoutState = {
+        ...ioOwnership(),
+        observeManagers: () => ({
+          "service-registration": { status: "absent" },
+          path: { status: "observed", version: "2.61.0", identity: "path" },
+        }) as const,
+      };
+      const bare = await resolveWith(withoutState);
+      expect(bare.json.takeover).toMatchObject({ kind: "supported" });
+      const wrapped = await resolveWith({ ...withoutState, serviceArtifactsPresent: () => true });
+      expect(wrapped.json.takeover).toMatchObject({ kind: "blocked", reason: "service-managed" });
+      const claimed = await resolveWith({
+        ...withoutState,
+        resolveOwnership: () => OWNERSHIP_OWNED,
+        serviceArtifactsPresent: () => true,
+      });
+      expect(claimed.json.takeover).toMatchObject({ kind: "supported" });
+    });
+
+    test("an unreadable artifact probe is no evidence of a service", async () => {
+      const { code, json } = await resolveWith({
+        ...ioOwnership(),
+        observeManagers: () => ({
+          "service-registration": { status: "absent" },
+          path: { status: "observed", version: "2.61.0", identity: "path" },
+        }) as const,
+        serviceArtifactsPresent: () => { throw new Error("EACCES"); },
+      });
+      expect(code).toBe(0);
+      expect(json.takeover).toMatchObject({ kind: "supported" });
+    });
+
+    test("an older reason keeps its precedence over the service-managed one", async () => {
+      const unsupported = await resolveWith({
+        ...ioOwnership(),
+        resolveState: REGISTERED.resolveState,
+        observeManagers: () => ({
+          "service-registration": { status: "observed", version: "2.59.0", identity: "registered" },
+          path: { status: "absent" },
+        }),
+      });
+      expect(unsupported.json.takeover).toMatchObject({ kind: "blocked", reason: "managing-cli-unsupported" });
+      const legacy = await resolveWith({
+        ...ioOwnership(),
+        resolveState: () => ({ kind: "state", state: {} as never, revision: 0, needsRepair: false }),
+        observeManagers: REGISTERED.observeManagers,
+      });
+      expect(legacy.json.takeover).toMatchObject({ kind: "blocked", reason: "service-protocol-unsupported" });
+    });
+
+    test("the human line names the reason so an operator sees why the app did not ask", async () => {
+      const lines: string[] = [];
+      await runResolve({ json: false }, {
+        configDir: () => "/h",
+        readDiagnostics: () => ({ config: {}, source: "default", error: null } as ConfigDiagnostics),
+        findLive: async () => fakeLive(),
+        cliVersion: () => "1.2.3",
+        stdout: { log: value => lines.push(value) },
+        stderr: { error: () => {} },
+        ...ioOwnership(),
+        ...REGISTERED,
+      });
+      expect(lines.join("\n")).toContain("Takeover: blocked (service-managed:");
+    });
   });
 
   test("a throwing observation is managing-cli-unknown, not an exception", async () => {
@@ -478,6 +592,38 @@ describe("resolve ownership and takeover fields", () => {
   });
 });
 
+
+describe("the production wrapper probe reads the config home", () => {
+  function withHome(populate: (home: string) => void, run: () => void): void {
+    const home = mkdtempSync(join(tmpdir(), "ocx-resolve-wrapper-"));
+    const previous = process.env.OPENCODEX_HOME;
+    try {
+      populate(home);
+      process.env.OPENCODEX_HOME = home;
+      run();
+    } finally {
+      if (previous === undefined) delete process.env.OPENCODEX_HOME;
+      else process.env.OPENCODEX_HOME = previous;
+      removeTreeWithRetry(home);
+    }
+  }
+
+  test("an empty home has no wrapper, so the first-time offer is untouched", () => {
+    withHome(() => {}, () => expect(windowsServiceWrapperPresent()).toBe(false));
+  });
+
+  test("either half of the scheduler wrapper pair is the registered service's footprint", () => {
+    for (const file of ["opencodex-service.cmd", "opencodex-service-launcher.vbs"]) {
+      withHome(
+        home => {
+          mkdirSync(home, { recursive: true });
+          writeFileSync(join(home, file), "@echo off");
+        },
+        () => expect(windowsServiceWrapperPresent()).toBe(true),
+      );
+    }
+  });
+});
 
 const DESKTOP_SUPERVISION = { kind: "desktop" as const, supervisorPid: 3131, runtimePid: 4242,
   app: "/fixture/opencodex-desktop", proxy: "/fixture/ocx" };

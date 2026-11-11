@@ -20,7 +20,7 @@ use crate::{
     claim,
     endpoint::ProxyEndpoint,
     first_run::{self, StartAtLogin},
-    identity, ownership,
+    guest_choice, identity, ownership,
     proxy::{ProxyClient, RuntimeIdentity},
     resolve, runtime_stop,
     sidecar::{self, SidecarWatch},
@@ -882,11 +882,12 @@ async fn run(app: &AppHandle, started: Instant) {
     let mut took_over = false;
     match resolve::live_verdict(&resolution) {
         resolve::LiveVerdict::Attach => {
-            // Without our own id nothing can ever match us, which is the answer Refuse gives.
-            let consent = match registration.install_id.as_deref() {
-                Some(install_id) => ownership::consent(&answer.ownership, install_id),
-                None => ownership::Consent::Refuse,
-            };
+            let choices = guest_choice::directory(app);
+            let consent = launch_consent(
+                answer,
+                registration.install_id.as_deref(),
+                choices.as_deref(),
+            );
             let mode = app
                 .try_state::<Startup>()
                 .map_or(Mode::Launch, |startup| startup.mode());
@@ -937,11 +938,19 @@ async fn run(app: &AppHandle, started: Instant) {
                     // The user may take any time; the budget exists to bound the machinery, not
                     // the person, so the deadline moves by whatever the decision took.
                     let asked = Instant::now();
-                    let approved = receiver.await.unwrap_or(false);
+                    let decision = receiver.await.ok();
+                    let approved = decision.unwrap_or(false);
                     deadline += asked.elapsed();
                     // The extension and the clear are one critical section: the guard sees
                     // either a prompt still pending or the moved ceiling, never the gap.
                     deadline = startup.resolve_consent(deadline, approved);
+                    // Only an answer is remembered. A prompt abandoned by a retry drops its
+                    // sender, which reads as declined for this run but is not a decision.
+                    if decision == Some(false) {
+                        remember_guest_choice(answer, choices.as_deref());
+                    } else if approved {
+                        forget_guest_choice(answer, choices.as_deref());
+                    }
                     if !approved {
                         attach_as_guest(
                             app,
@@ -1122,6 +1131,56 @@ async fn run(app: &AppHandle, started: Instant) {
     );
 }
 
+/// The consent this launch gets for the runtime that answered.
+///
+/// The recorded owner decides first (`ownership::consent`); a "stay a guest" the user already gave
+/// for this exact subject in this home then turns a question into silence
+/// (`ownership::consent_with_choice`). A runtime a background service supervises never reaches the
+/// question at all: the CLI reports its takeover as blocked, and `attach_plan` attaches as a guest.
+/// Without our own id nothing can ever match us, which is the answer Refuse gives. Without a
+/// directory to read decisions from the answer is the one this app gave before they were
+/// remembered: ask.
+fn launch_consent(
+    answer: &resolve::Resolved,
+    install_id: Option<&str>,
+    choices: Option<&std::path::Path>,
+) -> ownership::Consent {
+    let Some(install_id) = install_id else {
+        return ownership::Consent::Refuse;
+    };
+    let declined = choices
+        .zip(ownership::subject_key(&answer.ownership))
+        .is_some_and(|(directory, subject)| {
+            guest_choice::remembered(directory, &answer.config_home, &subject)
+        });
+    ownership::consent_with_choice(&answer.ownership, install_id, declined)
+}
+
+/// Remember that the person chose to stay a guest for the subject they were just asked about.
+/// A failed write only costs the old behaviour of asking again, so it is logged and not raised.
+fn remember_guest_choice(answer: &resolve::Resolved, choices: Option<&std::path::Path>) {
+    let (Some(directory), Some(subject)) = (choices, ownership::subject_key(&answer.ownership))
+    else {
+        return;
+    };
+    if let Err(error) = guest_choice::remember(directory, &answer.config_home, &subject) {
+        crate::logging::log_once(
+            "the guest choice could not be remembered",
+            &error.to_string(),
+        );
+    }
+}
+
+/// Approving a takeover is the opposite answer to every earlier "no" for that home.
+fn forget_guest_choice(answer: &resolve::Resolved, choices: Option<&std::path::Path>) {
+    let Some(directory) = choices else {
+        return;
+    };
+    if let Err(error) = guest_choice::forget(directory, &answer.config_home) {
+        crate::logging::log_once("the guest choice could not be cleared", &error.to_string());
+    }
+}
+
 /// What an attach turns into once the recorded owner and the CLI's compatibility answer are
 /// laid next to each other. The approved resolve answer carries the claim token.
 enum AttachPlan {
@@ -1147,6 +1206,10 @@ fn attach_plan(consent: ownership::Consent, answer: &resolve::Resolved, mode: Mo
         )),
         ownership::Consent::Refuse => AttachPlan::Guest(format!(
             "a runtime was already listening; its recorded owner could not be read, so this app is a guest on it and asked nothing{}",
+            skew_note()
+        )),
+        ownership::Consent::Declined => AttachPlan::Guest(format!(
+            "a runtime was already listening and taking it over was declined earlier, so this app is a guest on it and asked nothing{}",
             skew_note()
         )),
         ownership::Consent::AskFirstTime | ownership::Consent::AskAgain => match &answer.takeover {
@@ -1841,10 +1904,11 @@ fn elapsed(started: Instant) -> u64 {
 mod tests {
     use super::{
         approval_still_current, attach_plan, claim_after_silence, consent_version_note,
-        keeps_update_page, loads_dashboard_on_ready, navigate_once, return_ready_dashboard,
-        shows_window, stop_after_approval, unavailable, waits_on_child, AttachPlan, ConsentState,
-        Expiry, LaunchOrigin, Mode, Phase, Progress, Startup, AUTOSTART_FLAG, CHILD_START_GRACE,
-        DEADLINE, PHASES, POLL,
+        forget_guest_choice, keeps_update_page, launch_consent, loads_dashboard_on_ready,
+        navigate_once, remember_guest_choice, return_ready_dashboard, shows_window,
+        stop_after_approval, unavailable, waits_on_child, AttachPlan, ConsentState, Expiry,
+        LaunchOrigin, Mode, Phase, Progress, Startup, AUTOSTART_FLAG, CHILD_START_GRACE, DEADLINE,
+        PHASES, POLL,
     };
     use crate::claim::ClaimResult;
     use crate::ownership::{Claim, Consent, Owner, Recorded};
@@ -2072,6 +2136,123 @@ mod tests {
             }
             AttachPlan::Ask => panic!("a blocked takeover is not an offer"),
         }
+    }
+
+    fn service_managed() -> Takeover {
+        Takeover::Blocked {
+            reason: "service-managed".to_owned(),
+            detail: "a registered background service supervises this runtime".to_owned(),
+        }
+    }
+
+    fn unowned_answer(takeover: Takeover) -> Resolved {
+        let mut answer = answer_for(takeover);
+        answer.ownership = Recorded::None { revision: 3 };
+        answer
+    }
+
+    fn consent_scratch(name: &str) -> std::path::PathBuf {
+        let directory =
+            std::env::temp_dir().join(format!("ocx-startup-consent-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&directory);
+        directory
+    }
+
+    #[test]
+    fn a_registered_service_runtime_is_a_guest_that_asks_nothing() {
+        // The CLI reports a runtime a background service supervises as not takeable. Whatever
+        // the first-time or ask-again reading says, the plan is a guest and never a prompt, so a
+        // scheduled service and the app share one runtime on the port without any click.
+        for consent in [Consent::AskFirstTime, Consent::AskAgain] {
+            match attach_plan(consent, &unowned_answer(service_managed()), Mode::Launch) {
+                AttachPlan::Guest(detail) => {
+                    assert!(detail.contains("service-managed"));
+                    assert!(detail.contains("guest"));
+                }
+                AttachPlan::Ask => panic!("a service-managed runtime is not an offer"),
+            }
+        }
+    }
+
+    #[test]
+    fn a_declined_prompt_attaches_as_a_guest_without_asking() {
+        match attach_plan(
+            Consent::Declined,
+            &unowned_answer(supported()),
+            Mode::Launch,
+        ) {
+            AttachPlan::Guest(detail) => {
+                assert!(detail.contains("declined"));
+                assert!(detail.contains("asked nothing"));
+            }
+            AttachPlan::Ask => panic!("a declined takeover is not asked again"),
+        }
+    }
+
+    #[test]
+    fn a_launch_asks_only_when_nothing_else_has_answered_it() {
+        let directory = consent_scratch("launch");
+        let answer = unowned_answer(supported());
+        // No remembered choice and no service: the one time the user is asked.
+        assert_eq!(
+            launch_consent(&answer, Some("abc"), Some(&directory)),
+            Consent::AskFirstTime
+        );
+        // Declining is remembered, so the next launch asks nothing.
+        remember_guest_choice(&answer, Some(&directory));
+        assert_eq!(
+            launch_consent(&answer, Some("abc"), Some(&directory)),
+            Consent::Declined
+        );
+        // A service repair moves the revision and nothing else: still answered.
+        let mut repaired = unowned_answer(supported());
+        repaired.ownership = Recorded::None { revision: 40 };
+        assert_eq!(
+            launch_consent(&repaired, Some("abc"), Some(&directory)),
+            Consent::Declined
+        );
+        // A different owner is a new question.
+        assert_eq!(
+            launch_consent(&answer_for(supported()), Some("abc"), Some(&directory)),
+            Consent::AskAgain
+        );
+        // Approving a takeover forgets the earlier no for this home.
+        forget_guest_choice(&answer, Some(&directory));
+        assert_eq!(
+            launch_consent(&answer, Some("abc"), Some(&directory)),
+            Consent::AskFirstTime
+        );
+        let _ = std::fs::remove_dir_all(&directory);
+    }
+
+    #[test]
+    fn a_launch_without_an_install_id_or_a_directory_degrades_to_the_old_behaviour() {
+        let answer = unowned_answer(supported());
+        // No id: nothing can match this installation, which is the Refuse answer.
+        assert_eq!(launch_consent(&answer, None, None), Consent::Refuse);
+        // No directory to remember in: ask, exactly as before this existed.
+        assert_eq!(
+            launch_consent(&answer, Some("abc"), None),
+            Consent::AskFirstTime
+        );
+        // Remembering with nowhere to write is a quiet no-op, not a panic.
+        remember_guest_choice(&answer, None);
+    }
+
+    #[test]
+    fn an_unreadable_owner_remembers_nothing() {
+        let directory = consent_scratch("unreadable");
+        let mut answer = unowned_answer(supported());
+        answer.ownership = Recorded::Unknown {
+            reason: "why".to_owned(),
+        };
+        remember_guest_choice(&answer, Some(&directory));
+        assert!(!directory.exists());
+        assert_eq!(
+            launch_consent(&answer, Some("abc"), Some(&directory)),
+            Consent::Refuse
+        );
+        let _ = std::fs::remove_dir_all(&directory);
     }
 
     #[test]

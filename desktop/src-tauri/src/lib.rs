@@ -12,6 +12,7 @@ mod endpoint;
 mod exit;
 mod first_run;
 mod formatting;
+mod guest_choice;
 mod identity;
 mod logging;
 mod login_autostart;

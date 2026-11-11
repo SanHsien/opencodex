@@ -57,6 +57,15 @@ the app's webview at the resolved loopback endpoint. A login launch that starts 
 tray keeps the lightweight startup page instead, and loads the dashboard the first time you open
 it from the tray or launch the app again.
 
+The app never stops or replaces a proxy that is already listening unless you approve **Take over**.
+A proxy that a registered background service supervises (on Windows, the `opencodex-proxy`
+scheduled task) is not offered for takeover at all, because the service restarts it on its own
+schedule: the app attaches to it as a guest without asking, so the service and the app share one
+proxy on the port. For any other existing proxy, choosing **Stay a guest** is remembered for that
+proxy's current owner and configuration home, so the prompt does not come back on the next
+launch; it asks again only when the recorded owner changes. To let the app own a proxy that a
+service supervises, run `ocx service uninstall` first and launch the app again.
+
 Use the tray's **Open dashboard** or **Open in browser** action to move between the
 embedded dashboard and your normal browser. The tray also provides update checks.
 

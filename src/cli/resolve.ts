@@ -48,6 +48,8 @@ import { endpointsToProve, everyEndpointProvenDownAsync, type ProbeEndpoint } fr
 import {
   resolveServiceOwnership,
   resolveServiceState,
+  windowsLauncherVbsPath,
+  windowsServiceScriptPath,
   type ServiceInstallState,
   type ServiceOwnershipResolution,
   type ServiceStateResolution,
@@ -61,9 +63,15 @@ import { observeManagingClis } from "../service/managing-cli";
 import { SERVICE_OWNERSHIP_MINIMUM_CLI_VERSION } from "../service/install-state-contract.mjs";
 import { inspectDesktopSupervision } from "../service/desktop-supervision.mjs";
 import { computeVersionSkew, type VersionSkew } from "./version-skew";
+import { existsSync } from "node:fs";
 
 /** Wire version of the resolve document. Bump only on an incompatible shape change. */
 export const RESOLVE_SCHEMA = "ocx-resolve/1";
+
+/** The scheduler wrapper pair `ocx service install` leaves in the config home on Windows. */
+export function windowsServiceWrapperPresent(): boolean {
+  return existsSync(windowsServiceScriptPath()) || existsSync(windowsLauncherVbsPath());
+}
 
 /** The port every preferred-port selection in the CLI falls back to. */
 export const RESOLVE_DEFAULT_PORT = 10100;
@@ -112,8 +120,8 @@ export interface ResolveJson {
   /**
    * Whether a desktop takeover can be offered, and the token that binds that approval to
    * the exact subject and managing-CLI observations a later `ocx service claim` must find
-   * unchanged. `ownership-unknown` is produced only here: it is a wire reason, not a new
-   * member of `ServiceTakeoverCompatibility`'s union.
+   * unchanged. `ownership-unknown` and `service-managed` are produced only here: they are
+   * wire reasons, not new members of `ServiceTakeoverCompatibility`'s union.
    */
   takeover: ResolveTakeover;
   /**
@@ -168,6 +176,13 @@ export interface ResolveIo {
     state: ServiceInstallState | null,
   ) => Readonly<Record<ManagingCliRole, ManagingCliObservation>>;
   inspectSupervision?: typeof inspectDesktopSupervision;
+  /**
+   * Whether the scheduler wrapper that relaunches the runtime is on disk in the config home.
+   * Evidence of a registered service that does not depend on the install state record, which
+   * a lost or never-written state file leaves unobservable. Production default checks the
+   * wrapper script and launcher; a throw is no evidence.
+   */
+  serviceArtifactsPresent?: () => boolean;
   stdout?: { log: (s: string) => void };
   stderr?: { error: (s: string) => void };
 }
@@ -216,6 +231,50 @@ export function buildResolveJson(
     // A proven absence has nothing to skew against; the field is omitted there rather
     // than emitted as an "unknown" row, matching the liveness identity fields.
     ...(live ? { versionSkew: computeVersionSkew(cliVersion, live.version) } : {}),
+  };
+}
+
+/**
+ * A registered background service supervises its own runtime, so offering the desktop a
+ * takeover of that runtime is offering a fight for the port.
+ *
+ * The service's wrapper relaunches `ocx start` on its own schedule. A takeover stops the
+ * runtime, waits for silence and only then records the claim, and that window is exactly
+ * where the wrapper starts a replacement. Declining the offer was not remembered either, so
+ * the same dialog came back on every launch (a Windows Task Scheduler install met both).
+ * Blocking the offer sends the shell down its existing blocked-takeover path: it attaches
+ * as a guest, asks nothing and stops nothing, and the supervisor keeps its own grace
+ * period for bringing the runtime back.
+ *
+ * Only a runtime the service still owns is covered: no claim at all, or an explicit CLI
+ * claim. A desktop claim means the service already stands down for that installation, so
+ * another installation asking to take over is a real question and stays offered. Every
+ * other blocked reason keeps its place, so this only changes what used to be "supported".
+ * `ocx service claim` is unaffected: it revalidates the compatibility assessment itself,
+ * which is how an operator who wants the app to own the runtime still gets there after
+ * `ocx service uninstall`.
+ *
+ * "Registered" is the install state's service registration being observed, or the scheduler
+ * wrapper still sitting in the config home when that state is missing: the wrapper is what
+ * races the app, whether or not a record of installing it survived.
+ */
+export function declineTakeoverOfRegisteredService(
+  takeover: ResolveTakeover,
+  ownership: ServiceOwnershipResolution,
+  managers: Readonly<Record<ManagingCliRole, ManagingCliObservation>>,
+  wrapperPresent = false,
+): ResolveTakeover {
+  if (takeover.kind !== "supported") return takeover;
+  if (managers["service-registration"].status !== "observed" && !wrapperPresent) return takeover;
+  const serviceOwnsRuntime = ownership.kind === "none"
+    || (ownership.kind === "owned" && ownership.ownership.owner === "cli");
+  if (!serviceOwnsRuntime) return takeover;
+  return {
+    kind: "blocked",
+    reason: "service-managed",
+    detail: "a registered background service supervises this runtime and restarts it, so the app attaches as a guest "
+      + "instead of competing for the port; to let the app own the runtime, run `ocx service uninstall` first",
+    minimumCliVersion: takeover.minimumCliVersion,
   };
 }
 
@@ -272,6 +331,7 @@ export async function runResolve(args: ResolveArgs, io: ResolveIo = {}): Promise
   const resolveOwnership = io.resolveOwnership ?? resolveServiceOwnership;
   const resolveState = io.resolveState ?? resolveServiceState;
   const observeManagers = io.observeManagers ?? observeManagingClis;
+  const serviceArtifactsPresent = io.serviceArtifactsPresent ?? windowsServiceWrapperPresent;
   const configHome = configDir();
   let diagnostics: ConfigDiagnostics;
   try {
@@ -351,11 +411,19 @@ export async function runResolve(args: ResolveArgs, io: ResolveIo = {}): Promise
         };
       } else {
         const resolvedState = resolved.kind === "state" ? resolved.state : null;
-        takeover = assessServiceTakeoverCompatibility({
-          state: resolvedState,
-          subject: ownership,
-          managers: observeManagers(resolvedState),
-        });
+        const managers = observeManagers(resolvedState);
+        let wrapperPresent = false;
+        try {
+          wrapperPresent = serviceArtifactsPresent();
+        } catch {
+          // An unreadable config home is no evidence either way; the offer stays as assessed.
+        }
+        takeover = declineTakeoverOfRegisteredService(
+          assessServiceTakeoverCompatibility({ state: resolvedState, subject: ownership, managers }),
+          ownership,
+          managers,
+          wrapperPresent,
+        );
       }
     } catch (error) {
       takeover = {

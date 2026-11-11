@@ -344,6 +344,22 @@ function isUnreadableWrapperCandidate(entry: WindowsProcessEntry): boolean {
   return !entry.commandLine?.trim() && /^(?:wscript|cscript|cmd)\.exe$/i.test(entry.name ?? "");
 }
 
+/**
+ * Unreadable wrapper candidates anywhere in the process table, or, given a runtime pid, only the
+ * ones among its ancestors (the loop that spawned it). `wrapperProcessesAlive` cannot see these
+ * rows: a non-admin CIM query returns a null CommandLine for other users' and elevated processes,
+ * so a wrapper loop running under such an identity looks absent unless they are counted too. The
+ * ancestry form keeps an unrelated elevated cmd.exe from being mistaken for a wrapper when the
+ * runtime pid is known; without a pid the scan is table-wide and conservative.
+ */
+export function unreadableWrapperCandidates(
+  processes: readonly WindowsProcessEntry[],
+  runtimePid: number | null = null,
+): number[] {
+  if (runtimePid !== null) return unreadableAncestorWrapperPids(runtimePid, processes);
+  return processes.filter(entry => entry.pid !== process.pid && isUnreadableWrapperCandidate(entry)).map(entry => entry.pid);
+}
+
 /** Unreadable wrapper candidates among pid's ancestors, nearest first. */
 export function unreadableAncestorWrapperPids(pid: number, processes: readonly WindowsProcessEntry[]): number[] {
   const byPid = new Map(processes.map(entry => [entry.pid, entry]));

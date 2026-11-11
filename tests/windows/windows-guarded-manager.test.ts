@@ -76,6 +76,11 @@ describe("windows command-line path tokens", () => {
     expect(commandLineHasPathToken(SUPERVISED[2]!.commandLine, CMD.toLowerCase())).toBe(true);
     // glued suffix/prefix is not the file
     expect(commandLineHasPathToken("cmd /c " + CMD + ".bak", CMD)).toBe(false);
+    // The wrapper chain is generated with absolute paths (task action -> launcher -> script), so
+    // only the full path matches: a bare or relative script name is deliberately not a match, and
+    // neither is an 8.3 alias of the same file.
+    expect(commandLineHasPathToken('cmd /c "opencodex-service.cmd"', CMD)).toBe(false);
+    expect(commandLineHasPathToken("cmd /c .\\opencodex-service.cmd", CMD)).toBe(false);
     expect(commandLineHasPathToken("cmd /c x" + CMD, CMD)).toBe(false);
     // the OTHER wrapper asset is not a substitute
     expect(commandLineHasPathToken(SUPERVISED[2]!.commandLine, VBS)).toBe(false);

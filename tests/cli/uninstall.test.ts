@@ -261,6 +261,7 @@ describe("uninstall gates shared teardown on a proven service stop", () => {
         unlink: (path: string) => { log.push(`unlink ${path}`); },
         listProcesses: () => [] as { pid: number; parentPid: number | null; name: string | null; commandLine: string | null }[] | null,
         killWrappers: () => { log.push("kill"); },
+        sleep: () => {},
         ...over,
       };
       return { log, deps };
@@ -308,6 +309,72 @@ describe("uninstall gates shared teardown on a proven service stop", () => {
       const { log, deps } = setup({ listProcesses: () => null });
       expect(removeWindowsServiceWrapperResidue(deps)).toMatchObject({ kind: "failed" });
       expect(log).toEqual([]);
+    });
+
+    const unreadableCmd = { pid: 7100, parentPid: 1, name: "cmd.exe", commandLine: null };
+
+    test("a wscript/cscript/cmd row with no command line may be the loop, so nothing is deleted", async () => {
+      const { removeWindowsServiceWrapperResidue } = await import("../../src/service/windows-ops");
+      for (const name of ["cmd.exe", "wscript.exe", "cscript.exe"]) {
+        const { log, deps } = setup({ listProcesses: () => [{ ...unreadableCmd, name }] });
+        const outcome = removeWindowsServiceWrapperResidue(deps);
+        expect(outcome).toMatchObject({ kind: "failed" });
+        expect((outcome as { reason: string }).reason).toContain("7100");
+        expect((outcome as { reason: string }).reason).toContain("elevated");
+        // Nothing to kill (the kill matches command lines) and nothing deleted.
+        expect(log).toEqual([]);
+      }
+    });
+
+    test("unrelated rows without a command line are not wrapper candidates", async () => {
+      const { removeWindowsServiceWrapperResidue } = await import("../../src/service/windows-ops");
+      const { deps } = setup({
+        listProcesses: () => [{ pid: 7200, parentPid: 1, name: "explorer.exe", commandLine: null }],
+      });
+      expect(removeWindowsServiceWrapperResidue(deps)).toEqual({ kind: "removed" });
+    });
+
+    test("an unreadable row that remains after the kill still keeps the files", async () => {
+      const { removeWindowsServiceWrapperResidue } = await import("../../src/service/windows-ops");
+      let killed = false;
+      const { log, deps } = setup({
+        listProcesses: () => (killed ? [unreadableCmd] : [loop, unreadableCmd]),
+        killWrappers: () => { killed = true; log.push("kill"); },
+      });
+      const outcome = removeWindowsServiceWrapperResidue(deps);
+      expect(outcome).toMatchObject({ kind: "failed" });
+      expect(log).toEqual(["kill"]);
+    });
+
+    test("the re-check after the kill is retried, one second apart, before it fails", async () => {
+      const { removeWindowsServiceWrapperResidue } = await import("../../src/service/windows-ops");
+      const sleeps: number[] = [];
+      let rounds = 0;
+      const { deps } = setup({
+        // before the kill, then the first re-check: still alive; the second: gone.
+        listProcesses: () => (++rounds <= 2 ? [loop] : []),
+        sleep: ms => { sleeps.push(ms); },
+      });
+      expect(removeWindowsServiceWrapperResidue(deps)).toEqual({ kind: "removed" });
+      expect(sleeps).toEqual([1000, 1000]);
+
+      const stubborn = setup({ listProcesses: () => [loop], sleep: ms => { sleeps.push(ms); } });
+      sleeps.length = 0;
+      expect(removeWindowsServiceWrapperResidue(stubborn.deps)).toMatchObject({ kind: "failed" });
+      expect(sleeps).toEqual([1000, 1000, 1000]);
+      expect(stubborn.log).toEqual(["kill"]);
+    });
+
+    test("a process table that cannot be read after the kill fails, but one blip is retried", async () => {
+      const { removeWindowsServiceWrapperResidue } = await import("../../src/service/windows-ops");
+      let rounds = 0;
+      const always = setup({ listProcesses: () => (++rounds === 1 ? [loop] : null) });
+      expect(removeWindowsServiceWrapperResidue(always.deps)).toMatchObject({ kind: "failed" });
+      expect(always.log).toEqual(["kill"]);
+
+      rounds = 0;
+      const blip = setup({ listProcesses: () => (++rounds === 1 ? [loop] : rounds === 2 ? null : []) });
+      expect(removeWindowsServiceWrapperResidue(blip.deps)).toEqual({ kind: "removed" });
     });
 
     test("a locked file is a typed failure naming it, not an exception", async () => {

@@ -660,6 +660,31 @@ describe("the production wrapper probe reads the config home", () => {
       });
     });
 
+    test("a wscript/cscript/cmd row with no readable command line may be the loop and counts", () => {
+      // Another user's or an elevated process reports a null CommandLine to a non-admin query.
+      withHome(home => writeWrapper(home), () => {
+        for (const name of ["cmd.exe", "wscript.exe", "cscript.exe"]) {
+          const hidden = [{ pid: 4300, parentPid: 1, name, commandLine: null }];
+          expect(windowsServiceWrapperPresent(probeIs("absent"), () => hidden)).toBe(true);
+        }
+        const unrelated = [{ pid: 4400, parentPid: 1, name: "explorer.exe", commandLine: null }];
+        expect(windowsServiceWrapperPresent(probeIs("absent"), () => unrelated)).toBe(false);
+      });
+    });
+
+    test("with the runtime pid known only its ancestors count, so an unrelated elevated cmd.exe does not block", () => {
+      withHome(home => writeWrapper(home), () => {
+        const table = [
+          { pid: 4300, parentPid: 1, name: "cmd.exe", commandLine: null },
+          { pid: 4500, parentPid: 4300, name: "ocx.exe", commandLine: "ocx.exe start --port 10100" },
+          { pid: 4600, parentPid: 1, name: "ocx.exe", commandLine: "ocx.exe start --port 10101" },
+        ];
+        expect(windowsServiceWrapperPresent(probeIs("absent"), () => table, 4500)).toBe(true);
+        expect(windowsServiceWrapperPresent(probeIs("absent"), () => table, 4600)).toBe(false);
+        expect(windowsServiceWrapperPresent(probeIs("absent"), () => table, null)).toBe(true);
+      });
+    });
+
     test("an unreadable process table is evidence, never proof of residue", () => {
       withHome(home => writeWrapper(home), () => {
         expect(windowsServiceWrapperPresent(probeIs("absent"), () => null)).toBe(true);

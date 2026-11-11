@@ -17,7 +17,7 @@ import { defaultWinswEntry, installWinswService, statusWinswRaw, uninstallWinswS
 import { forgetEphemeralSecretDir, forgetEphemeralSecretPath, hardenElevatedStageDir, hardenElevatedStagePath, hardenSecretDir } from "../lib/windows-secret-acl";
 import { recordOwnedConfigPath } from "../lib/config-ownership";
 import { killWindowsSchedulerWrappers } from "../lib/windows-service-wrappers";
-import { windowsProcessList, wrapperProcessesAlive, type WindowsProcessEntry } from "./windows-guarded-manager";
+import { unreadableWrapperCandidates, windowsProcessList, wrapperProcessesAlive, type WindowsProcessEntry } from "./windows-guarded-manager";
 import { isTestHomeGuardArmed } from "../lib/test-home-guard";
 import { writeServiceApiTokenFile } from "./guards";
 import type { ServiceStopOutcome } from "./orchestration";
@@ -925,6 +925,16 @@ export interface WrapperResidueDeps {
   /** Process table, null when it could not be read. */
   listProcesses?: () => WindowsProcessEntry[] | null;
   killWrappers?: () => void;
+  /** Synchronous pause between re-checks after the kill. */
+  sleep?: (ms: number) => void;
+}
+
+/** Stop-Process returns before the process is gone, so the re-check is retried briefly. */
+const RESIDUE_RECHECK_ATTEMPTS = 3;
+const RESIDUE_RECHECK_INTERVAL_MS = 1000;
+
+function sleepSync(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
 /**
@@ -933,11 +943,21 @@ export interface WrapperResidueDeps {
  * `uninstallWindows` removes these files on every call; the full-uninstall path returned early
  * on an absent task and left them, and `ocx resolve` reads a surviving wrapper as a registered
  * service. The caller has already proven the task absent, but a wrapper loop started from it
- * can outlive the task, so a live process carrying the wrapper path is stopped first (the same
- * best-effort kill `ocx stop` performs) and the files stay if it cannot be confirmed gone. An
- * unreadable process table is not proof either. A file that cannot be deleted (locked by a
- * running script, antivirus) is reported by name instead of thrown, so the caller can say what
- * is left.
+ * can outlive the task, so before any file goes:
+ *
+ * - a live process carrying the wrapper or launcher path is stopped (the best-effort kill
+ *   `ocx stop` performs) and re-checked up to three times, one second apart, because the stop
+ *   is asynchronous;
+ * - a wscript/cscript/cmd row with no readable command line (another user's or an elevated
+ *   process) counts as a possible wrapper that the kill cannot see or stop, so the files stay and
+ *   the reason says to run the uninstall from an elevated terminal;
+ * - an unreadable process table is not proof either, before or after the kill.
+ *
+ * The kill matches only the exact absolute wrapper and launcher paths as whole command-line
+ * tokens, and stops only the wrapper (and launcher) processes, not the `ocx start` child they
+ * launched: the full uninstall therefore stops the proxy first (`handleUninstall`, "proxy
+ * stopped" before "service removed"). A file that cannot be deleted (locked by a running script,
+ * antivirus) is reported by name instead of thrown, so the caller can say what is left.
  */
 export function removeWindowsServiceWrapperResidue(deps: WrapperResidueDeps = {}): WrapperResidueOutcome {
   const files = (deps.files ?? (() => [windowsServiceScriptPath(), windowsLauncherVbsPath(), windowsTaskXmlPath()]))();
@@ -946,20 +966,39 @@ export function removeWindowsServiceWrapperResidue(deps: WrapperResidueDeps = {}
   if (present.length === 0) return { kind: "none" };
   const listProcesses = deps.listProcesses ?? windowsProcessList;
   const wrapperPaths = (deps.wrapperPaths ?? (() => [windowsLauncherVbsPath(), windowsServiceScriptPath()]))();
-  const alive = (): number[] | null => {
+  type Survey = { readable: number[]; unreadable: number[] } | null;
+  const survey = (): Survey => {
     const processes = listProcesses();
-    return processes === null ? null : wrapperProcessesAlive(processes, wrapperPaths);
+    if (processes === null) return null;
+    return {
+      readable: wrapperProcessesAlive(processes, wrapperPaths),
+      unreadable: unreadableWrapperCandidates(processes),
+    };
   };
-  const before = alive();
+  const unreadableReason = (pids: readonly number[]): string =>
+    `a wscript/cscript/cmd process with an unreadable command line (pid ${pids.join(", ")}) may be a service wrapper; run the uninstall from an elevated terminal or end it, then retry. Wrapper files were left in place`;
+  const before = survey();
   if (before === null) {
     return { kind: "failed", reason: "the Windows process list could not be read, so a running service wrapper could not be ruled out; wrapper files were left in place" };
   }
-  if (before.length > 0) {
+  if (before.readable.length > 0) {
     (deps.killWrappers ?? killWindowsServiceWrapperProcesses)();
-    const after = alive();
-    if (after === null || after.length > 0) {
-      return { kind: "failed", reason: `a service wrapper process (pid ${(after ?? before).join(", ") || "unknown"}) is still running and could not be stopped; wrapper files were left in place` };
+    const sleep = deps.sleep ?? sleepSync;
+    let after: Survey = before;
+    for (let attempt = 0; attempt < RESIDUE_RECHECK_ATTEMPTS; attempt += 1) {
+      sleep(RESIDUE_RECHECK_INTERVAL_MS);
+      after = survey();
+      if (after !== null && after.readable.length === 0) break;
     }
+    if (after === null) {
+      return { kind: "failed", reason: "the Windows process list could not be read after stopping the service wrapper, so it could not be confirmed gone; wrapper files were left in place" };
+    }
+    if (after.readable.length > 0) {
+      return { kind: "failed", reason: `a service wrapper process (pid ${after.readable.join(", ")}) is still running and could not be stopped; wrapper files were left in place` };
+    }
+    if (after.unreadable.length > 0) return { kind: "failed", reason: unreadableReason(after.unreadable) };
+  } else if (before.unreadable.length > 0) {
+    return { kind: "failed", reason: unreadableReason(before.unreadable) };
   }
   const unlink = deps.unlink ?? unlinkSync;
   for (const file of present) {

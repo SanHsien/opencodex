@@ -54,7 +54,10 @@ into `blocked` with the wire reason `service-managed` when the service-registrat
 is still in the config home and Task Scheduler does not prove the task absent, via
 `windowsServiceWrapperPresent`; a task proven absent makes the files residue unless a live process
 still carries the wrapper or launcher path, since a task deleted by hand does not stop a running
-wrapper loop; an unreadable process table or an unanswerable scheduler keeps the files as evidence;
+wrapper loop; a wscript/cscript/cmd row with no readable command line (another user's or an
+elevated process, invisible to `wrapperProcessesAlive`) also counts, via
+`unreadableWrapperCandidates`: only the runtime's ancestors when its pid is known, any such row
+otherwise; an unreadable process table or an unanswerable scheduler keeps the files as evidence;
 no file means no query, and the process table, bounded by `windowsProcessList`'s five-second
 limit, is read only for files whose task is absent) and the recorded owner is absent
 or an explicit `cli` claim. The service's wrapper
@@ -67,8 +70,17 @@ installation asking to take over remains a real question. Older blocked reasons 
 precedence, and the way to let the app own a service-supervised runtime is `ocx service uninstall`
 first, which also deletes the wrapper files. The full-uninstall path `uninstallServiceDetailed`
 removes that residue when the task is already gone, via `removeWindowsServiceWrapperResidue`: a live
-wrapper process is stopped first (the kill `ocx stop` performs) and the files stay if it cannot be
-confirmed gone or the process table cannot be read; a file that cannot be deleted is reported by name
+wrapper process is stopped first (the kill `ocx stop` performs) and re-checked up to three times, one
+second apart, because the stop is asynchronous; the files stay if it cannot be confirmed gone, if the
+process table cannot be read, or if an unreadable wscript/cscript/cmd row remains (the kill matches
+command lines, so it can neither see nor stop that one; the reason says to uninstall from an elevated
+terminal). The kill matches only the exact absolute wrapper and launcher paths as whole tokens
+(pinned in `tests/windows/windows-service-wrappers.test.ts` and
+`tests/windows/windows-guarded-manager.test.ts`; the generated chain uses absolute paths, so a bare,
+relative or 8.3-aliased spelling is deliberately not a match), and it stops the wrapper, not the
+`ocx start` child it launched, so the full uninstall relies on having stopped the proxy first
+(`handleUninstall` runs "proxy stopped" before "service removed", pinned in
+`tests/cli/uninstall.test.ts`). A file that cannot be deleted is reported by name
 and the outcome is the typed `failed`, not an exception from the step.
 `ocx service claim` is not blocked by this rule and does not need to be: a claim carries the
 compatibility token `ocx resolve` issues, a blocked answer issues none, and the assessment the claim

@@ -61,7 +61,7 @@ import {
 } from "../service/ownership-compatibility";
 import { observeManagingClis } from "../service/managing-cli";
 import { probeWindowsSchedulerTask } from "../service/windows-scheduler";
-import { windowsProcessList, wrapperProcessesAlive, type WindowsProcessEntry } from "../service/windows-guarded-manager";
+import { unreadableWrapperCandidates, windowsProcessList, wrapperProcessesAlive, type WindowsProcessEntry } from "../service/windows-guarded-manager";
 import { SERVICE_OWNERSHIP_MINIMUM_CLI_VERSION } from "../service/install-state-contract.mjs";
 import { inspectDesktopSupervision } from "../service/desktop-supervision.mjs";
 import { computeVersionSkew, type VersionSkew } from "./version-skew";
@@ -85,19 +85,24 @@ export const RESOLVE_SCHEMA = "ocx-resolve/1";
  * relaunching `ocx start`, so a takeover would still race it for the port. When the task is
  * proven absent the process table is therefore read once (bounded by `windowsProcessList`'s
  * own five-second limit), and a live process carrying the wrapper or launcher path keeps the
- * registration. A table that cannot be read is evidence too. Only files with an absent task
+ * registration. A table that cannot be read is evidence too, and so is an unreadable
+ * wscript/cscript/cmd row (see `unreadableWrapperCandidates`). Only files with an absent task
  * reach that enumeration.
  */
 export function windowsServiceWrapperPresent(
   probeTask: () => { status: "present" | "absent" | "unknown" } = probeWindowsSchedulerTask,
   listProcesses: () => WindowsProcessEntry[] | null = windowsProcessList,
+  runtimePid: number | null = null,
 ): boolean {
   if (!existsSync(windowsServiceScriptPath()) && !existsSync(windowsLauncherVbsPath())) return false;
   try {
     if (probeTask().status !== "absent") return true;
     const processes = listProcesses();
     if (processes === null) return true;
-    return wrapperProcessesAlive(processes, [windowsLauncherVbsPath(), windowsServiceScriptPath()]).length > 0;
+    if (wrapperProcessesAlive(processes, [windowsLauncherVbsPath(), windowsServiceScriptPath()]).length > 0) return true;
+    // A wscript/cscript/cmd row with no readable command line (another user's or an elevated
+    // process) may be the loop itself; with the runtime pid known, only its ancestors count.
+    return unreadableWrapperCandidates(processes, runtimePid).length > 0;
   } catch {
     return true;
   }
@@ -212,7 +217,7 @@ export interface ResolveIo {
    * a lost or never-written state file leaves unobservable. Production default checks the
    * wrapper script and launcher; a throw is no evidence.
    */
-  serviceArtifactsPresent?: () => boolean;
+  serviceArtifactsPresent?: (runtimePid: number | null) => boolean;
   stdout?: { log: (s: string) => void };
   stderr?: { error: (s: string) => void };
 }
@@ -361,7 +366,8 @@ export async function runResolve(args: ResolveArgs, io: ResolveIo = {}): Promise
   const resolveOwnership = io.resolveOwnership ?? resolveServiceOwnership;
   const resolveState = io.resolveState ?? resolveServiceState;
   const observeManagers = io.observeManagers ?? observeManagingClis;
-  const serviceArtifactsPresent = io.serviceArtifactsPresent ?? windowsServiceWrapperPresent;
+  const serviceArtifactsPresent = io.serviceArtifactsPresent
+    ?? ((runtimePid: number | null) => windowsServiceWrapperPresent(probeWindowsSchedulerTask, windowsProcessList, runtimePid));
   const configHome = configDir();
   let diagnostics: ConfigDiagnostics;
   try {
@@ -444,7 +450,7 @@ export async function runResolve(args: ResolveArgs, io: ResolveIo = {}): Promise
         const managers = observeManagers(resolvedState);
         let wrapperPresent = false;
         try {
-          wrapperPresent = serviceArtifactsPresent();
+          wrapperPresent = serviceArtifactsPresent(live?.pid ?? null);
         } catch {
           // An unreadable config home is no evidence either way; the offer stays as assessed.
         }

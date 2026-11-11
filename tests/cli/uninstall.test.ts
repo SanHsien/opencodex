@@ -197,7 +197,7 @@ describe("uninstall gates shared teardown on a proven service stop", () => {
     // return early on an absent task and leave the files behind. `ocx resolve` reads them as
     // evidence of a registered service while the task still exists or cannot be queried.
     const calls: string[] = [];
-    const hooks = (residue: () => boolean, status: "absent" | "unknown" = "absent") => ({
+    const hooks = (residue: () => { kind: string; reason?: string }, status: "absent" | "unknown" = "absent") => ({
       platform: "win32" as const,
       assertEnvironment: () => {},
       probeWindowsTask: () => (status === "absent" ? { status } : { status, detail: "schtasks failed" }) as never,
@@ -207,20 +207,119 @@ describe("uninstall gates shared teardown on a proven service stop", () => {
       removeInstallState: () => { calls.push("state"); },
       removeWindowsWrapperResidue: residue,
     });
-    setUninstallServiceHooksForTests(hooks(() => { calls.push("residue"); return true; }) as never);
+    setUninstallServiceHooksForTests(hooks(() => { calls.push("residue"); return { kind: "removed" }; }) as never);
     expect(uninstallServiceDetailed()).toBe("removed");
     expect(calls).toEqual(["residue", "state"]);
 
     calls.length = 0;
-    setUninstallServiceHooksForTests(hooks(() => { calls.push("residue"); return false; }) as never);
+    setUninstallServiceHooksForTests(hooks(() => { calls.push("residue"); return { kind: "none" }; }) as never);
     expect(uninstallServiceDetailed()).toBe("absent");
     expect(calls).toEqual(["residue"]);
 
     // A scheduler that cannot be asked keeps refusing before anything is deleted.
     calls.length = 0;
-    setUninstallServiceHooksForTests(hooks(() => { calls.push("residue"); return true; }, "unknown") as never);
+    setUninstallServiceHooksForTests(hooks(() => { calls.push("residue"); return { kind: "removed" }; }, "unknown") as never);
     expect(() => uninstallServiceDetailed()).toThrow("Could not determine Task Scheduler state");
     expect(calls).toEqual([]);
+  });
+
+  test("residue that cannot be removed is a typed failure that names the cause, with install state kept", () => {
+    const calls: string[] = [];
+    const errors: string[] = [];
+    const original = console.error;
+    console.error = (...args: unknown[]) => { errors.push(args.join(" ")); };
+    try {
+      setUninstallServiceHooksForTests({
+        platform: "win32",
+        assertEnvironment: () => {},
+        probeWindowsTask: () => ({ status: "absent" }) as never,
+        uninstallWindowsTask: () => {},
+        nativeStatus: () => "nonexistent",
+        uninstallNative: () => {},
+        removeInstallState: () => { calls.push("state"); },
+        removeWindowsWrapperResidue: () => ({ kind: "failed", reason: "could not delete C:\\h\\opencodex-service.cmd: EBUSY" }),
+      } as never);
+      expect(uninstallServiceDetailed()).toBe("failed");
+    } finally {
+      console.error = original;
+    }
+    expect(calls).toEqual([]);
+    expect(errors.join("\n")).toContain("opencodex-service.cmd: EBUSY");
+  });
+
+  describe("removeWindowsServiceWrapperResidue", () => {
+    const script = "C:\\h\\opencodex-service.cmd";
+    const launcher = "C:\\h\\opencodex-service-launcher.vbs";
+    const xml = "C:\\h\\opencodex-service-task.xml";
+    const loop = { pid: 7001, parentPid: 1, name: "cmd.exe", commandLine: `cmd.exe /c "${script}"` };
+    const setup = (over: Partial<import("../../src/service/windows-ops").WrapperResidueDeps> = {}) => {
+      const log: string[] = [];
+      const deps = {
+        files: () => [script, launcher, xml],
+        wrapperPaths: () => [launcher, script],
+        exists: () => true,
+        unlink: (path: string) => { log.push(`unlink ${path}`); },
+        listProcesses: () => [] as { pid: number; parentPid: number | null; name: string | null; commandLine: string | null }[] | null,
+        killWrappers: () => { log.push("kill"); },
+        ...over,
+      };
+      return { log, deps };
+    };
+
+    test("no files means nothing to do and no process enumeration", async () => {
+      const { removeWindowsServiceWrapperResidue } = await import("../../src/service/windows-ops");
+      let listed = false;
+      const { deps } = setup({ exists: () => false, listProcesses: () => { listed = true; return []; } });
+      expect(removeWindowsServiceWrapperResidue(deps)).toEqual({ kind: "none" });
+      expect(listed).toBe(false);
+    });
+
+    test("with no wrapper process the files are deleted without any kill", async () => {
+      const { removeWindowsServiceWrapperResidue } = await import("../../src/service/windows-ops");
+      const { log, deps } = setup();
+      expect(removeWindowsServiceWrapperResidue(deps)).toEqual({ kind: "removed" });
+      expect(log).toEqual([`unlink ${script}`, `unlink ${launcher}`, `unlink ${xml}`]);
+    });
+
+    test("a live wrapper loop is stopped first and the files go only once it is confirmed gone", async () => {
+      const { removeWindowsServiceWrapperResidue } = await import("../../src/service/windows-ops");
+      let killed = false;
+      const log: string[] = [];
+      const { deps } = setup({
+        listProcesses: () => (killed ? [] : [loop]),
+        killWrappers: () => { killed = true; log.push("kill"); },
+        unlink: (path: string) => { log.push(`unlink ${path}`); },
+      });
+      expect(removeWindowsServiceWrapperResidue(deps)).toEqual({ kind: "removed" });
+      expect(log).toEqual(["kill", `unlink ${script}`, `unlink ${launcher}`, `unlink ${xml}`]);
+    });
+
+    test("a wrapper that survives the kill leaves every file in place and says so", async () => {
+      const { removeWindowsServiceWrapperResidue } = await import("../../src/service/windows-ops");
+      const { log, deps } = setup({ listProcesses: () => [loop] });
+      const outcome = removeWindowsServiceWrapperResidue(deps);
+      expect(outcome).toMatchObject({ kind: "failed" });
+      expect((outcome as { reason: string }).reason).toContain("7001");
+      expect(log).toEqual(["kill"]);
+    });
+
+    test("an unreadable process table is not proof that no wrapper runs", async () => {
+      const { removeWindowsServiceWrapperResidue } = await import("../../src/service/windows-ops");
+      const { log, deps } = setup({ listProcesses: () => null });
+      expect(removeWindowsServiceWrapperResidue(deps)).toMatchObject({ kind: "failed" });
+      expect(log).toEqual([]);
+    });
+
+    test("a locked file is a typed failure naming it, not an exception", async () => {
+      const { removeWindowsServiceWrapperResidue } = await import("../../src/service/windows-ops");
+      const { deps } = setup({
+        unlink: (path: string) => { if (path === launcher) throw new Error("EBUSY: resource busy or locked"); },
+      });
+      const outcome = removeWindowsServiceWrapperResidue(deps);
+      expect(outcome).toMatchObject({ kind: "failed" });
+      expect((outcome as { reason: string }).reason).toContain(launcher);
+      expect((outcome as { reason: string }).reason).toContain("EBUSY");
+    });
   });
 
   test("a live orphan with no pid file blocks the teardown", async () => {

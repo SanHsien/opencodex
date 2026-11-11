@@ -52,8 +52,11 @@ A runtime that a registered background service supervises is never offered for t
 into `blocked` with the wire reason `service-managed` when the service-registration observation is
 `observed` (or, for a lost or never-written install state, the scheduler wrapper script or launcher
 is still in the config home and Task Scheduler does not prove the task absent, via
-`windowsServiceWrapperPresent`; a task proven absent makes the files residue, an unanswerable
-scheduler keeps them as evidence, and no file means no query) and the recorded owner is absent
+`windowsServiceWrapperPresent`; a task proven absent makes the files residue unless a live process
+still carries the wrapper or launcher path, since a task deleted by hand does not stop a running
+wrapper loop; an unreadable process table or an unanswerable scheduler keeps the files as evidence;
+no file means no query, and the process table, bounded by `windowsProcessList`'s five-second
+limit, is read only for files whose task is absent) and the recorded owner is absent
 or an explicit `cli` claim. The service's wrapper
 relaunches `ocx start` on its own schedule, and a takeover has a window between the guarded stop and
 the recorded claim in which that wrapper starts a replacement, so the offer was a fight for the port
@@ -62,8 +65,11 @@ asking nothing and stopping nothing, on any blocked offer; only the CLI's answer
 claim (this installation's or another's) is not covered: the service stands down for it, so another
 installation asking to take over remains a real question. Older blocked reasons keep their
 precedence, and the way to let the app own a service-supervised runtime is `ocx service uninstall`
-first, which also deletes the wrapper files (the full-uninstall path `uninstallServiceDetailed`
-removes that residue when the task is already gone, via `removeWindowsServiceWrapperResidue`).
+first, which also deletes the wrapper files. The full-uninstall path `uninstallServiceDetailed`
+removes that residue when the task is already gone, via `removeWindowsServiceWrapperResidue`: a live
+wrapper process is stopped first (the kill `ocx stop` performs) and the files stay if it cannot be
+confirmed gone or the process table cannot be read; a file that cannot be deleted is reported by name
+and the outcome is the typed `failed`, not an exception from the step.
 `ocx service claim` is not blocked by this rule and does not need to be: a claim carries the
 compatibility token `ocx resolve` issues, a blocked answer issues none, and the assessment the claim
 revalidates internally (`assessServiceTakeoverCompatibility`) does not apply the `service-managed`

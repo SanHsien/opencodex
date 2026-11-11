@@ -61,6 +61,7 @@ import {
 } from "../service/ownership-compatibility";
 import { observeManagingClis } from "../service/managing-cli";
 import { probeWindowsSchedulerTask } from "../service/windows-scheduler";
+import { windowsProcessList, wrapperProcessesAlive, type WindowsProcessEntry } from "../service/windows-guarded-manager";
 import { SERVICE_OWNERSHIP_MINIMUM_CLI_VERSION } from "../service/install-state-contract.mjs";
 import { inspectDesktopSupervision } from "../service/desktop-supervision.mjs";
 import { computeVersionSkew, type VersionSkew } from "./version-skew";
@@ -78,14 +79,25 @@ export const RESOLVE_SCHEMA = "ocx-resolve/1";
  * once a file is found, Task Scheduler is asked and a task it proves absent means residue.
  * A scheduler that cannot be asked keeps the files as evidence, the direction that only
  * ever makes the app a guest. With no file there is no query at all: the common launch pays
- * nothing. A wrapper process whose task is gone is a leftover instance, not a registration.
+ * nothing.
+ *
+ * A task deleted by hand does not stop a wrapper loop that is already running: it keeps
+ * relaunching `ocx start`, so a takeover would still race it for the port. When the task is
+ * proven absent the process table is therefore read once (bounded by `windowsProcessList`'s
+ * own five-second limit), and a live process carrying the wrapper or launcher path keeps the
+ * registration. A table that cannot be read is evidence too. Only files with an absent task
+ * reach that enumeration.
  */
 export function windowsServiceWrapperPresent(
   probeTask: () => { status: "present" | "absent" | "unknown" } = probeWindowsSchedulerTask,
+  listProcesses: () => WindowsProcessEntry[] | null = windowsProcessList,
 ): boolean {
   if (!existsSync(windowsServiceScriptPath()) && !existsSync(windowsLauncherVbsPath())) return false;
   try {
-    return probeTask().status !== "absent";
+    if (probeTask().status !== "absent") return true;
+    const processes = listProcesses();
+    if (processes === null) return true;
+    return wrapperProcessesAlive(processes, [windowsLauncherVbsPath(), windowsServiceScriptPath()]).length > 0;
   } catch {
     return true;
   }

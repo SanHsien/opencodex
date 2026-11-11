@@ -16,7 +16,7 @@ import { assertSchedulerRegistrationBeforeStart } from "./repair";
 import { SERVICE_MANAGED_ENV, TASK, plistPath, removeServiceInstallStateRecords, writeServiceInstallState } from "./state";
 import type { ServiceBackend } from "./state";
 import { unitPath, isSystemd, installSystemd, startSystemd, stopSystemd, statusSystemd, uninstallSystemd, systemdServiceInstallCleanupOps } from "./systemd";
-import { writeWindowsSchedulerAssets, stageWindowsSchedulerRegistrationXml, removeWindowsSchedulerRegistrationStage, registerFreshWindowsSchedulerTask, recordWindowsSchedulerOwnership, removeNativeWindowsServiceForScheduler, commitWindowsInstall, commitWindowsNativeInstall, type WindowsServiceInstallDeps, startWindows, isWindowsSchedulerEndBenign, stopWindows, stopWindowsChecked, statusWindows, statusWindowsXml, killWindowsServiceWrapperProcesses, uninstallWindows, removeWindowsServiceWrapperResidue, classifyWindowsServiceStop } from "./windows-ops";
+import { writeWindowsSchedulerAssets, stageWindowsSchedulerRegistrationXml, removeWindowsSchedulerRegistrationStage, registerFreshWindowsSchedulerTask, recordWindowsSchedulerOwnership, removeNativeWindowsServiceForScheduler, commitWindowsInstall, commitWindowsNativeInstall, type WindowsServiceInstallDeps, startWindows, isWindowsSchedulerEndBenign, stopWindows, stopWindowsChecked, statusWindows, statusWindowsXml, killWindowsServiceWrapperProcesses, uninstallWindows, removeWindowsServiceWrapperResidue, type WrapperResidueOutcome, classifyWindowsServiceStop } from "./windows-ops";
 import { schtasks, probeWindowsSchedulerTask, rollbackWindowsSchedulerTaskOwnedByAttempt, settleDelay } from "./windows-scheduler";
 import type { WindowsSchedulerTaskProbe } from "./windows-scheduler";
 import { windowsTaskRegistrationOwnedByAttempt, windowsTaskRegistrationHealthy } from "./windows-taskxml";
@@ -584,7 +584,7 @@ type UninstallServiceHooksForTests = {
   uninstallNative: () => void;
   removeInstallState: () => void;
   /** Optional: absent means no residue is probed, so tests never touch a real config home. */
-  removeWindowsWrapperResidue?: () => boolean;
+  removeWindowsWrapperResidue?: () => WrapperResidueOutcome;
 };
 
 let uninstallServiceHooksForTests: UninstallServiceHooksForTests | null = null;
@@ -634,8 +634,16 @@ export function uninstallServiceDetailed(): ServiceUninstallOutcome {
     if (!removed && scheduler.status === "absent") {
       // The task is proven gone, so wrapper files still in the config home are residue of a
       // partial uninstall. `ocx service uninstall` always deletes them; match it.
-      const residue = hooks ? (hooks.removeWindowsWrapperResidue ?? (() => false)) : removeWindowsServiceWrapperResidue;
-      if (residue()) removed = true;
+      const residue = hooks
+        ? (hooks.removeWindowsWrapperResidue ?? (() => ({ kind: "none" }) as WrapperResidueOutcome))()
+        : removeWindowsServiceWrapperResidue();
+      if (residue.kind === "failed") {
+        // A running wrapper or a locked file must not turn into a thrown step failure that hides
+        // which of them it was; say what is left and report the typed failure.
+        console.error(`❌ Service wrapper files were not removed: ${residue.reason}`);
+        return "failed";
+      }
+      if (residue.kind === "removed") removed = true;
     }
     if (removed) { (hooks?.removeInstallState ?? removeServiceInstallState)(); return "removed"; }
   } else if (platform === "linux" && existsSync(unitPath())) {

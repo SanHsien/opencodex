@@ -633,7 +633,52 @@ describe("the production wrapper probe reads the config home", () => {
 
   test("a leftover wrapper with the scheduler task proven absent is not a registration", () => {
     // Residue from a failed or partial uninstall must not become a prompt-less permanent block.
-    withHome(home => writeWrapper(home), () => expect(windowsServiceWrapperPresent(probeIs("absent"))).toBe(false));
+    withHome(home => writeWrapper(home), () => expect(windowsServiceWrapperPresent(probeIs("absent"), () => [])).toBe(false));
+  });
+
+  describe("a task deleted by hand while its wrapper loop still runs", () => {
+    const wrapperProcess = (home: string, name = "opencodex-service.cmd") => [
+      { pid: 4100, parentPid: 1, name: "cmd.exe", commandLine: `cmd.exe /c "${join(home, name)}"` },
+      { pid: 4200, parentPid: 1, name: "notepad.exe", commandLine: "notepad.exe notes.txt" },
+    ];
+
+    test("a surviving wrapper process keeps the registration even though the task is gone", () => {
+      // The loop relaunches `ocx start` on its own, so a takeover would still race it for the port.
+      for (const name of ["opencodex-service.cmd", "opencodex-service-launcher.vbs"]) {
+        withHome(home => writeWrapper(home), () => {
+          const home = process.env.OPENCODEX_HOME!;
+          expect(windowsServiceWrapperPresent(probeIs("absent"), () => wrapperProcess(home, name))).toBe(true);
+        });
+      }
+    });
+
+    test("unrelated processes leave the files as residue", () => {
+      withHome(home => writeWrapper(home), () => {
+        const home = process.env.OPENCODEX_HOME!;
+        expect(windowsServiceWrapperPresent(probeIs("absent"), () => wrapperProcess(home).slice(1))).toBe(false);
+        expect(windowsServiceWrapperPresent(probeIs("absent"), () => [])).toBe(false);
+      });
+    });
+
+    test("an unreadable process table is evidence, never proof of residue", () => {
+      withHome(home => writeWrapper(home), () => {
+        expect(windowsServiceWrapperPresent(probeIs("absent"), () => null)).toBe(true);
+        expect(windowsServiceWrapperPresent(probeIs("absent"), () => { throw new Error("powershell"); })).toBe(true);
+      });
+    });
+
+    test("processes are enumerated only for files with an absent task, so the ordinary launch pays nothing", () => {
+      let listed = 0;
+      const list = () => { listed++; return []; };
+      withHome(() => {}, () => { windowsServiceWrapperPresent(probeIs("absent"), list); });
+      withHome(home => writeWrapper(home), () => {
+        windowsServiceWrapperPresent(probeIs("present"), list);
+        windowsServiceWrapperPresent(probeIs("unknown"), list);
+      });
+      expect(listed).toBe(0);
+      withHome(home => writeWrapper(home), () => { windowsServiceWrapperPresent(probeIs("absent"), list); });
+      expect(listed).toBe(1);
+    });
   });
 
   test("a scheduler that cannot be asked leaves the wrapper as evidence, the guest-safe direction", () => {

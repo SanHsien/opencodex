@@ -17,6 +17,7 @@ import { defaultWinswEntry, installWinswService, statusWinswRaw, uninstallWinswS
 import { forgetEphemeralSecretDir, forgetEphemeralSecretPath, hardenElevatedStageDir, hardenElevatedStagePath, hardenSecretDir } from "../lib/windows-secret-acl";
 import { recordOwnedConfigPath } from "../lib/config-ownership";
 import { killWindowsSchedulerWrappers } from "../lib/windows-service-wrappers";
+import { windowsProcessList, wrapperProcessesAlive, type WindowsProcessEntry } from "./windows-guarded-manager";
 import { isTestHomeGuardArmed } from "../lib/test-home-guard";
 import { writeServiceApiTokenFile } from "./guards";
 import type { ServiceStopOutcome } from "./orchestration";
@@ -910,19 +911,65 @@ export function uninstallWindows(): void {
   if (existsSync(windowsTaskXmlPath())) unlinkSync(windowsTaskXmlPath());
 }
 
+export type WrapperResidueOutcome =
+  | { kind: "none" }
+  | { kind: "removed" }
+  | { kind: "failed"; reason: string };
+
+export interface WrapperResidueDeps {
+  files?: () => readonly string[];
+  /** Paths whose presence on a process command line marks it as this home's wrapper. */
+  wrapperPaths?: () => readonly string[];
+  exists?: (path: string) => boolean;
+  unlink?: (path: string) => void;
+  /** Process table, null when it could not be read. */
+  listProcesses?: () => WindowsProcessEntry[] | null;
+  killWrappers?: () => void;
+}
+
 /**
  * Delete the scheduler wrapper trio when the task that ran it is already gone.
  *
  * `uninstallWindows` removes these files on every call; the full-uninstall path returned early
  * on an absent task and left them, and `ocx resolve` reads a surviving wrapper as a registered
- * service. Returns whether anything was removed. The caller has already proven the task absent.
+ * service. The caller has already proven the task absent, but a wrapper loop started from it
+ * can outlive the task, so a live process carrying the wrapper path is stopped first (the same
+ * best-effort kill `ocx stop` performs) and the files stay if it cannot be confirmed gone. An
+ * unreadable process table is not proof either. A file that cannot be deleted (locked by a
+ * running script, antivirus) is reported by name instead of thrown, so the caller can say what
+ * is left.
  */
-export function removeWindowsServiceWrapperResidue(): boolean {
-  let removed = false;
-  for (const file of [windowsServiceScriptPath(), windowsLauncherVbsPath(), windowsTaskXmlPath()]) {
-    if (existsSync(file)) { unlinkSync(file); removed = true; }
+export function removeWindowsServiceWrapperResidue(deps: WrapperResidueDeps = {}): WrapperResidueOutcome {
+  const files = (deps.files ?? (() => [windowsServiceScriptPath(), windowsLauncherVbsPath(), windowsTaskXmlPath()]))();
+  const exists = deps.exists ?? existsSync;
+  const present = files.filter(file => exists(file));
+  if (present.length === 0) return { kind: "none" };
+  const listProcesses = deps.listProcesses ?? windowsProcessList;
+  const wrapperPaths = (deps.wrapperPaths ?? (() => [windowsLauncherVbsPath(), windowsServiceScriptPath()]))();
+  const alive = (): number[] | null => {
+    const processes = listProcesses();
+    return processes === null ? null : wrapperProcessesAlive(processes, wrapperPaths);
+  };
+  const before = alive();
+  if (before === null) {
+    return { kind: "failed", reason: "the Windows process list could not be read, so a running service wrapper could not be ruled out; wrapper files were left in place" };
   }
-  return removed;
+  if (before.length > 0) {
+    (deps.killWrappers ?? killWindowsServiceWrapperProcesses)();
+    const after = alive();
+    if (after === null || after.length > 0) {
+      return { kind: "failed", reason: `a service wrapper process (pid ${(after ?? before).join(", ") || "unknown"}) is still running and could not be stopped; wrapper files were left in place` };
+    }
+  }
+  const unlink = deps.unlink ?? unlinkSync;
+  for (const file of present) {
+    try {
+      unlink(file);
+    } catch (error) {
+      return { kind: "failed", reason: `could not delete ${file}: ${error instanceof Error ? error.message : String(error)}` };
+    }
+  }
+  return { kind: "removed" };
 }
 
 /**

@@ -1309,3 +1309,23 @@ Windows 適用性：只用 `node:crypto` 與環境變數，不碰檔案系統、
 **決定七（Windows 權重表用兩個分支 run 重新量測）**：run 42631654245 全綠，但 12 片耗時 15.4–25.6 分鐘，最長一片只剩約 4.4 分鐘餘裕，原因是 v2.99.0 新增的 60 個測試檔沒有權重列、依 runner 慣例一律當中位數。用 `scripts/ci/test-durations.ts refresh --table scripts/ci/test-durations.windows.tsv` 吃兩個 run 各 12 份 Windows job log（共 24 份；首輪 shard 5 在 batch 40/43 停止，只計跑完的檔案），2948 個檔全部有量測值，沒有缺列。以本機貪婪分配模擬（最重檔先給負載最低的一片，12 片）每片預測負載 1248 秒；刷新後的 run 42637255094（`3357585fd`）全綠，12 片耗時 17.6 至 26.9 分鐘，最長一片 26.9 分鐘：**最長片沒有變短**（刷新前 25.6），單輪變異約 ±3 分鐘，餘裕仍只有約 3 分鐘。負載較平均（刷新前最短 15.4 分鐘、刷新後最短 17.6），但這個表只能壓平均、壓不掉單檔重量（`messages-overflow-native` 單檔約 290–420 秒）。若任何一片再被 30 分鐘上限取消，下一步是把 shard 增為 13 或調整 `BUN_TEST_BATCH_TIMEOUT_SECONDS`，記成新的決定，不放寬斷言（登記 `ROADMAP.md` 中期列）。`timeout-minutes: 30` 與 shard 數不動（決定十二再補記的立場）。
 
 **決定八（水位推進）**：`tools/upstream_baseline.json` 的 `integrated_tag` 由 `v2.98.0` 推到 `v2.99.0`，`integrated_through`／`reviewed_through` 為 `667662903a6c139524506667d12656d9ad50fad0`，`reviewed_date` 為 2026-11-09；`reviewed_pr_numbers` 加入 8252；`reviewed_issue_through` 維持 8336（本次沒有新 `platform` issue）。理由：決定一寫的推進條件成立（12 個 Windows shard 與 aggregate `ci` 全 success，Fork maintenance、Catalog async contracts 同為 success），且整合前審查的 28 筆 commit 全落在 tag diff 內（連續前綴成立）。`bun tools/check-upstream-updates.ts --strict` 在推進後的結果見 `REVIEW.md` 2026-11-09 節。
+
+## 2026-11-12：獨立覆核 `b94d6ac61..08927752d`（接管對話框修正）的五項修正
+
+覆核找到的問題與修法如下；每項的測試與證據在本節末。
+
+**決定一（殺行程與「可讀包裝檔」判定限定包裝宿主映像；M1，中）**：原本只比命令列上的包裝檔完整路徑 token，於是使用者用記事本開著 `opencodex-service.cmd`，`ocx service uninstall` 的殘留移除會強制結束記事本，`ocx resolve` 也會把它算成服務代管。修法：包裝檔只能由 wscript／cscript／cmd 執行，所以殺行程的 PowerShell 與 TypeScript 端的 `wrapperProcessesAlive`、`ancestorWrapperPids`、`isUnreadableWrapperCandidate` 都先要求映像名稱屬於 `WRAPPER_HOST_IMAGE_NAMES`（定義在 `src/lib/windows-service-wrappers.ts`，兩端共用同一份集合）。不採「列出 launcher」：launcher 的 `.vbs` 本來就由 wscript 執行，不需要另列。WinSW 的宿主 exe 不在 `wrapperPaths` 內，不受影響。`windows-ops.ts` 的註解與 `structure/ops/desktop-supervision.md` 同步改寫。
+
+**決定二（包裝檔刪除失敗改為 typed failed 並命名檔案；L2，低）**：`uninstallWindows` 在工作排程已確定刪除後才 `unlinkSync` 包裝檔，鎖檔時會丟出未命名的例外。修法：新增 `WrapperFileRemovalError`（帶 `file`），`uninstallServiceDetailed` 的 present 分支只接住它，記下檔名後繼續移除原生服務，最後回 `failed` 並保留安裝狀態，與 residue 分支的形狀一致。其他錯誤（排程刪除失敗、schtasks 拒絕）照舊往外拋。
+
+**決定三（staging 清理；L4，低）**：`guest_choice.rs` 的 `fs::write(staging)` 失敗時，部分寫入的 `.tmp` 不再殘留。與 rename 失敗的清理同形。這條分支沒有單元測試，因為無法不改程式就讓 `fs::write` 在中途失敗；已由程式審讀與 clippy 覆蓋。
+
+**決定四（「Stay a guest」的復原方式：寫進文件，不加 UI；M2，文件）**：沒有 app 內的重新詢問入口，所以 docs-site 的 desktop-app 頁（en／zh-tw）寫出復原法：刪除 `%APPDATA%\com.opencodex.desktop\guest-choice.json`（Tauri 的 `app_config_dir`，與 install id 同目錄，由 `guest_choice::directory` 取得）。刪檔會一次忘記所有代理的選擇，這點寫明。ROADMAP「中期」加一列「app 內提供重新詢問入口」，觸發條件是有人回報刪檔不便。
+
+**決定五（排程狀態不明的錯誤訊息導向提權終端機；L1，文件）**：排程查詢與 CSV 都失敗時，完整移除仍然在刪任何檔案之前丟出 `Could not determine Task Scheduler state`，但訊息現在要求以系統管理員身分執行移除，並附 `schtasks /query /tn` 指令。`structure/ops/desktop-supervision.md` 同步描述。
+
+**證據**：
+- 紅燈（M1 的測試先寫、程式後改）：修法之前，`tests/windows/windows-service-wrappers.test.ts`、`tests/windows/windows-guarded-manager.test.ts`、`tests/cli/cli-resolve.test.ts`、`tests/cli/uninstall.test.ts` 這 4 檔共 203 測試中 6 個失敗：記事本路徑在 guarded、ancestor、resolve、residue 四處被算成包裝檔，以及殺行程腳本沒有映像名稱過濾。
+- 綠燈：修法之後，`bun test tests/service/service.test.ts tests/windows tests/update tests/cli/uninstall.test.ts tests/cli/cli-resolve.test.ts --timeout 60000` 共 2488 測試，4 失敗，全部是 `tests/update/update-tree-ownership.test.ts` 的 `EPERM: operation not permitted, symlink`（這台 Windows 沒有建立符號連結的權限，與本次改動無關）。
+- `tools/dev_check.ps1` 全綠（fork hygiene 42 pass、Markdown 連結檢查通過）；`bun run typecheck` 無型別錯誤；`cargo test --lib guest_choice` 10 通過（臨時在 gitignored 的 `binaries/`、`resources/` 放空的建置輸入，跑完已刪除）；`cargo clippy --lib --all-targets -- -D warnings` 通過。
+- 未驗證：`ocx service uninstall` 的實機殺行程行為（依規則不執行；只靠單元測試與腳本內容的規則比對）；L2 的新測試是與程式同批寫入，沒有先紅。

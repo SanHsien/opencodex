@@ -66,6 +66,12 @@ proxy's current owner and configuration home, so the prompt does not come back o
 launch; it asks again only when the recorded owner changes. To let the app own a proxy that a
 service supervises, run `ocx service uninstall` first and launch the app again.
 
+To make the app ask again for every remembered proxy, delete the `guest-choice.json` file in the
+app's configuration folder. On Windows that is `%APPDATA%\com.opencodex.desktop\`, the same folder
+that holds the install id. The next launch then asks again. Deleting the file forgets every
+remembered choice at once, not only one proxy's; a missing file simply means nothing is remembered.
+The app has no in-app control for this yet.
+
 Use the tray's **Open dashboard** or **Open in browser** action to move between the
 embedded dashboard and your normal browser. The tray also provides update checks.
 

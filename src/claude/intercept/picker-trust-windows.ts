@@ -130,9 +130,12 @@ function encodedPathExpression(path: string): string {
   return `[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${encoded}'))`;
 }
 
-/** Interpolated constants must not carry a quote or wildcard that changes the script. */
-function psLiteral(value: string, label: string): string {
-  if (value.includes("'") || /[*?[\]]/.test(value)) throw new Error(`unsafe ${label} for script literal`);
+/**
+ * Interpolated constants must not carry a quote or wildcard that changes the script. PowerShell
+ * also closes a single-quoted literal at U+2018-U+201B, so every one of those is refused too.
+ */
+export function psLiteral(value: string, label: string): string {
+  if (/['‘’‚‛*?[\]]/.test(value)) throw new Error(`unsafe ${label} for script literal`);
   return `'${value}'`;
 }
 

@@ -107,7 +107,8 @@ function Invoke-Native([string]$e,[string[]]$a){try{$c=[OcxJob]::Run($e,((@($e)+
 export function windowsScriptHelperSource(script: string): string | undefined {
   script = unpackPowerShell(script);
   const source = /try\{Add-Type '([\s\S]*?)'\}catch\{Fail\}/.exec(script);
-  if (source) return source[1]!.replaceAll("''", "'");
+  // Undo powerShellSingleQuoted: each single-quote character, ASCII or curly, was doubled.
+  if (source) return source[1]!.replace(/(['‘’‚‛])\1/g, "$1");
   const match = /FromBase64String\('([A-Za-z0-9+/=]+)'\)\),\[IO\.Compression\.CompressionMode\]::Decompress\)\)\.ReadToEnd\(\)/.exec(script);
   if (!match) return undefined;
   return inflateRawSync(Buffer.from(match[1]!, "base64")).toString("utf8");

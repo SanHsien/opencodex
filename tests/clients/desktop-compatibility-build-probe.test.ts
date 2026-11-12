@@ -5,6 +5,7 @@ import { join, parse } from "node:path";
 import { spawnTestChild } from "../helpers/spawn-test-child";
 import { COLD_SPAWN_WARMUP_HOOK_BUDGET_MS, warmColdSpawn } from "../helpers/cold-spawn-warmup";
 import { resolveTrustedWindowsPowerShellExe } from "../../src/lib/windows-elevation";
+import { powerShellSingleQuoted } from "../../src/lib/powershell-quote";
 import type { DesktopPackageObservation as DesktopAppInstall } from "../../src/codex/desktop-compatibility/installed-build";
 import { desktopPackageObservation } from "../helpers/desktop-package-observation";
 
@@ -23,7 +24,7 @@ async function probeOwnedAncestry(deadlineMs: number): Promise<void> {
   const root = mkdtempSync(join(parse(process.cwd()).root, "ocx-package-ancestry-"));
   const first = join(root, "first"), second = join(root, "second"), alias = join(root, "alias");
   let terminal = true;
-  const quote = (value: string) => "'" + value.replaceAll("'", "''") + "'";
+  const quote = powerShellSingleQuoted;
   const phase = (name: string) => `[Console]::Error.WriteLine('phase:${name}')`;
   try {
     for (const directory of [first, second]) {

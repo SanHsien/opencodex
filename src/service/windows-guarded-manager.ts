@@ -26,6 +26,7 @@ import { execFileSync } from "node:child_process";
 
 import { resolveTrustedWindowsPowerShellExe } from "../lib/windows-elevation";
 import { isWrapperHostImage } from "../lib/windows-service-wrappers";
+import { powerShellSingleQuoted } from "../lib/powershell-quote";
 import { cachedCurrentWindowsIdentity, resolveCurrentWindowsPrincipal, WINDOWS_PRINCIPAL_LOOKUP_TIMEOUT_MS } from "../lib/windows-user-principal";
 import { statusWinswRaw, winswExePath, WINSW_SERVICE_ID, type WinswStatus } from "../lib/winsw";
 import type { GuardedManagerStopped, GuardedManagerTarget } from "./guarded-manager-target";
@@ -138,8 +139,8 @@ export function windowsProcessList(): WindowsProcessEntry[] | null {
  * root-folder scoped. `-TaskPath '\'` pins the read to the root registration.
  */
 export function windowsScheduledTaskStateQuery(taskName: string): string {
-  return "(Get-ScheduledTask -TaskName '" + taskName.replace(/'/g, "''")
-    + "' -TaskPath '\\' -ErrorAction Stop).State";
+  return "(Get-ScheduledTask -TaskName " + powerShellSingleQuoted(taskName)
+    + " -TaskPath '\\' -ErrorAction Stop).State";
 }
 
 /**
@@ -173,7 +174,7 @@ export function windowsWinswServiceInfo(serviceName = WINSW_SERVICE_ID): Windows
   if (process.platform !== "win32") return null;
   try {
     const output = runPowerShell(
-      "Get-CimInstance Win32_Service | Where-Object { $_.Name -eq '" + serviceName.replace(/'/g, "''") + "' } "
+      "Get-CimInstance Win32_Service | Where-Object { $_.Name -eq " + powerShellSingleQuoted(serviceName) + " } "
       + "| Select-Object ProcessId,State,PathName | ConvertTo-Json -Compress",
     ).trim();
     if (!output) return { state: "absent", pid: null, pathName: null };

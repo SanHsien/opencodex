@@ -1,5 +1,6 @@
 import type { DesktopAppInstall, DesktopExec, DesktopProcess } from "../desktop-app/types";
 import { resolveTrustedWindowsPowerShellExe } from "../../lib/windows-elevation";
+import { powerShellSingleQuoted } from "../../lib/powershell-quote";
 import { WINDOWS_ACTIVATION_SOURCE } from "./windows-activation-source";
 import { readDesktopCompatibilityLaunch } from "./runtime-ownership";
 
@@ -14,7 +15,7 @@ export function validatedCompatibilityPacUrl(value: string): string {
   return url.href;
 }
 
-function literal(value: string): string { return `'${value.replaceAll("'", "''")}'`; }
+function literal(value: string): string { return powerShellSingleQuoted(value); }
 
 export function compatibilityActivationScript(install: DesktopAppInstall, pacUrl: string): string {
   const pac = validatedCompatibilityPacUrl(pacUrl);

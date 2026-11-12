@@ -4,6 +4,7 @@ import { existsSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { listCodexDesktopShellPids, restartCodexDesktopApp, type DesktopAppRestartIo } from "../../src/codex/desktop-app-restart";
+import { powerShellSingleQuoted } from "../../src/lib/powershell-quote";
 import {
   codexCliUpdateSelectionGate,
   beginCodexCliSelectionParentWrite,
@@ -45,7 +46,7 @@ describe.skipIf(process.platform !== "win32")("Windows membership through the re
   ] as const) {
     test(label, () => {
       const sibling = executable.replace(/([\\/])ChatGPT\.exe$/, "-evil$1ChatGPT.exe");
-      const psLiteral = (value: string) => "'" + value.replaceAll("'", "''") + "'";
+      const psLiteral = powerShellSingleQuoted;
       const fixture = [
         // These functions shadow the CIM cmdlets: the generated list-only script
         // sees synthetic rows and never enumerates or controls real processes.

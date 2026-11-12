@@ -1329,3 +1329,5 @@ Windows 適用性：只用 `node:crypto` 與環境變數，不碰檔案系統、
 - 綠燈：修法之後，`bun test tests/service/service.test.ts tests/windows tests/update tests/cli/uninstall.test.ts tests/cli/cli-resolve.test.ts --timeout 60000` 共 2488 測試，4 失敗，全部是 `tests/update/update-tree-ownership.test.ts` 的 `EPERM: operation not permitted, symlink`（這台 Windows 沒有建立符號連結的權限，與本次改動無關）。
 - `tools/dev_check.ps1` 全綠（fork hygiene 42 pass、Markdown 連結檢查通過）；`bun run typecheck` 無型別錯誤；`cargo test --lib guest_choice` 10 通過（臨時在 gitignored 的 `binaries/`、`resources/` 放空的建置輸入，跑完已刪除）；`cargo clippy --lib --all-targets -- -D warnings` 通過。
 - 未驗證：`ocx service uninstall` 的實機殺行程行為（依規則不執行；只靠單元測試與腳本內容的規則比對）；L2 的新測試是與程式同批寫入，沒有先紅。
+
+**補記（PowerShell 單引號跳脫；Windows 路徑含 `’` 時殺行程腳本語法錯誤）**：PowerShell 把 U+2018–U+201B 也當成單引號字串的結束符，原本各處只加倍 ASCII `'`，使用者名稱為 `O’Brien` 的 home 會讓 kill 腳本解析失敗而靜默不做事。現在全部經由 `src/lib/powershell-quote.ts` 的共用 helper 產生字面值，`update-failure-guidance.mjs` 與 `scripts/codex-queue.test.mjs` 因不能 import 而就地實作同一規則；紅燈先寫在 `tests/windows/powershell-single-quote-parse.test.ts`（以 PowerShell Parser 只解析、不執行）。

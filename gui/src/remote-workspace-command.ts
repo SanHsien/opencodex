@@ -1,9 +1,11 @@
+import { powerShellSingleQuoted } from "../../src/lib/powershell-quote";
+
 function posixQuote(value: string): string {
   return `'${value.replace(/'/g, `'"'"'`)}'`;
 }
 
 function powershellQuote(value: string): string {
-  return `'${value.replace(/'/g, "''")}'`;
+  return powerShellSingleQuoted(value);
 }
 
 /** Technical shell samples; kept outside JSX/i18n because command syntax is not prose. */

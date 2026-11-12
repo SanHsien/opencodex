@@ -1,5 +1,6 @@
 import { Buffer } from "node:buffer";
 import { deflateRawSync, inflateRawSync } from "node:zlib";
+import { powerShellSingleQuoted } from "../lib/powershell-quote";
 
 /**
  * cmd.exe, Windows OpenSSH's default shell, caps its command line at 8191 characters. The encoded
@@ -97,7 +98,7 @@ export const OCX_JOB_SOURCE = [
  */
 const NATIVE_PROCESS = String.raw`$ErrorActionPreference='Stop'
 function Fail{try{[Console]::Error.WriteLine('Refusing to run ocx.exe outside a kill-on-close job.')}catch{$null=$_};exit 126}
-try{Add-Type '` + OCX_JOB_SOURCE.replaceAll("'", "''") + String.raw`'}catch{Fail}
+try{Add-Type ` + powerShellSingleQuoted(OCX_JOB_SOURCE) + String.raw`}catch{Fail}
 function Quote-Native([string]$v){'"'+[regex]::Replace([regex]::Replace($v,'(\\*)"','$1$1\"'),'(\\+)$','$1$1')+'"'}
 function Invoke-Native([string]$e,[string[]]$a){try{$c=[OcxJob]::Run($e,((@($e)+$a|%{Quote-Native $_}) -join ' '))}catch{Fail};exit $c}
 `;

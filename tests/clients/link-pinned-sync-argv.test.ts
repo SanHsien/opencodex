@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { remotePinnedSyncArgv } from "../../src/link/ssh-argv";
 import { inflateRawSync } from "node:zlib";
 import { POWERSHELL_ENCODED_MAX, powershellArgv, windowsScriptData, windowsScriptHelperSource } from "../../src/link/remote-windows";
+import { powerShellSingleQuoted } from "../../src/lib/powershell-quote";
 
 const dirs: string[] = [];
 afterEach(() => { for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }); });
@@ -112,7 +113,7 @@ test.skipIf(process.platform !== "win32")("Windows bounds version probes and run
   const dir = join(home, ".opencodex-desktop", "bin"); mkdirSync(dir, { recursive: true });
   const executable = join(dir, "ocx.exe");
   const source = 'using System;using System.IO;using System.Reflection;using System.Threading;public static class Program{public static int Main(string[] a){string p=Assembly.GetExecutingAssembly().Location,m=Environment.GetEnvironmentVariable("OCX_FIXTURE_MODE"),log=Environment.GetEnvironmentVariable("OCX_FIXTURE_LOG");File.AppendAllText(log,p+"|"+string.Join("|",a)+"\\n");bool first=p.IndexOf(".opencodex-desktop",StringComparison.OrdinalIgnoreCase)>=0;if(a.Length==1&&a[0]=="--version"){if(first&&m=="broken")return 17;if(first&&m=="hang"){Thread.Sleep(30000);return 1;}if(first&&m=="overflow"){Console.Write(new string(\u0027x\u0027,256));Console.Out.Flush();Thread.Sleep(100);Console.Write("x");Console.Out.Flush();Thread.Sleep(30000);return 1;}if(first&&m=="fragment"){Console.Write("2.93.");Console.Out.Flush();Thread.Sleep(30);Console.WriteLine("0");return 0;}Console.WriteLine(Environment.GetEnvironmentVariable("OCX_FIXTURE_VERSION"));return 0;}Console.WriteLine(string.Join("|",a));return 0;}}';
-  const compile = Bun.spawn(powershellArgv(`Add-Type -TypeDefinition '${source.replaceAll("'", "''")}' -OutputAssembly '${executable.replaceAll("'", "''")}' -OutputType ConsoleApplication`), { stdout: "pipe", stderr: "pipe" });
+  const compile = Bun.spawn(powershellArgv(`Add-Type -TypeDefinition ${powerShellSingleQuoted(source)} -OutputAssembly ${powerShellSingleQuoted(executable)} -OutputType ConsoleApplication`), { stdout: "pipe", stderr: "pipe" });
   const [compiled, compileErr] = await Promise.all([compile.exited, new Response(compile.stderr).text(), new Response(compile.stdout).text()]);
   expect({ compiled, compileErr }).toEqual({ compiled: 0, compileErr: "" });
   const managed = join(home, ".local", "share", "goat", "opencodex", "current", "ocx.exe");

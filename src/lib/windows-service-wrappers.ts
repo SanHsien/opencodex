@@ -27,6 +27,7 @@
 import { spawnSync } from "node:child_process";
 
 import { resolveTrustedWindowsPowerShellExe } from "./windows-elevation";
+import { powerShellSingleQuoted } from "./powershell-quote";
 
 /**
  * The images that execute a scheduler wrapper file: wscript runs the launcher .vbs,
@@ -45,11 +46,6 @@ export function isWrapperHostImage(name: string | null | undefined): boolean {
   return typeof name === "string" && WRAPPER_HOST_IMAGE_RE.test(name);
 }
 
-/** Quote for PowerShell: single-quote the value and double any embedded quote. */
-function quoteForPowerShell(value: string): string {
-  return `'${value.replace(/'/g, "''")}'`;
-}
-
 /**
  * The PowerShell that finds and stops the wrappers for exactly these paths.
  * Exported for tests: the matching rule is the whole point of this module, and
@@ -57,7 +53,7 @@ function quoteForPowerShell(value: string): string {
  */
 export function windowsWrapperKillScript(paths: readonly string[]): string {
   return [
-    `$pats = @(${paths.map(quoteForPowerShell).join(", ")});`,
+    `$pats = @(${paths.map(powerShellSingleQuoted).join(", ")});`,
     "Get-CimInstance Win32_Process | Where-Object {",
     "  if ($_.ProcessId -eq $PID) { return $false };",
     `  if ($_.Name -notmatch '${WRAPPER_HOST_IMAGE_PATTERN}') { return $false };`,

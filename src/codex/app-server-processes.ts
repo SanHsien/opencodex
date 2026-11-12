@@ -14,6 +14,7 @@ import {
   resolveTrustedWindowsPowerShellExe,
   resolveTrustedWindowsTaskkillExe,
 } from "../lib/windows-elevation";
+import { escapePowerShellSingleQuoted } from "../lib/powershell-quote";
 import { readCodexCatalogPath } from "./paths";
 
 export const STALE_CODEX_APP_SERVER_HINT =
@@ -100,9 +101,9 @@ export function isWindowsCodexCandidateCommandLine(commandLine: string): boolean
     || WINDOWS_CODEX_CODE_MODE_HOST_CANDIDATE_RE.test(commandLine);
 }
 
-/** Embed a regex source in a PowerShell single-quoted -match operand (`''` escapes `'`). */
+/** Embed a regex source in a PowerShell single-quoted -match operand. */
 function powerShellSingleQuotedIgnoreCaseMatch(patternSource: string): string {
-  return `'(?i)${patternSource.replace(/'/g, "''")}'`;
+  return `'(?i)${escapePowerShellSingleQuoted(patternSource)}'`;
 }
 
 export interface CodexAppServerProcess {

@@ -134,7 +134,8 @@ for (const shell of shells) {
       // Enter through PowerShell literals, not -File's external string binder.
       // This isolates native argv handling. -Command otherwise maps a script's
       // nonzero status to 1; explicitly exit with its LASTEXITCODE.
-      const psLiteral = value => "'" + value.replaceAll("'", "''") + "'";
+      // Same rule as src/lib/powershell-quote.ts: PowerShell also closes a literal at U+2018-U+201B.
+      const psLiteral = value => "'" + value.replace(/['‘’‚‛]/g, c => c + c) + "'";
       const command = (options.location ? 'Set-Location -LiteralPath ' + psLiteral(options.location) + '; ' : '') + '& ' + args.map((arg, index) =>
         flagPositions.has(index)
           ? arg : psLiteral(arg)).join(' ') + '; exit $LASTEXITCODE';

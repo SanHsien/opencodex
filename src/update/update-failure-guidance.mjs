@@ -19,8 +19,11 @@ import { pnpmGlobalCommandArgs } from "./pnpm-global-install.mjs";
  */
 export function manualUpdateFailureGuidance({ bin, args, owner, platform = process.platform }) {
   const windows = platform === "win32";
+  // PowerShell ends a single-quoted literal at U+2018-U+201B as well as ASCII ', so all five are doubled
+  // on Windows. Kept in step with src/lib/powershell-quote.ts (this file runs under plain Node, no imports).
   const quote = value => /^[a-zA-Z0-9_@./:=-]+$/.test(value) ? value
-    : "'" + value.replaceAll("'", windows ? "''" : "'\\''") + "'";
+    : windows ? "'" + value.replace(/['‘’‚‛]/g, c => c + c) + "'"
+    : "'" + value.replaceAll("'", "'\\''") + "'";
   const commandBin = owner ? owner.commandPath : bin;
   const commandArgs = owner ? pnpmGlobalCommandArgs(args, owner) : args;
   const install = (windows ? "& " : "") + [commandBin, ...commandArgs].map(quote).join(" ");

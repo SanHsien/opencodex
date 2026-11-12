@@ -47,6 +47,7 @@ import type { PnpmGlobalOwner } from "./pnpm-global-install.mjs";
 import { isNewer } from "./notify";
 import { FORK_RELEASES_URL, FORK_SELF_UPDATE_HINT, forkSelfUpdateBlocked } from "./fork-source.mjs";
 import { isRealBunBinary } from "../lib/bun-binary-validator.mjs";
+import { powerShellSingleQuoted } from "../lib/powershell-quote";
 import { planWindowsTrayUpdate } from "./tray-update-plan.mjs";
 import { GUI_UPDATE_FAILURE_NEXT_STEP } from "./update-failure-guidance.mjs";
 import {
@@ -582,11 +583,10 @@ export function spawnGuiUpdateWorker(
 
   // Single -ArgumentList string with CommandLineToArgvW quoting so paths with
   // spaces survive Start-Process's space-join (array elements lose outer quotes).
-  const psQuote = (value: string): string => `'${value.replace(/'/g, "''")}'`;
   const argumentList = buildWindowsElevatedArgumentList(args);
   const ps = [
     `$env:OCX_SERVICE = '1'`,
-    `$p = Start-Process -FilePath ${psQuote(process.execPath)} -ArgumentList ${psQuote(argumentList)} -WindowStyle Hidden -PassThru`,
+    `$p = Start-Process -FilePath ${powerShellSingleQuoted(process.execPath)} -ArgumentList ${powerShellSingleQuoted(argumentList)} -WindowStyle Hidden -PassThru`,
     `if (-not $p) { exit 1 }`,
     `Write-Output $p.Id`,
   ].join("; ");

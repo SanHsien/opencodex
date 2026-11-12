@@ -975,10 +975,11 @@ function sleepSync(ms: number): void {
  * - an unreadable process table is not proof either, before or after the kill.
  *
  * The kill matches only the exact absolute wrapper and launcher paths as whole command-line
- * tokens, and only in wscript/cscript/cmd images, and stops only the wrapper (and launcher) processes, not the `ocx start` child they
- * launched: the full uninstall therefore stops the proxy first (`handleUninstall`, "proxy
- * stopped" before "service removed"). A file that cannot be deleted (locked by a running script,
- * antivirus) is reported by name instead of thrown, so the caller can say what is left.
+ * tokens, and only in wscript/cscript/cmd images. It stops only the wrapper (and launcher)
+ * processes, not the `ocx start` child they launched: the full uninstall therefore stops the
+ * proxy first (`handleUninstall`, "proxy stopped" before "service removed"). A file that cannot
+ * be deleted (locked by a running script, antivirus) is reported by name instead of thrown, so
+ * the caller can say what is left.
  */
 export function removeWindowsServiceWrapperResidue(deps: WrapperResidueDeps = {}): WrapperResidueOutcome {
   const files = (deps.files ?? (() => [windowsServiceScriptPath(), windowsLauncherVbsPath(), windowsTaskXmlPath()]))();

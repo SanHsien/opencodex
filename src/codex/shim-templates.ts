@@ -3,6 +3,7 @@ import type { BunRuntimeSource } from "../lib/bun-runtime";
 import { serviceApiTokenFilePath } from "../lib/service-secrets";
 import { selfLaunchArgv } from "../lib/self-launch-argv";
 import { windowsEnvIndirectBatchValue } from "../lib/win-paths";
+import { powerShellSingleQuoted } from "../lib/powershell-quote";
 
 const SHIM_MARKER = "opencodex codex autostart shim";
 // Revision 4: OCX_SHIM_BYPASS skips loading the service API token. Bumping the marker
@@ -242,7 +243,7 @@ endlocal\r
 }
 
 function psString(value: string): string {
-  return `'${value.replace(/'/g, "''")}'`;
+  return powerShellSingleQuoted(value);
 }
 
 export function buildWindowsPowerShellCodexShim(realCodexPath: string, bunPath: string, cliPath: string, bunRuntimeSource: BunRuntimeSource): string {

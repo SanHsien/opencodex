@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { isAbsolute, join, relative, resolve as resolvePath, sep } from "node:path";
 import { dlopen, ptr, type Pointer } from "bun:ffi";
 import { isTestHomeGuardArmed } from "./test-home-guard";
+import { powerShellSingleQuoted } from "./powershell-quote";
 
 type ElevationSpawn = (
   command: string,
@@ -506,10 +507,6 @@ function windowsPowerShell(): string {
   return resolveTrustedWindowsPowerShellExe();
 }
 
-function psSingleQuote(value: string): string {
-  return `'${value.replace(/'/g, "''")}'`;
-}
-
 function appendBounded(current: string, chunk: string, limit = ELEVATION_OUTPUT_LIMIT): string {
   if (current.length >= limit) return current;
   const remaining = limit - current.length;
@@ -678,8 +675,8 @@ export function runWindowsElevated(file: string, args: string[]): Promise<number
   // Touch .Handle so Windows PowerShell 5.1 keeps a process handle; ExitCode can
   // otherwise stay $null after -Wait and `exit $null` becomes exit 0 (false success).
   const script = [
-    `$p = Start-Process -FilePath ${psSingleQuote(file)}`,
-    argumentList.length > 0 ? ` -ArgumentList ${psSingleQuote(argumentList)}` : "",
+    `$p = Start-Process -FilePath ${powerShellSingleQuoted(file)}`,
+    argumentList.length > 0 ? ` -ArgumentList ${powerShellSingleQuoted(argumentList)}` : "",
     " -Verb RunAs -WindowStyle Hidden -PassThru -Wait;",
     `if ($null -eq $p) { exit ${OCX_ELEVATED_UAC_CANCELLED} }`,
     "$null = $p.Handle;",
@@ -788,15 +785,15 @@ export function runWindowsElevatedScheduledTaskRegistration(
     throw new Error("Elevated Task Scheduler payloads must share one staging directory.");
   }
   const inner = [
-    `$taskName = ${psSingleQuote(taskName)}`,
+    `$taskName = ${powerShellSingleQuoted(taskName)}`,
     READ_STAGED_TASK_XML,
-    `$xml = Read-OcxStagedTaskXml ${psSingleQuote(xml.path)} ${xml.byteLength} ${psSingleQuote(xml.sha256)}`,
-    `$module = Microsoft.PowerShell.Core\\Import-Module -Name ${psSingleQuote(scheduledTasksModule)} -PassThru -Force -ErrorAction Stop`,
+    `$xml = Read-OcxStagedTaskXml ${powerShellSingleQuoted(xml.path)} ${xml.byteLength} ${powerShellSingleQuoted(xml.sha256)}`,
+    `$module = Microsoft.PowerShell.Core\\Import-Module -Name ${powerShellSingleQuoted(scheduledTasksModule)} -PassThru -Force -ErrorAction Stop`,
     "$registerTask = $module.ExportedCommands['Register-ScheduledTask']",
     "if ($null -eq $registerTask) { throw 'Trusted ScheduledTasks module does not export Register-ScheduledTask.' }",
     ...(replace ? [
-      `$expectedXml = Read-OcxStagedTaskXml ${psSingleQuote(expectedExisting!.path)} ${expectedExisting!.byteLength} ${psSingleQuote(expectedExisting!.sha256)}`,
-      `$schtasks = ${psSingleQuote(resolveTrustedWindowsSchtasksExe())}`,
+      `$expectedXml = Read-OcxStagedTaskXml ${powerShellSingleQuoted(expectedExisting!.path)} ${expectedExisting!.byteLength} ${powerShellSingleQuoted(expectedExisting!.sha256)}`,
+      `$schtasks = ${powerShellSingleQuoted(resolveTrustedWindowsSchtasksExe())}`,
       "$currentXml = & $schtasks /query /tn $taskName /xml 2>$null | Out-String",
       "if ($LASTEXITCODE -ne 0) { throw 'Task Scheduler replacement precondition could not be read.' }",
       "function Normalize-OcxTaskXml([string]$value) { return (($value.TrimStart([char]0xFEFF) -replace \"`r`n?\", \"`n\").Trim()) }",
@@ -809,12 +806,12 @@ export function runWindowsElevatedScheduledTaskRegistration(
     "Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public static class OcxStageLock { [StructLayout(LayoutKind.Sequential)] public struct TagInfo { public uint Attributes; public uint Tag; } [DllImport(\"kernel32.dll\", CharSet=CharSet.Unicode, SetLastError=true)] public static extern Microsoft.Win32.SafeHandles.SafeFileHandle CreateFile(string p, uint a, uint s, IntPtr q, uint c, uint f, IntPtr t); [DllImport(\"kernel32.dll\", SetLastError=true)] public static extern bool GetFileInformationByHandleEx(Microsoft.Win32.SafeHandles.SafeFileHandle h, int c, out TagInfo i, uint n); }';",
     "$locks = @();",
     "function Lock-OcxStage([string]$path, [bool]$directory) { $flags = 0x00200000; $share = 1; if ($directory) { $flags = $flags -bor 0x02000000; $share = 3 }; $h = [OcxStageLock]::CreateFile($path, 0x80000000, $share, [IntPtr]::Zero, 3, $flags, [IntPtr]::Zero); if ($h.IsInvalid) { throw 'Task Scheduler staging lock failed.' }; $info = [OcxStageLock+TagInfo]::new(); if (![OcxStageLock]::GetFileInformationByHandleEx($h, 9, [ref]$info, 8) -or (($info.Attributes -band 0x400) -ne 0) -or $directory -ne (($info.Attributes -band 0x10) -ne 0)) { $h.Dispose(); throw 'Task Scheduler staging path is redirected or has the wrong type.' }; $script:locks += $h };",
-    `$dir = [IO.DirectoryInfo]::new(${psSingleQuote(stageDirectory)}); $dirs = @(); while ($null -ne $dir) { $dirs += $dir.FullName; $dir = $dir.Parent }; [array]::Reverse($dirs); $dirs | ForEach-Object { Lock-OcxStage $_ $true };`,
-    `Lock-OcxStage ${psSingleQuote(xml.path)} $false;`,
-    ...(expectedExisting ? [`Lock-OcxStage ${psSingleQuote(expectedExisting.path)} $false;`] : []),
+    `$dir = [IO.DirectoryInfo]::new(${powerShellSingleQuoted(stageDirectory)}); $dirs = @(); while ($null -ne $dir) { $dirs += $dir.FullName; $dir = $dir.Parent }; [array]::Reverse($dirs); $dirs | ForEach-Object { Lock-OcxStage $_ $true };`,
+    `Lock-OcxStage ${powerShellSingleQuoted(xml.path)} $false;`,
+    ...(expectedExisting ? [`Lock-OcxStage ${powerShellSingleQuoted(expectedExisting.path)} $false;`] : []),
     "try {",
-    `$p = Start-Process -FilePath ${psSingleQuote(powerShellPath)}`,
-    ` -ArgumentList ${psSingleQuote(buildWindowsElevatedArgumentList([
+    `$p = Start-Process -FilePath ${powerShellSingleQuoted(powerShellPath)}`,
+    ` -ArgumentList ${powerShellSingleQuoted(buildWindowsElevatedArgumentList([
       "-NoProfile",
       "-NonInteractive",
       "-ExecutionPolicy",
@@ -847,7 +844,7 @@ export function buildElevatedSchtasksCreateAndRunScript(
   const runList = buildWindowsElevatedArgumentList(runArgs);
   const deleteList = buildWindowsElevatedArgumentList(deleteArgs);
   return [
-    `$schtasks = ${psSingleQuote(schtasksPath)}`,
+    `$schtasks = ${powerShellSingleQuoted(schtasksPath)}`,
     "function Invoke-OcxSchtasks([string]$ArgList) {",
     "  $p = Start-Process -FilePath $schtasks -ArgumentList $ArgList -Wait -PassThru -WindowStyle Hidden",
     "  if ($null -eq $p) { return 1 }",
@@ -855,11 +852,11 @@ export function buildElevatedSchtasksCreateAndRunScript(
     "  if ($null -eq $p.ExitCode) { return 1 }",
     "  return [int]$p.ExitCode",
     "}",
-    `$createCode = Invoke-OcxSchtasks ${psSingleQuote(createList)}`,
+    `$createCode = Invoke-OcxSchtasks ${powerShellSingleQuoted(createList)}`,
     `if ($createCode -ne 0) { exit ${OCX_ELEVATED_CREATE_FAILED} }`,
-    `$runCode = Invoke-OcxSchtasks ${psSingleQuote(runList)}`,
+    `$runCode = Invoke-OcxSchtasks ${powerShellSingleQuoted(runList)}`,
     `if ($runCode -eq 0) { exit ${OCX_ELEVATED_SUCCESS} }`,
-    `$deleteCode = Invoke-OcxSchtasks ${psSingleQuote(deleteList)}`,
+    `$deleteCode = Invoke-OcxSchtasks ${powerShellSingleQuoted(deleteList)}`,
     `if ($deleteCode -eq 0) { exit ${OCX_ELEVATED_RUN_FAILED_ROLLED_BACK} }`,
     `exit ${OCX_ELEVATED_RUN_FAILED_ROLLBACK_FAILED}`,
   ].join("; ");
@@ -889,8 +886,8 @@ export function startElevatedSchtasksCreateAndRun(
 ): ElevatedSchtasksCreateAndRunExecution {
   const inner = buildElevatedSchtasksCreateAndRunScript(schtasksPath, createArgs, runArgs, deleteArgs);
   const launcher = [
-    `$p = Start-Process -FilePath ${psSingleQuote(windowsPowerShell())}`,
-    ` -ArgumentList ${psSingleQuote(buildWindowsElevatedArgumentList([
+    `$p = Start-Process -FilePath ${powerShellSingleQuoted(windowsPowerShell())}`,
+    ` -ArgumentList ${powerShellSingleQuoted(buildWindowsElevatedArgumentList([
       "-NoProfile",
       "-NonInteractive",
       "-ExecutionPolicy",

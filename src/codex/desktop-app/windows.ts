@@ -12,6 +12,7 @@
  */
 import { execFileSync } from "node:child_process";
 import { sep, win32 } from "node:path";
+import { powerShellSingleQuoted } from "../../lib/powershell-quote";
 import { resolveTrustedWindowsPowerShellExe, resolveTrustedWindowsTaskkillExe } from "../../lib/windows-elevation";
 import { activateWindowsCodexCompatibility, assertWindowsCompatibilityContext, captureWindowsCompatibilityContext } from "../desktop-compatibility/windows-package-command";
 import {
@@ -94,10 +95,9 @@ function discoverPackage(exec: DesktopExec): DesktopAppInstall | null {
  * admit a sibling `OpenAI.Codex-evil` directory.
  */
 function listPackageProcesses(exec: DesktopExec, install: DesktopAppInstall): DesktopProcess[] | null {
-  const literal = install.root.replace(/'/g, "''");
   const script = [
     "$ErrorActionPreference='SilentlyContinue'",
-    `$root = '${literal}'.Replace('/', '\\')`,
+    `$root = ${powerShellSingleQuoted(install.root)}.Replace('/', '\\')`,
     "$me = ([Security.Principal.WindowsIdentity]::GetCurrent()).Name",
     "Get-CimInstance Win32_Process -Filter \"Name='ChatGPT.exe'\" |",
     "  Where-Object { $_.ExecutablePath -and $_.ExecutablePath.Replace('/', '\\').StartsWith($root, 'OrdinalIgnoreCase') } |",

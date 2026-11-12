@@ -9,6 +9,7 @@ import { removeTreeWithRetry } from "../helpers/remove-tree";
 import { repoPath, repoRoot } from "../helpers/repo-root";
 import { INTERNAL_DEADLINE_MS, SPAWN_BUDGET_MS } from "../helpers/test-budget";
 import { CODEX_SHIM_ENSURE_FAILED_DIAGNOSTIC, SHIM_MARKER, UNIX_SHIM_REVISION_MARKER } from "../../src/codex/shim-templates";
+import { escapePowerShellSingleQuoted } from "../../src/lib/powershell-quote";
 
 
 /**
@@ -1191,7 +1192,7 @@ printf '%s\\n' child-codex
             writeFileSync(realPath, '"child:$env:OPENCODEX_API_AUTH_TOKEN"\nexit 37\n');
             writeFileSync(wrapperPath, `\uFEFF${buildWindowsPowerShellCodexShim(realPath, process.execPath, ensurePath, "process")}`);
             const emptyToken = callerToken === "" ? "$env:OPENCODEX_API_AUTH_TOKEN = ''\n" : "";
-            writeFileSync(driverPath, `\uFEFF$ErrorActionPreference = 'Stop'\n${emptyToken}$beforePresence = Test-Path Env:\\OPENCODEX_API_AUTH_TOKEN\n& '${wrapperPath.replace(/'/g, "''")}' exec 'arg value'\n$result = $LASTEXITCODE\n"after:$env:OPENCODEX_API_AUTH_TOKEN"\n"result:$result"\n"presence-preserved:$($beforePresence -eq (Test-Path Env:\\OPENCODEX_API_AUTH_TOKEN))"\n`);
+            writeFileSync(driverPath, `\uFEFF$ErrorActionPreference = 'Stop'\n${emptyToken}$beforePresence = Test-Path Env:\\OPENCODEX_API_AUTH_TOKEN\n& '${escapePowerShellSingleQuoted(wrapperPath)}' exec 'arg value'\n$result = $LASTEXITCODE\n"after:$env:OPENCODEX_API_AUTH_TOKEN"\n"result:$result"\n"presence-preserved:$($beforePresence -eq (Test-Path Env:\\OPENCODEX_API_AUTH_TOKEN))"\n`);
           }
           const env = shimChildEnv({
             OPENCODEX_HOME: dir,
@@ -1239,7 +1240,7 @@ printf '%s\\n' child-codex
             writeFileSync(realPath, "throw 'fixture Codex failure'\n");
             writeFileSync(wrapperPath, `\uFEFF${buildWindowsPowerShellCodexShim(realPath, ensurePath, "unused.ts", "process")}`);
             const emptyToken = callerToken === "" ? "$env:OPENCODEX_API_AUTH_TOKEN = ''\n" : "";
-            writeFileSync(driverPath, `\uFEFF$ErrorActionPreference = 'Stop'\n${emptyToken}$beforePresence = Test-Path Env:\\OPENCODEX_API_AUTH_TOKEN\ntry { & '${wrapperPath.replace(/'/g, "''")}' exec } catch { "error:$($_.Exception.Message)" }\n"after:$env:OPENCODEX_API_AUTH_TOKEN"\n"presence-preserved:$($beforePresence -eq (Test-Path Env:\\OPENCODEX_API_AUTH_TOKEN))"\n`);
+            writeFileSync(driverPath, `\uFEFF$ErrorActionPreference = 'Stop'\n${emptyToken}$beforePresence = Test-Path Env:\\OPENCODEX_API_AUTH_TOKEN\ntry { & '${escapePowerShellSingleQuoted(wrapperPath)}' exec } catch { "error:$($_.Exception.Message)" }\n"after:$env:OPENCODEX_API_AUTH_TOKEN"\n"presence-preserved:$($beforePresence -eq (Test-Path Env:\\OPENCODEX_API_AUTH_TOKEN))"\n`);
             const env = shimChildEnv({ OPENCODEX_HOME: dir, OPENCODEX_API_AUTH_TOKEN: callerToken ?? "", OCX_SHIM_BYPASS: "" });
             if (callerToken === undefined) delete env.OPENCODEX_API_AUTH_TOKEN;
             const result = spawnSync(executable, ["-NoProfile", "-NonInteractive", "-File", driverPath], {
@@ -1257,7 +1258,7 @@ printf '%s\\n' child-codex
             expect(result.stderr.includes(CODEX_SHIM_ENSURE_FAILED_DIAGNOSTIC)).toBe(failurePhase === "ensure");
 
             // A failed process must complete, rather than satisfy the check through a timeout.
-            writeFileSync(driverPath, `\uFEFF$ErrorActionPreference = 'Stop'\n& '${wrapperPath.replace(/'/g, "''")}' exec\n`);
+            writeFileSync(driverPath, `\uFEFF$ErrorActionPreference = 'Stop'\n& '${escapePowerShellSingleQuoted(wrapperPath)}' exec\n`);
             const uncaught = spawnSync(executable, ["-NoProfile", "-NonInteractive", "-File", driverPath], {
               env, encoding: "utf8", timeout: SHELL_SPAWN_TIMEOUT_MS, windowsHide: true,
             });

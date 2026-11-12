@@ -1167,7 +1167,8 @@ describe("Windows service task", () => {
 
     expect(service).toContain('writeServiceAssetWithRetry(windowsLauncherVbsPath(), `\\uFEFF${buildWindowsLauncherVbs(script)}`, "utf16le")');
     // Uninstall must clean the launcher asset alongside the script and task XML.
-    expect(service).toContain("if (existsSync(windowsLauncherVbsPath())) unlinkSync(windowsLauncherVbsPath());");
+    expect(service).toContain("for (const file of [windowsServiceScriptPath(), windowsLauncherVbsPath(), windowsTaskXmlPath()]) {");
+    expect(service).toContain("if (existsSync(file)) unlinkWrapperFile(file);");
   });
 
   test("writes Task Scheduler XML with an exact SID and UTF-16 BOM", () => {
@@ -2479,7 +2480,8 @@ describe("service lifecycle cleanup ordering", () => {
     expect(uninstallWindows).toContain("probeWindowsSchedulerTask(TASK)");
     expect(uninstallWindows).toContain("windowsServiceScriptPath()");
     expect(uninstallWindows).toContain("windowsTaskXmlPath()");
-    expect(uninstallWindows).toContain("unlinkSync(windowsTaskXmlPath())");
+    expect(uninstallWindows).toContain("unlinkWrapperFile(file)");
+    expect(uninstallWindows).toContain("[windowsServiceScriptPath(), windowsLauncherVbsPath(), windowsTaskXmlPath()]");
     expect(uninstallWindows).toContain("refusing to remove service assets");
   });
 

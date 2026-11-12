@@ -118,6 +118,56 @@ describe("full uninstall command", () => {
     expect(stateRemovals).toBe(0);
   });
 
+  test("a wrapper file locked after the task is gone is a typed failed that names the file, not an unnamed throw", async () => {
+    const { WrapperFileRemovalError } = await import("../../src/service/windows-ops");
+    const file = "C:\\h\\opencodex-service.cmd";
+    const errors: string[] = [];
+    const nativeCalls: string[] = [];
+    let stateRemovals = 0;
+    const consoleError = console.error;
+    console.error = (...args: unknown[]) => { errors.push(args.map(String).join(" ")); };
+    try {
+      setUninstallServiceHooksForTests({
+        platform: "win32",
+        assertEnvironment: () => {},
+        probeWindowsTask: () => ({ status: "present" }),
+        uninstallWindowsTask: () => { throw new WrapperFileRemovalError(file, new Error("EBUSY: resource busy or locked")); },
+        nativeStatus: () => "started",
+        uninstallNative: () => { nativeCalls.push("native"); },
+        removeInstallState: () => { stateRemovals++; },
+      });
+      // The task is gone and the native service is still removed; the locked file is reported by
+      // name and the install state stays, so a retry runs the residue branch again.
+      expect(uninstallServiceDetailed()).toBe("failed");
+    } finally {
+      console.error = consoleError;
+    }
+    expect(nativeCalls).toEqual(["native"]);
+    expect(stateRemovals).toBe(0);
+    expect(errors.join("\n")).toContain(file);
+  });
+
+  test("the locked-file error from the real task removal names the file it could not delete", async () => {
+    const { WrapperFileRemovalError } = await import("../../src/service/windows-ops");
+    const error = new WrapperFileRemovalError("C:\\h\\opencodex-service-launcher.vbs", new Error("EPERM: operation not permitted"));
+    expect(error.file).toBe("C:\\h\\opencodex-service-launcher.vbs");
+    expect(error.name).toBe("WrapperFileRemovalError");
+    expect(error.message).toBe("could not delete C:\\h\\opencodex-service-launcher.vbs: EPERM: operation not permitted");
+  });
+
+  test("a non-file failure from the task removal still propagates unchanged", () => {
+    setUninstallServiceHooksForTests({
+      platform: "win32",
+      assertEnvironment: () => {},
+      probeWindowsTask: () => ({ status: "present" }),
+      uninstallWindowsTask: () => { throw new Error("schtasks denied"); },
+      nativeStatus: () => "nonexistent",
+      uninstallNative: () => {},
+      removeInstallState: () => {},
+    });
+    expect(() => uninstallServiceDetailed()).toThrow("schtasks denied");
+  });
+
   test("full uninstall kills the tracked proxy before deleting service assets", async () => {
     const cli = await readText("src/cli/index.ts");
     const uninstallBody = cli.slice(cli.indexOf("async function handleUninstall()"), cli.indexOf("type HealthCheck"));
@@ -220,6 +270,8 @@ describe("uninstall gates shared teardown on a proven service stop", () => {
     calls.length = 0;
     setUninstallServiceHooksForTests(hooks(() => { calls.push("residue"); return { kind: "removed" }; }, "unknown") as never);
     expect(() => uninstallServiceDetailed()).toThrow("Could not determine Task Scheduler state");
+    // Both queries failed, so the message must say how to get an answer: an elevated uninstall.
+    expect(() => uninstallServiceDetailed()).toThrow("Run the uninstall from an elevated terminal");
     expect(calls).toEqual([]);
   });
 
@@ -278,6 +330,14 @@ describe("uninstall gates shared teardown on a proven service stop", () => {
     test("with no wrapper process the files are deleted without any kill", async () => {
       const { removeWindowsServiceWrapperResidue } = await import("../../src/service/windows-ops");
       const { log, deps } = setup();
+      expect(removeWindowsServiceWrapperResidue(deps)).toEqual({ kind: "removed" });
+      expect(log).toEqual([`unlink ${script}`, `unlink ${launcher}`, `unlink ${xml}`]);
+    });
+
+    test("an editor with the wrapper file open is neither stopped nor counted as a live wrapper", async () => {
+      const { removeWindowsServiceWrapperResidue } = await import("../../src/service/windows-ops");
+      const editor = { pid: 7300, parentPid: 1, name: "notepad.exe", commandLine: `notepad.exe "${script}"` };
+      const { log, deps } = setup({ listProcesses: () => [editor] });
       expect(removeWindowsServiceWrapperResidue(deps)).toEqual({ kind: "removed" });
       expect(log).toEqual([`unlink ${script}`, `unlink ${launcher}`, `unlink ${xml}`]);
     });

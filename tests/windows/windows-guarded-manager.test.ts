@@ -35,10 +35,10 @@ const proc = (pid: number, parentPid: number | null, commandLine: string | null,
 
 // proxy 42 <- cmd 30 (runs the .cmd) <- wscript 20 (runs the .vbs) <- svchost 2
 const SUPERVISED: WindowsProcessEntry[] = [
-  proc(2, 0, "svchost.exe"),
-  proc(20, 2, 'C:\\Windows\\System32\\wscript.exe /b /nologo "' + VBS + '"'),
-  proc(30, 20, "C:\\Windows\\System32\\cmd.exe /c " + CMD),
-  proc(42, 30, "bun C:\\pkg\\src\\cli\\index.ts start"),
+  proc(2, 0, "svchost.exe", "svchost.exe"),
+  proc(20, 2, 'C:\\Windows\\System32\\wscript.exe /b /nologo "' + VBS + '"', "wscript.exe"),
+  proc(30, 20, "C:\\Windows\\System32\\cmd.exe /c " + CMD, "cmd.exe"),
+  proc(42, 30, "bun C:\\pkg\\src\\cli\\index.ts start", "bun.exe"),
 ];
 
 const schedulerPresent = () => ({ status: "present" as const });
@@ -107,7 +107,16 @@ describe("windows process-chain helpers", () => {
 
   test("wrapperProcessesAlive reports any surviving canonical wrapper", () => {
     expect(wrapperProcessesAlive(SUPERVISED, [VBS, CMD]).sort()).toEqual([20, 30]);
-    expect(wrapperProcessesAlive([proc(9, 2, "calc.exe")], [VBS, CMD])).toEqual([]);
+    expect(wrapperProcessesAlive([proc(9, 2, "calc.exe", "calc.exe")], [VBS, CMD])).toEqual([]);
+  });
+
+  test("an editor that has the wrapper file open is not a wrapper, live or as an ancestor", () => {
+    // Only the interpreters that run a wrapper file count: notepad showing opencodex-service.cmd
+    // must neither keep the registration alive nor be stopped as a wrapper loop.
+    const editor = proc(60, 2, 'C:\\Windows\\notepad.exe "' + CMD + '"', "notepad.exe");
+    expect(wrapperProcessesAlive([editor], [VBS, CMD])).toEqual([]);
+    const editorParent = [proc(2, 0, "svchost.exe", "svchost.exe"), editor, proc(42, 60, "bun C:\\pkg\\src\\cli\\index.ts start", "bun.exe")];
+    expect(ancestorWrapperPids(42, editorParent, [VBS, CMD])).toEqual([]);
   });
 });
 

@@ -888,6 +888,26 @@ export function killWindowsServiceWrapperProcesses(): void {
   });
 }
 
+/**
+ * A wrapper file that cannot be deleted (locked by a running script, antivirus). Thrown by
+ * `uninstallWindows` after the task is already gone, so the full-uninstall path can turn it into
+ * a typed failure that names the file, instead of an unnamed exception out of the step.
+ */
+export class WrapperFileRemovalError extends Error {
+  constructor(readonly file: string, cause: unknown) {
+    super(`could not delete ${file}: ${cause instanceof Error ? cause.message : String(cause)}`);
+    this.name = "WrapperFileRemovalError";
+  }
+}
+
+function unlinkWrapperFile(file: string): void {
+  try {
+    unlinkSync(file);
+  } catch (error) {
+    throw new WrapperFileRemovalError(file, error);
+  }
+}
+
 export function uninstallWindows(): void {
   const probe = probeWindowsSchedulerTask(TASK);
   if (probe.status === "present") {
@@ -906,9 +926,9 @@ export function uninstallWindows(): void {
   } else if (probe.status === "unknown") {
     throw new Error(`Task Scheduler task ${TASK} presence could not be verified — refusing to remove service assets.`);
   }
-  if (existsSync(windowsServiceScriptPath())) unlinkSync(windowsServiceScriptPath());
-  if (existsSync(windowsLauncherVbsPath())) unlinkSync(windowsLauncherVbsPath());
-  if (existsSync(windowsTaskXmlPath())) unlinkSync(windowsTaskXmlPath());
+  for (const file of [windowsServiceScriptPath(), windowsLauncherVbsPath(), windowsTaskXmlPath()]) {
+    if (existsSync(file)) unlinkWrapperFile(file);
+  }
 }
 
 export type WrapperResidueOutcome =
@@ -945,16 +965,17 @@ function sleepSync(ms: number): void {
  * service. The caller has already proven the task absent, but a wrapper loop started from it
  * can outlive the task, so before any file goes:
  *
- * - a live process carrying the wrapper or launcher path is stopped (the best-effort kill
- *   `ocx stop` performs) and re-checked up to three times, one second apart, because the stop
- *   is asynchronous;
+ * - a live wscript/cscript/cmd process (the images that run a wrapper file) carrying the wrapper
+ *   or launcher path is stopped (the best-effort kill `ocx stop` performs) and re-checked up to
+ *   three times, one second apart, because the stop is asynchronous; an editor or other program
+ *   that merely shows the path is neither stopped nor counted;
  * - a wscript/cscript/cmd row with no readable command line (another user's or an elevated
  *   process) counts as a possible wrapper that the kill cannot see or stop, so the files stay and
  *   the reason says to run the uninstall from an elevated terminal;
  * - an unreadable process table is not proof either, before or after the kill.
  *
  * The kill matches only the exact absolute wrapper and launcher paths as whole command-line
- * tokens, and stops only the wrapper (and launcher) processes, not the `ocx start` child they
+ * tokens, and only in wscript/cscript/cmd images, and stops only the wrapper (and launcher) processes, not the `ocx start` child they
  * launched: the full uninstall therefore stops the proxy first (`handleUninstall`, "proxy
  * stopped" before "service removed"). A file that cannot be deleted (locked by a running script,
  * antivirus) is reported by name instead of thrown, so the caller can say what is left.

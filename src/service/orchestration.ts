@@ -16,7 +16,7 @@ import { assertSchedulerRegistrationBeforeStart } from "./repair";
 import { SERVICE_MANAGED_ENV, TASK, plistPath, removeServiceInstallStateRecords, writeServiceInstallState } from "./state";
 import type { ServiceBackend } from "./state";
 import { unitPath, isSystemd, installSystemd, startSystemd, stopSystemd, statusSystemd, uninstallSystemd, systemdServiceInstallCleanupOps } from "./systemd";
-import { writeWindowsSchedulerAssets, stageWindowsSchedulerRegistrationXml, removeWindowsSchedulerRegistrationStage, registerFreshWindowsSchedulerTask, recordWindowsSchedulerOwnership, removeNativeWindowsServiceForScheduler, commitWindowsInstall, commitWindowsNativeInstall, type WindowsServiceInstallDeps, startWindows, isWindowsSchedulerEndBenign, stopWindows, stopWindowsChecked, statusWindows, statusWindowsXml, killWindowsServiceWrapperProcesses, uninstallWindows, removeWindowsServiceWrapperResidue, type WrapperResidueOutcome, classifyWindowsServiceStop } from "./windows-ops";
+import { writeWindowsSchedulerAssets, stageWindowsSchedulerRegistrationXml, removeWindowsSchedulerRegistrationStage, registerFreshWindowsSchedulerTask, recordWindowsSchedulerOwnership, removeNativeWindowsServiceForScheduler, commitWindowsInstall, commitWindowsNativeInstall, type WindowsServiceInstallDeps, startWindows, isWindowsSchedulerEndBenign, stopWindows, stopWindowsChecked, statusWindows, statusWindowsXml, killWindowsServiceWrapperProcesses, uninstallWindows, removeWindowsServiceWrapperResidue, type WrapperResidueOutcome, classifyWindowsServiceStop, WrapperFileRemovalError } from "./windows-ops";
 import { schtasks, probeWindowsSchedulerTask, rollbackWindowsSchedulerTaskOwnedByAttempt, settleDelay } from "./windows-scheduler";
 import type { WindowsSchedulerTaskProbe } from "./windows-scheduler";
 import { windowsTaskRegistrationOwnedByAttempt, windowsTaskRegistrationHealthy } from "./windows-taskxml";
@@ -619,17 +619,31 @@ export function uninstallServiceDetailed(): ServiceUninstallOutcome {
     }
   } else if (platform === "win32") {
     let removed = false;
+    let wrapperFileFailure: string | null = null;
     const scheduler = (hooks?.probeWindowsTask ?? probeWindowsSchedulerTask)();
     if (scheduler.status === "unknown") {
-      throw new Error(`Could not determine Task Scheduler state: ${scheduler.detail}`);
+      throw new Error(`Could not determine Task Scheduler state: ${scheduler.detail}. Run the uninstall from an elevated terminal (Run as administrator) and retry; if it still fails, check the task with schtasks /query /tn ${TASK}`);
     }
     if (scheduler.status === "present") {
-      (hooks?.uninstallWindowsTask ?? uninstallWindows)();
+      try {
+        (hooks?.uninstallWindowsTask ?? uninstallWindows)();
+      } catch (error) {
+        // The task is gone once its delete is proven; only the wrapper file removal that follows
+        // can fail. Keep going so the native service is still removed, then report the file by name.
+        if (!(error instanceof WrapperFileRemovalError)) throw error;
+        wrapperFileFailure = error.message;
+      }
       removed = true;
     }
     if ((hooks?.nativeStatus ?? statusWinswRaw)() !== "nonexistent") {
       (hooks?.uninstallNative ?? uninstallWinswService)();
       removed = true;
+    }
+    if (wrapperFileFailure !== null) {
+      // The files left behind are what a retry needs to see; the typed failure keeps the install
+      // state, so the next run takes the residue branch and tries the removal again.
+      console.error(`❌ Service wrapper files were not removed: ${wrapperFileFailure}`);
+      return "failed";
     }
     if (!removed && scheduler.status === "absent") {
       // The task is proven gone, so wrapper files still in the config home are residue of a

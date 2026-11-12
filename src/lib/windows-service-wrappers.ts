@@ -18,10 +18,32 @@
  * substring match is excluded: an unrelated process whose command line merely
  * contains the filename, and a wrapper under another home whose path ends with
  * the same name, must both survive.
+ *
+ * The path match alone is not enough: an editor or an IDE showing the wrapper
+ * file carries the same token on its command line. So the process must also be
+ * one of the images that run a wrapper file (WRAPPER_HOST_IMAGE_NAMES); every
+ * other image is left alone whatever its command line says.
  */
 import { spawnSync } from "node:child_process";
 
 import { resolveTrustedWindowsPowerShellExe } from "./windows-elevation";
+
+/**
+ * The images that execute a scheduler wrapper file: wscript runs the launcher .vbs,
+ * which runs the .cmd through cmd.exe, and cscript is the same host with the console
+ * subsystem. Shared by the PowerShell kill and the TypeScript "is this a live wrapper"
+ * checks so the two cannot disagree about which rows count.
+ */
+export const WRAPPER_HOST_IMAGE_NAMES = ["wscript", "cscript", "cmd"] as const;
+
+/** Case-insensitive, whole image name: `cmd.exe` matches; `cmd.exe.bak` and `notepad.exe` do not. */
+const WRAPPER_HOST_IMAGE_PATTERN = `^(${WRAPPER_HOST_IMAGE_NAMES.join("|")})\\.exe$`;
+const WRAPPER_HOST_IMAGE_RE = new RegExp(WRAPPER_HOST_IMAGE_PATTERN, "i");
+
+/** Whether a process image name is one that can run a scheduler wrapper file. */
+export function isWrapperHostImage(name: string | null | undefined): boolean {
+  return typeof name === "string" && WRAPPER_HOST_IMAGE_RE.test(name);
+}
 
 /** Quote for PowerShell: single-quote the value and double any embedded quote. */
 function quoteForPowerShell(value: string): string {
@@ -38,6 +60,7 @@ export function windowsWrapperKillScript(paths: readonly string[]): string {
     `$pats = @(${paths.map(quoteForPowerShell).join(", ")});`,
     "Get-CimInstance Win32_Process | Where-Object {",
     "  if ($_.ProcessId -eq $PID) { return $false };",
+    `  if ($_.Name -notmatch '${WRAPPER_HOST_IMAGE_PATTERN}') { return $false };`,
     "  $c = $_.CommandLine; if (-not $c) { return $false };",
     "  foreach ($p in $pats) {",
     "    $i = 0;",

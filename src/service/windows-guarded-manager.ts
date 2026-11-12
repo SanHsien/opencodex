@@ -25,6 +25,7 @@
 import { execFileSync } from "node:child_process";
 
 import { resolveTrustedWindowsPowerShellExe } from "../lib/windows-elevation";
+import { isWrapperHostImage } from "../lib/windows-service-wrappers";
 import { cachedCurrentWindowsIdentity, resolveCurrentWindowsPrincipal, WINDOWS_PRINCIPAL_LOOKUP_TIMEOUT_MS } from "../lib/windows-user-principal";
 import { statusWinswRaw, winswExePath, WINSW_SERVICE_ID, type WinswStatus } from "../lib/winsw";
 import type { GuardedManagerStopped, GuardedManagerTarget } from "./guarded-manager-target";
@@ -306,7 +307,7 @@ export function ancestorWrapperPids(
     const parent = entry.parentPid;
     if (parent === null || parent <= 0) break;
     const parentEntry = byPid.get(parent);
-    if (parentEntry?.commandLine
+    if (parentEntry && isWrapperHostImage(parentEntry.name) && parentEntry.commandLine
       && canonicalPaths.some(path => commandLineHasPathToken(parentEntry.commandLine, path))) {
       found.push(parent);
     }
@@ -316,19 +317,21 @@ export function ancestorWrapperPids(
 }
 
 /**
- * Any live process whose command line carries a canonical wrapper path. A wrapper
- * that survived schtasks /end keeps respawning the proxy, so the post-stop probe
- * treats one as an ACTIVE manager even when the task itself reports not running.
- * The enumerating probe cannot match itself — the patterns are compared in
- * TypeScript, never embedded in the PowerShell text — but excluding the current
- * process costs nothing if that ever changes.
+ * Any live wrapper process: a wscript/cscript/cmd image whose command line carries a canonical
+ * wrapper path. A wrapper that survived schtasks /end keeps respawning the proxy, so the post-stop
+ * probe treats one as an ACTIVE manager even when the task itself reports not running. The image
+ * name is required as well as the path: an editor or IDE that has the wrapper file open shows the
+ * same path token but cannot run it, so it is not a wrapper and must not keep the registration.
+ * The enumerating probe cannot match itself — the patterns are compared in TypeScript, never
+ * embedded in the PowerShell text — but excluding the current process costs nothing if that ever
+ * changes.
  */
 export function wrapperProcessesAlive(
   processes: readonly WindowsProcessEntry[],
   canonicalPaths: readonly string[],
 ): number[] {
   return processes
-    .filter(entry => entry.pid !== process.pid && entry.commandLine
+    .filter(entry => entry.pid !== process.pid && isWrapperHostImage(entry.name) && entry.commandLine
       && canonicalPaths.some(path => commandLineHasPathToken(entry.commandLine, path)))
     .map(entry => entry.pid);
 }
@@ -341,7 +344,7 @@ export function wrapperProcessesAlive(
  * guarded stop unreachable on an ordinary desktop.
  */
 function isUnreadableWrapperCandidate(entry: WindowsProcessEntry): boolean {
-  return !entry.commandLine?.trim() && /^(?:wscript|cscript|cmd)\.exe$/i.test(entry.name ?? "");
+  return !entry.commandLine?.trim() && isWrapperHostImage(entry.name);
 }
 
 /**

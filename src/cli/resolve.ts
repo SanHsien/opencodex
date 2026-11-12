@@ -84,8 +84,8 @@ export const RESOLVE_SCHEMA = "ocx-resolve/1";
  * A task deleted by hand does not stop a wrapper loop that is already running: it keeps
  * relaunching `ocx start`, so a takeover would still race it for the port. When the task is
  * proven absent the process table is therefore read once (bounded by `windowsProcessList`'s
- * own five-second limit), and a live process carrying the wrapper or launcher path keeps the
- * registration. A table that cannot be read is evidence too, and so is an unreadable
+ * own five-second limit), and a live wscript/cscript/cmd process carrying the wrapper or launcher
+ * path keeps the registration. A table that cannot be read is evidence too, and so is an unreadable
  * wscript/cscript/cmd row (see `unreadableWrapperCandidates`). Only files with an absent task
  * reach that enumeration.
  */

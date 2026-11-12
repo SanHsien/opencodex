@@ -129,6 +129,34 @@ describe("the generated script still implements that rule", () => {
   });
 });
 
+describe("only the interpreters that run a wrapper are stopped", () => {
+  // The PowerShell filters on the image name before the command line, so an editor or any other
+  // program that merely shows the wrapper path (notepad, an IDE) is never stopped.
+  const imageRule = (ps: string): RegExp => {
+    const match = /\$_\.Name -notmatch '([^']+)'/.exec(ps);
+    if (!match) throw new Error("the kill script has no image-name filter");
+    return new RegExp(match[1]!, "i");
+  };
+  const killsProcess = (name: string, commandLine: string) =>
+    imageRule(windowsWrapperKillScript(patterns)).test(name) && killsCommandLine(commandLine, patterns);
+
+  test("the script names the wrapper hosts wscript, cscript and cmd", () => {
+    expect(windowsWrapperKillScript(patterns)).toContain("$_.Name -notmatch '^(wscript|cscript|cmd)\\.exe$'");
+  });
+
+  test("notepad or an IDE with the full wrapper path on its command line is not killed", () => {
+    expect(killsProcess("notepad.exe", `notepad.exe "${script(HOME_A)}"`)).toBe(false);
+    expect(killsProcess("Code.exe", `Code.exe --open "${script(HOME_A)}"`)).toBe(false);
+  });
+
+  test("the wrapper hosts holding the wrapper path are still killed, whatever the image case", () => {
+    expect(killsProcess("wscript.exe", `wscript.exe /b "${launcher(HOME_A)}"`)).toBe(true);
+    expect(killsProcess("cscript.exe", `cscript.exe //nologo "${launcher(HOME_A)}"`)).toBe(true);
+    expect(killsProcess("cmd.exe", `cmd.exe /c "${script(HOME_A)}"`)).toBe(true);
+    expect(killsProcess("CMD.EXE", `CMD.EXE /c "${script(HOME_A)}"`)).toBe(true);
+  });
+});
+
 describe("both teardown paths use the shared killer", () => {
   test("neither file keeps a private matcher", () => {
     for (const rel of ["src/service/windows-ops.ts", "src/update/job-windows-restart.ts"]) {

@@ -652,6 +652,14 @@ describe("the production wrapper probe reads the config home", () => {
       }
     });
 
+    test("an editor showing the wrapper file is not a wrapper loop", () => {
+      withHome(home => writeWrapper(home), () => {
+        const home = process.env.OPENCODEX_HOME!;
+        const editor = [{ pid: 4700, parentPid: 1, name: "notepad.exe", commandLine: `notepad.exe "${join(home, "opencodex-service.cmd")}"` }];
+        expect(windowsServiceWrapperPresent(probeIs("absent"), () => editor)).toBe(false);
+      });
+    });
+
     test("unrelated processes leave the files as residue", () => {
       withHome(home => writeWrapper(home), () => {
         const home = process.env.OPENCODEX_HOME!;

@@ -64,7 +64,12 @@ fn write(directory: &Path, record: &Record) -> io::Result<()> {
     let path = directory.join(FILE);
     let staging = directory.join(format!("{FILE}.{}.tmp", std::process::id()));
     let text = serde_json::to_string(record).map_err(io::Error::other)?;
-    fs::write(&staging, text)?;
+    if let Err(error) = fs::write(&staging, text) {
+        // A write that fails part-way leaves a truncated staging file; it is never the record,
+        // but it must not be left next to it either.
+        let _ = fs::remove_file(&staging);
+        return Err(error);
+    }
     // Replacing the file in one step means a crash leaves the old record or the new one, never a
     // half-written one that reads as nothing remembered.
     fs::rename(&staging, &path).inspect_err(|_| {

@@ -333,7 +333,7 @@ unique filename; stale observation cannot rename a live successor's reusable loc
 A peer's cleanup removes the empty claims directory, so a claims directory that vanishes between a
 contender's `mkdir` and its read is contention (`locked`), never an unsafe namespace or a crash.
 That single read is both the ownership/type check and the parent witness, so a replacement that
-appears after a missing read is never trusted.
+appears after a missing read is never trusted. Initializer cleanup in `finally` guards the actual config parent and exact file identity/bytes, including recovery after a failed capture; failed exclusive creates grant no ownership. Before reservation, only same-lock `.claim-init-` names with 16 lowercase hex token characters are considered: `ownerState()` must report dead both before and inside the guarded unlink, requiring a matching local host, a positive safe-integer PID confirmed dead twice, and no process-start mismatch. Foreign or missing hosts, mismatched starts, unknown, live, malformed, replaced and symlink entries are retained. The entire sweep is best-effort: any failure, including directory-read errors and exhausted sharing retries (`LockFileBusy`), skips the sweep and continues normal acquisition with its namespace and ownership guards.
 Lock and claim records include host evidence and optional process-start evidence. Takeover requires a
 matching local host and two dead-PID observations; a reused PID with a different known start identity
 remains busy. Unknown start identity disables only that comparison: live or unknown PID liveness

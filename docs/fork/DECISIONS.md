@@ -1331,3 +1331,9 @@ Windows 適用性：只用 `node:crypto` 與環境變數，不碰檔案系統、
 - 未驗證：`ocx service uninstall` 的實機殺行程行為（依規則不執行；只靠單元測試與腳本內容的規則比對）；L2 的新測試是與程式同批寫入，沒有先紅。
 
 **補記（PowerShell 單引號跳脫；Windows 路徑含 `’` 時殺行程腳本語法錯誤）**：PowerShell 把 U+2018–U+201B 也當成單引號字串的結束符，原本各處只加倍 ASCII `'`，使用者名稱為 `O’Brien` 的 home 會讓 kill 腳本解析失敗而靜默不做事。現在全部經由 `src/lib/powershell-quote.ts` 的共用 helper 產生字面值，`update-failure-guidance.mjs` 與 `scripts/codex-queue.test.mjs` 因不能 import 而就地實作同一規則；紅燈先寫在 `tests/windows/powershell-single-quote-parse.test.ts`（以 PowerShell Parser 只解析、不執行）。
+
+## 2026-11-13：回收 Codex 寫入鎖的 claim-init 暫存檔
+
+`prompt-lock-claim.ts` 的暫存檔位於設定目錄，清理改以該父目錄為 witness，避免 `.claims` 被同伴移除後連自己的暫存檔也無法清理；成功獨占寫入才取得清理資格，`finally` 仍經 `guarded()` 比對檔案身分與完整內容，capture 失敗時只重取符合本次寫入內容的 entry，替換檔與移走的 ownPath 均保留。取得鎖前只掃同一 lock 前綴且 token 為 16 位小寫十六進位的 `.claim-init-`，共用 `ownerState(record, deps)` 並在 `guarded()` 內再判一次，只有 host 符合本機、正整數安全 PID 確認死亡且 processStart 沒有不符時才刪除；異機／缺失 host、processStart 不符、活 PID、未知／拋錯、內容或格式不符、symlink 與變動中的 entry 均保留。整個掃描為 best-effort，包含 `readdirSync` 的一般 I/O 錯誤及重試耗盡的 `LockFileBusy` 都略過掃描，繼續正常取鎖，其餘 namespace 與取鎖檢查仍照常執行。回歸先在舊碼證明 link／unlink 前目錄消失、capture 失敗及死 PID 殘留四項紅燈，再修補驗證；不操作本機 runtime，也不清理真實使用者設定目錄。
+
+獨立審查後補測 host／processStart 不符與 guarded 內證據改變（含缺失 host）先紅後綠；另以 EIO、EPERM、EBUSY、EACCES 注入目錄掃描失敗，先證明拋錯或誤回 busy，再確認仍能取得鎖且殘留保留。

@@ -10,6 +10,8 @@
 上游分類（2026-11-09）：整合 `v2.98.0..v2.99.0` 完成，`reviewed_through`／`integrated_through` 推進到 `667662903`（`v2.99.0`）、`reviewed_date` 為 2026-11-09；依據是分支 `ci/tagdiff-v2.99.0` 的 Windows 全量 CI（run 42631654245、run 42637255094）全綠，與逐檔清冊 `docs/fork/upstream-v2.98.0-v2.99.0-files.tsv`（410 檔：已等價 1、採用 330、適配 42、不適用 37）。PR 軸 22 → 23 筆（加入 #8252），issue 水位維持 8336。同日把 `Upstream check` 改成追 stable release tag（上游已刪 `main`），判定見 `docs/fork/DECISIONS.md` 2026-11-09。
 上游分類（2026-11-06）：整合 `v2.93.0..v2.97.0` 完成，`reviewed_through`／`integrated_through` 推進到 `cab7eb7d0`、`reviewed_date` 為 2026-11-06；依據是分支 `ci/tagdiff-v2.97.0` 的 Windows 全量 CI run 42063145190（2026-11-06）全綠，以及逐檔清冊 `docs/fork/upstream-v2.93.0-v2.97.0-files.tsv`（1980 檔：已等價 76、採用 1556、適配 157、不適用 191）。PR 軸 17 筆 `reviewed_pr_numbers` 不變；issue 水位 8161 → 8181，`#8181`（desktop takeover 在預設 bind 時 hostname 缺欄位造成 `approvalChanged`）判適用但延後，見中期列。判定見 `docs/fork/UPSTREAM.md` 與 `DECISIONS.md`。
 獨立整合區段（2026-11-03）：`42549ba1b` 的 Runcrate 目錄資料與英／繁中說明已採用；`f94e95ce5` 的 structural tool turns 已於 2026-11-05 整筆重放（預設關閉的 opt-in 功能，逐檔判定見 `DECISIONS.md`）。產品整合 tag 與 commit scalar 水位保持原值，整版 stable 驗收尚未達標。（2026-11-06 起已併入 v2.97.0 全版整合。）
+獨立修正（2026-11-13）：Codex 寫入鎖的 claim-init 暫存檔改以實際父目錄與完整 entry 證據清理，取得鎖前以本機 host 與 processStart 證據保守回收死 PID 殘留，掃描錯誤不阻擋取鎖；聚焦回歸 218 pass、typecheck 與 Windows dev check 通過。既有 symlink 案例受本機 EPERM 限制，test:changed 因與 dev 無 merge-base 未執行；決策見 docs/fork/DECISIONS.md 同日條目。
+
 安全告警：2026-10-31 查 Dependabot 0（#10、#11、#12 已由 `f314d92c5` 修復並關閉）。2026-11-04 CodeQL 新增的 #602、#603（`js/file-system-race`）逐筆判 false positive 並 dismiss，查 `code-scanning/alerts?state=open` 為 0；判定與理由見 `docs/fork/DECISIONS.md` 2026-11-04 條目。
 
 分類清冊（2026-11-03）：當時的 205 筆分類盤點已被 2026-11-06 的全版 tag 整合取代，逐筆證據改以上述 TSV 與 `docs/fork/UPSTREAM.md`「CI 後續修正」表為準。

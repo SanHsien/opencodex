@@ -1,7 +1,7 @@
 import { afterEach, expect, spyOn, test } from "bun:test";
 import * as fs from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { release, stillHeld, tryAcquire, type LockDeps } from "../../src/codex/prompt-lock";
 import { withLockClaim } from "../../src/codex/prompt-lock-claim";
 import { ownerDefaults } from "../../src/codex/prompt-lock-owner";
@@ -327,3 +327,136 @@ for (const code of ["EPERM", "EBUSY", "EACCES"]) {
     });
   }
 }
+
+for (const method of ["linkSync", "unlinkSync"] as const) test(`claim-init cleanup survives a vanished claims directory before ${method}`, () => {
+  const { path } = setup(), token = "fedcba9876543210";
+  const temporary = `${path}.claim-init-${token}`, directory = `${path}.claims`;
+  const original = fs[method]; let injected = false;
+  const spy = spyOn(fs, method).mockImplementation((...args: any[]) => {
+    if (!injected && String(args[0]) === temporary) {
+      injected = true;
+      fs.renameSync(directory, directory + ".saved");
+      throw Error("injected before " + method);
+    }
+    return Reflect.apply(original, fs, args);
+  }); restores.push(() => spy.mockRestore());
+  expect(() => withLockClaim(path, token, { ...ownerDefaults, ...deps }, () => {})).toThrow("injected before " + method);
+  expect(injected).toBe(true);
+  expect(fs.existsSync(temporary)).toBe(false);
+  if (method === "unlinkSync") expect(fs.existsSync(join(directory + ".saved", `${process.pid}-${token}.claim`))).toBe(true);
+});
+
+test("claim-init cleanup after a failed capture only removes the bytes we wrote", () => {
+  const { path } = setup(), token = "fedcba9876543210", temporary = `${path}.claim-init-${token}`;
+  let injected = false;
+  const lstat = (p: string) => {
+    if (p === temporary && fs.existsSync(p) && !injected) { injected = true; throw Error("capture failed"); }
+    return ownerDefaults.lstat(p);
+  };
+  expect(() => withLockClaim(path, token, { ...ownerDefaults, ...deps, lstat }, () => {})).toThrow();
+  expect(injected).toBe(true); expect(fs.existsSync(temporary)).toBe(false);
+});
+
+for (const replacement of [false, true]) test(`claim-init cleanup preserves a successor (replacement=${replacement})`, () => {
+  const { path } = setup(), token = "fedcba9876543210", temporary = `${path}.claim-init-${token}`;
+  const spy = spyOn(fs, "linkSync").mockImplementation(() => {
+    if (replacement) fs.renameSync(temporary, temporary + ".saved");
+    fs.writeFileSync(temporary, "successor");
+    throw Error("injected replacement");
+  }); restores.push(() => spy.mockRestore());
+  expect(() => withLockClaim(path, token, { ...ownerDefaults, ...deps }, () => {})).toThrow("injected replacement");
+  expect(fs.readFileSync(temporary, "utf8")).toBe("successor");
+});
+
+test("claim-init sweep removes only exact same-lock names with definitely dead local owners", () => {
+  const { path } = setup();
+  const cases: Array<[string, string, boolean]> = [
+    [`${path}.claim-init-0000000000000001`, JSON.stringify({ pid: 999999999, host }), false],
+    [`${path}.claim-init-0000000000000002`, JSON.stringify({ pid: process.pid, host }), true],
+    [`${path}.claim-init-0000000000000003`, JSON.stringify({ pid: 42, host }), true],
+    [`${path}.claim-init-0000000000000004`, "{invalid", true],
+    [`${path}.claim-init-0000000000000005`, JSON.stringify({ pid: -1 }), true],
+    [`${path}.claim-init-0000000000000006`, JSON.stringify({ pid: "999999999" }), true],
+    [`${path}.claim-init-not-a-token`, JSON.stringify({ pid: 999999999 }), true],
+    [`${path}.claim-init-0000000000000007.extra`, JSON.stringify({ pid: 999999999 }), true],
+    [`${path}.other.claim-init-0000000000000008`, JSON.stringify({ pid: 999999999 }), true],
+    [`${path}.claim-init-ABCDEF0123456789`, JSON.stringify({ pid: 999999999 }), true],
+    [`${path}.claim-init-0000000000000009`, JSON.stringify({ pid: 999999999 }), true],
+  ];
+  for (const [p, body] of cases) fs.writeFileSync(p, body);
+  expect(withLockClaim(path, "fedcba9876543210", { ...ownerDefaults, ...deps,
+    isProcessAlive: pid => pid === 999999999 ? false : pid === process.pid ? true : undefined,
+  }, () => {
+    for (const [p, body, retained] of cases) {
+      expect(fs.existsSync(p)).toBe(retained);
+      if (retained) expect(fs.readFileSync(p, "utf8")).toBe(body);
+    }
+  }).ok).toBe(true);
+});
+
+test("claim-init cleanup never owns a pre-existing temporary", () => {
+  const { path } = setup(), token = "fedcba9876543210", temporary = `${path}.claim-init-${token}`;
+  const body = JSON.stringify({ pid: process.pid, host, token, ticket: 0 });
+  fs.writeFileSync(temporary, body);
+  expect(() => withLockClaim(path, token, { ...ownerDefaults, ...deps,
+    isProcessAlive: () => true,
+  }, () => {})).toThrow();
+  expect(fs.readFileSync(temporary, "utf8")).toBe(body);
+});
+
+for (const changed of ["body", "identity", "liveness", "unknown"] as const) test(`claim-init sweep preserves ${changed} changes`, () => {
+  const { path } = setup(), temporary = `${path}.claim-init-0000000000000001`;
+  const body = JSON.stringify({ pid: 999999999, host }); fs.writeFileSync(temporary, body);
+  let probes = 0;
+  expect(withLockClaim(path, "fedcba9876543210", { ...ownerDefaults, ...deps,
+    isProcessAlive: () => {
+      if (changed === "unknown") throw Error("probe unavailable");
+      if (++probes === 2) {
+        if (changed === "body") fs.writeFileSync(temporary, "successor");
+        if (changed === "identity") { fs.renameSync(temporary, temporary + ".saved"); fs.writeFileSync(temporary, body); }
+        if (changed === "liveness") return true;
+      }
+      return false;
+    },
+  }, () => {}).ok).toBe(true);
+  expect(fs.readFileSync(temporary, "utf8")).toBe(changed === "body" ? "successor" : body);
+});
+
+for (const mismatch of ["hostname", "machine", "processStart"] as const) {
+  for (const guarded of [false, true]) test(`claim-init sweep preserves ${mismatch} mismatch (guarded=${guarded})`, () => {
+    const { path } = setup(), temporary = `${path}.claim-init-0000000000000001`;
+    const body = JSON.stringify({ pid: 999999999, host, processStart: "original" });
+    fs.writeFileSync(temporary, body);
+    let hostReads = 0, startReads = 0;
+    const result = tryAcquire(path, { ...deps,
+      hostIdentity: () => {
+        const changed = ++hostReads > (guarded ? 1 : 0);
+        return changed && mismatch !== "processStart" ? { ...host, [mismatch]: "foreign" } : host;
+      },
+      processStart: pid => pid === process.pid ? undefined
+        : ++startReads > (guarded ? 1 : 0) && mismatch === "processStart" ? "reused" : "original",
+    });
+    expect(result.ok).toBe(true);
+    expect(fs.readFileSync(temporary, "utf8")).toBe(body);
+    if (result.ok) release(result.handle, deps);
+  });
+}
+
+for (const code of ["EIO", "EPERM", "EBUSY", "EACCES"]) test(`claim-init sweep read failure ${code} still acquires the lock`, () => {
+  const { path } = setup(), temporary = `${path}.claim-init-0000000000000001`;
+  const body = JSON.stringify({ pid: 999999999, host }); fs.writeFileSync(temporary, body);
+  const readdir = fs.readdirSync; let attempts = 0;
+  const sleep = spyOn(Bun, "sleepSync").mockImplementation(() => {}); restores.push(() => sleep.mockRestore());
+  const spy = spyOn(fs, "readdirSync").mockImplementation((...args: Parameters<typeof readdir>) => {
+    if (args[0] === dirname(path)) { attempts++; throw sharing(code); }
+    return Reflect.apply(readdir, fs, args);
+  }); restores.push(() => spy.mockRestore());
+  const result = tryAcquire(path, deps);
+  expect(attempts).toBe(code === "EIO" ? 1 : 3);
+  expect(result.ok).toBe(true);
+  expect(fs.readFileSync(temporary, "utf8")).toBe(body);
+  if (result.ok) {
+    expect(JSON.parse(fs.readFileSync(path, "utf8")).token).toBe(result.handle.token);
+    release(result.handle, deps);
+  }
+});

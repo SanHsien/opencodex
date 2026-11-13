@@ -44,7 +44,18 @@ test("saturation preserves live budgets instead of evicting an old task", () => 
   expect(budget.reserve("oldest", 1, 2)).toEqual({ ok: false, reason: "exhausted" });
 });
 
-test("a symlink is refused before SQLite can mutate its target", () => {
+// Windows without Developer Mode or admin cannot create symlinks (EPERM); take a visible skip there
+// instead of failing in setup. Any other error still fails the probe.
+const linkProbe = mkdtempSync(join(tmpdir(), "advisor-budget-link-probe-"));
+let linkUnavailable = false;
+try { symlinkSync(join(linkProbe, "absent"), join(linkProbe, "link"), "file"); }
+catch (error) {
+  if (process.platform !== "win32" || (error as NodeJS.ErrnoException).code !== "EPERM") throw error;
+  linkUnavailable = true;
+  console.warn("[advisor-budget test] skipping symlink case: Windows EPERM (symlink privilege unavailable)");
+} finally { rmSync(linkProbe, { force: true, recursive: true }); }
+
+test.skipIf(linkUnavailable)("a symlink is refused before SQLite can mutate its target", () => {
   const file = path();
   const target = file + ".target";
   createAdvisorTaskBudget(target).reserve("task", 1, 1);

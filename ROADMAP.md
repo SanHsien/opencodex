@@ -56,6 +56,7 @@ PR 追蹤（2026-11-03；fork 基準 `13e0f0e453fb`）：以 `reviewed_pr_closed
 | 重新評估 `fork-release-windows.yml` 是否改鎖 Bun 版本 | 上游對 `#7207`（防毒誤判 bun）得出「Bun 1.4.4 本身被誤判」的結論 | 在 `docs/fork/DECISIONS.md` 新增決定；若改鎖，`fork-release-windows.yml` 以該版 Bun 在 Windows 建出 MSI 並通過 `dev_check.ps1` | Claude Opus | `docs/fork/DECISIONS.md:629`（決定三）；`.github/workflows/fork-release-windows.yml` |
 | 停用夜間排程 | 夜間 `Cross-platform CI` 改測 main 之後仍連續紅燈，且失敗原因與本 fork 無關（`docs/fork/DECISIONS.md` 決定四已記此觸發條件） | `ci.yml` 的 `schedule` 在本 fork 不再執行；`DECISIONS.md` 記停用理由與重新啟用條件；下一輪 Actions 沒有新的 schedule 紅燈 | Claude Sonnet | `docs/fork/DECISIONS.md:631`；`.github/workflows/ci.yml:415-430` |
 | app 內提供重新詢問入口（「Stay a guest」記住後，不必刪檔就能重新被詢問） | 目前只能刪 `%APPDATA%\com.opencodex.desktop\guest-choice.json`（已寫進 docs-site 的 desktop-app 頁，en／zh-tw）；刪檔會一次忘記所有代理的選擇。觸發：有使用者回報刪檔不便，或要在設定頁重設時 | 設定頁或系統匣有一個操作，清除本家目錄的記住選擇；清除後下次啟動再次詢問。`guest_choice::forget` 補測試，desktop-app 頁的復原段同步改寫 | fork 維護者（Rust 與 GUI 兩處都要動） | 2026-11-12 獨立覆核 M2（`b94d6ac61..08927752d`）：使用者文件已先寫出刪檔復原法；本列是刪檔之外的 app 內入口 |
+| 移除 docs-site 的 `rolldown` 1.1.7 固定 | 2026-11-15 之後（1.1.8 已發布超過 48 小時），或任何一次升級 docs-site 的 `vite` 時，以先到者為準；bun 的 override 不看 semver 範圍，新版 vite 若要求更新的 rolldown 也會被硬裝成 1.1.7、建置時才壞 | 刪掉 `docs-site/package.json` overrides 的 `"rolldown": "1.1.7"`，`cd docs-site && bun install && bun audit && bun run build` 全過、`bun.lock` 只有一份 rolldown 且符合 vite 宣告的範圍，再刪此列 | Claude Sonnet | 2026-11-13 docs-site 依賴修補 commit；當時 vite 8.1.6 宣告 `rolldown ~1.1.5`，1.1.8 發布於 2026-11-11T07:03Z |
 
 ## 刻意不做
 

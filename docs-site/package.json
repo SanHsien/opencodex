@@ -24,6 +24,7 @@
     "nanoid": "^3.3.18",
     "postcss": "8.5.26",
     "smol-toml": "^1.8.0",
-    "js-yaml": "^4.3.2"
+    "js-yaml": "^4.3.2",
+    "rolldown": "1.1.7"
   }
 }

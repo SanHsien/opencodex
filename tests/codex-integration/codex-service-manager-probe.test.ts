@@ -17,7 +17,12 @@ import {
   type ProbeRunner,
   type RawProbeRunner,
 } from "../../src/service-manager-probe";
-import { buildWindowsServiceScript, buildWindowsTaskXml } from "../../src/service/windows-taskxml";
+import {
+  buildWindowsServiceScript,
+  buildWindowsTaskXml,
+  WINDOWS_STANDALONE_RUNTIME_WAIT_LINES,
+  WINDOWS_WRAPPER_STDIN_GUARD_LINES,
+} from "../../src/service/windows-taskxml";
 import { windowsWscript } from "../../src/service/windows-wscript";
 import { inspectNativeCodexOwnership } from "../../src/integrations/native/ownership-preflight";
 import { setTrustedWindowsSystemDirectoryResolverForTests } from "../../src/lib/windows-elevation";
@@ -647,6 +652,33 @@ describe("the Windows chain walk", () => {
     } as const;
     expect(inspectServiceManagerInstallation(deps).kind).toBe("present");
     expect(inspectNativeCodexOwnership(deps).ownership).toBe("owned");
+  });
+
+  // The wrapper generation before the stdin guard and the missing-runtime wait is what every
+  // already-installed standalone service still runs until `ocx service repair`.
+  test.each([
+    ["the previous generation, without the stdin guard and runtime wait", true, true, "present"],
+    ["a hybrid with only the runtime wait removed", false, true, "unknown"],
+    ["a hybrid with only the stdin guard removed", true, false, "unknown"],
+  ] as const)("a registered standalone wrapper: %s is %s", (_, dropGuard, dropWait, kind) => {
+    process.env.CODEX_HOME = "C:\\Users\\ws\\.codex";
+    process.env.OPENCODEX_HOME = "C:\\Users\\ws\\.opencodex";
+    const wrapper = writeStandaloneWrapper();
+    let body = readFileSync(wrapper, "utf8");
+    const drop = (lines: readonly string[]) => { body = body.replace(`${lines.join("\r\n")}\r\n`, ""); };
+    if (dropGuard) drop(WINDOWS_WRAPPER_STDIN_GUARD_LINES);
+    if (dropWait) drop(WINDOWS_STANDALONE_RUNTIME_WAIT_LINES);
+    writeFileSync(wrapper, body);
+    const statePath = writeStandaloneState();
+    const launcher = join(home, ".opencodex", "opencodex-service-launcher.vbs");
+    const registeredXml = buildWindowsTaskXml(wrapper, launcher, undefined, "S-1-5-21-123");
+    const { runRaw } = recorder(() => ({ status: 0, stdout: registeredXml }));
+    const deps = {
+      platform: "win32", home, runRaw, winswStatus: () => "nonexistent", statePaths: [statePath],
+      configDir: join(home, ".opencodex"),
+      currentHomes: { codexHome: process.env.CODEX_HOME, opencodexHome: process.env.OPENCODEX_HOME },
+    } as const;
+    expect(inspectServiceManagerInstallation(deps).kind).toBe(kind);
   });
 
   test.each([

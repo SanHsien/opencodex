@@ -1,5 +1,29 @@
 # 維護決策
 
+## 2026-11-13：MSI 升級後排程 service 的 wrapper 卡死不重啟——主控台 Ctrl-C 讓 cmd 停在「Terminate batch job (Y/N)?」
+
+**症狀（維護者機器）**：v2.99.0 MSI 升級覆寫 Program Files 下的 `ocx.exe` 時，由排程 `opencodex-proxy` 跑的 service ocx 走了優雅關閉，`service.log` 結尾是 `Shutting down opencodex proxy…`、`Aborting 1 in-flight turn(s)`；之後 `opencodex-service.cmd` 的 cmd.exe 與 wscript.exe 都還活著，卻沒有 `child exited … restarting`，10100 超過 60 秒沒回來。人工要 `Stop-ScheduledTask`、殺兩個 wrapper 行程、再 `Start-ScheduledTask` 才恢復。
+
+**排除的懷疑**：
+- 退出碼 42：只有「拒絕接管的 supervised child」才回 42（`src/service/service-child-ownership.ts` 的 `serviceChildStayOutExitCode`、`src/cli/index.ts` 七處 `serviceStayOutExitCode()`）。走 `:stopped` 會 `exit /b 0` 讓 cmd 結束、wscript 跟著結束；實況兩者都活著，不是這條。
+- 優雅關閉的退出碼：Windows 上 `handledSignalExitCode` 回 0（`src/lib/handled-signal-exit.ts` 第 21 行只在 darwin 且 `OCX_SERVICE_MANAGED=1` 才非 0），wrapper 會寫 `child exited with code 0; restarting in 5s`；log 沒有這行，代表 wrapper 根本沒回到迴圈。
+- `ocx.exe` 被鎖或被換：cmd 對鎖住或不存在的 exe 是立刻失敗，不是阻塞；失敗也會留 `child exited` 或 `installation is incomplete` 行。
+
+**根因**：wrapper 的迴圈直接在隱藏主控台（wscript 視窗樣式 0）上跑，cmd 自己的 stdin 就是那個主控台。主控台收到 Ctrl-C／Ctrl-Break 時 cmd 也收到，等子行程回來就在主控台上問「Terminate batch job (Y/N)?」並從 stdin 等答案；隱藏主控台沒人能答，cmd 與 wscript 因此永遠活著、永遠不寫下一行。`src/service/windows-taskxml.ts` 修正前第 135～136 行（`goto stopped` 之後寫 `child exited` 的那段）因此到不了。同檔 `buildWindowsTaskXml` 的註解已記錄這台機器上子行程會以 `STATUS_CONTROL_C_EXIT`（1073807364）結束，是同一類主控台中斷。**誰送出中斷（MSI 的 Restart Manager 或別的）沒有在這台機器上觀察到**，修正不依賴答案：任何抵達 wrapper 主控台的中斷都會走到同一個提示。
+
+**實測（隔離的假 wrapper，不碰真 runtime）**：用 Start-Process 隱藏視窗開一個 cmd 跑假 wrapper（子行程是 `ping`／假 `ocx.cmd`），從另一個行程 attach 該主控台送 Ctrl-Break：
+- 舊產出：送完 18 秒後 cmd 仍活著、log 停在 `opencodex service wrapper start`，往該主控台寫入 `Y`＋Enter 後 cmd 才結束。與事故一致。
+- `call :ocx_service_main <nul` 版本（本次產出）：log 出現 `child exited with code 0; restarting in 5s`，第二輪子行程回 42 後 wrapper 以 0 結束。cmd 把 stdin 上的 EOF 當成「不終止」。
+
+**決定**：
+1. 迴圈改成 `call :ocx_service_main <nul`＋`exit /b %ERRORLEVEL%`（`WINDOWS_WRAPPER_STDIN_GUARD_LINES`）。提示讀到 EOF，不再等人；`call` 的退出碼原樣交回，所以 `:stopped`（`exit /b 0`）與 `exit /b 3` 的行為不變：**刻意的 `ocx stop`／解除安裝仍停止迴圈**，因為那條路徑本來就是殺 wrapper（`killWindowsSchedulerWrappers`，比對的是 wrapper 檔路徑完整 token，`call` 不改變 cmd 命令列）或讓子行程回 42，與 stdin 無關。5 秒冷卻（`ping -n 6`）與 `ocx start` 之外的所有檢查都沒動；本分支沒有指數退避，退避計畫（`devlog/_plan/260817_windows_stability_program/050_wrapper_backoff.md`）仍未做，這次不引入。
+2. standalone wrapper 在 `ocx.exe` 不存在時最多再等 120 秒（`for /l` 24 輪×5 秒，`WINDOWS_STANDALONE_RUNTIME_WAIT_LINES`）才走原本的 `exit /b 3`。理由：MSI 的升級是先移除舊檔再裝新檔（未在本機驗證 Tauri 範本的排程順序，故視為待驗假設），停止後 5 秒重啟時檔案可能正好不存在，原本會永久走 `exit /b 3` 而讓排程工作結束。等待有上限，真的不回來仍以 3 結束；npm 安裝（有 CLI）維持立刻還原備份（#1942、#1849）。檔案寫到一半的情形仍由既有的 `bun_not_ready` 大小檢查處理。
+3. `src/service-manager-probe.ts` 的 wrapper 辨識把「沒有這兩段的上一代產出」列為已知版本（兩段必須一起移除，只缺一段的混合版不認），已安裝的 wrapper 在換新前仍被認得為本機 service。
+
+**需要維護者做**：已安裝的 wrapper 是舊版，要 `ocx service repair` 換成新產出才有效；見 `ROADMAP.md` 近期表新增的驗收列。
+
+**驗證**：`tests/windows/windows-service-wrappers.test.ts` 新增「wrapper loop survives a console break without waiting for an answer」與「standalone wrapper waits for an installer to put the runtime back」（先紅後綠；在 cmd 上實跑完整產出，確認 42 結束迴圈、缺 exe 時等到出現才啟動）、`tests/codex-integration/codex-service-manager-probe.test.ts` 新增上一代與混合版辨識。**未驗證**：真實 MSI 升級（`msiexec`）、以及誰送出主控台中斷，無法在 repo 測試內執行。
+
 ## 2026-11-11：桌面 app 每次啟動都問「A runtime is already listening. Take it over?」——排程 service 不再被提供接管，「Stay a guest」會被記住
 
 **症狀（維護者實查，維護者機器）**：10100 埠是排程 `opencodex-proxy` 經 `~/.opencodex/opencodex-service-launcher.vbs` → `opencodex-service.cmd`（每 5 秒無限重開 `ocx start`）跑起來的 `C:\Program Files\OpenCodex\ocx.exe start --port 10100`。這三樣是 `ocx service install` 產生的（`src/service/state.ts` 的 `TASK`、`windowsServiceScriptPath`／`windowsLauncherVbsPath`；排程註冊與 wrapper 內容在 `src/service/windows-scheduler.ts`／`windows-taskxml.ts`）。桌面 app 每次開啟都跳接管對話框，按「Take over」會跟排程迴圈搶埠。
@@ -23,7 +47,7 @@
 
 **上游檔改寫**：`src/cli/resolve.ts`、`desktop/src-tauri/src/{ownership,startup,lib}.rs`、`structure/ops/desktop-supervision.md`、`structure/manifest.json`、`docs-site/src/content/docs/{,zh-tw/}guides/desktop-app.md` 與 `tests/cli/cli-resolve.test.ts` 是上游檔；`desktop/src-tauri/src/guest_choice.rs` 是 fork 新增檔。下次整合上游 tag 時，若上游同檔有改動，保留上游版本，再重放：`resolve.ts` 的 `declineTakeoverOfRegisteredService` 及其呼叫、`ownership.rs` 的 `Consent::Declined`／`consent_with_choice`／`subject_key`、`startup.rs` 的 `launch_consent`／`remember_guest_choice`／`forget_guest_choice` 與 `Declined` 分支。`tests/cli/cli-resolve.test.ts` 中原「both managers at or above the floor answer supported with a token」改為「無 service 登記」情境（有登記的情境現在是 `service-managed`）。
 
-**驗證**：見 `ROADMAP.md` 近期表「維護者機器驗收桌面 app 不再跳接管對話框」。
+**驗證**：2026-11-13 維護者機器驗收通過：裝 v2.99.0 MSI；用新 app 內附的 `ocx resolve --json`，`takeover` 為 `{kind:"blocked",reason:"service-managed"}`；完整退出再重開 app 兩輪，都沒有接管對話框；10100 只有單一 PID；排程 `opencodex-proxy` 未被動過。
 
 ## 2026-11-10：補回 `js/polynomial-redos` 修補（`1d102c6db`）的非結尾回傳值斷言與 Zen 計時覆蓋
 

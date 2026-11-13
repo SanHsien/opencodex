@@ -32,7 +32,12 @@ import { decodePlistString } from "./service/plist-xml";
 import { BUN_RUNTIME_PATH_ENV, BUN_RUNTIME_SOURCE_ENV } from "./lib/bun-runtime";
 import { REAL_BUN_MIN_BYTES } from "./lib/bun-binary-validator.mjs";
 import { WINDOWS_WRAPPER_PROTOCOL_ENV, WINDOWS_WRAPPER_STAY_OUT_EXIT_CODE } from "./service/windows-wrapper-exit";
-import { buildWindowsServiceScript, windowsTaskActionMatches } from "./service/windows-taskxml";
+import {
+  buildWindowsServiceScript,
+  windowsTaskActionMatches,
+  WINDOWS_STANDALONE_RUNTIME_WAIT_LINES,
+  WINDOWS_WRAPPER_STDIN_GUARD_LINES,
+} from "./service/windows-taskxml";
 import { inspectServiceStateEvidence, serviceStatePathsForOpenCodexHome } from "./service/state";
 import { parseSystemdUnitHomes } from "./service/systemd-env";
 
@@ -656,13 +661,26 @@ function matchesGeneratedStandaloneControlFlow(body: string, port: number): bool
   // Read-only recognition of the exact previous generator output keeps installed
   // standalone services identifiable across the backup-log hardening update.
   // Never emit or execute this legacy variant; every other control line still matches.
-  const legacyFlow = generatedFlow.flatMap(line => {
+  const withLegacyBackupLogging = (flow: string[]): string[] => flow.flatMap(line => {
     if (line === "      goto backup_restored") return ['      set "OCX_RESTORED_BACKUP=%%B"', line];
     if (line === '>>"%OCX_SERVICE_LOG%" echo [%DATE% %TIME%] restored previous install from transactional-update backup') {
       return ['>>"%OCX_SERVICE_LOG%" echo [%DATE% %TIME%] restored previous install from %OCX_RESTORED_BACKUP%'];
     }
     return [line];
   });
+  // The generation before the stdin guard and the missing-runtime wait: those two blocks are
+  // removed together, and only whole, so a hybrid carrying one of them is not recognised.
+  const withoutInstallerResilience = (flow: string[]): string[] | null => {
+    let earlier = flow;
+    for (const block of [WINDOWS_WRAPPER_STDIN_GUARD_LINES, WINDOWS_STANDALONE_RUNTIME_WAIT_LINES]) {
+      const at = earlier.indexOf(block[0]!);
+      if (at < 0 || !block.every((line, offset) => earlier[at + offset] === line)) return null;
+      earlier = [...earlier.slice(0, at), ...earlier.slice(at + block.length)];
+    }
+    return earlier;
+  };
+  const previousGeneration = withoutInstallerResilience(generatedFlow);
+  const generations = previousGeneration ? [generatedFlow, previousGeneration] : [generatedFlow];
   // Also recognize the exact pre-placeholder version, not a partial size-gate
   // hybrid. Only remove these complete known blocks from trusted generator output.
   const beforePlaceholderGate = (flow: string[]): string[] | null => {
@@ -681,7 +699,7 @@ function matchesGeneratedStandaloneControlFlow(body: string, port: number): bool
     }
     return earlier;
   };
-  const recognized = [generatedFlow, legacyFlow];
+  const recognized = generations.flatMap(flow => [flow, withLegacyBackupLogging(flow)]);
   for (const flow of [...recognized]) {
     const earlier = beforePlaceholderGate(flow);
     if (earlier) recognized.push(earlier);

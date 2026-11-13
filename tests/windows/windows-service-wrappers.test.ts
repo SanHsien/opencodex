@@ -20,6 +20,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { windowsWrapperKillScript } from "../../src/lib/windows-service-wrappers";
+import { WINDOWS_STANDALONE_RUNTIME_WAIT_LINES } from "../../src/service/windows-taskxml";
 import { repoPath } from "../helpers/repo-root";
 
 const read = (rel: string) => readFileSync(repoPath(rel), "utf8");
@@ -264,7 +265,10 @@ for (const date of ["Wed 09/30/2026", "2026-09-30(수)", "2026/09/30 (水)"]) {
         // environment setup with isolated paths; CALL lets our fake .cmd child
         // return to the wrapper just as the real Bun executable would.
         const body = batch.slice(batch.indexOf(":loop\r\n"))
-          .replace(/^"%OCX_BUN%" /m, 'call "%OCX_BUN%" ');
+          .replace(/^"%OCX_BUN%" /m, 'call "%OCX_BUN%" ')
+          // The bounded installer wait (up to 120s) is covered by its own tests below; here a
+          // missing standalone runtime must still reach exit 3 within the harness timeout.
+          .replace(WINDOWS_STANDALONE_RUNTIME_WAIT_LINES[1]!, "rem installer wait skipped");
         const file = join(dir, "wrapper.cmd");
         writeFileSync(file, ["@echo off", "setlocal EnableExtensions DisableDelayedExpansion", 'set "ERRORLEVEL="',
           `set "OCX_BUN=${bun}"`, `set "OCX_CLI=${cli}"`, `set "OCX_PKG_DIR=${pkg}"`,
@@ -447,3 +451,96 @@ for (const name of [
     }
   });
 }
+
+/**
+ * A console Ctrl-C / Ctrl-Break makes cmd.exe ask "Terminate batch job (Y/N)?" once the child
+ * it was running returns, and the answer is read from the wrapper's own stdin. The wrapper's
+ * console is hidden (wscript window style 0), so nobody answers: the loop sat there with
+ * cmd and wscript alive, no "child exited" line, and the proxy stayed down. Reproduced on a
+ * fake wrapper under a hidden console: Ctrl-Break + child exit left cmd blocked until the
+ * prompt was answered; with the loop run as `call :main <nul` the prompt reads EOF, which
+ * cmd treats as "no", and the loop carried on. The loop must therefore run with stdin
+ * detached from the console, and the exit code of that call must still reach the scheduler.
+ */
+describe("wrapper loop survives a console break without waiting for an answer", () => {
+  const GUARD = ["call :ocx_service_main <nul", "exit /b %ERRORLEVEL%", ":ocx_service_main", ":loop"];
+
+  test.each([["source", "C:\\ocx\\src\\cli\\index.ts"], ["standalone", null]] as const)(
+    "%s wrapper runs its loop with stdin detached and propagates the loop's exit code",
+    async (_name, cli) => {
+      const { buildWindowsServiceScript } = await import("../../src/service/windows-taskxml");
+      const lines = buildWindowsServiceScript({ bun: "C:\\ocx\\bun.exe", bunRuntimeSource: "bundled", cli }, 10100, []).split("\r\n");
+      const at = lines.indexOf(GUARD[0]!);
+      expect(at).toBeGreaterThan(0);
+      expect(lines.slice(at, at + GUARD.length)).toEqual(GUARD);
+      // Only one entry into the loop, so nothing can run the child on the console's stdin.
+      expect(lines.filter(line => line === ":loop")).toHaveLength(1);
+      expect(lines.filter(line => line.startsWith('"%OCX_BUN%"'))).toHaveLength(1);
+      expect(lines.indexOf('if exist "%OCX_API_TOKEN_FILE%" (')).toBeLessThan(at);
+    },
+  );
+});
+
+describe("standalone wrapper waits for an installer to put the runtime back", () => {
+  const WAIT = 'for /l %%N in (1,1,24) do if not exist "%OCX_BUN%" ping -n 6 127.0.0.1 >nul';
+
+  test("only the standalone wrapper waits, and the wait precedes the terminal exit 3", async () => {
+    const { buildWindowsServiceScript } = await import("../../src/service/windows-taskxml");
+    const standalone = buildWindowsServiceScript({ bun: "C:\\ocx\\ocx.exe", bunRuntimeSource: "standalone", cli: null }, 10100, []).split("\r\n");
+    const source = buildWindowsServiceScript({ bun: "C:\\ocx\\bun.exe", bunRuntimeSource: "bundled", cli: "C:\\ocx\\src\\cli\\index.ts" }, 10100, []).split("\r\n");
+    const waitAt = standalone.indexOf(WAIT);
+    expect(waitAt).toBeGreaterThan(standalone.indexOf(":loop"));
+    expect(waitAt).toBeLessThan(standalone.indexOf('if not exist "%OCX_BUN%" goto bun_missing'));
+    expect(standalone[waitAt - 1]).toContain("runtime is missing; waiting up to 120s");
+    // The give-up path is unchanged: still the incomplete-install exit, not a retry loop.
+    expect(standalone.slice(standalone.indexOf(":bun_missing"))[2]).toBe("exit /b 3");
+    // npm installs keep their immediate transactional-backup restore (#1942).
+    expect(source).not.toContain(WAIT);
+  });
+
+  /** Run the complete generated wrapper against a fake child; only sleeps and header paths are replaced. */
+  async function runStandaloneWrapper(opts: { childPresent: boolean; childExit: number }) {
+    const { mkdtempSync, writeFileSync, rmSync, readFileSync: rf, existsSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { spawnSync } = await import("node:child_process");
+    const { buildWindowsServiceScript } = await import("../../src/service/windows-taskxml");
+    const dir = mkdtempSync(join(tmpdir(), "ocx-wrapper-installer-"));
+    try {
+      const bun = join(dir, "ocx.cmd");
+      const log = join(dir, "service.log");
+      const child = `@echo off\r\necho FAKE-CHILD-STARTED\r\nexit /b ${opts.childExit}\r\n` + "rem pad past the real-Bun size gate\r\n".repeat(40_000);
+      writeFileSync(opts.childPresent ? bun : `${bun}.real`, child);
+      const batch = buildWindowsServiceScript({ bun, bunRuntimeSource: "standalone", cli: null }, 10100, []);
+      const body = batch.split("\r\n")
+        .filter(line => !line.startsWith('set "PATH='))
+        .map(line => line.startsWith('set "OCX_SERVICE_LOG=') ? `set "OCX_SERVICE_LOG=${log}"`
+          : line.startsWith('set "OCX_API_TOKEN_FILE=') ? 'set "OCX_API_TOKEN_FILE=fixture"'
+          : line.replace(/^"%OCX_BUN%" /, 'call "%OCX_BUN%" ')
+            // The installer finishing is the only thing that ends the wait in this harness.
+            .replaceAll("ping -n 6 127.0.0.1 >nul", 'if exist "%OCX_BUN%.real" move /y "%OCX_BUN%.real" "%OCX_BUN%" >nul'))
+        .join("\r\n");
+      const file = join(dir, "wrapper.cmd");
+      writeFileSync(file, body);
+      const result = spawnSync("cmd.exe", ["/d", "/c", file], { timeout: 20_000, encoding: "utf8", env: { ...process.env, ERRORLEVEL: "42" } });
+      expect(result.error).toBeUndefined();
+      return { status: result.status, output: existsSync(log) ? rf(log, "utf8") : "" };
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  test.skipIf(process.platform !== "win32")("a runtime that reappears while the wrapper waits is started, and its stay-out exit still ends the loop", async () => {
+    const { status, output } = await runStandaloneWrapper({ childPresent: false, childExit: 42 });
+    expect(output).toContain("runtime is missing; waiting up to 120s");
+    expect(output).toContain("FAKE-CHILD-STARTED");
+    expect(output).not.toContain("installation is incomplete");
+    expect(status).toBe(0);
+  });
+
+  test.skipIf(process.platform !== "win32")("an intentional stop (exit 42) ends the loop through the stdin-detached call", async () => {
+    const { status, output } = await runStandaloneWrapper({ childPresent: true, childExit: 42 });
+    expect(output).toContain("FAKE-CHILD-STARTED");
+    expect(output).not.toContain("child exited with code");
+    expect(status).toBe(0);
+  });
+});

@@ -63,6 +63,37 @@ function taskXmlRunLevelAcceptable(principal: string): boolean {
 }
 
 /**
+ * The wrapper's loop runs as a called routine with stdin detached from the console.
+ *
+ * A Ctrl-C / Ctrl-Break on the wrapper's console (hidden by the wscript launcher) makes cmd
+ * ask "Terminate batch job (Y/N)?" once the running child returns, reading the answer from
+ * the batch's own stdin. Nobody can answer a hidden console, so an MSI upgrade that signalled
+ * the proxy left cmd and wscript alive and blocked forever, never reaching the restart line.
+ * With stdin at NUL the prompt reads EOF, which cmd takes as "no", and the loop carries on.
+ * The call's exit code is handed back so `exit /b 3` (incomplete install) and the stay-out
+ * stop (42 -> `:stopped` -> `exit /b 0`) still end the wrapper exactly as before.
+ * The probe recognises the previous generation by removing exactly these lines.
+ */
+export const WINDOWS_WRAPPER_STDIN_GUARD_LINES: readonly string[] = [
+  "call :ocx_service_main <nul",
+  "exit /b %ERRORLEVEL%",
+  ":ocx_service_main",
+];
+
+/**
+ * Standalone runtimes are replaced in place by the desktop MSI, whose major upgrade removes
+ * the old `ocx.exe` before the new one is written. Without this wait the restart 5s after the
+ * stop met a missing file and took the terminal `exit /b 3` path, which ends the scheduled
+ * task for good. 24 x 5s bounds the wait; a runtime that never returns still exits 3. npm
+ * installs keep their immediate transactional-backup restore, so this is standalone only.
+ */
+export const WINDOWS_STANDALONE_RUNTIME_WAIT_LINES: readonly string[] = [
+  // The log line only fires while the file is absent.
+  'if not exist "%OCX_BUN%" >>"%OCX_SERVICE_LOG%" echo [%DATE% %TIME%] runtime is missing; waiting up to 120s for an installer to put it back',
+  'for /l %%N in (1,1,24) do if not exist "%OCX_BUN%" ping -n 6 127.0.0.1 >nul',
+];
+
+/**
  * Batch wrapper the scheduled task runs: restarts the proxy on exit, restores a transactional-update
  * backup when the install is gone, and waits while bundled Bun is still npm's placeholder.
  */
@@ -104,6 +135,7 @@ export function buildWindowsServiceScript(
     'if exist "%OCX_API_TOKEN_FILE%" (',
     '  set /p OPENCODEX_API_AUTH_TOKEN=<"%OCX_API_TOKEN_FILE%"',
     ")",
+    ...WINDOWS_WRAPPER_STDIN_GUARD_LINES,
     ":loop",
     '>>"%OCX_SERVICE_LOG%" echo [%DATE% %TIME%] opencodex service wrapper start',
     '>>"%OCX_SERVICE_LOG%" echo bun="%OCX_BUN%"',
@@ -112,6 +144,7 @@ export function buildWindowsServiceScript(
     '>>"%OCX_SERVICE_LOG%" echo opencodex_home="%OPENCODEX_HOME%"',
     '>>"%OCX_SERVICE_LOG%" echo codex_home="%CODEX_HOME%"',
     '>>"%OCX_SERVICE_LOG%" echo token_file="%OCX_API_TOKEN_FILE%"',
+    ...(cli ? [] : WINDOWS_STANDALONE_RUNTIME_WAIT_LINES),
     'if not exist "%OCX_BUN%" (',
     "  call :restore_backup",
     ")",

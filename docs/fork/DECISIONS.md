@@ -1,5 +1,11 @@
 # 維護決策
 
+## 2026-11-14：發 fork 修補版 v2.99.1，讓 wrapper 修正可以做真機 MSI 驗收
+
+**原因**：`617fb5912` 的 wrapper 修正要靠 MSI 升級驗收，但 fork 最新 release 是 `v2.99.0`，不含這個修正；`fork-release-windows.yml` 要有對得上版本來源的 tag 才建 MSI。
+
+**決定**：四個版本來源以 `release-version-sources.ts sync 2.99.1` 前推到 `2.99.1`，打 tag `v2.99.1` 發 MSI。fork 平常沿用上游版本號發版；這次例外用修補號，因為上游已從 `2.99.0` 直接跳到 `2.100.x`，沒有 `v2.99.1`（`git ls-remote --tags upstream 'v2.99.*'` 只有 `v2.99.0` 與 preview），不會撞名。下次整合上游 tag 時照舊改用上游版本號。
+
 ## 2026-11-13：MSI 升級後排程 service 的 wrapper 卡死不重啟——主控台 Ctrl-C 讓 cmd 停在「Terminate batch job (Y/N)?」
 
 **症狀（維護者機器）**：v2.99.0 MSI 升級覆寫 Program Files 下的 `ocx.exe` 時，由排程 `opencodex-proxy` 跑的 service ocx 走了優雅關閉，`service.log` 結尾是 `Shutting down opencodex proxy…`、`Aborting 1 in-flight turn(s)`；之後 `opencodex-service.cmd` 的 cmd.exe 與 wscript.exe 都還活著，卻沒有 `child exited … restarting`，10100 超過 60 秒沒回來。人工要 `Stop-ScheduledTask`、殺兩個 wrapper 行程、再 `Start-ScheduledTask` 才恢復。

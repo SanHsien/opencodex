@@ -1,5 +1,11 @@
 # 維護決策
 
+## 2026-11-14：發版後把版本來源前推到 2.99.2
+
+**原因**：打 tag `v2.99.1` 後 main 仍是 `2.99.1`，`release version line > the in-tree version is never behind a released one` 在全量跑報「equals release tag v2.99.1, but this commit is not the one that tag names」：同版號的後續 commit 會被當成重複發佈。
+
+**決定**：`release-version-sources.ts sync 2.99.2`，四個來源一起前推。上游沒有 `2.99.x` 修補版，不會撞名；下次整合上游 tag 時照舊改成上游版本號。發 fork 修補版之後要在同一輪把版本前推。
+
 ## 2026-11-14：排程 Cross-platform CI 全量跑紅——新測試檔與新 import 沒登錄到結構清單
 
 **症狀**：排程（nightly）full 跑 `43527631825` 的 windows 1/12 與 10/12 紅，共四個測試：`tests/ layout > every test file resolves to a domain…`、`membership oracle > the live tree and the fixture agree entry by entry`、`known-pattern lint finds no unclassified update primitive references`、`known-pattern helper inventory has explicit control-site contracts`。push 跑只跑 impact 選出的子集，沒選到這幾個結構測試，所以一路綠。

@@ -4,7 +4,7 @@ path	upstream_status	fork_before	fork_after	verdict	note
 .github/scripts/release-evidence-policy.json	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.100.2; upstream blob taken
 .github/scripts/release-evidence.cjs	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.100.2; upstream blob taken
 .github/scripts/release-evidence.test.cjs	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.100.2; upstream blob taken
-.github/workflows/ci.yml	M	MOD	fork-adapted	adapt	fork Windows-only triggers kept; matrix, TEST_SHARD and aggregate use 14 shards; remote-helper ocx-child Rust checks adopted (D3)
+.github/workflows/ci.yml	M	MOD	fork-adapted	adapt	fork Windows-only triggers kept; matrix, TEST_SHARD and aggregate use 14 shards; remote-helper ocx-child Rust checks adopted (D3); restore native/ocx-child and conformance fixture remote_helper filters
 .github/workflows/enforce-pr-target.yml	M	MOD	fork-adapted	adapt	three-way merge, no conflict
 .github/workflows/issue-quality-tests.yml	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.100.2; upstream blob taken
 .github/workflows/pr-gates.yml	A	NEW	fork-adapted	adapt	official repository guard added to all three caller jobs without broadening permissions or code sources (D6)
@@ -1379,7 +1379,7 @@ tests/codex-integration/codex-inject-v1-reconcile.test.ts	M	TAKE	same-as-upstrea
 tests/codex-integration/codex-journal-provider-reserialization.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
 tests/codex-integration/codex-journal.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.100.2; upstream blob taken
 tests/codex-integration/codex-pool-only-policy.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
-tests/codex-integration/codex-quota-window-conflict.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/codex-integration/codex-quota-window-conflict.test.ts	A	NEW	fork-adapted	adapt	locale coverage restricted to supported en/zh-TW; both placeholders and translation assertions retained
 tests/codex-integration/codex-v2-gate.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.100.2; upstream blob taken
 tests/codex-integration/history-paginated-openai-compat.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.100.2; upstream blob taken
 tests/codex-integration/history-paginated-transition-destinations.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.100.2; upstream blob taken

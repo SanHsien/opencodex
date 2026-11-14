@@ -5,7 +5,7 @@ const LOCALES = ["en", "zh-TW"] as const;
 async function readDict(locale: string): Promise<Map<string, string>> {
   const src = await Bun.file(new URL(`../src/i18n/${locale}.ts`, import.meta.url)).text();
   const out = new Map<string, string>();
-  for (const m of src.matchAll(/^\s*"([^"]+)":\s*"((?:[^"\\]|\\.)*)"/gm)) {
+  for (const m of src.matchAll(/"([^"]+)":\s*"((?:[^"\\]|\\.)*)"/g)) {
     out.set(m[1]!, m[2]!);
   }
   return out;

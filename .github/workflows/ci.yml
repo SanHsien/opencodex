@@ -333,6 +333,8 @@ jobs:
             # crate there and on one ubuntu leg that covers the protocol and stub.
             remote_helper:
               - 'native/remote-workspace-helper/**'
+              - 'native/ocx-child/**'
+              - 'tests/fixtures/link/ocx-child-conformance.json'
             # Paths whose change selects the nine Windows suite shards on a pull
             # request. These carry the Windows service, update, shim, intercept,
             # ACL and process code, and the harness every Windows shard runs.

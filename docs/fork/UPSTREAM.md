@@ -1471,3 +1471,35 @@ issue 軸：strict 新列出 `#8181`（desktop takeover 在預設 bind 時，`ru
 | `10bf0d289` | 2026-11-11 | 24 檔 +787/-18 | T8 | 採用 | feat(accounts): explicit health-gated resume, and login that clears an automatic pause (#8515) |
 | `5197322e2` | 2026-11-11 | 4 檔 +41/-14 | T9 | 採用 | fix(antigravity): send Gemini 4 Carbon requests with the CLI User-Agent (#8483) |
 | `61147ec68` | 2026-11-11 | 1 檔 +25/-4 | T2 | 採用 | test(link): keep the constrained-mode prefix out of the cmd.exe budget (#8517) |
+
+## 2026-11-14（續）：`v2.99.0..v2.100.2` 整合前的上游 PR／issue 軸分類（3 筆 PR、1 筆 platform issue；複查 #7771、#7808、#7810、#8246、#8317、#8318）
+
+輸入是 `bun tools/check-upstream-updates.ts --strict` 在 2026-11-14 的輸出（exit 1）。三點先讀：
+
+- **報告的 commit 軸是 333 筆，不是 163 筆。** 工具追蹤「`integrated_tag` 之上最新的 stable tag」，而上游在同日（2026-11-14）又發了 `v2.100.3`（`873ec9b3b`，`refs/upstream-check/tags/v2.100.3`，與 `v2.100.2` 相差 170 筆）。本次整合的目標仍是 `v2.100.2`（163 筆，`refs/upstream-tags/v2.100.2` 實算 `git rev-list --count v2.99.0..v2.100.2` = 163）。**含意：步驟 6 推進水位到 `v2.100.2` 之後，`--strict` 仍會因 `v2.100.3` 的 170 筆而 exit 1**，要等下一輪整合 `v2.100.3`；步驟 6 的「`--strict` exit 0」驗收在 `v2.100.2` 水位上不可能成立，不是回歸。
+- 這份報告的 PR 軸與 issue 軸沒有出現「未檢查」，兩節都有實查結果。
+- 以下四個 PR／issue 編號的判定在本輪寫下，`tools/upstream_baseline.json` 的 `reviewed_pr_numbers`／`reviewed_issue_through` 依計畫留到步驟 6 一起寫（本節不動水位檔）。
+
+### 上游未合併關閉的 PR（3 筆，fork 全部不採用）
+
+| PR | 標題 | 上游狀態與事實 | 判定與理由 |
+| --- | --- | --- | --- |
+| #7941 | refactor(codex): write the native-main auth.json through one module (#7345 part 1b) | 關閉未合併（2026-11-09 21:17Z，標籤 `chore`、`intake: hygiene-blocked`）。作者把它併入 #7918（1a），hygiene 因 `src/codex/auth-collision.ts` 報 `unsponsored_surface`；維護者 `lidge-jun` 回覆要合成單一 reader／writer PR 並先回答 #7345 的 retention 問題。#7918 已合入 dev（`a80a329e1`），在 `v2.100.3` 之後的範圍，**不在 `v2.100.2` 內**。 | **不另採**。無行為變更的 auth.json 寫入重構，已由 #7918 合併取代；fork 隨 `v2.100.3` 整合時取得。不重疊採用已關閉分支。 |
+| #8504 | fix(anthropic-pool): lift 429 quota cooldowns from a background usage read | 關閉未合併（2026-11-11 09:36Z，標籤 `bug`）。維護者把它 carry 成 #8531（merge `34a872c3b`，作者保留 Co-authored-by），修掉 CodeRabbit 的五個問題。#8531 在 `v2.100.2..v2.100.3` 之間，**不在 `v2.100.2` 內**。 | **不另採（已由 #8531 取代）**。功能（Anthropic 429 冷卻由背景用量讀取解除）隨 `v2.100.3` 整合進來；採用的會是 carry 後的版本。 |
+| #8650 | docs(es): mirror the pnpm global-store update step into the Spanish update-failed page | 關閉未合併（2026-11-13，標籤 `documentation`）。維護者自己關閉：#8648（`741d4d4c3`）已把同一段鏡像到西班牙文頁，此分支已無內容。 | **不採用**。只改 `docs-site/.../es/` 頁；fork 的 docs-site 只保留 en／zh-tw，西班牙文頁不在 fork 內（且上游自己判定是重複）。 |
+
+### 上游 platform issue（1 筆：#8545）
+
+| Issue | 上游事實 | fork 證據與判定 |
+| --- | --- | --- |
+| [#8545](https://github.com/lidge-jun/opencodex/issues/8545) Restart and disconnect for a client runtime whose owner cannot be proven (legacy bare-flag service children and companion proxies) | open（`enhancement`、`platform`、`service`）。是 #8529（`de0914a1a`，Home 透過 SSH 讓桌面 app 或服務管理員擁有的 Child 離開／重新連線）review 後留下的設計題：只帶 bare `OCX_SERVICE=1` 的舊服務子行程與 `ocx claude`／`codex`／`opencode` 的 detached proxy 無法判斷 owner。留言附帶 Windows 情境（以父行程命令列推斷 Task Scheduler wrapper／WinSW host）。尚無實作。 | **相關但延後**。#8529 在 `v2.100.3` 範圍、不在 `v2.100.2`；fork 的 Windows wrapper 設的 marker 與 #8529 引入的辨識方式要等該版整合時再對照。目前沒有程式碼可採，也沒有需要 fork 自己處理的 Windows 回歸，所以只記錄、不新增 ROADMAP 列；`v2.100.3` 整合時重查 `ocx disconnect`／`restart` 對 fork wrapper 子行程的分類。`reviewed_issue_through` 預定由 8336 推進到 8545。 |
+
+### 複查既有追蹤項（`gh` 實查；`--strict` 清單外）
+
+| 項目 | 現況（2026-11-14） | 對 fork 的結論 |
+| --- | --- | --- |
+| #7771（Windows desktop 在 Task Scheduler 服務擁有 npm runtime 時卡在 `taking-over`） | 上游仍 open。#8487（`ff9f9463e`，2026-11-11）已讓 Windows x64 在行程內讀 process command line（`NtQueryInformationProcess`），處理 `process-unverifiable` 部分；Option B（保證等到 port 釋放的 Windows stop）只有設計（#8546，`7796c67f6`），尚未實作。兩者都在 `v2.100.3` 範圍，**不在 `v2.100.2`**。 | 維持持續觀察；本機沒有該排程服務、不重現。 |
+| #7808、#7810 | 先前已記為上游修復關閉並已含於 fork，狀態未變。 | 無動作。 |
+| #8246（MSI 升級後舊 runtime 繼續服務） | 上游仍 open，`v2.100.2` 內無對應修正（`git log` 沒有以它為主題的 commit）。 | `ROADMAP.md` 中期列保留，行號與證據在步驟 6 一併重查。 |
+| #8317（shim restore 鎖有兩個已死 owner 永不回收） | 上游於 2026-11-09 關閉；修正是 #8349（`f3657d3f3`），**在 `v2.100.2` 內**。 | 觸發條件成立：隨本次重放帶入 `src/codex/shim-restore-lock.ts`；`ROADMAP.md` 該列於步驟 6 在跑過該列驗收測試後刪除。 |
+| #8318（Windows 以本機 Tailscale IP 當 `hostname`，Desktop 不啟動 runtime） | 上游仍 open（`needs-info`）。`0c3fd3fbb`（特定 bind 位址的啟動復原）在 `v2.100.2` 內，但回報者在 2.99.0 上量到 `OCX_PROBE_TIMEOUT_MS` 調到 30000 也不影響耗時（探測預算不是主因），**不能認定 `0c3fd3fbb` 已修掉**。 | `ROADMAP.md` 該列保留，整合後照該列驗收方式判斷，不直接刪列。 |

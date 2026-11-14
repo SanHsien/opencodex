@@ -1397,3 +1397,16 @@ Windows 適用性：只用 `node:crypto` 與環境變數，不碰檔案系統、
 `prompt-lock-claim.ts` 的暫存檔位於設定目錄，清理改以該父目錄為 witness，避免 `.claims` 被同伴移除後連自己的暫存檔也無法清理；成功獨占寫入才取得清理資格，`finally` 仍經 `guarded()` 比對檔案身分與完整內容，capture 失敗時只重取符合本次寫入內容的 entry，替換檔與移走的 ownPath 均保留。取得鎖前只掃同一 lock 前綴且 token 為 16 位小寫十六進位的 `.claim-init-`，共用 `ownerState(record, deps)` 並在 `guarded()` 內再判一次，只有 host 符合本機、正整數安全 PID 確認死亡且 processStart 沒有不符時才刪除；異機／缺失 host、processStart 不符、活 PID、未知／拋錯、內容或格式不符、symlink 與變動中的 entry 均保留。整個掃描為 best-effort，包含 `readdirSync` 的一般 I/O 錯誤及重試耗盡的 `LockFileBusy` 都略過掃描，繼續正常取鎖，其餘 namespace 與取鎖檢查仍照常執行。回歸先在舊碼證明 link／unlink 前目錄消失、capture 失敗及死 PID 殘留四項紅燈，再修補驗證；不操作本機 runtime，也不清理真實使用者設定目錄。
 
 獨立審查後補測 host／processStart 不符與 guarded 內證據改變（含缺失 host）先紅後綠；另以 EIO、EPERM、EBUSY、EACCES 注入目錄掃描失敗，先證明拋錯或誤回 busy，再確認仍能取得鎖且殘留保留。
+
+## 2026-11-14：上游 PR（#7941、#8504、#8650）與 issue（#8545）分類；整合目標 `v2.100.2` 但上游已發 `v2.100.3`
+
+逐筆證據在 `docs/fork/UPSTREAM.md` 同日（續）節。決定：
+
+**決定一（PR 軸 3 筆全部不採用，步驟 6 加入 `reviewed_pr_numbers`）**：
+- #7941：併入 #7918（`a80a329e1`，在 `v2.100.3` 範圍），已由其取代；不重疊採用已關閉分支。
+- #8504：維護者 carry 成 #8531（`34a872c3b`，在 `v2.100.3` 範圍），已由其取代；隨 `v2.100.3` 整合取得。
+- #8650：維護者以 #8648 重複為由關閉，且只改 fork 已不存在的西班牙文頁。
+
+**決定二（issue #8545 相關但延後，步驟 6 把 `reviewed_issue_through` 由 8336 推到 8545）**：它是 #8529（`v2.100.3` 範圍）的後續設計題，沒有可採程式碼；`v2.100.3` 整合時重查 fork 的 Windows wrapper 子行程在 `ocx disconnect`／`restart` 的分類。
+
+**決定三（整合目標維持 `v2.100.2`，不追到 `v2.100.3`）**：`Upstream check` 追蹤的是最新 stable tag，而 `v2.100.3`（2026-11-14，與 `v2.100.2` 差 170 筆）在本輪開工當天出現。這一輪的計畫、逐檔清冊與遙測／CI 政策判斷都以 `v2.100.2` 為基準；多帶 170 筆會讓驗證範圍失控。因此水位推進到 `v2.100.2` 後 `--strict` 仍會 exit 1（commit 軸 170 筆），是預期狀態，下一輪整合 `v2.100.3`。`ROADMAP.md` 的「整合上游下一個 stable 版」列在步驟 6 改為 `v2.100.2` 之後並註明 `v2.100.3` 已發。

@@ -1,5 +1,9 @@
 # 維護決策
 
+## 2026-11-14：發 fork release v2.100.2 後把版本來源前推到 2.100.3
+
+**做法**：tag `v2.100.2` 指向 `1cdf1a74d`（整合上游 v2.100.2 的 main），觸發 `fork-release-windows.yml` 建 MSI。發版後 main 立刻以 `release-version-sources.ts sync 2.100.3` 前推，避免 `release version line` 在全量跑把後續 commit 當成重複發佈（11-14 v2.99.1 的教訓）。上游已有 `v2.100.3`，下一輪整合的目標正是它，所以前推到同號不會與 fork 的下一個 release 衝突。
+
 ## 2026-11-14：發版後把版本來源前推到 2.99.2
 
 **原因**：打 tag `v2.99.1` 後 main 仍是 `2.99.1`，`release version line > the in-tree version is never behind a released one` 在全量跑報「equals release tag v2.99.1, but this commit is not the one that tag names」：同版號的後續 commit 會被當成重複發佈。

@@ -20,7 +20,9 @@
 2. **`ocx service repair`**：`ocx --version` 為 `2.99.1`。repair 後 `opencodex-service.cmd` 含 `call :ocx_service_main <nul` 與 `runtime is missing; waiting up to 120s` 行，`/healthz` 回 `version 2.99.1`。
 3. **新 wrapper 遇覆寫（驗收）**：同一個 MSI 跑 `msiexec /i … REINSTALL=ALL REINSTALLMODE=amus /qb`，exit 0。`service.log` 出現 `Shutting down opencodex proxy...`，接著是 `child exited with code 0; restarting in 5s`；`msiexec` 結束後第一次量測（t+2s）10100 已回到單一 PID（19384 → 58192），`/healthz` 回 `status ok`、`version 2.99.1`。全程沒有用 `Stop-ScheduledTask` 或手動結束 wrapper。
 
-**沒有驗到的部分**：這次覆寫 `ocx.exe` 很快，`runtime is missing; waiting up to 120s` 那條等待路徑沒有觸發，只靠單元測試覆蓋。第 3 步是同版本重裝，不是版本升級；採用的理由是驗收要看的是 `ocx.exe` 被覆寫後 wrapper 會不會重啟，與版本號無關。ROADMAP 的驗收列已刪。
+4. **`ocx.exe` 暫時不在（補驗等待路徑）**：第 3 步覆寫很快，沒有觸發等待路徑，所以另外補驗。經 UAC 以系統管理員權限把 `ocx.exe` 改名移開，結束服務子行程，30 秒後改回原名。`service.log` 依序出現 `child exited with code -1; restarting in 5s`、`opencodex service wrapper start`、`runtime is missing; waiting up to 120s for an installer to put it back`；`ocx.exe` 放回（15:25:20）後約 5 秒，log 出現 `opencodex proxy running on http://localhost:10100`，10100 回到單一 PID（576），`/healthz` 回 `version 2.99.1`。
+
+**其他說明**：第 3 步是同版本重裝，不是版本升級；採用的理由是驗收要看的是 `ocx.exe` 被覆寫後 wrapper 會不會重啟，與版本號無關。ROADMAP 的驗收列已刪。
 
 ## 2026-11-14：發 fork 修補版 v2.99.1，讓 wrapper 修正可以做真機 MSI 驗收
 

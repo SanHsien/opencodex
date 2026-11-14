@@ -1503,3 +1503,70 @@ issue 軸：strict 新列出 `#8181`（desktop takeover 在預設 bind 時，`ru
 | #8246（MSI 升級後舊 runtime 繼續服務） | 上游仍 open，`v2.100.2` 內無對應修正（`git log` 沒有以它為主題的 commit）。 | `ROADMAP.md` 中期列保留，行號與證據在步驟 6 一併重查。 |
 | #8317（shim restore 鎖有兩個已死 owner 永不回收） | 上游於 2026-11-09 關閉；修正是 #8349（`f3657d3f3`），**在 `v2.100.2` 內**。 | 觸發條件成立：隨本次重放帶入 `src/codex/shim-restore-lock.ts`；`ROADMAP.md` 該列於步驟 6 在跑過該列驗收測試後刪除。 |
 | #8318（Windows 以本機 Tailscale IP 當 `hostname`，Desktop 不啟動 runtime） | 上游仍 open（`needs-info`）。`0c3fd3fbb`（特定 bind 位址的啟動復原）在 `v2.100.2` 內，但回報者在 2.99.0 上量到 `OCX_PROBE_TIMEOUT_MS` 調到 30000 也不影響耗時（探測預算不是主因），**不能認定 `0c3fd3fbb` 已修掉**。 | `ROADMAP.md` 該列保留，整合後照該列驗收方式判斷，不直接刪列。 |
+
+## 2026-11-14（續二）：全版 tag diff 重放 `v2.99.0..v2.100.2`（`61147ec68`；分支 `ci/tagdiff-v2.100.2`，尚未推送、水位未動）
+
+`git diff refs/upstream-tags/v2.99.0 refs/upstream-tags/v2.100.2` 共 1236 個檔案（370 新增、866 修改、0 刪除；+129468／-13987；`v2.100.2` = `61147ec681bc8374d350e0eae08b71c117c6df30`），以單一 parent、不 merge 上游的 tag-diff 法套到 `main`（fork 基準 `025dd546a`，2.99.2）。重放 commit 是 `133061f40`；逐檔清冊在 [`upstream-v2.99.0-v2.100.2-files.tsv`](upstream-v2.99.0-v2.100.2-files.tsv)（欄位同前三份，由 blob 雜湊比對機器產生；後續修正造成的判定變更才手改該列並在下方記錄；`/docs/` 在 `.gitignore`，要 `git add -f`）。方法、Windows-only 刪除清單、已刪語系與生成物規則同「2026-11-05：全版 tag diff 重放」節。上游在同日又發了 `v2.100.3`，本輪刻意不納入（見上一節）。
+
+### 計數（1236 個上游變更檔）
+
+| 判定 | 重放 commit `133061f40` | 目前（含本機驗證修正） | 說明 |
+| --- | --- | --- | --- |
+| 已等價 | 0 | 0 | — |
+| 採用（與 `v2.100.2` blob 逐位元相同） | 948 | 947 | 乾淨採用 585（fork 與 `v2.99.0` 相同）＋新增檔 362；`scripts/lint-gui-if-changed.ts` 因本機驗證修正由採用改為適配 |
+| 適配 | 144 | 145 | 三方合併無衝突 83＋備註寫「衝突手解」23＋其他 39（備註寫具體原因的衝突檔 21 與其他調整 5＝26、新增檔為 fork 閘門調整 7、採用後又改過 6）；逐檔原因在 TSV 備註欄，44 個衝突檔的取捨見下表 |
+| 不適用 | 144 | 144 | 已刪語系 125（docs-site：ko 25、tr 22、zh-cn 21、fr／ja／ru 各 19）＋`gui/src/i18n` 九個非 en／zh-TW 語系檔 9＋`readme/` 譯本 7＋`scripts/install.sh`、`tests/ci-workflows/ci-scope-reduction.test.ts`、`tests/ci-workflows/linux-desktop-packaged-ci.test.ts` 各 1 |
+
+生成物（`scripts/ci/test-durations.windows.tsv`、`scripts/ci/test-durations.tsv`、`scripts/test-layout/layout.json`、`layout-usage.json`、`tests/fixtures/test-layout-expected.json`、`structure/manifest.json`、`structure/INDEX.md`）依方法第 3 點處理。
+
+### 44 個衝突檔的取捨
+
+| 檔案 | 衝突 | 取捨 |
+| --- | --- | --- |
+| `.github/workflows/ci.yml` | 16 | 以 fork 版為底（`push main`／`preview`、夜間排程、12 片 Windows shard、`timeout-minutes: 30`）。只採 `run-name`、`windows-native-claim` lane（`if` 去掉 `refs/heads/dev` 條件、不帶 quarantine 環境變數）與 `changes`／`ci` 彙整的對應 guard。不採：拿掉 `push`／`schedule`、「Validate dispatch source」、`LIDGE_RUNNERS` 自架 runner、macOS／Linux job |
+| `service-lifecycle.yml`、`catalog-async-contracts.yml` | 3／1 | 保留 fork 版；上游每個變更都是只准 `dev` 的觸發政策（`source_sha`、`validate-source`、evidence-policy checkout） |
+| `.github/workflows/release.yml` | 1 | 取上游全部，把官方 repo guard 放回（`validate-dispatch` 與 `release-outcomes` 的 `if`） |
+| `src/lab/artifacts/secure-fs.ts`、`fabric/scratch.ts`、`public/file-safety.ts`、`mutation-lock.ts`、`private-file.ts` | 8／9／7／5／2 | 整檔取上游（`fabc69ee1`：bigint identity 與 OS 鎖）；fork 的 `06aa61fb0` 做的是同一件事，語意等價時採上游設計 |
+| `tests/codex-integration/main-quota-provenance.test.ts` | 3 | 取上游的 claim 診斷，保留 fork 的 stderr 輸出；沒有 quarantine 的 `skipIf`；新增 `tests/helpers/native-main-claim-diagnostics.ts` 時移除 `skipInvalidQuotaTag`（`hostedWindowsQuarantine` 的 opt-in，fork 不遮蔽紅燈） |
+| `src/codex/catalog/provider-models.ts` | 1 | 兩邊都要：上游的 `skipInvalidRows` 警告併入，fork 的 host 精確比對與 log 欄位過濾保留，新警告裡的名稱也過 fork 的 scrub |
+| `tests/clients/client-fingerprint.test.ts` | 1 | 保留 fork 的 Stainless OS／arch 測試，版本常數改成上游新值（SDK `0.128.0`、runtime `v26.12.1`） |
+| `tests/ci-workflows/` 的 `ci-bun-install-frozen`、`ci-review-lanes`、`ci-scope-gaps`、`ci-structure-gate`、`ci-workflows`（4）、`install-scripts`、`release-desktop-scripts`、`release-outcome-report`、`release-version-line` | 各 1 | 斷言 `ci.yml` 形狀的保留 fork，斷言 `release.yml` 的取上游；`ci-bun-install-frozen` 的 Ubuntu job 清單是 fork 實有的 `test-changed`、`gates`；`ci-review-lanes` 加 `windows-native-claim` 彙整 guard 與診斷 checkout 計數；`install-scripts` 的 `install.sh` 案例維持刪除；`release-version-line` 取上游新寫法 |
+| `scripts/ci/test-durations.windows.tsv` | 9 | 整份保留 fork 量測值，新增檔沒有列；CI 綠後用 job log 刷新 |
+| `scripts/ci/test-durations.tsv`、`scripts/test-layout/layout.json`、`tests/fixtures/test-layout-expected.json` | 8／1／3 | 取上游，剔除 fork 沒有的測試，補回 fork 獨有條目；`tests/test-layout*.test.ts` 驗證 |
+| `package.json` | 1 | 版號 `2.100.2`；保留 `assets/demo.gif` 與拿掉 `test:macos`；採上游 `native/ocx-child` 三列 `files` 與 `build:ocx-child`／`test:ocx-child`；依賴維持 fork 的版本 |
+| `desktop/src-tauri/tauri.conf.json`、`Cargo.toml`、`Cargo.lock` | 1／1／1 | 版號 `2.100.2`（`bun scripts/release-version-sources.ts sync 2.100.2`，`check 2.100.2` exit 0；上游三個 tag 的版本來源都停在 2.100.0）；updater 設定不變；**不連結** wix fragment（D1） |
+| `docs-site/package.json` | 1 | 保留 fork 的 `sharp ^0.35.5` 與 `rolldown 1.1.7` override，加上游兩個字型套件；`bun.lock` 用 `bun install --ignore-scripts` 重新產生（+6 行） |
+| `docs-site/astro.config.mjs` | 1 | 取上游新增項，只加 zh-TW 標籤 |
+| `gui/src/i18n/v2-pages/proxy-copy.ts`、`shell-v2-copy.ts` | 2／1 | 保留 fork 的兩欄表，上游新列縮成 en（第 0 欄）與 zh-TW（第 5 欄）後插入 |
+| `README.md`、`readme/README.zh-TW.md` | 14／1 | `README.md` 不重放（fork 的繁中主文件）；`README.zh-TW.md` 保留 fork 版並補上游新段 |
+| `docs-site/.../guides/remote-hub.md`、`structure/desktop-shell.md`、`structure/ops/docs-and-release.md` | 2／1／1 | 保留 fork 的刪減，取上游對保留段落的修改；`docs-and-release.md` 的 shard 片數維持 12 |
+| `docs-site/.../zh-tw/` 的 `reference/configuration/providers.md`、`server.md`、`reference/cli/lifecycle.md`、`guides/combos.md`、`guides/remote-hub.md`、`contributing.md` | 2／1／1／1／1／2 | 以 fork 譯文為底照英文變更補譯；`zh-tw/contributing.md` 維持 fork 的 `main` 政策 |
+
+### 其他適配
+
+- **D1 遙測預設關閉**（決定寫在 `DECISIONS.md`，水位 commit 時補）：新增 `src/telemetry/fork-policy.ts` 的 `forkTelemetryBlocked()`（預設 `true`；只有 `NODE_ENV=test` 且 `OCX_FORK_TEST_TELEMETRY=1` 才放行，`tests/preload.ts` 設定）；`consent.ts` 的 `isTelemetryEnvOptOut()` 回 `OCX_TELEMETRY`，`sender.ts` 與 `profile/client.ts` 兩個出口各再擋一次（在 `fetch` 之前）；`tauri.conf.json` 不連結 wix fragment，`desktop-telemetry-installer.test.ts` 的「連結 fragment」案例改成斷言 fork 沒有連結；測試 `tests/usage/usage-telemetry-fork-policy.test.ts`（6 案）。`grep telemetry.opencodex.me src gui/src` 只出現在已擋的 `sender.ts`、`profile/client.ts` 與顯示用字串（`disclosure.ts`、`proxy-copy.ts`）。`FORK.md` 差異表與 `guides/telemetry.md`（en／zh-tw）已加說明。
+- **語系**：`telemetry-profile-copy.ts` 的 11 欄表縮成 en／zh-TW；新增三頁 zh-tw（`dashboard.mdx`、`guides/custom-gateway.md`、`guides/telemetry.md`）與 claude-code、remote-link、messaging、providers-accounts、desktop-app、adapters、proxy-formats、contributing 的新段落；`docs-zh-tw-parity` 過。**殘留的英文對繁中文字落差**（段落數與程式碼區塊數相等，所以 parity 測試抓不到，下次動到這些頁時補）：`claude-code`（fable fast list、quota bar 說明、rate-limit passthrough、`prompt_cache_key`、remove-unavailable 段、ToolSearch 文字各一行）、`remote-link`（prerequisites、step 5、disconnect 幾行、`ocx connect status`）、`providers-accounts`（preset exit code 2 一句）、`desktop-app`（autostart checklist）、`proxy-formats`（session TTL、compact `ocx2` 400）、`combos`（zh-tw 整段缺「選用參數相容性」，重放前就缺）。
+- **檔案行數上限**：`combo-management-api.test.ts` 的 import 區塊壓縮、英文 `providers.md` 四行手動換行併回，沒有改斷言與內容。
+- **`tests/ci-workflows` 契約測試**依「改測試去符合 fork 的 workflow，不改 workflow 去符合上游測試」：`ci-concurrency-groups`（斷言 fork 的觸發集合，移除 dev 限制與 macOS job 案例）、`ci-privacy-gate`（保留 fork 的 push 路徑斷言）、`release-pipeline-contract`（service-lifecycle 觸發案例用 fork 形式）、`docs-link-targets`（README 與已刪語系檢查）。
+- **官方 repo guard**：`release.yml` 以外的 workflow（`cleanup-*`、`enforce-*`、`pr-*`、`deploy-docs` 等）由 `tests/ci-workflows/fork-hygiene.test.ts` 驗證 guard 仍在。
+- `native/ocx-child`、`services/telemetry-collector` 照上游採用；`fork-release-windows.yml` 與 `desktop/scripts/prepare-sidecar.ts` 沒有任何 `ocx-child` 參照，MSI 流程不需要新增步驟。
+
+### CI 後續修正（分支 `ci/tagdiff-v2.100.2`）
+
+「重放時修掉」列是寫重放 commit 前的本機測試中發現並併入 `133061f40`；「本機驗證」列是之後各自獨立的 commit。遠端 run 尚未觸發，推送後結果補在本表下方。
+
+| 來源 | 失敗與原因 | 修正 |
+| --- | --- | --- |
+| 重放時修掉 | `ci-concurrency-groups`：上游測試斷言 `ci.yml` 只有 `pull_request`／`workflow_dispatch`、三個 workflow 都有只准 `dev` 的「Validate dispatch source」、`platform-macos` 存在，fork 的 `ci.yml` 都不是 | 測試改斷言 fork 的實際觸發（含 `push`、`schedule`），刪除 dev 限制與 macOS 案例（TSV 備註） |
+| 重放時修掉 | `ci-bun-install-frozen`：Ubuntu job 清單與 `LIDGE_JOBS` 自架 runner 路由 | 改成 fork 實有的 job，不採 runner 路由 |
+| 重放時修掉 | `release-pipeline-contract` 的 service-lifecycle 觸發案例斷言上游觸發政策 | 保留 fork 形式（`push main`／`preview`） |
+| 重放時修掉 | `docs-link-targets`：README 與已刪語系的連結檢查指向 fork 沒有的檔案 | 檢查改成 fork 版，保留 CI push 路徑檢查 |
+| 重放時修掉 | `file-size-ratchet`：`combo-management-api.test.ts` 與英文 `providers.md` 超過 2000 行門檻 | 壓縮 import 區塊、併回手動換行，不調門檻 |
+| 重放時修掉 | Hangul hygiene：`telemetry-profile-copy.ts` 的 11 欄表含韓文 | 縮成 en／zh-TW 兩欄 |
+| 重放時修掉 | `docs-zh-tw-parity`／連結：三個新英文頁沒有繁中對應頁，新段落數與程式碼區塊數不等 | 補譯三頁與各頁新段 |
+| 本機驗證（`2e69d8d9e`） | zh-tw `custom-gateway.md`、`telemetry.md` 的頁內錨點用英文 slug，但繁中標題產生的 slug 是中文（`#靜態模型允許清單`、`#首次註冊時的模型選擇`、`#遙測telemetry`）；`cli-telemetry.test.ts` 的 D12 迴圈逐檔讀 `README.md` 與已刪的六個 `readme/` 譯本，fork 的 `README.md` 沒有遙測段 | 錨點改成實際 slug；D12 改成：`README.md` 不得含舊的「不傳送任何資訊」說法，`readme/README.zh-TW.md` 與 `code-signing.md` 必須含四個揭露字串（沒有放寬；前一位工人留下的未提交版本只驗 `code-signing.md`，強度較低，已補回） |
+| 本機驗證（`2c6f0bcd7`） | `scripts/doctor-gui-if-changed.ts` 與 `lint-gui-if-changed.ts` 在沒有 `@{u}` 時的 fallback 範圍被上游從 `origin/main` 改成 `origin/dev`，fork 沒有 `dev`，結果是找不到範圍、掃描靜默略過 | 還原 `origin/main`／`main`（TSV 兩列改為適配）。`typecheck-gui-if-changed.ts` 與 `scripts/test.ts` 的 `dev` 參照是前幾輪就帶進來的，未動 |
+
+### 水位
+
+**未推進**。`tools/upstream_baseline.json` 仍是 `integrated_tag = v2.99.0`；遠端 `Cross-platform CI` 全綠後才用獨立 commit 推進（計畫步驟 6）。

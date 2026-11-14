@@ -785,3 +785,47 @@ config 測試首次等待 user test lock：owner PID 57096 在同時查得為 `D
 **CI 後續修正（遠端 Windows 全量，分支 `ci/tagdiff-v2.99.0`）**：逐 run 結果與根因在 `docs/fork/UPSTREAM.md` 同日節的 CI 表與 `DECISIONS.md` 決定六、七。摘要：首輪 run 42627438708 只有 `gates`（GUI 測試的十一語系清單，`d01c71cd6`）與 `windows 5/12`（`update-mutation-guard`，`595ee1e27` 遺留的審查列，`df6a0ad47`）兩處紅燈；修後 run 42631654245 的 12 個 Windows shard、`keyring windows`、`gates` 與 aggregate `ci` 全 success；權重表刷新後 run 42637255094 為 success（12 個 Windows shard 與 aggregate `ci` 全 success，最長一片 26.9 分鐘）。GUI 完整測試（`cd gui && bun test --isolate tests`）在修正後本機 4020 pass／0 fail（上方「沒跑」一句中的 GUI 部分以此取代；`vite build` 仍未在本機跑，遠端 `gates` 的 GUI 步驟已覆蓋）。
 
 **水位推進後的 strict 檢查**：`bun tools/check-upstream-updates.ts --strict` exit 0：「stable release tags above `v2.99.0`」、`Reviewed through: 6676629`、`No new upstream commits`，PR 軸「No untriaged closed-unmerged pull requests」（23 筆 `reviewed_pr_numbers`），issue 軸「Triaged through #8336」、沒有新 `platform` issue。推進前同一指令為 exit 1、28 筆待審 commit 與 1 筆待審 PR（#8252）。
+
+## 2026-11-14：`v2.99.0..v2.100.2` 全版 tag diff 重放的本機驗證（分支 `ci/tagdiff-v2.100.2`；遠端 CI 尚未觸發）
+
+範圍：1236 個上游變更檔（重放 commit `133061f40`：採用 948、適配 144、不適用 144、已等價 0），判定在 `docs/fork/UPSTREAM.md`「2026-11-14（續二）」節，清冊 `docs/fork/upstream-v2.99.0-v2.100.2-files.tsv`。所有測試在沙盒家目錄（`HOME`／`USERPROFILE`／`LOCALAPPDATA`／`APPDATA`／`TEMP` 指向 repo 外的暫存家目錄，`tests/preload.ts` 另外沙盒化應用程式家目錄）以 fresh process 分批執行，每批有逾時。**沒有**啟停或重裝真實服務、排程工作、`ocx.exe`、msiexec。
+
+「環境性」一欄的判定依據：同一個測試在乾淨的 `refs/upstream-tags/v2.100.2`（暫時 worktree）或 `origin/main`（暫時 worktree）上得到相同結果。兩個暫時 worktree 用 `mklink /J` 借用整合樹的 `node_modules`，驗完已移除。
+
+| 項目 | 結果 | 環境性失敗與基準 |
+| --- | --- | --- |
+| `tsc --noEmit`（2456 個檔案） | exit 0 | `bun run typecheck` 本身無法執行：`bun check` 的 bin 重新對應失敗（`bun install --ignore-scripts` 沒跑 `bun` 套件的 postinstall），改直接呼叫 `node_modules/typescript/bin/tsc` |
+| `structure-ssot`、`privacy-scan`、`generate-ocx-skill-surface --check`、`file-size-ratchet`、`release-version-sources check 2.100.2` | 全部 exit 0 | — |
+| `tools/dev_check.ps1` | `WINDOWS DEV CHECK GREEN`（11 份文件 0 斷鏈） | — |
+| `tests/update`（65 檔，`--timeout 60000`） | 1298 pass、57 skip、4 fail | 4 案都是 `update-tree-ownership` 的 `symlinkSync` `EPERM`（本機沒有建立 symlink 的權限）；乾淨 `v2.100.2` 同樣失敗 |
+| `tests/lib/file-identity-callers.test.ts` ＋ `tests/lab`（56 檔） | 合跑 552 pass、2 fail；單檔跑 `lab-automation-ingwannu-regressions` 3 pass、`file-identity-callers` 37 pass | 兩案：`CL-08 same-root successor`（合跑時負載造成，單檔過）與 `lab-activation.test.ts` 的 `beforeEach/afterEach hook` 逾時 14.9 秒（單檔跑也紅）。乾淨 `v2.100.2` 同樣組合同樣兩案，`lab-activation` 單檔同樣紅 |
+| `tests/test-layout*.test.ts` | 29 pass、0 fail | — |
+| `tests/service`、`tests/windows`、`cli/uninstall`、`cli/cli-resolve`（99 檔） | 2109 pass、20 fail | 19 案（`service-status-json` 1、`stop-deferred-teardown` R6 8、`stop-restoration-preflight` 1、`stop-restore-history-ownership` R7 9）在乾淨 `v2.100.2` 上跑同四個檔案得到一模一樣的 19 案失敗（見下方「執行環境與真實 LOCALAPPDATA」）。第 20 案 `windows-codex-cli-job-store` 的 `realpath LOCALAPPDATA\Temp` `ENOENT` 是沙盒家目錄少建一個 `AppData\Local\Temp`，補建後該檔 21 pass／0 fail |
+| `desktop-telemetry-installer`、`client-fingerprint`（2 檔） | 36 pass、0 fail | — |
+| 遙測（`usage-telemetry*` 含 fork 政策測試、`cli-telemetry*`、`server-telemetry*`、`telemetry-live-save`、`desktop-telemetry-installer`、`docs-telemetry-*`；18 檔） | 172 pass、3 fail | 3 案都是 `symlinkSync` `EPERM`（`cli-telemetry` 的 deferral 標記、`usage-telemetry-client` 的 D2 與 `writeTelemetryState` 兩案）；它們檢驗的是「不跟隨 symlink」，**本機未驗證**，要靠遠端 CI。`usage-telemetry-fork-policy` 6 案全過 |
+| `tests/ci-workflows`（89 檔，`--timeout 60000`） | 1433 pass、5 fail | `bundledBunPath`、兩個 typecheck fixture 案、`keyring-smoke` symlink 案：乾淨 `v2.100.2` 同樣失敗；`doctor-gui-if-changed` 的 native npx 案：`origin/main` 同樣失敗（`bun run doctor` 同一個 bin 重新對應錯誤）。第一次整個目錄跑 6 案紅，多出的 `cold-spawn-warmup`（72.9 秒）是同時有 cargo 編譯的負載造成，單檔 7.8 秒 20 pass，靜止時整個目錄重跑為上列 5 案 |
+| GUI：`bun run lint`、`bun run build` | exit 0 | — |
+| GUI：`bun ../scripts/test-with-pinned-bun.ts --isolate tests`（`bun run test` 同義，但同樣受 bin 重新對應影響故直接呼叫） | 4346 pass、0 fail（417 檔） | — |
+| docs-site：`bun run build` | 165 頁、23326 條內部連結檢查通過 | — |
+| docs-site：`bun audit` | exit 1：`astro@7.3.3`（`@astrojs/starlight > @astrojs/mdx > astro`）2 筆（low、moderate），修正在 7.4.5 之後 | `origin/main` 的 `docs-site/bun.lock` 同樣 2 筆，**不是這次重放造成**；上游這輪沒有升 `astro`。是否升級另案處理（要先看 48 小時規則） |
+| Rust `desktop/src-tauri`：`cargo test --lib`、`cargo clippy --lib --all-targets -- -D warnings`（`binaries/`、`resources/` 放空的建置輸入，跑完已刪） | 252 pass、2 fail；clippy 乾淨 | 2 案是 `login_registration` 的 `migration_rewrites_only_this_copys_own_enabled_entry`、`shared_fixture_matches_startup_safety`（macOS plist 與 uid 501 的 fixture）；乾淨 `v2.100.2` 同樣兩案，該檔在 fork 與上游此範圍內都沒有變動。fork 的 CI 沒有跑 `desktop/src-tauri` 的 cargo test |
+| Rust `native/remote-workspace-helper`：test、clippy `-D warnings` | 全過 | — |
+| Rust `native/ocx-child`：`cargo test --locked` | 其餘測試（含單元與 conformance）過、4 案 fail（`relay_and_lifecycle`：`failed to spawn detached ocx-child serve`，存取被拒）；`cargo clippy -D warnings` 紅（`platform.rs:606` `type_complexity`，工具鏈 1.98.1） | `native/` 與 `v2.100.2` 逐位元相同（`git diff` 空）；fork 的 CI 沒有跑 `ocx-child`。未與 `v2.100.2` 實跑對照 |
+
+### 回歸（已修）
+
+| 問題 | commit |
+| --- | --- |
+| `doctor-gui-if-changed.ts`、`lint-gui-if-changed.ts` 的 fallback 範圍被上游改成 `origin/dev`，fork 沒有 `dev` | `2c6f0bcd7` |
+| zh-tw 兩頁的頁內錨點、`cli-telemetry` D12 讀已刪的 README 譯本 | `2e69d8d9e` |
+
+### 執行環境與真實 `%LOCALAPPDATA%\OpenCodex\Runtime`
+
+service 與 lab 相關測試（`stop-restore-writer-runner.ts` 等）會在**真實**的 `C:\Users\<帳號>\AppData\Local\OpenCodex\Runtime\v1\<SID>\` 底下建立以沙盒路徑雜湊命名的鎖檔（`native-write-locks`、`catalog-write-locks`、`history-write-locks`、`bun-test-locks`）。這是上游的設計，不是環境變數造成的：`src/codex/user-identity.ts` 的 `resolveWindowsRuntimeRoot` 用 `SHGetKnownFolderPath` 與行程 token 的 SID 決定路徑，註解明寫「never USERPROFILE or LOCALAPPDATA」，所以把 `LOCALAPPDATA` 指到沙盒**不會**改變它（失敗訊息裡的 `EBUSY` 路徑就是真實路徑）。這一輪從 17:00 起的唯讀檢查（沒有修改或刪除任何東西）：`native-write-locks` 約 60 個 0 位元組 `.sqlite`（17:11–17:17，加 17:44 的 4 個）、`catalog-write-locks` 約 40 個 4096 位元組 `.sqlite`（17:43–17:45）、`bun-test-locks` 一個鎖目錄（17:43，被中止的批次留下，可能是 stale）；`history-write-locks` 自 05:32 起沒有變動。該資料夾本來就有 10 月 28 日起歷次測試累積的檔案（native 4425、catalog 12489、history 504 個），沒有辦法從時間戳區分哪些屬於真實應用程式。fixture 的 `finally` 只 `rmSync` 自己雜湊的那個檔案（19 案 `EBUSY` 就是這步失敗）。**未完成**：在這個前提下沒有重跑 service 那一批，也沒有跑目錄級的全面掃描（計畫外，已中止）。
+
+### 沒跑
+
+- `tests/` 其餘約 2,600 個既有檔的完整分批（由遠端 12 片 Windows CI 負責）；本機只跑了上表列出的目錄。這不能當綠燈。
+- 3 案 symlink 測試與 19 案 service 鎖測試在本機不可驗證，要看遠端 CI。
+- `bun tools/check-upstream-updates.ts --strict` 沒有重跑（水位沒動，結果仍是整合前的 exit 1）。
+- 3.4 的實機檢查（MSI 升級、桌面接管對話框、`ocx telemetry status --json`、wrapper 迴圈）：**未驗證**，等 MSI 建出並由維護者授權。

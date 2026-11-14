@@ -428,19 +428,14 @@ describe("main policy quota durability and lifecycle", () => {
         timeout: process.env.OCX_TEST_CLAIM_REGRESSION === "timeout" ? 15_000 : process.platform === "win32" ? SPAWN_BUDGET_MS - INTERNAL_DEADLINE_MS : 10_000 });
       const diagnostics = formatClaimDiagnostics(readFileSync(diagnosticsPath, "utf8"));
       if (process.env.OCX_TEST_CLAIM_REGRESSION === "timeout") expect(child.exitedDueToTimeout).toBe(true);
-      // A red here must name its own cause. A remote-only red (run 42376149161, windows 7/11, first
-      // case only) printed `Expected: true / Received: false` and nothing else, because the child's
-      // refusal class and stderr were read after the assertion that discarded them. Both
-      // assertions below still demand the exact value; only the failure output grew. The
-      // sanitized claim diagnostics (upstream f8dfc2f83) ride along with the child's stderr tail.
-      const childStderr = child.stderr.toString().slice(-1_500);
-      expect({ exitCode: child.exitCode, stderr: childStderr }, `claim diagnostics: ${diagnostics}`).toMatchObject({ exitCode: 0 });
+      // Only bounded claim diagnostics and the child's allowlisted refusal fields may be rendered.
+      expect(child.exitCode, `claim diagnostics: ${diagnostics}`).toBe(0);
       const line = child.stdout.toString().split("\n").find(row => row.startsWith('{"fixture":"cold-keyring-quota"'));
       expect(line).toBeDefined();
       const result = JSON.parse(line!);
       expect(result.before.weeklyPercent).toBe(100);
       expect({ selected: result.selected, failure: result.failure, detail: result.failureDetail,
-        reads: result.reads, stderr: childStderr }, `claim diagnostics: ${diagnostics}`).toMatchObject({ selected: scenario.selected });
+        reads: result.reads }, `claim diagnostics: ${diagnostics}`).toMatchObject({ selected: scenario.selected });
       expect(result.stored.weeklyPercent).toBe(33);
       expect(result.paused).toEqual(scenario.paused ? [MAIN] : []);
       if (scenario.source === "file") expect(result.initialized).toBe(true);

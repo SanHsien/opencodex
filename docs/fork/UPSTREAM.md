@@ -1527,7 +1527,7 @@ issue 軸：strict 新列出 `#8181`（desktop takeover 在預設 bind 時，`ru
 | `service-lifecycle.yml`、`catalog-async-contracts.yml` | 3／1 | 保留 fork 版；上游每個變更都是只准 `dev` 的觸發政策（`source_sha`、`validate-source`、evidence-policy checkout） |
 | `.github/workflows/release.yml` | 1 | 取上游全部，把官方 repo guard 放回（`validate-dispatch` 與 `release-outcomes` 的 `if`） |
 | `src/lab/artifacts/secure-fs.ts`、`fabric/scratch.ts`、`public/file-safety.ts`、`mutation-lock.ts`、`private-file.ts` | 8／9／7／5／2 | 整檔取上游（`fabc69ee1`：bigint identity 與 OS 鎖）；fork 的 `06aa61fb0` 做的是同一件事，語意等價時採上游設計 |
-| `tests/codex-integration/main-quota-provenance.test.ts` | 3 | 取上游的 claim 診斷，保留 fork 的 stderr 輸出；沒有 quarantine 的 `skipIf`；新增 `tests/helpers/native-main-claim-diagnostics.ts` 時移除 `skipInvalidQuotaTag`（`hostedWindowsQuarantine` 的 opt-in，fork 不遮蔽紅燈） |
+| `tests/codex-integration/main-quota-provenance.test.ts` | 3 | 取上游的 claim 診斷，僅保留 fork 經允許清單限制的 refusal／detail／reads 欄位，不輸出原始 stderr；沒有 quarantine 的 `skipIf`；新增 `tests/helpers/native-main-claim-diagnostics.ts` 時移除 `skipInvalidQuotaTag`（`hostedWindowsQuarantine` 的 opt-in，fork 不遮蔽紅燈） |
 | `src/codex/catalog/provider-models.ts` | 1 | 兩邊都要：上游的 `skipInvalidRows` 警告併入，fork 的 host 精確比對與 log 欄位過濾保留，新警告裡的名稱也過 fork 的 scrub |
 | `tests/clients/client-fingerprint.test.ts` | 1 | 保留 fork 的 Stainless OS／arch 測試，版本常數改成上游新值（SDK `0.128.0`、runtime `v26.12.1`） |
 | `tests/ci-workflows/` 的 `ci-bun-install-frozen`、`ci-review-lanes`、`ci-scope-gaps`、`ci-structure-gate`、`ci-workflows`（4）、`install-scripts`、`release-desktop-scripts`、`release-outcome-report`、`release-version-line` | 各 1 | 斷言 `ci.yml` 形狀的保留 fork，斷言 `release.yml` 的取上游；`ci-bun-install-frozen` 的 Ubuntu job 清單是 fork 實有的 `test-changed`、`gates`；`ci-review-lanes` 加 `windows-native-claim` 彙整 guard 與診斷 checkout 計數；`install-scripts` 的 `install.sh` 案例維持刪除；`release-version-line` 取上游新寫法 |
@@ -1553,7 +1553,7 @@ issue 軸：strict 新列出 `#8181`（desktop takeover 在預設 bind 時，`ru
 
 ### CI 後續修正（分支 `ci/tagdiff-v2.100.2`）
 
-「重放時修掉」列是寫重放 commit 前的本機測試中發現並併入 `133061f40`；「本機驗證」列是之後各自獨立的 commit。遠端 run 尚未觸發，推送後結果補在本表下方。
+「重放時修掉」列併入 `133061f40`；「本機驗證」列是之後各自獨立的 commit。遠端失敗的判定以 run `43582644150`（`ce988fe85`）的對應案例與子行程注入模式區分。
 
 | 來源 | 失敗與原因 | 修正 |
 | --- | --- | --- |
@@ -1566,6 +1566,10 @@ issue 軸：strict 新列出 `#8181`（desktop takeover 在預設 bind 時，`ru
 | 重放時修掉 | `docs-zh-tw-parity`／連結：三個新英文頁沒有繁中對應頁，新段落數與程式碼區塊數不等 | 補譯三頁與各頁新段 |
 | 本機驗證（`2e69d8d9e`） | zh-tw `custom-gateway.md`、`telemetry.md` 的頁內錨點用英文 slug，但繁中標題產生的 slug 是中文（`#靜態模型允許清單`、`#首次註冊時的模型選擇`、`#遙測telemetry`）；`cli-telemetry.test.ts` 的 D12 迴圈逐檔讀 `README.md` 與已刪的六個 `readme/` 譯本，fork 的 `README.md` 沒有遙測段 | 錨點改成實際 slug；D12 改成：`README.md` 不得含舊的「不傳送任何資訊」說法，`readme/README.zh-TW.md` 與 `code-signing.md` 必須含四個揭露字串（沒有放寬；前一位工人留下的未提交版本只驗 `code-signing.md`，強度較低，已補回） |
 | 本機驗證（`2c6f0bcd7`） | `scripts/doctor-gui-if-changed.ts` 與 `lint-gui-if-changed.ts` 在沒有 `@{u}` 時的 fallback 範圍被上游從 `origin/main` 改成 `origin/dev`，fork 沒有 `dev`，結果是找不到範圍、掃描靜默略過 | 還原 `origin/main`／`main`（TSV 兩列改為適配）。`typecheck-gui-if-changed.ts` 與 `scripts/test.ts` 的 `dev` 參照是前幾輪就帶進來的，未動 |
+| run `43582644150`，Windows 5/12 | `link-child-update-contract` 的 `update --plan --json parses and classifies as source-checkout`：整合適配遺漏。TSV 原為 adopt，測試與上游 tag 相同，但 CLI fixture 自訂 env 丟掉 preload 的 `NODE_ENV` 與 `OCX_FORK_TEST_REGISTRY_UPDATE`。fork 的 `runOrchestratedUpdate` 因而輸出 `reason: fork-self-update-disabled`，上游 `parseChildUpdatePlan` 的封閉原因集合不接受它 | 僅在該 fixture 的子行程傳入 `NODE_ENV=test` 與既有測試閘門，仍要求完整 plan 可解析並分類為 `source-checkout`；不改產品的自更新封鎖或 parser |
+| run `43582644150`，Windows 12/12 | `verified replacement`：不是本輪新增的暫時性 ACL 失敗。正式案例在 10:05:43Z 通過；10:05:52Z 與 10:06:08Z 的同名失敗是外層診斷測試啟動的子測試。`OCX_TEST_CLAIM_REGRESSION=exit` 注入 open 錯誤（`EICACLS`、`/inheritance:r`、`child_result`、`timedOut:false`）；`timeout` 在 hardening 刻意停滯 | 維持真實 claim 的 fail-closed 行為與原有重審條件，不增加重試。`native-main-lock-file.ts` 與上游 tag 相同；`native-main-claim.ts` 僅保留 fork 的 `fileIdentityKey` identity 表示差異，沒有改 ACL 呼叫 |
+| run `43582644150`，Windows 12/12 | `positive selection exit failure reports sanitized claim diagnostics`：整合回歸。TSV 原為 adapt，合併時保留 fork 原始 stderr 尾端，與上游只輸出允許清單診斷的契約衝突；刻意拋出的 `private-marker-child-stderr` 透過失敗物件外洩 | exit code 恢復上游的精確純量斷言，selection 失敗物件僅留已限制的 refusal／detail／reads；移除兩處原始 stderr，保留 `not.toContain("private-marker")` 斷言 |
+| run `43582644150`，Windows 12/12 | `forced claim setup timeout reports the latest sanitized phase`：同一整合回歸。helper 刻意輸出敏感標記後停在 hardening；最新診斷正確是 `phase: hardening`，但 fork 的失敗物件又印出原始 stderr | 同上，僅輸出已清理診斷；保留最新 phase、私密路徑、token 與標記的全部斷言，維持原逾時 |
 
 ### 水位
 

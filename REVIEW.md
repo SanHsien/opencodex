@@ -819,6 +819,8 @@ config 測試首次等待 user test lock：owner PID 57096 在同時查得為 `D
 | `doctor-gui-if-changed.ts`、`lint-gui-if-changed.ts` 的 fallback 範圍被上游改成 `origin/dev`，fork 沒有 `dev` | `2c6f0bcd7` |
 | zh-tw 兩頁的頁內錨點、`cli-telemetry` D12 讀已刪的 README 譯本 | `2e69d8d9e` |
 
+run `43582644150`（`ce988fe85`）的 CI 問題回註：`link-child-update-contract` 的 CLI fixture 補傳既有測試閘門；`main-quota-provenance` 的 exit／timeout 診斷移除原始 stderr，保留允許清單欄位與原斷言。正式 `verified replacement` 並未失敗，同名紅燈來自診斷測試的刻意注入，不能據此認定實際 ACL 故障。逐項原因與修正見 `docs/fork/UPSTREAM.md`「2026-11-14（續二）」的「CI 後續修正」表。
+
 ### 執行環境與真實 `%LOCALAPPDATA%\OpenCodex\Runtime`
 
 service 與 lab 相關測試（`stop-restore-writer-runner.ts` 等）會在**真實**的 `C:\Users\<帳號>\AppData\Local\OpenCodex\Runtime\v1\<SID>\` 底下建立以沙盒路徑雜湊命名的鎖檔（`native-write-locks`、`catalog-write-locks`、`history-write-locks`、`bun-test-locks`）。這是上游的設計，不是環境變數造成的：`src/codex/user-identity.ts` 的 `resolveWindowsRuntimeRoot` 用 `SHGetKnownFolderPath` 與行程 token 的 SID 決定路徑，註解明寫「never USERPROFILE or LOCALAPPDATA」，所以把 `LOCALAPPDATA` 指到沙盒**不會**改變它（失敗訊息裡的 `EBUSY` 路徑就是真實路徑）。這一輪從 17:00 起的唯讀檢查（沒有修改或刪除任何東西）：`native-write-locks` 約 60 個 0 位元組 `.sqlite`（17:11–17:17，加 17:44 的 4 個）、`catalog-write-locks` 約 40 個 4096 位元組 `.sqlite`（17:43–17:45）、`bun-test-locks` 一個鎖目錄（17:43，被中止的批次留下，可能是 stale）；`history-write-locks` 自 05:32 起沒有變動。該資料夾本來就有 10 月 28 日起歷次測試累積的檔案（native 4425、catalog 12489、history 504 個），沒有辦法從時間戳區分哪些屬於真實應用程式。fixture 的 `finally` 只 `rmSync` 自己雜湊的那個檔案（19 案 `EBUSY` 就是這步失敗）。**未完成**：在這個前提下沒有重跑 service 那一批，也沒有跑目錄級的全面掃描（計畫外，已中止）。

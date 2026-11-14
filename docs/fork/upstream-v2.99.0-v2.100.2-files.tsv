@@ -1039,7 +1039,7 @@ tests/clients/link-child-catalog-freshness.test.ts	A	NEW	same-as-upstream	adopt	
 tests/clients/link-child-observations.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
 tests/clients/link-child-observe.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
 tests/clients/link-child-plant-foundations.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
-tests/clients/link-child-update-contract.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/clients/link-child-update-contract.test.ts	A	NEW	fork-adapted	adapt	CLI fixture passes NODE_ENV=test and the existing fork registry-update test gate; production update policy unchanged
 tests/clients/link-ephemeral-child-discovery.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
 tests/clients/link-gated-ocx-argv.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
 tests/clients/link-ocx-child-conformance.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
@@ -1062,7 +1062,7 @@ tests/codex-integration/codex-shim-runtime-preflight.test.ts	M	TAKE	same-as-upst
 tests/codex-integration/codex-shim.test.ts	M	MOD	fork-adapted	adapt	three-way merge, no conflict
 tests/codex-integration/combos.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
 tests/codex-integration/main-quota-evidence-validation.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
-tests/codex-integration/main-quota-provenance.test.ts	M	MOD	fork-adapted	adapt	upstream claim diagnostics merged with the fork stderr output; no quarantine skipIf
+tests/codex-integration/main-quota-provenance.test.ts	M	MOD	fork-adapted	adapt	upstream claim diagnostics with allowlisted fork refusal/detail/reads fields only; no raw stderr or quarantine skipIf
 tests/codex-integration/messaging-local-lifecycle.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
 tests/codex-integration/messaging-mcp-replies.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
 tests/codex-integration/messaging-mcp-wait.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken

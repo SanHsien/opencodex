@@ -9,6 +9,7 @@ import { classifyChildUpdatePlan, mapUpdateApplyExit, parseChildUpdatePlan, pars
   type ChildUpdatePlan } from "../../src/link/child-update-contract";
 import { classifyUpdatePlanProbe } from "../../src/link/child-gated-ocx";
 import { repoPath } from "../helpers/repo-root";
+import { FORK_TEST_REGISTRY_UPDATE_ENV } from "../../src/update/fork-source.mjs";
 
 const live = { kind: "live" as const, servingRoot: "/opt/ocx", runtime: { pid: 42, port: 10531, hostname: "127.0.0.1", command: ["/opt/ocx/ocx"] } };
 const base: PlanInputs = { currentVersion: "2.97.0", targetVersion: "2.100.0", installer: "bun", runtimeOwner: "service", cliRoot: "/opt/ocx",
@@ -156,7 +157,8 @@ describe("real CLI plan and usage", () => {
     const home = mkdtempSync(join(tmpdir(), "ocx-child-contract-"));
     try {
       const proc = Bun.spawnSync([process.execPath, repoPath("src", "cli", "index.ts"), ...args], {
-        env: { HOME: home, OPENCODEX_HOME: join(home, "ocx-home"), CODEX_HOME: join(home, "codex-home"), PATH: process.env.PATH ?? "" },
+        env: { NODE_ENV: "test", [FORK_TEST_REGISTRY_UPDATE_ENV]: "1", HOME: home,
+          OPENCODEX_HOME: join(home, "ocx-home"), CODEX_HOME: join(home, "codex-home"), PATH: process.env.PATH ?? "" },
         stdout: "pipe", stderr: "pipe", timeout: 30_000,
       });
       return { code: proc.exitCode, stdout: proc.stdout.toString() };

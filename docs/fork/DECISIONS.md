@@ -1,5 +1,16 @@
 # 維護決策
 
+## 2026-11-14：v2.100.2 真機 MSI 驗收通過
+
+**環境**：維護者機器，升級前安裝 2.99.1，排程 `opencodex-proxy` 管理 service。
+
+1. **安裝**：release 附的 `OpenCodex-2.100.2-windows-x64.msi` 與 `.sha256` 相符（`ed3a9f1c…7d4a40`），tag `v2.100.2` 指向 `1cdf1a74d`。以系統管理員身分執行 `msiexec /i … /qb`，結束碼 0。
+2. **service 自動恢復**：安裝完成後 `/healthz` 回 `version: 2.100.2`（PID 39344，20:53:06 啟動），沒有手動 `ocx service repair`。`~/.opencodex/opencodex-service.cmd` 仍是含 `<nul` 與「waiting up to 120s」等待迴圈的版本。
+3. **桌面 app 不搶 runtime**：`ocx resolve --json` 的 `takeover` 為 `{kind:"blocked",reason:"service-managed"}`，`versionSkew.relation` 為 `match`。完整結束 `opencodex-desktop.exe` 再重開兩輪，都沒有可見的對話框；10100 的擁有者兩輪都是同一個 PID 39344；排程上次執行時間沒變。
+4. **telemetry**：`ocx telemetry status` 顯示 `disabled (env-ocx-telemetry)`。使用者與系統層級都沒有設 `OCX_TELEMETRY`，在去掉該變數的行程裡結果相同；這個標籤來自 `isTelemetryEnvOptOut` 的 `forkTelemetryBlocked()`（D1：fork build 把封鎖回報成 OCX_TELEMETRY 停用）。`telemetry-state.json` 的 `lastSentDay` 為 `null`，`service.log` 沒有 telemetry 字樣，連線清單裡沒有連到 `telemetry.opencodex.me` 解析出的 IP。
+
+**順手清理**：`%LOCALAPPDATA%\OpenCodex\Runtime\v1\<SID>\bun-test-locks` 有一個 2026-09-06 手動隔離留下的 `.lock.stale-20260906T1002` 目錄，已刪除。當下的 `.lock` 由 20:30 的 `bare-37456` 取得，擁有者行程已經不在；`test-run-lock.ts` 的 `reclaimStaleLock` 下次取鎖時會自己回收，所以沒有手動處理。`.lock.gate.sqlite` 仍由 `test-run-lock-gate.ts` 使用，保留。
+
 ## 2026-11-14：發 fork release v2.100.2 後把版本來源前推到 2.100.3
 
 **做法**：tag `v2.100.2` 指向 `1cdf1a74d`（整合上游 v2.100.2 的 main），觸發 `fork-release-windows.yml` 建 MSI。發版後 main 立刻以 `release-version-sources.ts sync 2.100.3` 前推，避免 `release version line` 在全量跑把後續 commit 當成重複發佈（11-14 v2.99.1 的教訓）。上游已有 `v2.100.3`，下一輪整合的目標正是它，所以前推到同號不會與 fork 的下一個 release 衝突。

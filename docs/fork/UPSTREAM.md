@@ -1277,3 +1277,197 @@ issue 軸：strict 新列出 `#8181`（desktop takeover 在預設 bind 時，`ru
 ### 水位
 
 **已推進（2026-11-09）**：`tools/upstream_baseline.json` 的 `integrated_tag` 由 `v2.98.0` 推到 `v2.99.0`，`integrated_through`／`reviewed_through` 為 `667662903a6c139524506667d12656d9ad50fad0`，`reviewed_date` 為 2026-11-09，PR 水位新增 #8252（共 23 筆 `reviewed_pr_numbers`，判定見 `DECISIONS.md` 決定五），`reviewed_issue_through` 維持 8336。依據：分支 `ci/tagdiff-v2.99.0` 的 `Cross-platform CI` run 42631654245（`df6a0ad47`）與 run 42637255094（`3357585fd`，權重刷新後）12 個 Windows shard 與 aggregate `ci` 全 success，且 `36aa9e8f7..667662903` 的 28 筆 commit 全落在這份 tag diff 內。推進後 `bun tools/check-upstream-updates.ts --strict` 的結果見 `REVIEW.md` 2026-11-09 節。
+
+## 2026-11-14：`v2.99.0..v2.100.2` commit 軸整合前審查（163 筆，未整合）
+
+範圍為 `refs/upstream-tags/v2.99.0`（`667662903a6c139524506667d12656d9ad50fad0`）至 `refs/upstream-tags/v2.100.2`（`61147ec681bc8374d350e0eae08b71c117c6df30`），共 163 筆 commit，無 merge commit；tag diff 為 1236 檔（370 新增、866 修改、0 刪除），+129468/-13987。fork 基準為 `025dd546ad63ac2cc5290400aaf95fcc48c63a2c`（2.99.2）。中間 tag 為 `v2.100.0`（`0d691be83`）與 `v2.100.1`（`00c02163e`）。
+
+本節只建立 commit 軸整合前審查；不執行重放，不推進 `tools/upstream_baseline.json` 的審查或整合水位。判定「採用」表示後續隨 tag diff 帶入；「適配」表示採用並保留或改寫 fork 差異；「不採」指相關 hunk 不進 fork；「不適用」指在 tag 淨結果中無須另行帶入。判定不表示已整合。
+
+### 主題審查與 fork 影響（T1–T11）
+
+| 主題 | 內容 | 筆數 | 判定 | fork 影響與整合時處理 |
+| --- | --- | --- | --- | --- |
+| T1 | 發版流程與分支政策 | 12 | 適配 | 採用不執行的 release scripts 與 version-line 檔案；保留官方 repo guard。不採 ci.yml、service-lifecycle.yml、catalog-async-contracts.yml 的 dev-only 限制及移除 push／schedule；保留 fork 的 main 觸發與夜間排程。release-evidence-policy.json 的上游 CI blob 雜湊須配合 fork 差異；gates 維持不加 node --test release-evidence.test.cjs。四個版本來源的上游 blob 均為 2.100.0，整合時以 release-version-sources.ts sync 2.100.2 設定版號。 |
+| T2 | CI 與測試基礎 | 13 | 採用／適配／不採 | 1c97e3c16 的 Windows native-claim 診斷 job 與 helper 採用，if 改成 fork main 可用條件；f8dfc2f83 保留診斷與 fork 不隔離紅燈的斷言。28b38f915 的 LIDGE_RUNNERS 自架 runner 不採，維持 ubuntu-latest。3842ebcc5 保留 fork Windows 權重，CI 成功後重新量測；5cb7d6591 共用權重採上游並剔除不存在的測試；b967316b2 按生成物規則合併。Rust toolchain 與其餘測試穩定化修正採用。 |
+| T3 | 遙測 | 10 | 適配（D1） | 程式採用，fork 預設不送、不詢問；collector 固定為 telemetry.opencodex.me，fork 不部署 collector 或站台。新增 fork-policy.ts 的 forkTelemetryBlocked() 預設 true，僅測試環境與專用變數同時成立才放行；consent.ts 的 isTelemetryEnvOptOut() 回 OCX_TELEMETRY，sender.ts 與 profile/client.ts 兩個出口另設閘門。MSI 不連結 fragmentPaths／componentGroupRefs；installer_telemetry.rs 與 wix fragment 保留，沒有登錄值時不動作。以測試固定 effective: false、兩出口不呼叫 fetch、Tauri 不連結 fragment，並調整上游安裝頁測試；英／繁中 telemetry 文件與 FORK 差異同步說明。政策可逆，重新評估條件為要參與上游統計或有 fork 自用 collector。 |
+| T4 | 更新 | 3 | 採用 | 10972dd96 新增 minisign、signed-supply、update 模組與 trust-root 共 21 檔，尚未接上執行路徑；forkSelfUpdateBlocked() 閘門保留。2f40e96aa 的 update import-policy 與 process allowlist 採用；整合後整個 tests/update 以 fresh-process 執行。 |
+| T5 | 撤回與重新合入 | 29 | 以 tag diff 淨結果為準 | 0fac612a9 撤回 14 筆原始 PR，原始 commit 不單獨重放；12 筆重新合入與 fb814f90a、15f39a303 後續修正採用。#8299 與 #8276 未重新合入，詳見下文。f3657d3f3 回收多個已死 owner 的 shim restore 鎖，整合並滿足 #8317 驗收後才刪 ROADMAP 對應列；9129c0e23 涉及 launcher、update、install.ps1 與 update-job，確認 fork 閘門在所有安裝呼叫之前。 |
+| T6 | Remote Link 與 Rust ocx-child | 13 | 採用 | f14a2c104 新增 native/ocx-child 獨立 Rust crate（22 檔、+13737）及 package scripts／files；fork MSI 不建它，確認 fork-release-windows.yml 與 prepare-sidecar.ts 不增加必要步驟。e5e757afd 的 SSH 遠端部署與 9e7b3ea9b 的私有本機控制 socket 屬安全邊界，整合時逐檔判定；remote-windows.ts、link-pinned-sync-argv 與 link-tunnel-history 保留 fork 差異。 |
+| T7 | Windows／服務／設定／Lab | 12 | 採用／適配 | a72c52220 的唯讀 catalog、35d96de88 的 JSONC BOM、f1a132eec 的 launchd 與 80d79b51a 的 Keychain 修正採用。0c3fd3fbb 的 bind 啟動復原須按 #8318 驗收，尚不能認定已解決。25a1bfc69／8c28f5f2b 的 config ownership 適配並逐檔判定；fabc69ee1 的 Lab 六檔以 OS 鎖與 bigint identity 的上游設計處理。Windows 服務 wrapper、guest_choice 與 prompt-lock-claim 不在本輪上游變更內；桌面 startup.rs／lib.rs／sidecar.rs 變更為遙測安裝選項掛點。 |
+| T8 | Anthropic／Claude／帳號 | 16 | 採用 | 產品修正採用；00c02163e 將 Claude Code 對外版本升至 2.1.321，SDK 改為 0.128.0／v26.12.1，client-fingerprint 的舊版寫死值須同步。claude-messages.ts、cli/claude.ts、oauth/store.ts 保留 fork 差異。這組依主旨與規模分類，未逐筆讀 diff。 |
+| T9 | Combos／Responses／sidecar／adapter／provider | 39 | 採用 | 依產品修正慣例同步；保留 compact.ts、request-prepare.ts、request-log.ts、router.ts、tool-schema.ts、vendor-probes-key.ts、entries-core.ts、quota.ts、types/config.ts 的 fork 差異。550d0d669 整合後重查 /responses/compact 追蹤列；provider-models.ts 的 4e83a8e36／9e88602b0 須解衝突。combo-management-api 測試避免重複貼入 fork 案例。這組依主旨與規模分類，未逐筆讀 diff。 |
+| T10 | GUI 與用量 | 14 | 採用（語系適配） | 九個已刪的非 en／zh-TW 語系不重放；新增多語系欄位表與寫死十一語系的測試縮成 en／zh-TW。295159fb5、79ba4f29f、a1441404b 新增 SQLite filter index 與 WAL sidecar，測試限隔離設定目錄。這組依主旨與規模分類，未逐筆讀 diff。 |
+| T11 | 文件與站台 | 2 | 適配／採用 | 573c1dc61 不覆蓋繁中 README.md；readme/README.zh-TW.md 保留 fork 並補需要的新段落。4a22eda84 首頁、導覽與主題改版採用；astro.config.mjs 側欄只加 zh-TW 標籤，已刪語系不恢復。 |
+
+`0fac612a9` 撤回的 14 筆中，12 筆已重新合入；**#8299（`9aeffab72`，relay 未分類 SSE 錯誤）與 #8276（`83c9c3e6c`，#8274／#8276 link route intent，173 檔）被撤回後未重新合入，不在 `v2.100.2` 的淨變更內**，不另行 cherry-pick。清冊保留原始 commit 與撤回 commit，整合以兩個 tag 的淨 diff 為準。
+
+### Commit 軸清冊（163 筆）
+
+依 commit 拓樸由舊到新排列。規模逐筆使用 `git diff --numstat <c>^1 <c>` 實算（`MSYS_NO_PATHCONV=1`），檔數為 numstat 列數，加刪行數逐列加總；各筆累計包含撤回與重新合入，不等於 tag 淨 diff 的規模。
+
+| Commit | 日期 | 變更規模 | 主題 | 判定 | 主旨 |
+| --- | --- | --- | --- | --- | --- |
+| `0627a2c25` | 2026-11-08 | 4 檔 +4/-4 | T1 | 適配 | chore(release): open dev at 2.100.0 before releasing 2.99.0 (#8313) |
+| `5279c91bf` | 2026-11-08 | 57 檔 +1378/-96 | T10 | 採用 | fix(gui): configure Google Vertex ADC (#8311) |
+| `573c1dc61` | 2026-11-08 | 9 檔 +225/-179 | T11 | 適配 | docs(readme): GOAT link, official-API commercial note, account pool under Advanced usage (#8006) |
+| `56d9ab4db` | 2026-11-08 | 14 檔 +2672/-0 | T4 | 採用 | docs: plan automatic update parity (#8275) |
+| `b3373c96c` | 2026-11-08 | 22 檔 +222/-13 | T10 | 採用 | fix(gui): show WorkBuddy credit balance in quota bar (#8323) |
+| `b670ddb3e` | 2026-11-08 | 31 檔 +1444/-122 | T9 | 採用 | fix(combo): stop the prompt-cache usage leak — replay native Messages on Anthropic children (#7374) |
+| `569bacd67` | 2026-11-08 | 56 檔 +4941/-3140 | T1 | 適配 | Release preview and stable from verified dev commits (#8328) |
+| `cf46eac26` | 2026-11-08 | 1 檔 +46/-13 | T1 | 適配 | fix(tests): use native Windows paths for release shell (#8335) |
+| `a235ef5d1` | 2026-11-08 | 30 檔 +1143/-48 | T10 | 採用 | fix(gui): show verified Claude account in provider overview (#8334) |
+| `f8dfc2f83` | 2026-11-08 | 2 檔 +224/-6 | T2 | 適配 | Diagnose Windows native-main claim setup failures (#8341) |
+| `35d96de88` | 2026-11-08 | 7 檔 +63/-5 | T7 | 採用 | Fix leading BOM handling in JSONC configuration (#8205) |
+| `e5c9e3fc2` | 2026-11-08 | 8 檔 +97/-16 | T9 | 採用 | Fix supplementary Han token estimates (#8207) |
+| `d16ba6cc6` | 2026-11-08 | 5 檔 +39/-3 | T9 | 採用 | Stop sidecar parsing at terminal events (#8209) |
+| `a5455803b` | 2026-11-08 | 5 檔 +98/-2 | T9 | 採用 | Preserve final sidecar citation titles (#8198) |
+| `fabc69ee1` | 2026-11-08 | 14 檔 +498/-461 | T7 | 適配 | fix: serialize Lab public-evidence mutation with an OS-held lock and compare Lab file identity with bigint stat (#8035) |
+| `7fe985a5b` | 2026-11-08 | 8 檔 +334/-13 | T9 | 採用 | fix(combos): keep Codex metadata frames from committing a combo child (#8152) |
+| `1c97e3c16` | 2026-11-08 | 9 檔 +271/-31 | T2 | 適配 | ci: add targeted Windows native claim diagnostic lane (#8345) |
+| `10972dd96` | 2026-11-08 | 44 檔 +2987/-58；1 個二進位檔 | T4 | 採用 | Add offline signed-update verification and checkpoint codec (#8294) |
+| `fac611ea5` | 2026-11-08 | 7 檔 +617/-0 | T3 | 適配（D1） | docs(devlog): plan default-on (opt-out) telemetry and the opencodex.me usage dashboard (#8293) |
+| `2c01f5648` | 2026-11-08 | 2 檔 +394/-0 | T6 | 採用 | docs(devlog): design Child-to-Home account move over Remote Link (OCX-4) (#7495) |
+| `687dec84e` | 2026-11-08 | 13 檔 +676/-94 | T8 | 採用 | Show observed Claude CLI quota for the current account (#7916) |
+| `f14a2c104` | 2026-11-09 | 54 檔 +16650/-33 | T6 | 採用 | feat(link): add lightweight Rust ocx-child ephemeral Child relay and offline journal (#8237) |
+| `9d7473f9e` | 2026-11-09 | 11 檔 +84/-15 | T10 | 採用 | fix(gui): show Claude account email when privacy.maskEmails is false (#8364) |
+| `f1c895e97` | 2026-11-09 | 1 檔 +5/-1 | T1 | 適配 | test: use independent expected paths in the Windows release PATH contract (#8336) (#8366) |
+| `afd487b6d` | 2026-11-09 | 2 檔 +33/-5 | T1 | 適配 | fix(release): stream progress while watching a dispatched release (#8330) (#8367) |
+| `ae350ddcd` | 2026-11-08 | 4 檔 +91/-16 | T1 | 適配 | docs(release): describe history reconciliation and attested resume (#8346) |
+| `4bef566e7` | 2026-11-08 | 22 檔 +737/-74 | T8 | 採用 | Support image inputs for Claude CLI (#7978) |
+| `e5e757afd` | 2026-11-09 | 51 檔 +3823/-272 | T6 | 採用 | feat(link): zero-preinstall SSH ocx-child planting, --purge detach, and #remote UX (#8255) |
+| `578c8bde0` | 2026-11-09 | 8 檔 +973/-42 | T9 | 採用 | Reconcile sidecar text snapshots (#8197) |
+| `28b38f915` | 2026-11-09 | 2 檔 +15/-5 | T2 | 不採 | ci: run heavy Linux jobs on the lidge self-hosted pool for trusted runs (#8369) |
+| `399925164` | 2026-11-08 | 1 檔 +197/-0 | T10 | 採用 | test(gui): cover verified Claude Overview account labels |
+| `f6506e727` | 2026-11-09 | 1 檔 +32/-0 | T1 | 適配 | ci: pin release evidence policy to the current ci.yml (#8377) |
+| `df4b71b39` | 2026-11-09 | 2 檔 +21/-1 | T7 | 採用 | fix(integrations): keep Aside aggregate current when unselected profiles are absent (#8373) |
+| `9e7b3ea9b` | 2026-11-09 | 17 檔 +1541/-9 | T6 | 採用 | fix(link): serve ocx link status over a private local control socket (#8370) |
+| `77d97d290` | 2026-11-09 | 6 檔 +77/-22 | T6 | 採用 | fix(link): raise Child preflight output cap and name the limit (#8380) |
+| `8cf05824d` | 2026-11-09 | 71 檔 +628/-775 | T1 | 適配 | chore: remove retired release branch references (#8381) |
+| `74fb6f0b4` | 2026-11-09 | 1 檔 +53/-25 | T10 | 採用 | test(gui): restore Overview account-label test globals exactly (#8375) |
+| `295159fb5` | 2026-11-09 | 14 檔 +3413/-84 | T10 | 採用 | perf(usage): index filtered ledger queries and resume append ingestion (#8391) |
+| `c813ecc5c` | 2026-11-09 | 27 檔 +116/-20 | T10 | 採用 | fix(gui): explain a refused Remember instead of reporting the admin token unverifiable (#8374) |
+| `a72c52220` | 2026-11-09 | 14 檔 +424/-7 | T7 | 採用 | fix(codex): retry a read-only Windows catalog replacement (#8382) |
+| `534adadae` | 2026-11-09 | 1 檔 +5/-2 | T2 | 採用 | test(responses): skip sockets when checking assertion persistence (#8400) |
+| `e5a22fe2f` | 2026-11-08 | 3 檔 +27/-4 | T7 | 採用 | fix(cli): report an unavailable provider preset as a usage error (#8310) |
+| `83c9c3e6c` | 2026-11-09 | 173 檔 +11681/-246 | T5 | 不適用（已撤回） | feat(link): sync route intent and materialize clients per device (#8274) (#8276) |
+| `6ce65a5a4` | 2026-11-09 | 4 檔 +75/-10 | T5 | 不適用（已撤回） | fix(quota): read Kimi Coding Plan usage from the regional kimi.ai origin (#8399) |
+| `57cb4bb35` | 2026-11-09 | 8 檔 +134/-8 | T5 | 不適用（已撤回） | fix(codex): probe the app-bundled CLI when no Codex CLI resolves (#8395) |
+| `4995e7c42` | 2026-11-09 | 9 檔 +9/-8 | T5 | 不適用（已撤回） | docs: scope the Remember proxy refusal to standalone dashboards and list its code (#8394) |
+| `b684b46aa` | 2026-11-09 | 21 檔 +516/-8 | T5 | 不適用（已撤回） | feat(anthropic): add opt-in thinking display policy (#8392) |
+| `d5034499e` | 2026-11-09 | 8 檔 +133/-10 | T5 | 不適用（已撤回） | fix(link): show the Child's own reason when ocx link add fails (#8390) |
+| `1176557e3` | 2026-11-09 | 3 檔 +85/-9 | T5 | 不適用（已撤回） | fix(copilot): keep Auto negotiation off real DNS in tests and survive a mid-negotiation account switch (#8389) |
+| `ff2f5dee4` | 2026-11-09 | 53 檔 +386/-89 | T5 | 不適用（已撤回） | fix(update): keep bun's postinstall enabled on npm 11 and diagnose a skipped one (#8387) |
+| `62bba4843` | 2026-11-09 | 25 檔 +632/-68 | T5 | 不適用（已撤回） | fix(gui): recover Aside overwrite previews instead of failing silently (#8384) |
+| `0a1d59e5f` | 2026-11-09 | 2 檔 +20/-9 | T5 | 不適用（已撤回） | fix(integrations): leave an uninstalled owned client alone on implicit refresh (#8353) |
+| `d38d2e316` | 2026-11-09 | 4 檔 +178/-0 | T5 | 不適用（已撤回） | docs(providers): add custom gateway verification guide (#8350) |
+| `9fb295bfd` | 2026-11-09 | 3 檔 +116/-31 | T5 | 不適用（已撤回） | fix(codex): reclaim stale shim restore lock with several dead owners (#8349) |
+| `9aeffab72` | 2026-11-09 | 6 檔 +185/-23 | T5 | 不適用（已撤回） | fix(relay): report an untyped SSE error envelope as response.failed (#8299) |
+| `e76511d66` | 2026-11-09 | 4 檔 +104/-6 | T5 | 不適用（已撤回） | fix(google): clear replayed thought signatures on a real HTTP 400 (#8054) (#8150) |
+| `0c3fd3fbb` | 2026-11-08 | 5 檔 +372/-7 | T7 | 採用 | Fix startup recovery on specific bind addresses (#8046) |
+| `9633acde4` | 2026-11-09 | 1 檔 +231/-2 | T8 | 採用 | Add Claude CLI schema output fixtures (#8078) |
+| `0fac612a9` | 2026-11-09 | 305 檔 +525/-14254 | T5 | 採用（撤回） | Revert 14 PRs admin-merged on CI alone without required review (#8402) |
+| `b263b0866` | 2026-11-09 | 4 檔 +75/-10 | T5 | 採用 | fix(quota): read Kimi Coding Plan usage from the regional kimi.ai origin (#8399) (#8403) |
+| `f40c97b10` | 2026-11-09 | 8 檔 +134/-8 | T5 | 採用 | fix(codex): probe the app-bundled CLI when no Codex CLI resolves (#8395) (#8404) |
+| `9573456d5` | 2026-11-09 | 9 檔 +9/-8 | T5 | 採用 | docs: scope the Remember proxy refusal to standalone dashboards and list its code (#8394) (#8405) |
+| `fa4341a57` | 2026-11-09 | 21 檔 +516/-8 | T5 | 採用 | feat(anthropic): add opt-in thinking display policy (#8392) (#8406) |
+| `364e8a9ad` | 2026-11-09 | 8 檔 +133/-10 | T5 | 採用 | fix(link): show the Child's own reason when ocx link add fails (#8390) (#8407) |
+| `01e94ff65` | 2026-11-09 | 3 檔 +85/-9 | T5 | 採用 | fix(copilot): keep Auto negotiation off real DNS in tests and survive a mid-negotiation account switch (#8389) (#8408) |
+| `9129c0e23` | 2026-11-09 | 53 檔 +386/-89 | T5 | 採用 | fix(update): keep bun's postinstall enabled on npm 11 and diagnose a skipped one (#8387) (#8409) |
+| `8c812be7f` | 2026-11-09 | 25 檔 +632/-68 | T5 | 採用 | fix(gui): recover Aside overwrite previews instead of failing silently (#8384) (#8410) |
+| `6dac51166` | 2026-11-09 | 2 檔 +20/-9 | T5 | 採用 | fix(integrations): leave an uninstalled owned client alone on implicit refresh (#8353) (#8411) |
+| `d079eccaf` | 2026-11-09 | 4 檔 +178/-0 | T5 | 採用 | docs(providers): add custom gateway verification guide (#8350) (#8412) |
+| `f3657d3f3` | 2026-11-09 | 3 檔 +116/-31 | T5 | 採用 | fix(codex): reclaim stale shim restore lock with several dead owners (#8349) (#8413) |
+| `1d16d7932` | 2026-11-09 | 4 檔 +104/-6 | T5 | 採用 | fix(google): clear replayed thought signatures on a real HTTP 400 (#8054) (#8150) (#8414) |
+| `b33fab71c` | 2026-11-09 | 11 檔 +1224/-74 | T10 | 採用 | feat(usage): extend opt-in cache continuation diagnostics (#7479) |
+| `e6df67e41` | 2026-11-09 | 21 檔 +214/-18 | T9 | 採用 | feat(providers): add cheapaimodel API-key preset (#7899) |
+| `be5c40eef` | 2026-11-09 | 4 檔 +70/-7 | T9 | 採用 | fix(t3code): declare model efforts and tint the provider badge (#8085) |
+| `97d26c75e` | 2026-11-09 | 7 檔 +116/-6 | T9 | 採用 | fix(exports): honor native OpenAI display name overrides (#8234) |
+| `f2f3c6a81` | 2026-11-09 | 9 檔 +249/-15 | T9 | 採用 | fix(dictation): extend streaming protocol support and allow ten-minute recordings (#8232) |
+| `0428e0d34` | 2026-11-09 | 4 檔 +55/-5 | T9 | 採用 | fix(responses): keep OpenGateway lifecycle output_text from reading as an empty completion (#8376) |
+| `80d79b51a` | 2026-11-09 | 6 檔 +593/-26 | T7 | 採用 | fix(oauth): stop killing blocked Claude Keychain reads (#8327) |
+| `ee3626986` | 2026-11-09 | 9 檔 +114/-3 | T9 | 採用 | Fix encrypted orphan reasoning replay for opted-in Ark Kimi endpoints (#8097) |
+| `fb814f90a` | 2026-11-09 | 4 檔 +9/-2 | T5 | 採用 | docs: follow-ups to the re-landed Remember, custom gateway and owned-refresh changes (#8418) |
+| `15f39a303` | 2026-11-09 | 6 檔 +91/-15 | T5 | 採用 | fix(codex): borrow the app-bundled catalog only when no Codex CLI resolved (#8419) |
+| `036d0b201` | 2026-11-09 | 9 檔 +120/-5 | T9 | 採用 | fix: preserve Chat tool defaults on OpenAI Responses routes (#8144) |
+| `d97bfe45f` | 2026-11-09 | 4 檔 +49/-4 | T8 | 採用 | fix(claude): keep a Claude Code session's cache key and pooled account across turns (#8371) |
+| `f1a132eec` | 2026-11-09 | 4 檔 +257/-5 | T7 | 採用 | fix(service): wait out a manual launchd bootout before reporting failure (#8385) |
+| `2bf8ec6c1` | 2026-11-09 | 18 檔 +550/-38 | T9 | 採用 | fix(providers): classify Meta's Muse Code refusal as a plan restriction (#8396) |
+| `c0fedf266` | 2026-11-09 | 63 檔 +5397/-38 | T3 | 適配（D1） | feat(telemetry): default-on anonymous telemetry core with a human-only consent boundary (#8300) |
+| `25a1bfc69` | 2026-11-09 | 3 檔 +135/-21 | T7 | 適配 | fix(config): wait for complete owner metadata during first registration (#8270) |
+| `9e863b181` | 2026-11-09 | 26 檔 +1386/-35 | T3 | 適配（D1） | feat(desktop): Windows installer page to disclose telemetry and opt out at install time (#8348) |
+| `6ea0e35ba` | 2026-11-09 | 16 檔 +1962/-10 | T3 | 適配（D1） | feat(gui): telemetry consent popup on first run and after updates, with an Advanced toggle (#8303) |
+| `ad5110c69` | 2026-11-09 | 8 檔 +32/-25 | T8 | 採用 | docs(claude-code): note that the per-turn tk token is dropped from session identity (#8421) |
+| `2817da817` | 2026-11-09 | 17 檔 +3773/-15 | T3 | 適配（D1） | feat(telemetry-collector): Cloudflare Worker + D1 collector and public stats API (#8304) |
+| `5511f62a6` | 2026-11-09 | 33 檔 +812/-74 | T3 | 適配（D1） | docs(telemetry): telemetry and privacy guide plus configuration reference (#8305) |
+| `289727dda` | 2026-11-09 | 17 檔 +6304/-17 | T3 | 適配（D1） | feat(docs-site): public usage dashboard at opencodex.me/dashboard (#8308) |
+| `f0f34d09a` | 2026-11-09 | 6 檔 +177/-11 | T6 | 採用 | fix(link): run the install serving the Child before Desktop or PATH copies (#8424) |
+| `8d290153e` | 2026-11-09 | 78 檔 +5695/-27 | T3 | 適配（D1） | feat(telemetry): opt-in public profile and personal usage rank (#8393) |
+| `c81be32a7` | 2026-11-09 | 33 檔 +309/-38 | T9 | 採用 | feat(combo): add jevEffortMode to keep JEV from re-tiering a cache-sensitive target (#8041) |
+| `3580fc9d6` | 2026-11-09 | 16 檔 +651/-13 | T9 | 採用 | fix(responses): preserve Codex client metadata on routed requests (#8193) |
+| `50961560c` | 2026-11-09 | 1 檔 +33/-5 | T2 | 採用 | test(usage): state the filter index availability contract Windows can reach (#8440) |
+| `a1d7d05ea` | 2026-11-09 | 1 檔 +10/-3 | T1 | 適配 | test(release): run the attach step from a script file so Windows keeps its backslashes (#8437) |
+| `2f40e96aa` | 2026-11-09 | 6 檔 +68/-6 | T4 | 採用 | test(update): review the signed-update verification modules in the update lint (#8445) |
+| `79ba4f29f` | 2026-11-09 | 3 檔 +103/-18 | T10 | 採用 | fix(usage): wait for a concurrently created filter index instead of calling it foreign (#8439) |
+| `1e8e7e7e9` | 2026-11-09 | 1 檔 +28/-23 | T2 | 採用 | test(clients): give each Desktop lifecycle case the budget its child process already has (#8441) |
+| `4a22eda84` | 2026-11-09 | 17 檔 +2764/-191 | T11 | 採用 | docs(site): redesign landing, navigation, and theme (#8005) |
+| `33726958e` | 2026-11-09 | 98 檔 +7944/-731 | T10 | 採用 | fix(gui): preserve provider drafts and bind saves to their dashboard target (#8438) |
+| `a1441404b` | 2026-11-10 | 3 檔 +145/-4 | T10 | 採用 | fix(usage): keep the filter index's WAL sidecars so filtered queries stop churning the config directory (#8442) |
+| `e963af305` | 2026-11-10 | 1 檔 +20/-6 | T2 | 採用 | test(usage): name the input that moved when the warm aggregate rebuilds (#8459) |
+| `4b38e9a07` | 2026-11-10 | 4 檔 +66/-32 | T2 | 採用 | test(rust): derive toolchain homes from the rustup proxy and report them on failure (#8458) |
+| `3842ebcc5` | 2026-11-10 | 2 檔 +2939/-2782 | T2 | 適配 | ci: refresh the Windows shard durations from batch 42694893702 (#8463) |
+| `8cab7040a` | 2026-11-10 | 1 檔 +32/-2 | T2 | 採用 | test(usage): read the warm base after the stage's work and name a Windows ChangeTime move (#8462) |
+| `5cb7d6591` | 2026-11-10 | 2 檔 +3031/-2934 | T2 | 採用 | ci: refresh the shared shard durations from Ubuntu and macOS logs (#8465) |
+| `0d691be83` | 2026-11-10 | 19 檔 +645/-38 | T8 | 採用 | feat(anthropic): add Claude Fable 5.2 pricing, fast mode and provider rows (#8466) |
+| `7877b6417` | 2026-11-10 | 2 檔 +6/-1 | T1 | 適配 | fix(release): publish the verified npm tarball as a local path (#8467) |
+| `05cb4d576` | 2026-11-10 | 3 檔 +114/-6 | T1 | 適配 | fix(release): start the 2.100.0 changelog at the reviewed legacy baseline (#8468) |
+| `1bea09454` | 2026-11-10 | 9 檔 +201/-12 | T8 | 採用 | fix(anthropic): rank Fable accounts by its share of the weekly limit (#8469) |
+| `b534ca133` | 2026-11-10 | 5 檔 +65/-6 | T3 | 適配（D1） | feat(gui): show a spinner while telemetry consent and profile actions wait (#8471) |
+| `550d0d669` | 2026-11-10 | 9 檔 +137/-6 | T9 | 採用 | fix(responses): reject malformed retained compact input before routing (#8433) |
+| `05d517e96` | 2026-11-10 | 3 檔 +15/-2 | T3 | 適配（D1） | fix(telemetry-collector): attach telemetry.opencodex.me as a Custom Domain (#8472) |
+| `bab23a90f` | 2026-11-10 | 5 檔 +118/-4 | T9 | 採用 | fix(sidecars): preserve identities across partial snapshots (#8401) |
+| `809033329` | 2026-11-10 | 11 檔 +148/-17 | T9 | 採用 | fix(mistral): bound image pruning memory and normalize malformed references (#8434) |
+| `7e2641c25` | 2026-11-10 | 2 檔 +20/-1 | T9 | 採用 | fix(kiro): list Identity Center profiles without an oversized page (carry of #8084) (#8473) |
+| `8c28f5f2b` | 2026-11-10 | 2 檔 +101/-3 | T7 | 適配 | fix(config): revalidate ownership before honoring a spent publication wait (#8422) |
+| `5f8a1938d` | 2026-11-10 | 8 檔 +197/-12 | T9 | 採用 | fix(venice): upscale inline images below the 64px minimum edge (#8083) |
+| `00c02163e` | 2026-11-10 | 4 檔 +74/-6 | T8 | 採用 | fix(anthropic): present Claude Code 2.1.321 so Fable 5.2 is accepted (#8474) |
+| `da76b2733` | 2026-11-10 | 12 檔 +204/-14 | T7 | 採用 | fix(integrations): seed Command Code's auth store so the desktop app can open (#8340) |
+| `9e88602b0` | 2026-11-10 | 59 檔 +1632/-113 | T9 | 採用 | feat(providers): complete manual pause and resume for API key pools (#7636) |
+| `fdcf20b74` | 2026-11-10 | 5 檔 +142/-42 | T6 | 採用 | fix(link): keep the census reader quiet and bound to the first record (#8431) |
+| `3c497c63a` | 2026-11-10 | 8 檔 +374/-13 | T8 | 採用 | fix(quota): expire a carried weekly reading once its window is over (#8185) |
+| `101aee79e` | 2026-11-10 | 4 檔 +65/-10 | T1 | 適配 | fix(release): wait for npm to serve a new version before verifying it (#8477) |
+| `758d81bbd` | 2026-11-10 | 14 檔 +503/-26 | T10 | 採用 | fix(gui): match the Getting started startup step to OpenCodex Desktop (#8476) |
+| `d8084c5a6` | 2026-11-10 | 17 檔 +1496/-55 | T9 | 採用 | fix(combo): fail over zero-output max_output_tokens terminal (#8222) |
+| `e9fdc0043` | 2026-11-11 | 16 檔 +485/-21 | T9 | 採用 | feat(messaging): add bounded waits for stored Codex replies (#8090) |
+| `97bfb91af` | 2026-11-11 | 31 檔 +1305/-66 | T9 | 採用 | Show Mistral API and Vibe budget usage (#8295) |
+| `a5d088f1b` | 2026-11-11 | 4 檔 +31/-3 | T8 | 採用 | docs: clarify Claude OAuth client version errors (#8482) |
+| `bf7cd1864` | 2026-11-11 | 11 檔 +395/-17 | T9 | 採用 | feat(combos): persist target cooldowns across restarts (#8117) |
+| `937c8192f` | 2026-11-11 | 31 檔 +567/-77 | T8 | 採用 | fix(anthropic): show inactive model-scoped quota rows without routing on them (#8186) |
+| `5f2fe0bae` | 2026-11-11 | 10 檔 +269/-10 | T8 | 採用 | fix(quota): pool-wide capacity estimate for the Anthropic account pool card (#8137) |
+| `00680193c` | 2026-11-11 | 13 檔 +177/-128 | T7 | 採用 | fix(integrations): leave Command Code credentials to the client (#8481) |
+| `df0e6ccc4` | 2026-11-10 | 10 檔 +714/-18 | T9 | 採用 | fix(combo): recognize generic context-window overflow wording (#8130) |
+| `b967316b2` | 2026-11-11 | 3 檔 +4/-7 | T2 | 適配 | fix(ci): bring layout.json and the Anthropic pool doc back under their caps (#8485) |
+| `31665f9d9` | 2026-11-11 | 7 檔 +139/-11 | T9 | 採用 | fix(combo): preserve compatible native Messages requests (#8488) |
+| `61151e345` | 2026-11-11 | 15 檔 +336/-23 | T9 | 採用 | fix(logs): keep the provider's closed error class and finishReason on failure rows (#8489) |
+| `c2258732e` | 2026-11-11 | 14 檔 +177/-19 | T9 | 採用 | fix(responses): let retryOnReset replace chained native turns (#8486) |
+| `dd9764d46` | 2026-11-11 | 2 檔 +16/-0 | T8 | 採用 | docs(claude): explain rate limits on caller-owned native passthrough (#8494) |
+| `6364d9898` | 2026-11-11 | 10 檔 +47/-33 | T8 | 採用 | docs(claude): describe tool search behind a gateway for current Claude Code (#8493) |
+| `e95669090` | 2026-11-11 | 9 檔 +46/-14 | T9 | 採用 | fix(cursor): name the CallDynamicTool path for deferred client tools (#8492) |
+| `3dcdc49a5` | 2026-11-11 | 5 檔 +39/-12 | T9 | 採用 | fix(quota): keep the Mistral budget helper off the core load path (#8498) |
+| `6083e2287` | 2026-11-11 | 5 檔 +54/-5 | T9 | 採用 | fix(sidecars): let a later final citation fill a missing title (#8491) |
+| `851b1ec16` | 2026-11-11 | 20 檔 +4577/-110 | T9 | 採用 | fix(combo): continue reasoning effort fallback (#8173) |
+| `29dc0893f` | 2026-11-11 | 25 檔 +544/-111 | T9 | 採用 | feat(providers): strip named hosted tools only beside client tools (#8499) |
+| `4bf2ec8de` | 2026-11-11 | 22 檔 +1104/-74 | T8 | 採用 | feat(claude): keep the Chat tool catalog stable across ToolSearch loads (opt-in dispatcher) (#8502) |
+| `4e83a8e36` | 2026-11-11 | 27 檔 +711/-30 | T9 | 採用 | feat(providers): opt-in skip of invalid model discovery rows (#8503) |
+| `42e3e040d` | 2026-11-11 | 4 檔 +72/-3 | T9 | 採用 | fix(devin): flatten root tool-schema compositions for Claude uids (#8490) |
+| `dfc54804e` | 2026-11-11 | 23 檔 +1293/-54 | T9 | 採用 | fix(combo): hop on opaque upstream 400 errors (#8162) |
+| `ddee2c200` | 2026-11-11 | 15 檔 +7298/-0 | T6 | 採用 | docs(devlog): roadmap for Home-orchestrated Child updates and operations (#8500) |
+| `41536f6da` | 2026-11-11 | 8 檔 +165/-6 | T6 | 採用 | fix(cli): explain a rejected hub invite and startup-only config keys (#8495) |
+| `29a5278c1` | 2026-11-11 | 17 檔 +1467/-99 | T6 | 採用 | feat(link): gated remote ocx, Child update contract and observation cache (#8505) |
+| `15cf4c901` | 2026-11-11 | 9 檔 +278/-11 | T6 | 採用 | fix(link): show a Child's tunnel state in ocx connect status (#8496) |
+| `bceee7fe7` | 2026-11-11 | 16 檔 +270/-17 | T10 | 採用 | fix(gui): remove unavailable Claude Desktop assignments from the dashboard (#8497) |
+| `e10c9ba6a` | 2026-11-11 | 6 檔 +52/-25 | T6 | 採用 | fix(link): retry a timed-out or refused-forward Child every minute from the Home (#8509) |
+| `87e005f93` | 2026-11-11 | 60 檔 +2708/-113 | T6 | 採用 | feat(link): show Child version, install kind and catalog freshness; ocx link check (#8508) |
+| `10bf0d289` | 2026-11-11 | 24 檔 +787/-18 | T8 | 採用 | feat(accounts): explicit health-gated resume, and login that clears an automatic pause (#8515) |
+| `5197322e2` | 2026-11-11 | 4 檔 +41/-14 | T9 | 採用 | fix(antigravity): send Gemini 4 Carbon requests with the CLI User-Agent (#8483) |
+| `61147ec68` | 2026-11-11 | 1 檔 +25/-4 | T2 | 採用 | test(link): keep the constrained-mode prefix out of the cmd.exe budget (#8517) |

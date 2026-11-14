@@ -1,4 +1,3 @@
-import { sameFileIdentity, lstatFileIdentity, fstatFileIdentity } from "../../lib/file-identity";
 import {
   closeSync,
   constants as fsConstants,
@@ -11,6 +10,7 @@ import {
   unlinkSync,
 } from "node:fs";
 import { basename, dirname, join } from "node:path";
+import { sameFileIdentity } from "../../lib/file-identity";
 import { isPrivateFileStageName } from "./private-file";
 import { PublicEvidenceValidationError } from "./validate";
 
@@ -39,8 +39,8 @@ function sizeError(options: PrivateRegularFileReadOptions): PublicEvidenceValida
  */
 function recoverPublishedPrivateFileStage(path: string): void {
   if (process.platform === "win32") return;
-  const finalStats = lstatFileIdentity(path);
-  if (finalStats.isSymbolicLink() || !finalStats.isFile() || finalStats.nlink <= 1) return;
+  const finalStats = lstatSync(path, { bigint: true });
+  if (finalStats.isSymbolicLink() || !finalStats.isFile() || finalStats.nlink <= 1n) return;
 
   const dir = dirname(path);
   const prefix = `.${basename(path)}.`;
@@ -49,7 +49,7 @@ function recoverPublishedPrivateFileStage(path: string): void {
     if (!name.startsWith(prefix) || !isPrivateFileStageName(name)) continue;
     const stagePath = join(dir, name);
     try {
-      const stageStats = lstatFileIdentity(stagePath);
+      const stageStats = lstatSync(stagePath, { bigint: true });
       if (
         stageStats.isFile()
         && !stageStats.isSymbolicLink()
@@ -75,7 +75,7 @@ function recoverPublishedPrivateFileStage(path: string): void {
 
   for (const stagePath of candidates) {
     try {
-      const stageStats = lstatFileIdentity(stagePath);
+      const stageStats = lstatSync(stagePath, { bigint: true });
       if (
         stageStats.isFile()
         && !stageStats.isSymbolicLink()
@@ -94,31 +94,31 @@ function withPrivateRegularFile<T>(
   options: PrivateRegularFileReadOptions,
   consume: (fd: number, size: number) => T,
 ): T {
-  let pathStats = lstatFileIdentity(path);
-  if (!pathStats.isSymbolicLink() && pathStats.isFile() && pathStats.nlink > 1) {
+  let pathStats = lstatSync(path, { bigint: true });
+  if (!pathStats.isSymbolicLink() && pathStats.isFile() && Number(pathStats.nlink) > 1) {
     recoverPublishedPrivateFileStage(path);
-    pathStats = lstatFileIdentity(path);
+    pathStats = lstatSync(path, { bigint: true });
   }
-  if (pathStats.isSymbolicLink() || !pathStats.isFile() || pathStats.nlink !== 1) {
+  if (pathStats.isSymbolicLink() || !pathStats.isFile() || Number(pathStats.nlink) !== 1) {
     throw new PublicEvidenceValidationError(options.errorCode, options.errorMessage);
   }
-  if (pathStats.size > options.maxBytes) throw sizeError(options);
+  if (Number(pathStats.size) > options.maxBytes) throw sizeError(options);
 
   const fd = openSync(path, fsConstants.O_RDONLY | O_NOFOLLOW);
   try {
-    const stats = fstatFileIdentity(fd);
+    const stats = fstatSync(fd, { bigint: true });
     if (
       !stats.isFile()
-      || stats.nlink !== 1
+      || Number(stats.nlink) !== 1
       || !sameFileIdentity(stats, pathStats)
     ) {
       throw new PublicEvidenceValidationError(options.errorCode, options.errorMessage);
     }
-    if (stats.size > options.maxBytes) throw sizeError(options);
-    if (options.requireMode600 && process.platform !== "win32" && (stats.mode & 0o777) !== 0o600) {
+    if (Number(stats.size) > options.maxBytes) throw sizeError(options);
+    if (options.requireMode600 && process.platform !== "win32" && (Number(stats.mode) & 0o777) !== 0o600) {
       throw new PublicEvidenceValidationError(options.errorCode, options.errorMessage);
     }
-    return consume(fd, stats.size);
+    return consume(fd, Number(stats.size));
   } finally {
     closeSync(fd);
   }

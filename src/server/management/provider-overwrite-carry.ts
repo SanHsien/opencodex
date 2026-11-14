@@ -5,6 +5,7 @@ import {
   transientRetryOn5xxPolicyConfigError,
 } from "../../config/load-degrade";
 import type { OcxProviderConfig } from "../../types";
+import { providerModelDiscoveryConfigError } from "../../providers/model-discovery-config";
 
 /**
  * The retry policies. They are the one carried group the PATCH field mask did not know, and they
@@ -57,13 +58,33 @@ export const PROVIDER_COMPAT_CARRY_FIELDS = [
   "singleLeadingSystemMessage",
   "reasoningWireFormat",
   "omitReasoningEffortWithToolsModels",
+  // Hosted-tool denials describe the same upstream, and the form sends neither. They travel
+  // together: carrying only the conditional list (#8204) would let a hosted-only request
+  // forward a tool the dropped unconditional list had denied.
+  "unsupportedHostedTools",
+  "unsupportedHostedToolsWithClientTools",
   ...RETRY_POLICY_FIELDS,
 ] as const satisfies readonly (keyof OcxProviderConfig)[];
 
-export const PROVIDER_DISPLAY_CARRY_FIELDS = ["hideRawReasoning"] as const satisfies readonly (keyof OcxProviderConfig)[];
+export const PROVIDER_DISPLAY_CARRY_FIELDS = [
+  "hideRawReasoning",
+  // The Anthropic thinking display policy (#8363) is operator configuration the dashboard form
+  // cannot send either, so an unrelated save must not silently return the model to the default.
+  "thinkingDisplay",
+  "modelThinkingDisplay",
+] as const satisfies readonly (keyof OcxProviderConfig)[];
 
 export type ProviderCompatCarryField = typeof PROVIDER_COMPAT_CARRY_FIELDS[number];
 type ProviderDisplayCarryField = typeof PROVIDER_DISPLAY_CARRY_FIELDS[number];
+
+/**
+ * Discovery compatibility (#7910). `modelDiscovery.skipInvalidRows` records that one gateway
+ * publishes invalid `/models` rows, so it follows the compatibility settings' destination rule:
+ * kept on a same-destination overwrite that omits it, dropped when the provider moves. It is a
+ * separate group because it changes discovery, not the request the compatibility cases probe.
+ */
+export const PROVIDER_DISCOVERY_CARRY_FIELDS = ["modelDiscovery"] as const satisfies readonly (keyof OcxProviderConfig)[];
+type ProviderDiscoveryCarryField = typeof PROVIDER_DISCOVERY_CARRY_FIELDS[number];
 
 /** The only `reasoningWireFormat` value the adapters understand. */
 export const PROVIDER_REASONING_WIRE_FORMATS: readonly NonNullable<OcxProviderConfig["reasoningWireFormat"]>[] = [
@@ -75,13 +96,14 @@ export const PROVIDER_REASONING_WIRE_FORMATS: readonly NonNullable<OcxProviderCo
  * omitted this" and "the registry supplied it" look the same.
  */
 export interface ProviderOverwriteSample {
-  readonly submitted: ReadonlySet<ProviderCompatCarryField | ProviderDisplayCarryField>;
+  readonly submitted: ReadonlySet<ProviderCompatCarryField | ProviderDisplayCarryField | ProviderDiscoveryCarryField>;
   readonly namesAuthMode: boolean;
 }
 
 export function sampleProviderOverwrite(provider: object): ProviderOverwriteSample {
   return {
-    submitted: new Set([...PROVIDER_COMPAT_CARRY_FIELDS, ...PROVIDER_DISPLAY_CARRY_FIELDS].filter(field => Object.hasOwn(provider, field))),
+    submitted: new Set([...PROVIDER_COMPAT_CARRY_FIELDS, ...PROVIDER_DISPLAY_CARRY_FIELDS, ...PROVIDER_DISCOVERY_CARRY_FIELDS]
+      .filter(field => Object.hasOwn(provider, field))),
     namesAuthMode: Object.hasOwn(provider, "authMode"),
   };
 }
@@ -131,10 +153,11 @@ export function carryProviderCompatFields(
   for (const field of PROVIDER_DISPLAY_CARRY_FIELDS) {
     if (sample.submitted.has(field)) continue;
     const stored = live[field];
-    if (stored !== undefined) target[field] = stored;
+    // Copy maps rather than alias them, like the compatibility settings below.
+    if (stored !== undefined) target[field] = stored !== null && typeof stored === "object" ? structuredClone(stored) : stored;
   }
   if (!providerOverwriteKeepsDestination(candidate, live, sample)) return;
-  for (const field of PROVIDER_COMPAT_CARRY_FIELDS) {
+  for (const field of [...PROVIDER_COMPAT_CARRY_FIELDS, ...PROVIDER_DISCOVERY_CARRY_FIELDS]) {
     if (sample.submitted.has(field)) continue;
     const stored = live[field];
     if (stored === undefined) continue;
@@ -269,6 +292,15 @@ export function applyProviderCompatPatchFields(
       if (error) return { error };
       next[field] = structuredClone(value) as OcxProviderConfig[typeof field];
     }
+    touched = true;
+  }
+  // `null` or `{}` clears the block; anything else must pass the same check POST applies.
+  if (Object.hasOwn(rawBody, "modelDiscovery")) {
+    const value = rawBody.modelDiscovery;
+    const error = value === null ? null : providerModelDiscoveryConfigError(value);
+    if (error) return { error };
+    if (value === null || Object.keys(value as object).length === 0) delete next.modelDiscovery;
+    else next.modelDiscovery = structuredClone(value) as NonNullable<OcxProviderConfig["modelDiscovery"]>;
     touched = true;
   }
   return { touched };

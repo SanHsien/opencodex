@@ -9,6 +9,7 @@
 #  PRs that change this policy will be closed. See AGENTS.md "CI policy".
 # ============================================================================
 name: Cross-platform CI
+run-name: ocx-ci-v1 lane=${{ github.event.inputs.lane || 'all' }} sha=${{ github.sha }}
 
 on:
   # Always create the aggregate `ci` check for pull requests. Expensive jobs
@@ -66,10 +67,10 @@ on:
   workflow_dispatch:
     inputs:
       lane:
-        description: "all (default) or release-gates"
+        description: "all (default), release-gates, or windows-native-claim"
         type: choice
         default: all
-        options: [all, release-gates]
+        options: [all, release-gates, windows-native-claim]
   # Nightly safety net. The Windows shards run on a pull request only when the
   # changes job judges it Windows-sensitive, so anything that slips past that
   # filter must still be caught within a day: a scheduled run requests the full
@@ -193,6 +194,7 @@ jobs:
   # in the `on:` block above.
   changes:
     name: changes
+    if: github.event_name != 'workflow_dispatch' || github.event.inputs.lane != 'windows-native-claim'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     # The workflow grants only `contents: read`, and specifying any permission
@@ -539,6 +541,42 @@ jobs:
 
       - name: CLI help smoke
         run: bun run src/cli/index.ts help
+
+  # A diagnostic run deliberately bypasses `changes` and the full CI graph. Its title
+  # (run-name lane=windows-native-claim) identifies it as a partial run, never release
+  # evidence, and the aggregate `ci` job is skipped for it. Adopted from upstream
+  # `1c97e3c16` (#8345); the upstream `github.ref == 'refs/heads/dev'` condition is dropped
+  # because this fork has no `dev` and dispatches CI on `ci/tagdiff-*` branches
+  # (workflow_dispatch already requires write access). See docs/fork/DECISIONS.md.
+  windows-native-claim:
+    name: windows native-main claim diagnostic
+    needs: select-windows-runner
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.lane == 'windows-native-claim'
+    runs-on: ${{ fromJSON(needs.select-windows-runner.outputs.runner) }}
+    timeout-minutes: 30
+    steps:
+      - name: Checkout workflow commit
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Setup project Bun
+        uses: ./.github/actions/setup-project-bun
+        with:
+          role: test-runner
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Isolate homes
+        shell: pwsh
+        run: |
+          $root = Join-Path $env:RUNNER_TEMP "ocx-claim-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          $ocxHome = Join-Path $root 'opencodex'
+          $codexHome = Join-Path $root 'codex'
+          New-Item -ItemType Directory -Path $ocxHome, $codexHome -ErrorAction Stop | Out-Null
+          "OPENCODEX_HOME=$ocxHome" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "CODEX_HOME=$codexHome" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      - name: Run native-main claim diagnostics
+        run: bun test tests/codex-integration/main-quota-provenance.test.ts --timeout 60000
 
   # Windows runs on a Windows-sensitive pull request, on the nightly schedule,
   # and on a lane=all (or default) dispatch. It is never part of the push run
@@ -945,7 +983,7 @@ jobs:
   # would go green precisely when something went wrong.
   ci:
     name: ci
-    if: always()
+    if: always() && (github.event_name != 'workflow_dispatch' || github.event.inputs.lane != 'windows-native-claim')
     # Every producer, including the ones that only feed other jobs. `needs` holds
     # direct dependencies only, so a failing `select-windows-runner` would
     # otherwise reach this gate as nothing at all while its dependents report

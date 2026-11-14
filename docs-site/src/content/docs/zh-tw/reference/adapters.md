@@ -200,6 +200,21 @@ both ordinary Responses and native v1 remove opaque reasoning ciphertext and req
 Missing `reasoning_text` is filled from the item's `summary_text`, or a minimal placeholder if no
 usable summary exists. Existing plaintext is preserved. OpenAI-operated compact keeps its own policy.
 
+`forwardClientHeaders` 只支援 `originator`、`x-client-request-id`、`x-codex-app-version`、`user-agent`、`x-codex-window-id` 與 `x-codex-installation-id`；任意名稱與萬用字元前綴會在載入／寫入時被拒絕，並在執行時被忽略。
+
+對於需要原始 Codex 用戶端中繼資料的自訂閘道（例如啟用 `codex_cli_only` 的 sub2api 帳號），請只選擇其營運者要求的欄位。若它需要呼叫者的視窗識別碼，請在該 provider 上選擇加入：
+
+```json
+{
+  "forwardClientHeaders": [
+    "originator", "user-agent", "x-codex-app-version", "x-client-request-id",
+    "x-codex-window-id"
+  ]
+}
+```
+
+這只會保留用戶端實際送出的值，包含跨過原生 compact fallback 時。
+
 For a gateway whose **v2 generation and replay** have both been verified, merge these fields into
 its existing provider configuration, retaining its real URL and configured authentication:
 

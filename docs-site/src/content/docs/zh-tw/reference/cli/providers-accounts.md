@@ -531,7 +531,7 @@ kiro      oauth  8b24de70  k***1@examp***.net  -                mo 88%
 
 ### `ocx account pause|resume <provider> <id|alias|main> [--json]`
 
-暫停或恢復 Codex、Anthropic 或通用 OAuth 供應商池中的單一帳號，包括
+暫停或恢復 Codex、Anthropic、通用 OAuth 或 API-key 供應商池中的單一帳號或金鑰，包括
 `google-antigravity`。在 Codex 池中，`main` 僅代表 Codex 內建帳號；OAuth 帳號必須用 id 或唯一別名識別。
 已暫停的 OAuth 帳號不會參與請求選帳、429 輪替或主動 Token 刷新，也不能手動選取。
 若暫停目前使用中的帳號，系統會在有其他可用帳號時切換過去。若全部帳號都已暫停，
@@ -548,6 +548,12 @@ Anthropic 暫停不受帳號池啟用開關影響，包含工作階段綁定與 
 ocx account pause google-antigravity <account-id-or-alias>
 ocx account resume google-antigravity <account-id-or-alias>
 ```
+
+#### Resume if healthy
+
+無人值守的 supervisor 可以執行 `ocx account resume <provider> <account-id-or-alias> --if-healthy`。只有在對該帳號自己的用量做一次新的讀取成功之後，它才會恢復帳號：Codex 池帳號為 WHAM 配額讀取，Anthropic OAuth 帳號為使用已儲存 token 的用量讀取。由[自動暫停](/zh-tw/reference/configuration/providers/#auto-pause-permanently-refused-accounts)記錄為 `oauth_organization_disabled` 或 `account_permission_denied` 的暫停絕不會以此方式恢復。已過期的 Anthropic token 不會為了檢查而刷新：指令回報 `credential_expired`，需重新登入才能回來。其他 OAuth provider 與主 Codex 帳號回報 `health_check_unsupported`；API-key 池會拒絕該旗標。被拒絕的恢復以結束碼 3 結束並印出原因，使用 `--json` 時則印出 `{ "ok": false, "resumed": false, "reason": ... }`。
+
+對已暫停的 OAuth 或 Codex 池帳號明確登入或重新認證，會清除自動暫停記錄的暫停，因為該證據描述的是已被此次登入取代的憑證。手動設定的暫停會持續到 `ocx account resume`。
 
 ### `ocx account clear-cooldown <openai|anthropic> <id|alias|main> [--json]`
 

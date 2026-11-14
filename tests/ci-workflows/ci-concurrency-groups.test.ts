@@ -104,6 +104,29 @@ test("every trigger this workflow declares is one the cases above cover", () => 
   expect(Object.keys(workflow.on ?? {}).sort()).toEqual(["pull_request", "push", "schedule", "workflow_dispatch"]);
 });
 
+// Fork policy (docs/fork/DECISIONS.md, 2026-10-28 and 2026-11-14): this fork has no `dev` line, so
+// the upstream rule "only pull_request and manual dispatch from dev" does not apply. ci.yml keeps
+// `push` on main/preview and the nightly schedule; the other two workflows keep the triggers the
+// fork already carried. What is pinned here is the shape, so a trigger cannot appear or vanish unseen.
+test("fork workflows keep their own trigger sets and the Windows jobs stay behind `changes`", () => {
+  const triggers = (file: string) => {
+    const parsed = Bun.YAML.parse(readFileSync(repoPath(".github", "workflows", file), "utf8")) as {
+      on: Record<string, unknown>; jobs: Record<string, { needs?: string | string[] }>;
+    };
+    return { on: Object.keys(parsed.on).sort(), jobs: parsed.jobs };
+  };
+  const ci = triggers("ci.yml");
+  expect(ci.on).toEqual(["pull_request", "push", "schedule", "workflow_dispatch"]);
+  for (const id of ["platform-windows"]) {
+    const needs = ci.jobs[id]?.needs;
+    expect(Array.isArray(needs) ? needs : [needs], id).toContain("changes");
+  }
+  // The diagnostic lane deliberately bypasses `changes`; it is selected only by its own dispatch lane.
+  expect(ci.jobs["windows-native-claim"]).toBeDefined();
+  expect(triggers("service-lifecycle.yml").on).toEqual(["pull_request", "push", "workflow_dispatch"]);
+  expect(triggers("catalog-async-contracts.yml").on).toEqual(["pull_request", "push", "workflow_dispatch"]);
+});
+
 test("the evaluator refuses an expression it does not model", () => {
   expect(() => render("${{ startsWith(github.ref, 'refs/tags/') }}", push("1"))).toThrow(/unsupported expression term/);
 });

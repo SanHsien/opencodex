@@ -141,7 +141,7 @@ describe("install scripts", () => {
     const script = await readText("scripts/install.ps1");
 
     expect(script).toContain("Node.js 18+ is required");
-    expect(script).toContain("& $npm.Source install -g @bitkyc08/opencodex");
+    expect(script).toContain("& $npm.Source install -g --allow-scripts=bun @bitkyc08/opencodex");
     expect(script).toContain("$LASTEXITCODE");
     expect(script).toContain("Get-Command ocx.cmd");
     expect(script).toContain("Get-Command ocx");
@@ -155,7 +155,9 @@ describe("install scripts", () => {
 
     expect(launcher).toContain('process.argv[2] === "update"');
     expect(launcher).toContain('const selector = child?.version ?? tag;');
-    expect(launcher).toContain('["install", "-g", `${PKG}@${selector}`]');
+    // #8361: the launcher's own npm reinstall must allow bun's postinstall for the same
+    // reason the shipped installers do; a bare install leaves the runtime un-unpacked.
+    expect(launcher).toContain('["install", "-g", "--allow-scripts=bun", `${PKG}@${selector}`]');
     expect(launcher).toContain('["add", "-g", "--allow-build=bun", `${PKG}@${selector}`]');
     expect(launcher).toContain('const tag = updateTag(current);');
     expect(launcher).toContain('return String(currentVersion).includes("-preview.") ? "preview" : "latest"');
@@ -176,13 +178,10 @@ describe("install scripts", () => {
     const script = await readText("scripts/release.ts");
 
     expect(script).toContain("waitForReleaseWorkflowRun");
-    // The invariant is that the dispatched run is located by workflow, branch
-    // and commit — not that the call is a shell string. Every external command
-    // now goes through the shared launcher as an argv array, because Bun.$
-    // resolved PATH itself and walked past the Windows `.cmd` test shims.
+    // Pin the workflow and dev branch without filtering by a mutable pre-dispatch SHA.
     expect(script).toContain('"gh", "run", "list", "--workflow", "release.yml", "--branch"');
-    expect(script).toContain('"--commit"');
-    expect(script).toContain("createdAt,databaseId,headSha,status,url");
+    expect(script).not.toContain('"--commit"');
+    expect(script).toContain("createdAt,databaseId,headSha,status,url,headBranch,event,workflowDatabaseId");
     expect(script).toContain("await watchRun(releaseRun.databaseId)");
   });
 

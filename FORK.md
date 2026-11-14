@@ -23,6 +23,7 @@
 | `docs/fork/` | Windows 開發、上游審查、決策 |
 | `tools/dev_check.ps1` | Windows 本機一鍵 fork gate |
 | `.github/workflows/fork-maintenance.yml` | fork 文件與連結檢查 |
+| 上游遙測（`src/telemetry/`、`services/telemetry-collector/`） | 程式碼整份採用，但 fork 建置**預設不詢問、不送出**：`src/telemetry/fork-policy.ts` 的 `forkTelemetryBlocked()` 預設為 `true`，只有 `NODE_ENV=test` 加專用環境變數的測試才放行；MSI 不連結 `telemetry-choice.wxs`。`tests/usage/usage-telemetry-fork-policy.test.ts` 釘住預設（`docs/fork/DECISIONS.md` D1） |
 | `.github/workflows/upstream-check.yml` | 每週檢查上游有沒有比 `tools/upstream_baseline.json` 的 `integrated_tag` 更新的 stable release tag，並列出它帶來的未審查 commit（上游已無 `main`，見 [`docs/fork/DECISIONS.md`](docs/fork/DECISIONS.md) 2026-11-09） |
 | 上游 `release.yml` / `deploy-docs.yml` / issue·PR 治理 workflow | 加上只在官方 `lidge-jun/opencodex` 執行的 guard |
 | 桌面 app 的接管提示（`ocx resolve` 的 `service-managed`、app 內 `guest_choice.rs`） | 有已註冊的背景服務（Windows 的 `opencodex-proxy` 排程）監管同一個 runtime 時，`ocx resolve --json` 的 `takeover` 回 `blocked`／`service-managed`，app 以訪客附著、不問、不停任何東西；使用者在提示按 **Stay a guest** 會被記住（`guest-choice.json`，依設定目錄與擁有者宣告），不再每次啟動重問。改動檔：`src/cli/resolve.ts`、`desktop/src-tauri/src/{ownership,startup,guest_choice,lib}.rs`、`structure/ops/desktop-supervision.md`、`docs-site/.../guides/desktop-app.md`（en／zh-tw）；理由與重放注意見 [`docs/fork/DECISIONS.md`](docs/fork/DECISIONS.md) 2026-11-11 |

@@ -14,6 +14,10 @@ provider events → internal adapter events → client dialect
 
 Responses 表示是橋接的中心。原生相容的路由可跳過部分轉譯並 passthrough 請求，但認證、路由、許可控制與回應安全仍在代理邊界發生。在[設定](/zh-tw/reference/configuration/)中設定監聽器與許可金鑰；當一個公開模型 id 應在多個目標間選擇時使用[組合](/zh-tw/guides/combos/)。
 
+## Function tool strictness on Chat input
+
+當 Chat Completions 被翻譯成 OpenAI 的 Responses API 或 ChatGPT 後端時，函式工具保持 Chat 的非嚴格預設：省略的 `strict` 會以 `false` 送出。明確的 `true` 與 `false` 會被保留；舊式 `functions` 也維持非嚴格。選用參數仍為選用，包含 Computer Use 以元素索引與座標為替代的選擇器。這不會改寫呼叫者的參數 schema，也不會改變原生 Responses 請求、Chat 目的地或第三方 Responses provider 的預設。
+
 ## Required tools on buffered native combo routes
 
 A combo checks buffered native `openai-responses` JSON results when `tool_choice` is `required`
@@ -223,6 +227,16 @@ ChatGPT token 只留在 proxy 上；一個只有 API-key 的上游無法服務�
 utterance 的 revision 增加時，請取代先前的文字；不要把各版本串接起來。以
 `{"type":"session.close"}` 結束，並等待最終文字與 `session.status="closed"` 的
 `session.updated`。
+
+ScribeTray 串流用戶端使用另一種受支援的啟動形狀（請把範例 UUID 換成用戶端產生的識別碼）：
+
+```json
+{"type":"session.start","dictation_session_id":"78d201cb-1b49-40e1-a5b5-e06a8f8489a1","attempt_id":"8b3c2e4f-d501-4a66-b123-456789abcdef","config":{"input_audio_format":"pcm16","sample_rate_hz":16000,"num_channels":1,"max_buffer_size_bytes":4194304,"max_utterance_duration_ms":30000,"session_ttl_ms":300000,"provider_mode":"streaming_sse","transcript_delivery_mode":"final_only","session_asset_mode":"none","vad":{"type":"server_vad"}},"client_capabilities":["server_stop_requested"]}
+```
+
+識別碼為選用，是非空白、最多 128 個 UTF-8 位元組的字串。`client_capabilities` 為選用，接受空陣列或僅 `"server_stop_requested"`。選用的 `config.language` 是非空白、最多 64 個 UTF-8 位元組的字串（例如 `"it"`）；這些字串不可包含控制字元。選用的 `config.session_asset_mode` 只接受 `"none"`。VAD 只需要 `{"type":"server_vad"}`。若提供，`threshold` 必須是有限值且在 0–1 之間，`prefix_padding_ms` 為 0–1,000 的整數，`silence_duration_ms` 為 0–5,000 的整數。
+
+啟動之後，`{"type":"audio.flush"}` 也被接受並原樣轉送。它不會關閉工作階段；在 `session.close` 之前還可以繼續送音訊。ScribeTray 的收尾方式是先送 `audio.flush`，再送 `session.close`，然後等待最終結果。這支援該用戶端的序列，但並不主張 flush 必須取代單獨的 close。`session.close` 之後不再接受任何音訊或其他用戶端事件。較早的啟動與僅 close 的 payload 仍受支援。未知欄位與不支援的 capability 值仍會被拒絕。
 
 ## `POST /v1/responses`
 

@@ -30,6 +30,7 @@ description: 監聽器、遠端存取、許可金鑰、逾時、儲存、sidecar
 | `webSearchSidecar?` | `OcxWebSearchSidecarConfig` | 可用時開啟 | 網頁搜尋 sidecar 選項。 |
 | `visionSidecar?` | `OcxVisionSidecarConfig` | 可用時開啟 | 圖片描述 sidecar 選項。 |
 | `images?` | `OcxImagesConfig` | 自動 OpenAI 選擇 | Codex `image_gen` 的獨立 Images 中繼選項。 |
+| `telemetry?` | `OcxTelemetryConfig` | 人工知悉提示後預設開啟 | 匿名每日使用遙測的同意狀態（`decision`、`decidedAt`、`noticeShownAt`）。在人工看到提示或主動同意之前不會傳送任何資料。可被 `OCX_TELEMETRY=0` 或 `DO_NOT_TRACK=1` 覆寫。請見[遙測（`telemetry`）](#遙測telemetry)與[遙測與隱私](/zh-tw/guides/telemetry/)。 |
 
 若較舊的開發組建在備份支援存在前變更了 resume-history 中繼資料，請執行 `ocx recover-history --legacy-openai --yes` 以強制原生供應商復原。
 此命令會重新標記所有含有使用者訊息的 `opencodex` row，其中也包含正常的專用 provider 歷史；執行前請查看 lifecycle reference 中的完整範圍警告。
@@ -398,6 +399,37 @@ redirect URL，或授權碼，貼進 OpenCodex。等待中的流程會保留 sta
 `ocx config set privacy.maskEmails false` 在該區塊存在之前會以 `config parent path not found`
 失敗，因為 `config set` 只會走進既有物件，絕不會建立它們。請改為寫入整個物件——
 `ocx config set privacy '{"maskEmails":false}'`——或手動把該區塊加進 `config.json`。
+
+## 遙測（`telemetry`）
+
+> **本 fork 的建置預設不送出遙測**，也不顯示告知提示：`forkTelemetryBlocked()` 預設為 `true`，等同永久設定 `OCX_TELEMETRY=0`。以下說明的是上游行為與 `config.json` 欄位；詳見[遙測與隱私](/zh-tw/guides/telemetry/)。
+
+匿名每日使用遙測僅在使用者看到告知提示（透過 GUI 彈窗或互動式終端機提示）後才預設開啟。`config.json` 中的 `telemetry` 區塊記錄該同意狀態：
+
+```json
+{
+  "telemetry": {
+    "decision": "accepted",
+    "decidedAt": "2026-11-07T09:00:00.000Z",
+    "noticeShownAt": "2026-11-07T09:00:00.000Z"
+  }
+}
+```
+
+| 欄位 | 型別 | 預設值 | 意義 |
+| --- | --- | --- | --- |
+| `telemetry.decision?` | `"accepted" \| "declined"` | 未設定（未決定） | 使用者的明確選擇。`"declined"` 會停用遙測並立即刪除 `<OPENCODEX_HOME>/telemetry-id.json`；`"accepted"` 會啟用每日報告。 |
+| `telemetry.decidedAt?` | `string` (ISO 8601) | 未設定 | 記錄 `decision` 的 UTC 時間戳記。僅傳送嚴格晚於 `decidedAt ?? noticeShownAt` 所在 UTC 日期的已完成 UTC 日曆日（`day > formatUtcDay(decidedAt ?? noticeShownAt)`）；同意當天及更早的日期絕不會補送。 |
+| `telemetry.noticeShownAt?` | `string` (ISO 8601) | 未設定 | 人類使用者在網頁儀表板或互動式終端機中看到告知提示的 UTC 時間戳記。當 `decision` 未設定時，僅在已設定 `noticeShownAt` 時才會傳送遙測（`default-on`）；否則代理保持在 `awaiting-notice` 狀態。 |
+
+收集器端點（`https://telemetry.opencodex.me/v1/events`）是程式碼常數，無法在 `config.json` 中設定。
+
+兩個環境變數會覆寫 `config.json` 並立即停用遙測，且不會修改已儲存的 `config.json`（在代理啟動或排程器週期偵測到任一變數時，還會在 `<OPENCODEX_HOME>/telemetry-state.json` 中記錄當日 UTC 日期為 `ineligibleThroughDay` 並刪除 `<OPENCODEX_HOME>/telemetry-id.json`，因此移除變數後不會補送這些日期，並會產生新的安裝 ID）：
+
+- `OCX_TELEMETRY=0`（不分大小寫，也接受 `false`、`off` 或 `no`）
+- `DO_NOT_TRACK=1`（不分大小寫，也接受 `true` 或 `yes`）
+
+`ocx config set telemetry` 與 `ocx config unset telemetry` 會被拒絕，且 `ocx config import` 對所有呼叫方都會忽略匯入的 `telemetry` 區塊並保留已持久化的同意狀態；請改用 `ocx telemetry enable`（需要互動式終端機並確認告知提示，否則以 `agent_consent_required` / `tty_required` 結束）、`ocx telemetry disable`、`ocx telemetry status [--json]` 或儀表板 **Proxy details** 中的開關。完整負載結構與保留政策請參閱[遙測與隱私](/zh-tw/guides/telemetry/)。
 
 ## 儲存清理
 

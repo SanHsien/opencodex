@@ -57,6 +57,8 @@ const rows = {
   stepFirstRequestHint: ["Point Codex, Claude Code or another tool at opencodex, then ask it anything.", "把 Codex、Claude Code 等工具連到 opencodex，然後隨便問一句。"],
   stepAutostart: ["Start automatically", "開機自動啟動"],
   stepAutostartHint: ["Keep opencodex running after a restart so your tools never lose it.", "重新開機後 opencodex 仍會執行，工具不會斷線。"],
+  stepAutostartDesktop: ["Turn on Start at Login", "開啟登入時啟動"],
+  stepAutostartDesktopHint: ["In the OpenCodex app menu, make sure Start at Login is checked. The app then opens when you log in and keeps the proxy running.", "請在 OpenCodex 應用程式選單中確認已勾選「登入時啟動」。這樣登入時應用程式會自動開啟，代理持續執行。"],
   stepOpen: ["Open", "開啟"],
   recentErrors: ["Recent errors", "最近的錯誤"],
   noErrors: ["No failed requests in the last 24 hours.", "過去 24 小時沒有失敗的請求。"],

@@ -6,11 +6,12 @@ import type { QuotaFailureCode } from "../../../../src/providers/quota-types";
 import type { ProviderSortMode, WorkspaceItem } from "../../provider-workspace/catalog";
 import type { AccountQuota } from "../../codex-quota-utils";
 import type { BrowserLaunch } from "../../oauth-browser-launch";
+import type { ApiTargetCapture } from "../../api";
 
 export type { ProviderSortMode, WorkspaceItem };
 
 /** Rail status facets (all on by default). */
-export type StatusFilter = { ready: boolean; needsSetup: boolean; disabled: boolean };
+export type StatusFilter = { ready: boolean; needsSetup: boolean; unverified: boolean; disabled: boolean };
 
 /** Rail pricing facets. */
 export type PricingFilter = { free: boolean; paid: boolean };
@@ -59,6 +60,7 @@ export type OAuthAccountRow = AccountQuotaReading & {
   id: string;
   alias?: string;
   email?: string;
+  accountLabel?: string;
   maskedLabel?: string;
   active: boolean;
   expiresAt?: number;
@@ -112,6 +114,7 @@ export interface ProviderAuthHandlers {
   onRetryAccounts?: (provider: string) => void | Promise<void>;
   onAddApiKey: (provider: string, key: string) => Promise<boolean>;
   onSwitchApiKey: (provider: string, entry: ApiKeyRow) => void | Promise<void>;
+  onPauseApiKey?: (provider: string, entry: ApiKeyRow, paused: boolean) => void | Promise<void>;
   onRemoveApiKey: (provider: string, entry: ApiKeyRow) => void | Promise<void>;
   onEditAlias: (provider: string, type: "oauth" | "api-key", id: string, current?: string) => void | Promise<void>;
   /**
@@ -129,6 +132,8 @@ export type ProviderUpdatePatch = {
   adapter?: string;
   baseUrl?: string;
   defaultModel?: string;
+  project?: string;
+  location?: string;
   apiKey?: string;
   apiKeyTransport?: "x-api-key" | "bearer" | "";
   authMode?: string;
@@ -150,3 +155,13 @@ export type ProviderUpdateResult = {
   error?: string;
   xaiResponsesOptInState?: WorkspaceItem["xaiResponsesOptInState"];
 };
+
+/**
+ * A provider update callback. The optional capture is the form's render-owned target;
+ * the transport must use it instead of re-deriving the live target at send time.
+ */
+export type ProviderUpdateCallback = (
+  name: string,
+  patch: ProviderUpdatePatch,
+  capture?: ApiTargetCapture,
+) => Promise<ProviderUpdateResult>;

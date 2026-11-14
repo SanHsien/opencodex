@@ -40,6 +40,7 @@ import {
   TEST_RUN_LOCK_TOKEN_ENV,
 } from "../scripts/test-run-lock";
 import { FORK_TEST_REGISTRY_UPDATE_ENV, forkUpdatePolicy } from "../src/update/fork-source.mjs";
+import { FORK_TEST_TELEMETRY_ENV } from "../src/telemetry/fork-policy";
 
 // Fork: production blocks registry self-update (see src/update/fork-source.mjs). The suite keeps
 // exercising the upstream update machinery, so it opens the gate in-process and, through the
@@ -47,6 +48,12 @@ import { FORK_TEST_REGISTRY_UPDATE_ENV, forkUpdatePolicy } from "../src/update/f
 // tests/update/fork-update-policy.test.ts.
 forkUpdatePolicy.selfUpdateAllowed = true;
 process.env[FORK_TEST_REGISTRY_UPDATE_ENV] = "1";
+
+// Fork: production blocks telemetry (src/telemetry/fork-policy.ts, decision D1). The suite keeps
+// exercising the upstream telemetry machinery by opening the gate through the environment, which
+// only counts together with NODE_ENV=test; the shipped default is pinned by
+// tests/usage/usage-telemetry-fork-policy.test.ts.
+process.env[FORK_TEST_TELEMETRY_ENV] = "1";
 
 // Under `bun run test` the wrapper already handed us a sandbox (and OCX_REAL_HOME so the
 // guard could still see the true home). Isolating again is harmless and deliberate: the
@@ -85,6 +92,7 @@ process.env.OCX_TEST_HOME_GUARD = "1";
 // Lets a test assert one preload per process rather than assuming Bun's scheduling.
 process.env.OCX_TEST_PRELOAD_PID = String(process.pid);
 process.env.OCX_DISABLE_UPDATE_CHECK = "1";
+process.env.OCX_TELEMETRY = "0";
 process.env.OPENCODEX_KIRO_MODEL_DISCOVERY = "0";
 
 if (!isTestHomeGuardArmed() || !protectedHomeForTests()) {

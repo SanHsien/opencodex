@@ -120,9 +120,12 @@ ocx link issue --alias <alias> --tunnel-port <port> [--json]
 ocx link status [--json]
 ocx link revoke --link-id <id> [--json]
 ocx link reconnect --link-id <id> [--json]
+ocx link check (--link-id <id> | --all) [--no-wait] [--json]
 ```
 
 非互動式終端（非 TTY）必須提供 `--expect-fingerprint`。互動式終端中可省略此參數，但必須明確確認提供的指紋。
+
+在 Home 上，`ocx link check (--link-id <id> | --all)` 會讀取每個由 Home 新增的 Child 的已安裝版本、安裝類型和更新途徑：它透過連結的 SSH 連線在 Child 上執行 `ocx update --plan`（每台 Child 60 秒，同時最多三台），該命令只計算更新計畫，不會做任何修改。早於 2.97.0 的 Child 會顯示為 `owner-action`（`legacy-ocx`），其版本在 macOS 和 Linux 上透過再一次唯讀 SSH 呼叫取得，在 Windows 上則取自 Child 透過連結回報的版本。由 Child 發起的連結和 `ocx-child` Child 不經 SSH 直接回報。`ocx link status --json` 會為每一列加上 `child` 區塊（版本、版本差異、目錄是否最新、活動狀態、最近一次操作）。詳情與結束代碼請見 [Child install, catalog and activity](/zh-tw/guides/remote-link/#child-install-catalog-and-activity)（英文）。
 
 ## 相關指南
 
@@ -156,6 +159,17 @@ On the Home, `ocx link status --json` reports the Home's own `local` version, re
 
 The version a Child reports is its own claim, bound to its link key. OpenCodex uses it for display and never for admission. Older `ocx` installations keep receiving the previous status document; only a 2.91.0 or newer CLI asks for these fields.
 
+### Child install, catalog and activity
+
+Home 上的 `ocx link status --json` 也會為每個連結提供 `child` 區塊。較舊的 Home 沒有它，較舊的 CLI 也不會要求它。
+
+- `runningVersion` 是 Child 透過連結回報的版本。`installedVersion`、`installKind` 與 `update`（`route`、`reason`、`observedAt`）來自最近一次 `ocx link check`，在執行過之前維持 `null`。`versionSkew` 把已安裝版本（或執行中版本）與 Home 比較：`same`、`behind`、`ahead` 或 `unknown`；對 `ocx-child` Child 永遠是 `unknown`。
+- `catalog.state` 在 Child 最近一次從 Home 下載的目錄就是 Home 目前的目錄時為 `current`，Home 的目錄之後有變動時為 `behind`，第一次下載之前為 `unknown`。Home 比較的是目錄內容而非檔案時間，所以還原較舊的目錄檔也會顯示 `behind`。下載只證明 Child 取得了目錄，不證明它已套用；`ocx link add` 在註冊時執行的檢查算作一次下載。
+- `activity.idle` 在該連結上已有 10 分鐘沒有任何經中繼的模型請求時為 `true`。`inFlight` 計算目前正在執行的請求。token 計數、目錄與就緒讀取不算，早於連線綁定中繼認證的 Child 所發出的請求會計入每一個連結。
+- `activeJob` 指出該連結上正在執行的操作，`lastOperation` 是最近完成的一個。`codex` 目前為 `null`。
+
+`ocx link check --link-id <id>`（可重複）或 `ocx link check --all` 會向 Child 詢問其安裝資訊。對每個由 Home 發起的 Child，Home 透過該連結的 SSH 連線執行 Child 的 `ocx update --plan`，它只計算更新計畫、不改變任何東西；每次呼叫有 60 秒預算，同時執行三個。早於 2.97.0 的 Child 沒有該指令：該項目顯示為 `owner-action`、原因 `legacy-ocx`，Home 在 macOS 與 Linux 上以多一次唯讀 SSH 呼叫取得版本，在 Windows 上則使用 Child 透過連結回報的版本。在沒有記錄服務安裝的 npm 或 pnpm Child 上，指令會經由 `ocx` launcher 執行，因此 launcher 平常的啟動簿記會先執行，這與 Home 傳到那裡的每一次 `ocx sync` 相同。由 Child 從自己的儀表板發起的連結與 `ocx-child` Child 不經 SSH 回報。指令會等待工作並以 JSON 印出（`--no-wait` 則立即印出）；每個 Child 都回答時結束碼為 0，Child 忙碌、離線、太舊或無法檢查時為 6，失敗為 1，未知的連結或對此指令過舊的 Home 為 4，該連結上另有操作執行中為 5。
+
 ### Standalone pairing authorization
 
 The existing `ocx gui pair --origin <local-origin>` command works while OpenCodex runs as a background service. Run it under the account that owns the service's private OpenCodex home, then enter the returned one-use code in the local dashboard. No server terminal, additional password, Windows Hello or hardware key is required. The CLI and server must use the same current version and configuration home; restart an older server after updating. Mixed-version Hub invitations also require updating the CLI and server together. Pairing refuses a symlinked configuration home or intent directory; use the actual protected directory as `OPENCODEX_HOME`.
@@ -177,6 +191,23 @@ Home-initiated connections now restart the Child after saving its connection, in
 Restart waits for running turns and may take several minutes. Success requires the restarted Child to serve the client role and relay a fresh complete catalog to this Home. SSH setup has a bounded allowance derived from measured latency; relay verification starts after restart with its own 15-second window. Errors name the failing phase. If an error reports residual Child configuration, run `ocx disconnect` and `ocx restart` on that Child before retrying. Home cleanup alone does not restore Child configuration. A CLI timeout reports an uncertain outcome; inspect Home `ocx link status` and Child `ocx connect status` first.
 
 On a Home-initiated Child, `ocx link status` reports role `child`, link identity and tunnel port from its saved connection even though its Home-side link store is empty. Locally unobserved tunnel state is `idle`. `ocx status` calls the peer a Remote Link Home. When Home runs in Hub mode, status reads its supported projection through the local Child relay. A standalone Home reports that it does not publish Hub state. Child-initiated tunnel identity comes from its valid sidecar; unreadable evidence does not claim a direction.
+
+### Ephemeral Child machines (`ocx-child`)
+
+對於不需要安裝完整 Bun OpenCodex 執行環境的拋棄式 SSH devbox、容器與輕量雲端 VM，在 `#remote` 選擇 **Plant lightweight agent & connect**，或執行 `ocx link add <alias> --plant --expect-fingerprint SHA256:…`（互動式的 `ocx link add <alias>` 會在植入前詢問一次）時，Home 可以經由 SSH `stdin` 把經 SHA-256 驗證的獨立 `ocx-child` 執行檔（Child 上不需要 Node 或 Bun）串流到 `~/.cache/opencodex/bin/ocx-child`（Windows 為 `%LOCALAPPDATA%\opencodex\bin\ocx-child.exe`）。Child 不下載任何東西，因此不需要對外網路，但 POSIX Child 必須有 `sha256sum`、`shasum` 或 `openssl`：執行檔在安裝或執行之前會對照其 SHA-256 檢查，缺少這些工具時會拒絕植入（`hash_tool_unavailable`）。你也可以事先把 `ocx-child` 放在 `~/.local/bin/ocx-child`、`~/.cache/opencodex/bin/ocx-child` 或 `PATH`。註冊之前，Home 會先探測每個完整的 `ocx` 候選，沒有可執行的完整 `ocx` 時才退回 `ocx-child`；一旦 `$OPENCODEX_HOME/child/state.json` 存在，遠端指令會持續以 `ocx-child` 為目標，直到它 detach。
+
+Home 只植入它能驗證的建置，也不會下載或自行建置。npm 套件與桌面應用程式都不附帶 `ocx-child` 建置，所以在封裝安裝上，探測會把裸主機回報為不可植入（`plantable: false`、`plantUnavailableReason: "artifact_not_found"`），直到你自行提供。Home 依序在下列位置尋找 Child 目標（`darwin-arm64`、`darwin-x64`、`linux-x64`、`linux-arm64` 或 `windows-x64`）的建置：
+
+1. Home 上 `OPENCODEX_CHILD_BIN_DIR` 指定的目錄：`ocx-child-<target>`（Windows 為 `ocx-child-windows-x64.exe`）或 `<target>/ocx-child`，當 Child 與 Home 目標相同時也包含單純的 `ocx-child`。檔案必須列在同一目錄的 `SHA256SUMS` 檔中。
+2. OpenCodex 原始碼或執行檔旁的 `native-bin/` 目錄，適用相同的 `SHA256SUMS` 規則。目前沒有任何 OpenCodex 套件提供這個目錄。
+3. 僅限原始碼 checkout：當 Child 與 Home 目標相同時，`native/ocx-child/target/release/ocx-child`。
+4. `$OPENCODEX_HOME/cache/ocx-child/<Home version>/ocx-child-<target>`，旁邊有 `SHA256SUMS` 檔。沒有任何東西會自動填入這個快取；請自行複製建置到那裡。
+
+要準備建置，請在原始碼 checkout 中執行 `cargo build --release --locked --manifest-path native/ocx-child/Cargo.toml`（針對其他目標交叉編譯），把結果以 `ocx-child-<target>` 名稱複製到上述其中一個目錄，並用 `sha256sum ocx-child-<target> >> SHA256SUMS`（或 `shasum -a 256`）寫入其 `SHA256SUMS` 行。檔案不能是符號連結，也不能是群組或所有人可寫。
+
+與完整的 `ocx` Child 不同，乾淨的 detach 狀態 `ocx-child` 主機在 `ocx link add` 之前不需要預先執行的背景 daemon：Home 在提交之前會檢查目標埠可用性與 `~/.codex/config.toml` 的擁有權（若埠 `10100` 被其他行程占用則 `409 child_port_busy`，若另一個模型 provider 或自訂 base URL 已擁有 `config.toml` 則 `409 child_external_provider_conflict`，兩者都不更動 Child 檔案並回復任何新植入的執行檔），經由 SSH stdin 傳送連結憑證，啟動 `ocx-child serve`，並確認一個通過認證的 `/v1/catalog` 中繼。`#remote` 中已連線的列會顯示 **Lightweight** / **Full install** 徽章與 **Home settings synced** / **Sync needed** 一致性徽章。執行 `ocx link revoke --link-id <id>` 會保留快取的執行檔以便快速重新連接，而 `ocx link revoke --link-id <id> --purge`（或在 Child 上執行 `ocx-child detach --purge`）也會從受管理的快取目錄刪除植入的執行檔。
+
+在整個連線期間，請讓 `OPENCODEX_HOME` 與 `CODEX_HOME` 指向相同的目錄。若 detach 回報還原或關閉錯誤，請保留 Child 的復原檔案並先解決錯誤再重試。
 
 ### Windows computers
 

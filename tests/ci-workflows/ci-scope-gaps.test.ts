@@ -122,16 +122,23 @@ describe("CI Bun roles", () => {
   test("release, packaged runtime and sidecar jobs use the default runtime action", () => {
     const runtimeJobs: Record<string, string[]> = {
       "ci.yml": ["keyring-smoke"],
-      "release.yml": ["preflight", "package-standalone", "package-desktop", "verify-release", "publish", "attach-release"],
+      "release.yml": ["preflight", "package-standalone", "package-desktop", "package-npm", "verify-release", "attach-release"],
       "service-lifecycle.yml": ["windows-schtasks"],
       "desktop-installed-gate.yml": ["windows"],
     };
     for (const [file, names] of Object.entries(runtimeJobs)) {
       for (const name of names) {
-        const setups = workflowJobs.get(file)?.[name]?.steps?.filter(step => step.uses === "./.github/actions/setup-project-bun") ?? [];
+        const action = file === "release.yml" && ["package-standalone", "package-desktop", "package-npm"].includes(name)
+            ? "./trusted-release-policy/.github/actions/setup-project-bun" : "./.github/actions/setup-project-bun";
+        const setups = workflowJobs.get(file)?.[name]?.steps?.filter(step => step.uses === action) ?? [];
         expect(`${file}/${name}:${setups.length}`).toBe(`${file}/${name}:1`);
         expect(setups[0]?.with?.role).toBeUndefined();
       }
+    }
+    for (const name of ["verify-npm", "publish"]) {
+      const steps = workflowJobs.get("release.yml")?.[name]?.steps ?? [];
+      expect(steps.some(step => step.uses === "oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6")).toBeTrue();
+      expect(steps.some(step => step.run?.includes('require("./package.json").dependencies.bun'))).toBeTrue();
     }
   });
 });

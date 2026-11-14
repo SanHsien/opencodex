@@ -40,7 +40,7 @@ import { OAuthMutationBusyError, removeCredential } from "../../oauth/store";
 import { cancelKiroDeviceLogin, kiroDeviceConfigBaseline, selectKiroDeviceProfile, startKiroDeviceLogin, statusKiroDeviceLogin, type KiroDeviceMethod } from "../../oauth/kiro-device-login";
 import { parseKiroIamOptions } from "../../oauth/kiro-iam-identity-center";
 import { providerDestinationResolvedError } from "../../lib/destination-policy";
-import { emailMaskingEnabled, maskedAccountLabel } from "../../lib/privacy";
+import { accountDisplayLabel, emailMaskingEnabled, maskedAccountLabel } from "../../lib/privacy";
 import { reconcileLiveStateStores } from "../../lib/state-store-registrations";
 import { enrichProviderFromCatalog, listKeyLoginProviders } from "../../oauth/key-providers";
 import { deriveProviderPresets } from "../../providers/derive";
@@ -497,7 +497,8 @@ export async function handleOauthAccountRoutes(ctx: ManagementContext): Promise<
   }
 
   // Multiauth account management: list a provider's logged-in accounts, switch the active
-  // one, or remove one. Emails are masked; tokens never leave the store.
+  // one, or remove one. Emails and accountLabel follow privacy.maskEmails, maskedLabel is always
+  // masked, and tokens never leave the store.
   if (url.pathname === "/api/oauth/accounts" && req.method === "GET") {
     const provider = (url.searchParams.get("provider") ?? "").trim().toLowerCase();
     if (!isPublicOAuthProvider(provider)) return jsonResponse({ error: "unknown oauth provider" }, 400);
@@ -516,7 +517,8 @@ export async function handleOauthAccountRoutes(ctx: ManagementContext): Promise<
     } = await import("../../oauth/health");
     const projectAccounts = () => {
       const set = getAccountSet(provider);
-      const current = getLoginStatus(provider, emailMaskingEnabled(config));
+      const maskEmails = emailMaskingEnabled(config);
+      const current = getLoginStatus(provider, maskEmails);
       return {
         ...(provider === "anthropic2" ? { provider } : {}), activeAccountId: current.activeAccountId ?? null,
         accounts: (current.accounts ?? []).map(summary => {
@@ -528,7 +530,10 @@ export async function handleOauthAccountRoutes(ctx: ManagementContext): Promise<
               reauthReason: summary.needsReauth === true ? "refresh_failed" : undefined,
             });
           const maskedLabel = maskedAccountLabel(full?.credential.email);
-          return { ...summary, ...(maskedLabel ? { maskedLabel } : {}), ...oauthAccountHealthFields(provider, summary.id, health), quotaMode,
+          // `maskedLabel` stays masked for tray surfaces; `accountLabel` follows privacy.maskEmails.
+          const accountLabel = accountDisplayLabel(full?.credential.email, maskEmails);
+          return { ...summary, ...(maskedLabel ? { maskedLabel } : {}), ...(accountLabel ? { accountLabel } : {}),
+            ...oauthAccountHealthFields(provider, summary.id, health), quotaMode,
             ...(supportsPause ? { paused: full?.paused === true, ...(full?.pauseDetails ? { pauseDetails: full.pauseDetails } : {}) } : {}),
             ...(isAnthropicOAuthInstance(provider) && supportsPause ? { autoSwitchThresholdOverride: full?.autoSwitchThresholdOverride ?? null,
               effectiveAutoSwitchThreshold: effectiveAnthropicAccountThresholdForInstance(provider as AnthropicInstanceId, config, full),
@@ -639,6 +644,12 @@ export async function handleOauthAccountRoutes(ctx: ManagementContext): Promise<
     if (body.retryAffinityReset !== undefined && typeof body.retryAffinityReset !== "boolean") {
       return jsonResponse({ error: "retryAffinityReset must be a boolean" }, 400);
     }
+    if (body.ifHealthy !== undefined && typeof body.ifHealthy !== "boolean") {
+      return jsonResponse({ error: "ifHealthy must be a boolean" }, 400);
+    }
+    if (body.ifHealthy === true && body.paused !== false) {
+      return jsonResponse({ error: "ifHealthy applies only to a resume (paused: false)" }, 400);
+    }
 
     const { isGenericFailoverProvider } = await import("../../oauth/generic-account-failover");
     const effectiveProvider = genericOAuthProviderConfig(provider, config);
@@ -648,8 +659,31 @@ export async function handleOauthAccountRoutes(ctx: ManagementContext): Promise<
     }
 
     const { setAccountPaused } = await import("../../oauth/store");
-    const result = await setAccountPaused(provider, body.accountId, body.paused);
+    let resumeGuard: { generation: string; pauseRevision: string | undefined } | undefined;
+    if (body.ifHealthy === true) {
+      // Explicit resume gated on an account-bound health read (#8398); an unpaused account needs none.
+      const { checkOAuthResumeHealth } = await import("../../oauth/account-resume-health");
+      const verdict = await checkOAuthResumeHealth(provider, body.accountId);
+      if (verdict && !verdict.ok) {
+        return jsonResponse({ error: `account was not resumed: ${verdict.reason}`, code: "resume_refused", reason: verdict.reason,
+          provider, accountId: body.accountId }, 409);
+      }
+      if (!verdict) {
+        // Not paused when checked: write nothing, so a pause that lands meanwhile is never cleared unchecked.
+        const { getAccountSet } = await import("../../oauth/store");
+        const set = getAccountSet(provider);
+        if (!set?.accounts.some(account => account.id === body.accountId)) return jsonResponse({ error: "account not found" }, 404);
+        return jsonResponse({ ok: true, provider, accountId: body.accountId, paused: false, unchanged: true,
+          activeAccountId: set.activeAccountId, activeAccountChanged: false });
+      }
+      resumeGuard = { generation: verdict.generation, pauseRevision: verdict.pauseRevision };
+    }
+    const result = await setAccountPaused(provider, body.accountId, body.paused, undefined, resumeGuard);
     if (result.status === "not-found") return jsonResponse({ error: "account not found" }, 404);
+    if (result.status === "changed") {
+      return jsonResponse({ error: "account was not resumed: account_changed", code: "resume_refused", reason: "account_changed",
+        provider, accountId: body.accountId }, 409);
+    }
 
     const anthropicRouting = isAnthropicOAuthInstance(provider)
       ? (await import("../../oauth/anthropic-routing")).anthropicRoutingFor(provider) : undefined;
@@ -1191,9 +1225,9 @@ export async function handleOauthAccountRoutes(ctx: ManagementContext): Promise<
     if (!isPlainRecord(body)) return jsonResponse({ error: "body must be an object" }, 400);
     if (typeof body.name !== "string" || typeof body.id !== "string" || typeof body.paused !== "boolean") return jsonResponse({ error: "name, id and paused required" }, 400);
     if (!isValidProviderName(body.name) || !hasOwnProvider(config.providers, body.name)) return jsonResponse({ error: "unknown provider" }, 404);
-    const { setProviderApiKeyPaused } = await import("../../providers/api-key-pause");
-    return setProviderApiKeyPaused(config, body.name, body.id, body.paused)
-      ? jsonResponse({ ok: true }) : jsonResponse({ error: "key not found" }, 404);
+    const { setProviderApiKeyPausedWithResult } = await import("../../providers/api-key-pause");
+    const result = setProviderApiKeyPausedWithResult(config, body.name, body.id, body.paused);
+    return result.ok ? jsonResponse(result) : jsonResponse({ error: "key not found" }, 404);
   }
   if (url.pathname === "/api/providers/keys/active" && req.method === "PUT") {
     const body = await readManagementJsonBodyOr(req, {}) as { name?: string; id?: string };

@@ -1,0 +1,1237 @@
+path	upstream_status	fork_before	fork_after	verdict	note
+.github/ISSUE_TEMPLATE/config.yml	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+.github/scripts/enforce-pr-target.test.cjs	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+.github/scripts/pr-hygiene.test.cjs	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+.github/scripts/pr-quality-messages.cjs	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+.github/scripts/pr-quality-messages.test.cjs	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+.github/scripts/pr-quality.cjs	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+.github/scripts/pr-quality.test.cjs	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+.github/scripts/release-dispatch-guard.cjs	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+.github/scripts/release-dispatch-guard.test.cjs	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+.github/scripts/release-evidence-policy.json	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+.github/scripts/release-evidence.cjs	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+.github/scripts/release-evidence.test.cjs	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+.github/scripts/release-history.cjs	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+.github/scripts/release-history.test.cjs	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+.github/scripts/release-resume.cjs	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+.github/scripts/release-resume.test.cjs	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+.github/workflows/catalog-async-contracts.yml	M	MOD	fork-adapted	adapt	fork version kept; every upstream change was dev-only trigger policy
+.github/workflows/ci.yml	M	MOD	fork-adapted	adapt	fork base kept (push main/preview, nightly schedule, 12 Windows shards); adopted run-name, windows-native-claim lane (no dev ref condition, no quarantine env) and its changes/ci if-guards
+.github/workflows/cleanup-closed-pr-branches.yml	M	MOD	fork-adapted	adapt	three-way merge, no conflict
+.github/workflows/cleanup-orphaned-workflows.yml	M	MOD	fork-adapted	adapt	three-way merge, no conflict
+.github/workflows/codex-queue-helpers.yml	M	MOD	fork-adapted	adapt	three-way merge, no conflict
+.github/workflows/deploy-docs.test.cjs	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+.github/workflows/deploy-docs.yml	M	MOD	fork-adapted	adapt	three-way merge, no conflict
+.github/workflows/dev-version-bump.yml	M	MOD	fork-adapted	adapt	three-way merge, no conflict
+.github/workflows/enforce-issue-quality.yml	M	MOD	fork-adapted	adapt	three-way merge, no conflict
+.github/workflows/enforce-pr-target.yml	M	MOD	fork-adapted	adapt	three-way merge, no conflict
+.github/workflows/issue-quality-tests.yml	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+.github/workflows/pr-hygiene.yml	M	MOD	fork-adapted	adapt	three-way merge, no conflict
+.github/workflows/pr-labeler.yml	M	MOD	fork-adapted	adapt	three-way merge, no conflict
+.github/workflows/react-doctor.yml	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+.github/workflows/release.yml	M	MOD	fork-adapted	adapt	upstream content with the official-repo guards restored (validate-dispatch if, release-outcomes if)
+.github/workflows/service-lifecycle.yml	M	MOD	fork-adapted	adapt	fork version kept; every upstream change was dev-dispatch policy (source_sha, validate-source, evidence-policy checkout)
+.github/workflows/stale-needs-info.yml	M	MOD	fork-adapted	adapt	three-way merge, no conflict
+AGENTS.md	M	MOD	fork-adapted	adapt	three-way merge, no conflict
+AGENTS_INSTALL.md	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+CONTRIBUTING.md	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+MAINTAINERS.md	M	MOD	fork-adapted	adapt	three-way merge, no conflict
+README.md	M	MOD	fork-adapted	adapt	fork Traditional Chinese main document kept; upstream README not replayed
+SPONSORS.md	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+bin/ocx.mjs	M	MOD	fork-adapted	adapt	three-way merge, no conflict
+desktop/scripts/telemetry-installer-dialog.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+desktop/scripts/verify-release-assets.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+desktop/src-tauri/Cargo.lock	M	MOD	fork-adapted	adapt	three-way merge, conflicts resolved by hand; see UPSTREAM.md conflict table
+desktop/src-tauri/Cargo.toml	M	MOD	fork-adapted	adapt	three-way merge, conflicts resolved by hand; see UPSTREAM.md conflict table
+desktop/src-tauri/src/installer_telemetry.rs	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+desktop/src-tauri/src/lib.rs	M	MOD	fork-adapted	adapt	three-way merge, no conflict
+desktop/src-tauri/src/sidecar.rs	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+desktop/src-tauri/src/startup.rs	M	MOD	fork-adapted	adapt	three-way merge, no conflict
+desktop/src-tauri/tauri.conf.json	M	MOD	fork-adapted	adapt	version 2.100.2; wix fragmentPaths/componentGroupRefs not linked (D1); updater settings untouched
+desktop/src-tauri/update-trust-root.json	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+desktop/src-tauri/wix/telemetry-choice.wxs	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+devlog/_plan/261022_child_home_account_move/000_design.md	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+devlog/_plan/261022_child_home_account_move/010_security.md	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+devlog/_plan/261107_auto_update_parity/000_plan.md	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+devlog/_plan/261107_auto_update_parity/001_inventory.md	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+devlog/_plan/261107_auto_update_parity/002_gap_ledger.md	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+devlog/_plan/261107_auto_update_parity/003_contracts.md	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+devlog/_plan/261107_auto_update_parity/010_signed_supply.md	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+devlog/_plan/261107_auto_update_parity/020_activation_admission.md	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+devlog/_plan/261107_auto_update_parity/030_desktop_engine.md	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+devlog/_plan/261107_auto_update_parity/040_package_preparation.md	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+devlog/_plan/261107_auto_update_parity/050_sidebar_panel.md	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+devlog/_plan/261107_auto_update_parity/060_linked_updates.md	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+devlog/_plan/261107_auto_update_parity/070_standalone_updates.md	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+devlog/_plan/261107_auto_update_parity/080_child_initiated_updates.md	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+devlog/_plan/261107_auto_update_parity/090_pnpm_updates.md	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+devlog/_plan/261107_auto_update_parity/100_bun_updates.md	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+devlog/_plan/261107_ocx_child_ephemeral_link/000_roadmap.md	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+devlog/_plan/261107_ocx_child_ephemeral_link/001_audit_and_status.md	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+devlog/_plan/261107_ocx_child_ephemeral_link/010_wp1_conformance_contract.md	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+devlog/_plan/261107_ocx_child_ephemeral_link/020_wp2_rust_ocx_child.md	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+devlog/_plan/261107_ocx_child_ephemeral_link/030_wp3_home_link_integration.md	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+devlog/_plan/261107_ocx_child_ephemeral_link/040_wp4_docs_gates_and_pr.md	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+devlog/_plan/261107_ocx_child_ephemeral_link/050_wp5_pr_review_fixes.md	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+devlog/_plan/261107_ocx_child_plant_ux/000_roadmap.md	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+devlog/_plan/261107_ocx_child_plant_ux/001_audit_and_status.md	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+devlog/_plan/261107_ocx_child_plant_ux/010_wp1_rust_purge_and_conflicts.md	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+devlog/_plan/261107_ocx_child_plant_ux/020_wp2_home_plant_store_and_api.md	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+devlog/_plan/261107_ocx_child_plant_ux/030_wp3_cli_and_gui_remote_ux.md	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+devlog/_plan/261107_ocx_child_plant_ux/040_wp4_docs_screenshots_and_pr.md	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+devlog/_plan/261107_telemetry_dashboard/000_plan.md	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+devlog/_plan/261107_telemetry_dashboard/010_client_core.md	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+devlog/_plan/261107_telemetry_dashboard/020_gui_consent.md	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+devlog/_plan/261107_telemetry_dashboard/030_collector.md	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+devlog/_plan/261107_telemetry_dashboard/040_docs_privacy.md	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+devlog/_plan/261107_telemetry_dashboard/050_dashboard.md	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+devlog/_plan/261107_telemetry_dashboard/060_review_round.md	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+devlog/_plan/261108_dev_single_branch_release/000_plan.md	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+devlog/_plan/261108_dev_single_branch_release/010_implementation.md	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+devlog/_plan/261108_dev_single_branch_release/020_stale_branch_cleanup.md	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+devlog/_plan/261109_provider_target_drafts/000_plan.md	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+devlog/_plan/261109_provider_target_drafts/010_acceptance.md	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+devlog/_plan/261109_telemetry_personal_rank/000_plan.md	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+devlog/_plan/261109_telemetry_personal_rank/001_prior_art_tokscale.md	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+devlog/_plan/261109_telemetry_personal_rank/010_client_core.md	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+devlog/_plan/261109_telemetry_personal_rank/020_collector.md	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+devlog/_plan/261109_telemetry_personal_rank/030_gui_card.md	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+devlog/_plan/261109_telemetry_personal_rank/040_dashboard_leaderboard.md	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+devlog/_plan/261109_telemetry_personal_rank/050_docs_privacy.md	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+devlog/_plan/261109_telemetry_personal_rank/060_review_pr.md	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+devlog/_plan/261109_telemetry_personal_rank/070_merge.md	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+devlog/_plan/261110_claude_code_identity_fable52/010_plan.md	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+devlog/_plan/261110_desktop_autostart_checklist/000_plan.md	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+devlog/_plan/261110_fable_5_2_catalog/010_plan.md	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+devlog/_plan/261110_fable_5_2_catalog/030_done.md	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+devlog/_plan/261110_release_registry_wait/010_plan.md	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+devlog/_plan/261111_link_child_updates/000_plan.md	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+devlog/_plan/261111_link_child_updates/001_research_context_skew.md	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+devlog/_plan/261111_link_child_updates/002_research_update_mechanisms.md	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+devlog/_plan/261111_link_child_updates/003_research_surface_map.md	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+devlog/_plan/261111_link_child_updates/004_design_proposal.md	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+devlog/_plan/261111_link_child_updates/005_consultation.md	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+devlog/_plan/261111_link_child_updates/010_foundations.md	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+devlog/_plan/261111_link_child_updates/020_signals_visibility.md	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+devlog/_plan/261111_link_child_updates/030_child_operations.md	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+devlog/_plan/261111_link_child_updates/040_sync_loosening.md	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+devlog/_plan/261111_link_child_updates/050_auto_catalog_fanout.md	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+devlog/_plan/261111_link_child_updates/060_dashboard.md	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+devlog/_plan/261111_link_child_updates/070_auto_updates.md	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+devlog/_plan/261111_link_child_updates/080_child_side_release.md	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+devlog/_plan/261111_link_child_updates/090_release.md	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+docs-site/astro.config.mjs	M	MOD	fork-adapted	adapt	three-way merge, conflicts resolved by hand; see UPSTREAM.md conflict table
+docs-site/bun.lock	M	MOD	fork-adapted	adapt	three-way merge, no conflict
+docs-site/package.json	M	MOD	fork-adapted	adapt	three-way merge, conflicts resolved by hand; see UPSTREAM.md conflict table
+docs-site/public/favicon.svg	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+docs-site/public/grain.svg	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+docs-site/src/assets/logo-dark.svg	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+docs-site/src/assets/logo-light.svg	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+docs-site/src/components/CloudCanvas.astro	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+docs-site/src/components/Header.astro	M	MOD	fork-adapted	adapt	three-way merge, no conflict
+docs-site/src/components/Landing.astro	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+docs-site/src/components/TelemetryDashboard.astro	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+docs-site/src/components/TelemetryLeaderboard.astro	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+docs-site/src/components/telemetry-dashboard/client.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+docs-site/src/components/telemetry-dashboard/constants.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+docs-site/src/components/telemetry-dashboard/format.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+docs-site/src/components/telemetry-dashboard/heatmap.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+docs-site/src/components/telemetry-dashboard/index.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+docs-site/src/components/telemetry-dashboard/leaderboard.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+docs-site/src/components/telemetry-dashboard/state.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+docs-site/src/components/telemetry-dashboard/tables.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+docs-site/src/components/telemetry-dashboard/types.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+docs-site/src/content/docs/contributing.md	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+docs-site/src/content/docs/contributing/pr-quality.md	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+docs-site/src/content/docs/dashboard.mdx	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+docs-site/src/content/docs/fr/contributing.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/fr/contributing/pr-quality.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/fr/getting-started/for-agents.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/fr/getting-started/installation.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/fr/getting-started/quickstart.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/fr/guides/claude-code.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/fr/guides/combos.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/fr/guides/integrations.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/fr/guides/providers.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/fr/guides/remote-hub.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/fr/guides/remote-link.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/fr/guides/web-dashboard.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/fr/reference/cli/lifecycle.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/fr/reference/client-support.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/fr/reference/configuration.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/fr/reference/configuration/providers.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/fr/reference/configuration/server.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/fr/reference/management-api.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/fr/troubleshooting/windows-memory.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/getting-started/for-agents.md	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+docs-site/src/content/docs/getting-started/installation.md	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+docs-site/src/content/docs/getting-started/quickstart.md	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+docs-site/src/content/docs/guides/claude-code.md	M	MOD	fork-adapted	adapt	three-way merge, no conflict
+docs-site/src/content/docs/guides/codex-integration.md	M	MOD	fork-adapted	adapt	three-way merge, no conflict
+docs-site/src/content/docs/guides/combos.md	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+docs-site/src/content/docs/guides/custom-gateway.md	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+docs-site/src/content/docs/guides/desktop-app.md	M	MOD	fork-adapted	adapt	three-way merge, no conflict
+docs-site/src/content/docs/guides/integrations.md	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+docs-site/src/content/docs/guides/opencode.md	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+docs-site/src/content/docs/guides/protocol-paths.md	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+docs-site/src/content/docs/guides/providers.md	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+docs-site/src/content/docs/guides/remote-hub.md	M	MOD	fork-adapted	adapt	three-way merge, conflicts resolved by hand; see UPSTREAM.md conflict table
+docs-site/src/content/docs/guides/remote-link.md	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+docs-site/src/content/docs/guides/sidecars.md	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+docs-site/src/content/docs/guides/telemetry.md	A	NEW	fork-adapted	adapt	fork-build note added at the top (D1)
+docs-site/src/content/docs/guides/web-dashboard.md	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+docs-site/src/content/docs/ja/contributing.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/ja/getting-started/for-agents.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/ja/getting-started/installation.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/ja/getting-started/quickstart.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/ja/guides/claude-code.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/ja/guides/combos.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/ja/guides/integrations.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/ja/guides/providers.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/ja/guides/remote-hub.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/ja/guides/remote-link.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/ja/guides/web-dashboard.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/ja/reference/cli/lifecycle.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/ja/reference/client-support.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/ja/reference/configuration.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/ja/reference/configuration/providers.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/ja/reference/configuration/server.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/ja/reference/management-api.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/ja/reference/proxy-formats.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/ja/troubleshooting/windows-memory.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/ko/contributing.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/ko/getting-started/for-agents.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/ko/getting-started/installation.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/ko/getting-started/quickstart.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/ko/guides/claude-code.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/ko/guides/codex-integration.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/ko/guides/combos.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/ko/guides/custom-gateway.md	A	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/ko/guides/integrations.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/ko/guides/opencode.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/ko/guides/providers.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/ko/guides/remote-hub.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/ko/guides/remote-link.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/ko/guides/sidecars.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/ko/guides/web-dashboard.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/ko/reference/adapters.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/ko/reference/architecture.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/ko/reference/cli/lifecycle.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/ko/reference/client-support.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/ko/reference/configuration.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/ko/reference/configuration/providers.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/ko/reference/configuration/server.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/ko/reference/management-api.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/ko/reference/proxy-formats.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/ko/troubleshooting/windows-memory.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/reference/adapters.md	M	MOD	fork-adapted	adapt	three-way merge, no conflict
+docs-site/src/content/docs/reference/architecture.md	M	MOD	fork-adapted	adapt	three-way merge, no conflict
+docs-site/src/content/docs/reference/cli/agents.md	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+docs-site/src/content/docs/reference/cli/lifecycle.md	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+docs-site/src/content/docs/reference/cli/messaging.md	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+docs-site/src/content/docs/reference/cli/providers-accounts.md	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+docs-site/src/content/docs/reference/client-support.md	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+docs-site/src/content/docs/reference/code-signing.md	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+docs-site/src/content/docs/reference/configuration.md	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+docs-site/src/content/docs/reference/configuration/providers.md	M	MOD	fork-adapted	adapt	four hard-wrapped lines joined to stay under the 2000-line file-size ratchet
+docs-site/src/content/docs/reference/configuration/routing.md	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+docs-site/src/content/docs/reference/configuration/server.md	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+docs-site/src/content/docs/reference/management-api.md	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+docs-site/src/content/docs/reference/proxy-formats.md	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+docs-site/src/content/docs/ru/contributing.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/ru/getting-started/for-agents.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/ru/getting-started/installation.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/ru/getting-started/quickstart.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/ru/guides/claude-code.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/ru/guides/combos.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/ru/guides/integrations.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/ru/guides/providers.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/ru/guides/remote-hub.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/ru/guides/remote-link.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/ru/guides/web-dashboard.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/ru/reference/cli/lifecycle.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/ru/reference/client-support.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/ru/reference/configuration.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/ru/reference/configuration/providers.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/ru/reference/configuration/server.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/ru/reference/management-api.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/ru/reference/proxy-formats.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/ru/troubleshooting/windows-memory.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/tr/contributing.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/tr/contributing/pr-quality.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/tr/getting-started/for-agents.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/tr/getting-started/installation.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/tr/getting-started/quickstart.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/tr/guides/claude-code.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/tr/guides/combos.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/tr/guides/integrations.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/tr/guides/protocol-paths.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/tr/guides/providers.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/tr/guides/remote-hub.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/tr/guides/remote-link.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/tr/guides/web-dashboard.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/tr/reference/cli/lifecycle.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/tr/reference/cli/messaging.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/tr/reference/client-support.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/tr/reference/code-signing.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/tr/reference/configuration.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/tr/reference/configuration/providers.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/tr/reference/configuration/server.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/tr/reference/management-api.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/tr/troubleshooting/windows-memory.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/troubleshooting/windows-memory.md	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+docs-site/src/content/docs/zh-cn/contributing.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/zh-cn/getting-started/for-agents.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/zh-cn/getting-started/installation.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/zh-cn/getting-started/quickstart.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/zh-cn/guides/claude-code.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/zh-cn/guides/codex-integration.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/zh-cn/guides/combos.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/zh-cn/guides/integrations.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/zh-cn/guides/providers.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/zh-cn/guides/remote-hub.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/zh-cn/guides/remote-link.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/zh-cn/guides/web-dashboard.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/zh-cn/reference/adapters.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/zh-cn/reference/cli/lifecycle.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/zh-cn/reference/client-support.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/zh-cn/reference/configuration.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/zh-cn/reference/configuration/providers.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/zh-cn/reference/configuration/server.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/zh-cn/reference/management-api.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/zh-cn/reference/proxy-formats.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/zh-cn/troubleshooting/windows-memory.md	M	-	absent	n/a	deleted locale (FORK.md:20)
+docs-site/src/content/docs/zh-tw/contributing.md	M	MOD	fork-adapted	adapt	three-way merge, conflicts resolved by hand; see UPSTREAM.md conflict table
+docs-site/src/content/docs/zh-tw/contributing/pr-quality.md	M	TAKE	fork-adapted	adapt	adopted file modified after replay; see UPSTREAM.md
+docs-site/src/content/docs/zh-tw/getting-started/for-agents.md	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+docs-site/src/content/docs/zh-tw/getting-started/installation.md	M	MOD	fork-adapted	adapt	three-way merge, no conflict
+docs-site/src/content/docs/zh-tw/getting-started/quickstart.md	M	MOD	fork-adapted	adapt	three-way merge, no conflict
+docs-site/src/content/docs/zh-tw/guides/claude-code.md	M	MOD	fork-adapted	adapt	three-way merge, no conflict
+docs-site/src/content/docs/zh-tw/guides/codex-integration.md	M	MOD	fork-adapted	adapt	three-way merge, no conflict
+docs-site/src/content/docs/zh-tw/guides/combos.md	M	MOD	fork-adapted	adapt	three-way merge, conflicts resolved by hand; see UPSTREAM.md conflict table
+docs-site/src/content/docs/zh-tw/guides/integrations.md	M	MOD	fork-adapted	adapt	three-way merge, no conflict
+docs-site/src/content/docs/zh-tw/guides/providers.md	M	MOD	fork-adapted	adapt	three-way merge, no conflict
+docs-site/src/content/docs/zh-tw/guides/remote-hub.md	M	MOD	fork-adapted	adapt	three-way merge, conflicts resolved by hand; see UPSTREAM.md conflict table
+docs-site/src/content/docs/zh-tw/guides/remote-link.md	M	MOD	fork-adapted	adapt	three-way merge, no conflict
+docs-site/src/content/docs/zh-tw/guides/web-dashboard.md	M	MOD	fork-adapted	adapt	three-way merge, no conflict
+docs-site/src/content/docs/zh-tw/reference/cli/lifecycle.md	M	MOD	fork-adapted	adapt	three-way merge, conflicts resolved by hand; see UPSTREAM.md conflict table
+docs-site/src/content/docs/zh-tw/reference/cli/providers-accounts.md	M	MOD	fork-adapted	adapt	three-way merge, no conflict
+docs-site/src/content/docs/zh-tw/reference/client-support.md	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+docs-site/src/content/docs/zh-tw/reference/configuration.md	M	MOD	fork-adapted	adapt	three-way merge, no conflict
+docs-site/src/content/docs/zh-tw/reference/configuration/providers.md	M	MOD	fork-adapted	adapt	three-way merge, conflicts resolved by hand; see UPSTREAM.md conflict table
+docs-site/src/content/docs/zh-tw/reference/configuration/server.md	M	MOD	fork-adapted	adapt	three-way merge, conflicts resolved by hand; see UPSTREAM.md conflict table
+docs-site/src/content/docs/zh-tw/reference/management-api.md	M	MOD	fork-adapted	adapt	three-way merge, no conflict
+docs-site/src/content/docs/zh-tw/troubleshooting/windows-memory.md	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+docs-site/src/data/telemetry-dashboard-i18n.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+docs-site/src/data/telemetry-leaderboard-i18n.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+docs-site/src/styles/custom.css	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+docs-site/src/styles/site-theme.css	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+docs-site/tests/landing-motion.mjs	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+gui/src/App.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/src/admin-token-dialog.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/src/api-error.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/src/api-target-lifecycle.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+gui/src/api-targets.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/src/api.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/src/app-routing.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/src/codex-quota-utils.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/src/components/AddCodexAccountModal.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/src/components/AddProviderModal.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/src/components/CodexAccountPool.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/src/components/KiroDeviceLoginDialog.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/src/components/QuotaBars.tsx	M	MOD	fork-adapted	adapt	three-way merge, no conflict
+gui/src/components/TelemetrySettingsPanel.tsx	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+gui/src/components/add-provider-form-pane.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/src/components/desktop-star-onboarding.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/src/components/provider-workspace/AnthropicAccountPoolSettings.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/src/components/provider-workspace/ProviderAuthPanel.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/src/components/provider-workspace/ProviderDetails.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/src/components/provider-workspace/ProviderJsonEditor.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/src/components/provider-workspace/ProviderOverview.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/src/components/provider-workspace/ProviderOverviewDashboard.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/src/components/provider-workspace/ProviderRail.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/src/components/provider-workspace/ProviderSettings.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/src/components/provider-workspace/ProviderWorkspaceShell.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/src/components/provider-workspace/types.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/src/components/quota-summary-bar/QuotaSummaryBar.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/src/components/telemetry-consent-card.tsx	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+gui/src/components/telemetry-profile-card.tsx	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+gui/src/components/use-add-codex-account-oauth.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/src/components/use-add-provider-oauth.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/src/components/use-kiro-device-login.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/src/components/use-main-device-reauth.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/src/design/pages/accounts.css	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/src/hooks/useCodexAccountPool.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/src/hooks/useCodexAutoSwitch.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/src/hooks/useJsonConfigEditor.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/src/hooks/useProviderAccountPools.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/src/hooks/useStartupChecklist.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/src/i18n/de.ts	M	-	absent	n/a	deleted GUI locale (FORK.md:20)
+gui/src/i18n/en.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/src/i18n/fr.ts	M	-	absent	n/a	deleted GUI locale (FORK.md:20)
+gui/src/i18n/ja.ts	M	-	absent	n/a	deleted GUI locale (FORK.md:20)
+gui/src/i18n/ko.ts	M	-	absent	n/a	deleted GUI locale (FORK.md:20)
+gui/src/i18n/pt.ts	M	-	absent	n/a	deleted GUI locale (FORK.md:20)
+gui/src/i18n/ru.ts	M	-	absent	n/a	deleted GUI locale (FORK.md:20)
+gui/src/i18n/shell-v2-copy.ts	M	MOD	fork-adapted	adapt	three-way merge, conflicts resolved by hand; see UPSTREAM.md conflict table
+gui/src/i18n/tr.ts	M	-	absent	n/a	deleted GUI locale (FORK.md:20)
+gui/src/i18n/v2-pages/proxy-copy.ts	M	MOD	fork-adapted	adapt	three-way merge, conflicts resolved by hand; see UPSTREAM.md conflict table
+gui/src/i18n/v2-pages/telemetry-profile-copy.ts	A	NEW	fork-adapted	adapt	11-column copy table reduced to en and zh-TW (fork keeps two locales)
+gui/src/i18n/vi.ts	M	-	absent	n/a	deleted GUI locale (FORK.md:20)
+gui/src/i18n/zh-TW.ts	M	MOD	fork-adapted	adapt	three-way merge, no conflict
+gui/src/i18n/zh.ts	M	-	absent	n/a	deleted GUI locale (FORK.md:20)
+gui/src/icons.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/src/kiro-device-login-finalizer.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/src/oauth-cancellation-barrier.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/src/pages/AdvancedHub.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/src/pages/ClaudeDesktop.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/src/pages/CodexSet.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/src/pages/Dashboard.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/src/pages/Home.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/src/pages/Providers.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/src/pages/RemoteLink.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/src/pages/RemoteLinkDialogs.tsx	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+gui/src/pages/RemoteLinkSheet.tsx	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+gui/src/pages/SetupHub.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/src/pages/Startup.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/src/pages/claude-desktop-roles.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/src/pages/codex-set-multiauth.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/src/pages/dashboard-overview-panels.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/src/pages/dashboard-section-ids.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/src/pages/integrations/AsideProfilesPage.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/src/pages/integrations/ConsequenceDialog.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/src/pages/integrations/FileIntegrationPage.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/src/pages/integrations/IntegrationsOverview.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/src/pages/integrations/preview-recovery.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+gui/src/pages/logs-failure-summary.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/src/pages/providers-page-modals.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/src/pages/providers-shared.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/src/pages/startup-desktop-focus.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+gui/src/pages/startup-sections.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/src/pages/tray-data.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/src/pages/tray/TrayAccounts.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/src/pages/use-dashboard-data.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/src/pages/use-legacy-target-preflight-notice.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+gui/src/pages/use-providers-crud.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/src/pages/use-providers-fetch.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/src/pages/use-providers-oauth.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/src/pages/use-target-oauth-state.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+gui/src/provider-payload.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/src/provider-workspace/auth.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/src/provider-workspace/catalog.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/src/provider-workspace/provider-draft-merge.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+gui/src/provider-workspace/report.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/src/provider-workspace/target-drafts.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+gui/src/quota-summary.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/src/remote-link-api.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/src/startup-health-ui.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/src/styles-remote-link.css	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/src/styles.css	M	MOD	fork-adapted	adapt	three-way merge, no conflict
+gui/src/styles/provider-quota.css	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/src/styles/provider-workspace-settings.css	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/src/telemetry-api.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+gui/src/telemetry-profile-api.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+gui/src/usage-summary-resource.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/src/use-render-target-capture.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+gui/tests/account-pause-display.test.tsx	M	MOD	fork-adapted	adapt	three-way merge, no conflict
+gui/tests/add-codex-account-target-capture.test.tsx	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+gui/tests/add-provider-oauth-url-leak.test.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/tests/add-provider-subscription-cli.test.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/tests/admin-token-dialog.test.ts	M	MOD	fork-adapted	adapt	three-way merge, no conflict
+gui/tests/anthropic-pool-conditions.test.tsx	M	MOD	fork-adapted	adapt	three-way merge, no conflict
+gui/tests/anthropic2-provider-surfaces.test.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/tests/api-target-lifecycle.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+gui/tests/api-target-transport.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+gui/tests/api-targets.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/tests/claude-desktop-roles.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/tests/codex-account-auto-switch.test.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/tests/codex-account-pool-behaviour.test.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/tests/codex-account-pool-controller.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/tests/codex-account-pool-stale-actions.test.tsx	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+gui/tests/codex-account-pool-stale-refresh.test.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/tests/codex-account-pool-target-capture.test.tsx	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+gui/tests/codex-account-pool-target-switch.test.tsx	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+gui/tests/codex-set-target-frame.test.tsx	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+gui/tests/dashboard-contracts.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/tests/desktop-star-onboarding.test.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/tests/integrations-preview-recovery.test.tsx	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+gui/tests/kiro-device-login.test.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/tests/main-device-reauth-target-capture.test.tsx	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+gui/tests/mistral-budget-display.test.tsx	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+gui/tests/oauth-cancellation-barrier.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+gui/tests/overview-refresh-all-quotas.test.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/tests/persistent-dashboard.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/tests/provider-account-pause-refresh.test.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/tests/provider-account-pool-target-switch.test.tsx	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+gui/tests/provider-account-quota-loading.test.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/tests/provider-auth-target-capture.test.tsx	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+gui/tests/provider-capacity-shell.test.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/tests/provider-catalog-search.test.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/tests/provider-first-response-guidance.test.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/tests/provider-models-notice.test.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/tests/provider-oauth-status-races.test.tsx	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+gui/tests/provider-overview-account-label.test.tsx	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+gui/tests/provider-quota-model-id.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/tests/provider-same-origin-api-base.test.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/tests/provider-settings-live-models-provenance.test.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/tests/provider-settings-request-pacing.test.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/tests/provider-target-changed-message.test.tsx	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+gui/tests/provider-target-drafts-store.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+gui/tests/provider-target-drafts.test.tsx	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+gui/tests/quota-display-only-window.test.tsx	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+gui/tests/quota-summary-bar.test.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/tests/quota-summary.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/tests/remote-link.test.tsx	M	MOD	fork-adapted	adapt	three-way merge, no conflict
+gui/tests/render-gap-capture-owners.test.tsx	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+gui/tests/render-target-capture-identity.test.tsx	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+gui/tests/sidebar-codex-set.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/tests/startup-checklist-desktop.test.tsx	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+gui/tests/startup-checklist-refresh.test.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/tests/telemetry-consent-card.test.tsx	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+gui/tests/telemetry-profile-card.test.tsx	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+gui/tests/telemetry-settings-panel.test.tsx	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+gui/tests/use-json-config-editor.test.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+gui/tests/use-providers-crud-update.test.tsx	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+native/ocx-child/Cargo.lock	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+native/ocx-child/Cargo.toml	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+native/ocx-child/src/cli.rs	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+native/ocx-child/src/codex_home.rs	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+native/ocx-child/src/codex_settings.rs	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+native/ocx-child/src/daemon.rs	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+native/ocx-child/src/http_wire.rs	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+native/ocx-child/src/journal.rs	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+native/ocx-child/src/lib.rs	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+native/ocx-child/src/main.rs	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+native/ocx-child/src/parity.rs	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+native/ocx-child/src/platform.rs	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+native/ocx-child/src/relay.rs	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+native/ocx-child/src/relay_auth.rs	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+native/ocx-child/src/routes.rs	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+native/ocx-child/src/state.rs	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+native/ocx-child/src/test_hooks.rs	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+native/ocx-child/src/toml_surgeon.rs	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+native/ocx-child/tests/common/mod.rs	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+native/ocx-child/tests/conformance.rs	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+native/ocx-child/tests/lifecycle_guards.rs	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+native/ocx-child/tests/relay_and_lifecycle.rs	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+package.json	M	MOD	fork-adapted	adapt	three-way merge, conflicts resolved by hand; see UPSTREAM.md conflict table
+readme/README.fr.md	M	-	absent	n/a	deleted README translation (FORK.md:20)
+readme/README.ja.md	M	-	absent	n/a	deleted README translation (FORK.md:20)
+readme/README.ko.md	M	-	absent	n/a	deleted README translation (FORK.md:20)
+readme/README.ru.md	M	-	absent	n/a	deleted README translation (FORK.md:20)
+readme/README.tr.md	M	-	absent	n/a	deleted README translation (FORK.md:20)
+readme/README.zh-CN.md	M	-	absent	n/a	deleted README translation (FORK.md:20)
+readme/README.zh-TW.md	M	MOD	fork-adapted	adapt	three-way merge, conflicts resolved by hand; see UPSTREAM.md conflict table
+readme/i18n-manifest.json	M	-	absent	n/a	deleted README translation (FORK.md:20)
+scripts/build-release-changelog.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+scripts/bump-dev-version.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+scripts/ci/release-preflight.sh	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+scripts/ci/test-durations.tsv	M	MOD	fork-adapted	adapt	upstream rows minus tests absent from the fork; upstream header plus a fork note
+scripts/ci/test-durations.windows.tsv	M	MOD	fork-adapted	adapt	fork-measured weights kept; new tests have no row until the next refresh from CI logs
+scripts/doctor-gui-if-changed.ts	M	MOD	fork-adapted	adapt	three-way merge, no conflict
+scripts/generate-client-support-matrix.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+scripts/generate-ocx-skill-surface.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+scripts/generate-update-trust-root.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+scripts/install.ps1	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+scripts/install.sh	M	-	absent	n/a	REMOVED_FILES (tools/fork-hygiene-guards.ts)
+scripts/lint-gui-if-changed.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+scripts/model-metadata.source.json	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+scripts/release-version-sources.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+scripts/release.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+scripts/test-layout/layout-adapters.json	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+scripts/test-layout/layout-clients.json	M	MOD	fork-adapted	adapt	three-way merge, no conflict
+scripts/test-layout/layout-codex-collision.json	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+scripts/test-layout/layout-combos.json	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+scripts/test-layout/layout-docs-guides.json	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+scripts/test-layout/layout-providers.json	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+scripts/test-layout/layout-replay.json	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+scripts/test-layout/layout-responses.json	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+scripts/test-layout/layout-server-inbound.json	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+scripts/test-layout/layout-start-ownership.json	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+scripts/test-layout/layout-usage.json	M	TAKE	fork-adapted	adapt	adopted file modified after replay; see UPSTREAM.md
+scripts/test-layout/layout.json	M	MOD	fork-adapted	adapt	three-way merge, conflicts resolved by hand; see UPSTREAM.md conflict table
+scripts/version-line.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+services/telemetry-collector/README.md	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+services/telemetry-collector/schema.sql	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+services/telemetry-collector/src/index.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+services/telemetry-collector/src/ingest.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+services/telemetry-collector/src/leaderboard.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+services/telemetry-collector/src/profile-http.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+services/telemetry-collector/src/profiles.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+services/telemetry-collector/src/prune.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+services/telemetry-collector/src/stats.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+services/telemetry-collector/src/types.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+services/telemetry-collector/tsconfig.json	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+services/telemetry-collector/wrangler.toml	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+skills/ocx/references/01_management_surface.md	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+skills/ocx/references/01_surface_access-remote.md	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+skills/ocx/references/01_surface_accounts.md	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+skills/ocx/references/01_surface_agents-routing.md	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+skills/ocx/references/01_surface_observe-system.md	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+skills/ocx/references/02_json_shapes.md	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+skills/ocx/references/03_recipes.md	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+skills/ocx/references/04_failure_semantics.md	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+skills/ocx/references/05_remote_hub.md	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/adapters/anthropic-image-normalize.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/adapters/anthropic.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/adapters/claude-cli/adapter.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/adapters/claude-cli/instruction-images.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+src/adapters/claude-cli/stable-replay.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/adapters/claude-cli/usage-admission.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/adapters/client-fingerprint.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/adapters/coding-agent/protocol.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/adapters/cursor/native-exec.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/adapters/cursor/tool-guidance.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/adapters/cursor/tool-wording.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/adapters/devin/cloud-direct/tool-schema.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/adapters/devin/live-models.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/adapters/google-antigravity-wire.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/adapters/google-http.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/adapters/google-truncation.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/adapters/google-vertex-key-project.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/adapters/google.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/adapters/kiro/usage.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/adapters/openai-chat-images.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/adapters/openai-chat.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/adapters/openai-chat/mistral-image-limit.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/adapters/openai-chat/tool-schema.ts	M	MOD	fork-adapted	adapt	three-way merge, no conflict
+src/adapters/openai-responses/passthrough.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/adapters/openai-responses/request-strips.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/adapters/openai-responses/tool-schema.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/adapters/run-turn-queue.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/adapters/upstream-http-error.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/bridge/sse.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/chat/inbound.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/claude/auth-detect.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/claude/chat-tool-dispatch.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+src/claude/inbound-content-options.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/claude/inbound-tool-loading.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/claude/inbound.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/cli/account-api.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/cli/account-extended.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/cli/account-key-quota.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/cli/account.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/cli/bundled-bun-diagnostic.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+src/cli/capabilities-access-remote.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/cli/capabilities-agents-routing.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/cli/capabilities-base.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/cli/capabilities-observe-system.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/cli/claude.ts	M	MOD	fork-adapted	adapt	three-way merge, no conflict
+src/cli/combo-input.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/cli/combo-result.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/cli/combo.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/cli/config-command.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/cli/connect.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/cli/dispatch.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/cli/doctor.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/cli/gui-pair-client.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/cli/help.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/cli/hub.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/cli/init.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/cli/link-child-ops.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+src/cli/link-enrollment.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/cli/link-local-control.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+src/cli/link-status-child.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+src/cli/link.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/cli/provider-lifecycle-runtime.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/cli/registry.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/cli/star-prompt.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/cli/status.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/cli/sync-command.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/cli/sync-fanout.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/cli/telemetry-profile.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+src/cli/telemetry.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+src/client/hub-relay.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/client/link-readiness.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/client/link-tunnel-status.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+src/client/machine-api.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/clients/config-export.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/clients/config-export/t3code.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/clients/omo-role-models.ts	M	MOD	fork-adapted	adapt	three-way merge, no conflict
+src/codex/account-resume-health.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+src/codex/auth-api/login-flow.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/codex/auth-api/routes.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/codex/catalog/bundled.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/codex/catalog/gather-capture.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/codex/catalog/provider-models.ts	M	MOD	fork-adapted	adapt	upstream skipInvalidRows warning merged; fork host matching and log scrubbing kept, new warning name also scrubbed
+src/codex/convergence-types.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/codex/quota.ts	M	MOD	fork-adapted	adapt	three-way merge, no conflict
+src/codex/runtime.ts	M	MOD	fork-adapted	adapt	three-way merge, no conflict
+src/codex/shim-restore-lock.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/combos/cooldown-store.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+src/combos/failover.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/combos/types.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/config.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/config/atomic-write.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/config/diagnostics.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/config/live-reconcile.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/config/load-degrade.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/config/provider-validation.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/config/salvage.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/config/schema/config-schema.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/config/schema/leaf-validators.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/config/telemetry-carry.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+src/generated/model-metadata.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/integrations/aside-profiles.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/integrations/owned-refresh.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/lab/artifacts/secure-fs.ts	M	MOD	fork-adapted	adapt	taken whole from upstream (bigint identity and OS lock, fabc69ee1)
+src/lab/fabric/scratch.ts	M	MOD	fork-adapted	adapt	taken whole from upstream (bigint identity, fabc69ee1)
+src/lab/public/community.ts	M	MOD	fork-adapted	adapt	three-way merge, no conflict
+src/lab/public/file-safety.ts	M	MOD	fork-adapted	adapt	taken whole from upstream (bigint identity, fabc69ee1)
+src/lab/public/mutation-lock.ts	M	MOD	fork-adapted	adapt	taken whole from upstream (OS-held lock, fabc69ee1)
+src/lab/public/private-file.ts	M	MOD	fork-adapted	adapt	taken whole from upstream (bigint identity, fabc69ee1)
+src/lib/bun-runtime-preflight.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/lib/catalog-etag.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+src/lib/client-error-body.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/lib/codex-catalog-read-only.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+src/lib/config-ownership.ts	M	MOD	fork-adapted	adapt	three-way merge, no conflict
+src/lib/context-overflow-verdict.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/lib/errors.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/lib/failure-detail.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/lib/gcp-adc.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/lib/hard-refusal.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+src/lib/jsonc.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/lib/local-control-socket.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+src/lib/privacy.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/lib/provider-client-headers.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/lib/token-estimate.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/link/child-activity.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+src/link/child-binary-source.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+src/link/child-catalog-freshness.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+src/link/child-gated-ocx.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+src/link/child-observations.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+src/link/child-observe.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+src/link/child-ops-engine.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+src/link/child-update-contract.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+src/link/ephemeral-child.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+src/link/paths.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/link/remote-plant.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+src/link/remote-windows.ts	M	MOD	fork-adapted	adapt	three-way merge, no conflict
+src/link/ssh-argv.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/link/status-projection.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/link/store.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/link/sync-fanout-classify.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+src/link/tunnel-state.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/messaging/mcp-queue-rpc.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/messaging/mcp-queue-server.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/messaging/mcp-reply-tools.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/messaging/mcp-reply-wait.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+src/oauth/account-resume-health.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+src/oauth/anthropic-model-quota.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/oauth/anthropic-routing.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/oauth/claude-keychain-read.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+src/oauth/index.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/oauth/kiro-iam-identity-center.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/oauth/local-token-detect.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/oauth/store.ts	M	MOD	fork-adapted	adapt	three-way merge, no conflict
+src/protocols/envelope.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/providers/api-key-pause-state.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+src/providers/api-key-pause.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/providers/api-key-selection-capture.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/providers/api-key-selection.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/providers/api-keys.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/providers/claude-cli-identity.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/providers/claude-cli-usage-state.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+src/providers/claude-cli-usage.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/providers/codex-capacity.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/providers/github-copilot-auto.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/providers/key-failover.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/providers/meta-muse-plan-refusal.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+src/providers/model-discovery-config.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+src/providers/model-discovery-diagnostic.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/providers/model-discovery.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/providers/model-rename-fields.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/providers/openai-sidecar.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/providers/provider-id-rewrite.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/providers/quota-key-accounts.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/providers/quota-mistral-budget.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+src/providers/quota-types.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/providers/quota.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/providers/quota/account-cache.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/providers/quota/anthropic-family-headers.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/providers/quota/anthropic-usage-windows.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/providers/quota/report-cache.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/providers/quota/vendor-probes-key.ts	M	MOD	fork-adapted	adapt	three-way merge, no conflict
+src/providers/quota/vendor-probes-oauth.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/providers/quota/workbuddy.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/providers/reasoning-metadata.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/providers/registry/entries-core.ts	M	MOD	fork-adapted	adapt	three-way merge, no conflict
+src/providers/registry/entries-extended.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/providers/registry/model-ids.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/providers/registry/model-seeds.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/providers/registry/types.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/providers/resolved-model-policy.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/providers/routed-config.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/providers/stale-no-vision-seed-migration.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/providers/vertex-environment-authority.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+src/providers/workbuddy-credit-balance.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/quota-pool/assemble.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/quota/reset-observer.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/quota/reset-seen-store.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/quota/window-mapping.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/responses/hosted-tool-policy.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/responses/retained-compaction.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/router.ts	M	MOD	fork-adapted	adapt	three-way merge, no conflict
+src/server/adapter-resolve.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/server/audio-dictation.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/server/auth-cors.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/server/background-lifecycle.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/server/catalog-download.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/server/chat-completions.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/server/chat-native.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/server/claude-messages.ts	M	MOD	fork-adapted	adapt	three-way merge, no conflict
+src/server/images.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/server/index.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/server/index/link-listener.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/server/index/link-relay-sessions.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/server/index/live-sideband.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/server/index/local-control-listener.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+src/server/index/optional-listeners.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/server/index/serve-options.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/server/index/websocket-handler.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/server/management-api.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/server/management/combo-routes.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/server/management/config-routes.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/server/management/context.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/server/management/link-child-ops-routes.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+src/server/management/link-child-preflight.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+src/server/management/link-enrollment.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/server/management/link-route-state.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/server/management/link-routes.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/server/management/model-rows.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/server/management/oauth-account-routes.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/server/management/provider-overwrite-carry.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/server/management/provider-routes.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/server/management/provider-thinking-display-patch.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+src/server/management/route-registry.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/server/management/session-routes.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/server/management/telemetry-routes.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+src/server/management/usage-aggregate-cache.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/server/messages-native-preflight.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+src/server/messages-native.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/server/messages-shared.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/server/proxy-liveness.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/server/request-log-conversation.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/server/request-log-failure-detail.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/server/request-log.ts	M	MOD	fork-adapted	adapt	three-way merge, no conflict
+src/server/responses/adapter-continuation.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/server/responses/adapter-dispatch.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/server/responses/adapter-failure-message.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+src/server/responses/combo-stream-preflight.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/server/responses/compact.ts	M	MOD	fork-adapted	adapt	three-way merge, no conflict
+src/server/responses/context-overflow.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/server/responses/core-auth.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/server/responses/core-codex-account.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/server/responses/core-combo-failure.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/server/responses/core-combo-native.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/server/responses/core-combo.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/server/responses/core-errors.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/server/responses/core-normalize.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/server/responses/core-opaque-recovery.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/server/responses/core-options.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/server/responses/core-pipeline.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/server/responses/fetch-helpers.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/server/responses/opengateway-completion-guard.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/server/responses/passthrough-delivery.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/server/responses/passthrough-dispatch.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/server/responses/passthrough-error.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/server/responses/request-prepare.ts	M	MOD	fork-adapted	adapt	three-way merge, no conflict
+src/server/responses/request-transport.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/server/responses/reset-replay.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/server/responses/run-turn-execution.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/server/sse-frame-buffer.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/server/ws-bridge.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/service/launchd.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/telemetry/aggregate.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+src/telemetry/consent.ts	A	NEW	fork-adapted	adapt	fork gate: isTelemetryEnvOptOut reports OCX_TELEMETRY while forkTelemetryBlocked() (D1)
+src/telemetry/contract.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+src/telemetry/disclosure.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+src/telemetry/install-id.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+src/telemetry/payload.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+src/telemetry/profile/client.ts	A	NEW	fork-adapted	adapt	fork gate: profile call refuses before fetch (D1)
+src/telemetry/profile/contract.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+src/telemetry/profile/disclosure.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+src/telemetry/profile/paths.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+src/telemetry/profile/routes.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+src/telemetry/profile/service.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+src/telemetry/profile/state.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+src/telemetry/profile/sync.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+src/telemetry/routes.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+src/telemetry/scheduler.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+src/telemetry/sender.ts	A	NEW	fork-adapted	adapt	fork gate: sendTelemetryPayload refuses before fetch (D1)
+src/telemetry/state.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+src/types.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/types/claude-tool-loading.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+src/types/combo-jev-effort-mode.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+src/types/config.ts	M	MOD	fork-adapted	adapt	three-way merge, no conflict
+src/types/provider.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/types/request.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/types/telemetry.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+src/types/wire.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/update/index.ts	M	MOD	fork-adapted	adapt	three-way merge, no conflict
+src/update/minisign.d.mts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+src/update/minisign.mjs	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+src/update/signed-supply.d.mts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+src/update/signed-supply.mjs	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+src/update/trust-root.json	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+src/update/update-bounded-json.d.mts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+src/update/update-bounded-json.mjs	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+src/update/update-bytes.d.mts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+src/update/update-bytes.mjs	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+src/update/update-candidate-id.d.mts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+src/update/update-candidate-id.mjs	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+src/update/update-checkpoint-codec.d.mts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+src/update/update-checkpoint-codec.mjs	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+src/update/update-contracts.d.mts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+src/update/update-contracts.mjs	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+src/update/update-signature-threshold.d.mts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+src/update/update-signature-threshold.mjs	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+src/update/update-signed-version.d.mts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+src/update/update-signed-version.mjs	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+src/update/update-trust-anchor.d.mts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+src/update/update-trust-anchor.mjs	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+src/usage/cache-diagnostic.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/usage/expected-prices.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/usage/filter-index.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+src/usage/ledger-scanner.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/usage/source-filter.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/usage/summary.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+src/web-search/parse.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+structure/INDEX.md	M	MOD	fork-adapted	adapt	three-way merge, no conflict
+structure/account-auto-pause.md	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+structure/adapters/compatibility-lab.md	M	MOD	fork-adapted	adapt	three-way merge, no conflict
+structure/adapters/registry.md	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+structure/catalog.md	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+structure/cli-management.md	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+structure/clients/claude-desktop.md	M	MOD	fork-adapted	adapt	three-way merge, no conflict
+structure/clients/integrations.md	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+structure/clients/t3code.md	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+structure/codex-home.md	M	MOD	fork-adapted	adapt	three-way merge, no conflict
+structure/config-ownership.md	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+structure/config.md	M	MOD	fork-adapted	adapt	three-way merge, no conflict
+structure/dashboard-and-usage.md	M	MOD	fork-adapted	adapt	three-way merge, no conflict
+structure/data-planes/claude-tool-loading.md	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+structure/data-planes/error-detail.md	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+structure/data-planes/images.md	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+structure/data-planes/inbound-compat.md	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+structure/data-planes/protocol-paths.md	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+structure/data-planes/search.md	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+structure/decisions/ADR-8041-jev-effort-mode.md	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+structure/desktop-shell.md	M	MOD	fork-adapted	adapt	three-way merge, conflicts resolved by hand; see UPSTREAM.md conflict table
+structure/fallback-policy.md	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+structure/gui-and-management-api.md	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+structure/local-messaging.md	M	MOD	fork-adapted	adapt	three-way merge, no conflict
+structure/manifest.json	M	MOD	fork-adapted	adapt	three-way merge, no conflict
+structure/ops/cross-platform-ci.md	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+structure/ops/desktop-supervision.md	M	MOD	fork-adapted	adapt	three-way merge, no conflict
+structure/ops/docs-and-release.md	M	MOD	fork-adapted	adapt	three-way merge, conflicts resolved by hand; see UPSTREAM.md conflict table
+structure/ops/service-and-sidecars.md	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+structure/overview.md	M	MOD	fork-adapted	adapt	three-way merge, no conflict
+structure/providers-and-adapters.md	M	MOD	fork-adapted	adapt	three-way merge, no conflict
+structure/providers/anthropic-account-pool.md	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+structure/providers/anthropic-progress.md	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+structure/providers/chat-compat.md	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+structure/providers/claude-cli-replay.md	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+structure/providers/codex-installation-identity.md	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+structure/providers/cursor.md	M	MOD	fork-adapted	adapt	three-way merge, no conflict
+structure/providers/google.md	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+structure/providers/hosted-tool-denials.md	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+structure/providers/jev-decision.md	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+structure/providers/kiro.md	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+structure/providers/meta-muse.md	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+structure/providers/openai-tiers.md	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+structure/providers/opengateway.md	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+structure/providers/workbuddy.md	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+structure/providers/xai-grok.md	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+structure/quota-pool.md	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+structure/remote-link.md	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+structure/runtime.md	M	MOD	fork-adapted	adapt	three-way merge, no conflict
+structure/subagents.md	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+structure/telemetry.md	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+structure/transports/byte-accounting.md	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+structure/transports/inventory.md	M	MOD	fork-adapted	adapt	three-way merge, no conflict
+structure/transports/responses-combo-boundaries.md	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+structure/transports/responses-failover.md	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+structure/transports/responses-spend.md	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+structure/transports/responses-wire-shapes.md	M	MOD	fork-adapted	adapt	three-way merge, no conflict
+structure/transports/responses.md	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+structure/transports/streaming-health.md	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+structure/usage-client-attribution.md	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/adapters/anthropic/anthropic-account-threshold.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/adapters/anthropic/anthropic-fast-speed.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/adapters/anthropic/anthropic-thinking-display-policy.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/adapters/google/gcp-adc.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/adapters/google/gemini-4-argon-antigravity.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/adapters/google/google-signature-history-roundtrip.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/adapters/google/google-vertex-http.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/adapters/google/google-vertex-key-project.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/adapters/google/vertex-catalog.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/adapters/key-failover.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/adapters/openai/openai-chat-image-normalization.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/adapters/openai/openai-empty-assistant-history.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/adapters/run-turn-queue.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/ci-workflows/build-release-changelog.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/ci-workflows/ci-bun-install-frozen.test.ts	M	MOD	fork-adapted	adapt	fork Ubuntu job list; no LIDGE self-hosted runner routing
+tests/ci-workflows/ci-concurrency-groups.test.ts	M	TAKE	fork-adapted	adapt	assertions rewritten to the fork trigger sets (push main/preview, schedule); dev-dispatch and macOS cases removed
+tests/ci-workflows/ci-pr-hygiene-approvals.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/ci-workflows/ci-privacy-gate.test.ts	M	TAKE	fork-adapted	adapt	fork version kept (fork ci.yml keeps push)
+tests/ci-workflows/ci-review-lanes.test.ts	M	MOD	fork-adapted	adapt	fork version plus the windows-native-claim aggregate guard and diagnostic checkout count
+tests/ci-workflows/ci-scope-gaps.test.ts	M	MOD	fork-adapted	adapt	fork version with the upstream release.yml job table and trusted-release-policy setup action
+tests/ci-workflows/ci-scope-reduction.test.ts	M	-	absent	n/a	REMOVED_FILES (tools/fork-hygiene-guards.ts)
+tests/ci-workflows/ci-structure-gate.test.ts	M	MOD	fork-adapted	adapt	fork version kept (push paths mirror the ci filter)
+tests/ci-workflows/ci-workflows.test.ts	M	MOD	fork-adapted	adapt	fork version plus windows-native-claim lane assertions (no dev ref condition)
+tests/ci-workflows/cleanup-orphaned-workflows.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/ci-workflows/docs-link-targets.test.ts	M	MOD	fork-adapted	adapt	README and deleted-locale checks adapted to the fork; CI push-path check kept
+tests/ci-workflows/docs-navigation-label.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/ci-workflows/docs-telemetry-dashboard.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/ci-workflows/docs-telemetry-leaderboard.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/ci-workflows/install-scripts.test.ts	M	MOD	fork-adapted	adapt	three-way merge, conflicts resolved by hand; see UPSTREAM.md conflict table
+tests/ci-workflows/linux-desktop-packaged-ci.test.ts	M	-	absent	n/a	REMOVED_FILES (tools/fork-hygiene-guards.ts)
+tests/ci-workflows/pr-readiness-reattest.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/ci-workflows/release-desktop-scripts.test.ts	M	MOD	fork-adapted	adapt	three-way merge, conflicts resolved by hand; see UPSTREAM.md conflict table
+tests/ci-workflows/release-helper.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/ci-workflows/release-outcome-report.test.ts	M	MOD	fork-adapted	adapt	three-way merge, conflicts resolved by hand; see UPSTREAM.md conflict table
+tests/ci-workflows/release-pipeline-contract.test.ts	M	TAKE	fork-adapted	adapt	service-lifecycle trigger case kept in the fork form (push main/preview)
+tests/ci-workflows/release-preflight.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/ci-workflows/release-resume-identity.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/ci-workflows/release-version-line.test.ts	M	MOD	fork-adapted	adapt	three-way merge, conflicts resolved by hand; see UPSTREAM.md conflict table
+tests/ci-workflows/release-version-sources.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/ci-workflows/release-windows-signing.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/ci-workflows/skill-ocx-generated.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/ci-workflows/version-line.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/ci-workflows/zz-pr-coderabbit-readiness-revalidation.test.ts	M	MOD	fork-adapted	adapt	three-way merge, no conflict
+tests/claude-integration/claude-auth-detect.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/claude-integration/claude-chat-tool-dispatch-routes.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/claude-integration/claude-chat-tool-dispatch.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/claude-integration/claude-inbound-tool-loading.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/claude-integration/claude-inbound.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/claude-integration/messages-error-contracts.test.ts	M	MOD	fork-adapted	adapt	three-way merge, no conflict
+tests/claude-integration/messages-native-combo-framing.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/claude-integration/messages-native-combo.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/claude-integration/messages-native-stream-parity.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/claude-integration/messages-shared-sse.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/cli/cli-account-key-pause.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/cli/cli-account-key-quota.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/cli/cli-account-pool-verbs.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/cli/cli-combo-partial-update.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/cli/cli-config-command.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/cli/cli-connect-readiness.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/cli/cli-headless-parity.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/cli/cli-link-check.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/cli/cli-link-enrollment.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/cli/cli-link-force.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/cli/cli-link.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/cli/cli-message-mcp.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/cli/cli-models.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/cli/cli-provider-lifecycle-runtime.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/cli/cli-telemetry-profile.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/cli/cli-telemetry.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/cli/hub-invite.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/clients/aside-profiles.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/clients/client-connect.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/clients/client-fingerprint.test.ts	M	MOD	fork-adapted	adapt	fork Stainless OS/arch test kept with SDK 0.128.0 and runtime v26.12.1
+tests/clients/client-hub-relay.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/clients/client-machine-listener.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/clients/command-code-client-contract.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/clients/desktop-telemetry-installer.test.ts	A	NEW	fork-adapted	adapt	fragment-link case rewritten to assert the fork MSI does not link the fragment (D1)
+tests/clients/link-child-activity.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/clients/link-child-catalog-freshness.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/clients/link-child-observations.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/clients/link-child-observe.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/clients/link-child-plant-foundations.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/clients/link-child-update-contract.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/clients/link-ephemeral-child-discovery.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/clients/link-gated-ocx-argv.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/clients/link-ocx-child-conformance.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/clients/link-ocx-child-e2e.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/clients/link-pinned-sync-argv.test.ts	M	MOD	fork-adapted	adapt	three-way merge, no conflict
+tests/clients/link-ssh-argv-discovery.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/clients/link-supervisor.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/clients/link-tunnel-history.test.ts	M	MOD	fork-adapted	adapt	three-way merge, no conflict
+tests/clients/link-tunnel-state.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/clients/link-tunnel-status.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/clients/omo-role-models.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/clients/sync-client-integrations.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/clients/t3code-client.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/codex-integration/codex-auth-api.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/codex-integration/codex-catalog-readonly-windows.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/codex-integration/codex-quota-weekly-rollover.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/codex-integration/codex-resume-if-healthy.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/codex-integration/codex-runtime-macos-desktop.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/codex-integration/codex-shim-runtime-preflight.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/codex-integration/codex-shim.test.ts	M	MOD	fork-adapted	adapt	three-way merge, no conflict
+tests/codex-integration/combos.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/codex-integration/main-quota-evidence-validation.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/codex-integration/main-quota-provenance.test.ts	M	MOD	fork-adapted	adapt	upstream claim diagnostics merged with the fork stderr output; no quarantine skipIf
+tests/codex-integration/messaging-local-lifecycle.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/codex-integration/messaging-mcp-replies.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/codex-integration/messaging-mcp-wait.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/codex-integration/model-display-names-management-api.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/config/config-ownership-concurrent-record.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/config/config-thinking-display.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/config/telemetry-live-save.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/fixtures/anthropic-usage-shapes.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/fixtures/claude-efficiency-cli.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/fixtures/cursor-tool-wording.json	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/fixtures/link/ocx-child-conformance.json	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/fixtures/mistral-budget.json	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/fixtures/mistral-subscription.json	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/fixtures/release-signing-head.json	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/fixtures/test-layout-expected.json	M	MOD	fork-adapted	adapt	three-way merge, conflicts resolved by hand; see UPSTREAM.md conflict table
+tests/fixtures/update-checkpoint/corpus.json	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/fixtures/update-checkpoint/history-limits.json	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/fixtures/update-checkpoint/initial.bin	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/gui/gui-pair-client.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/gui/gui-pair-http.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/gui/provider-workspace-auth.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/gui/provider-workspace-data.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/gui/rate-limit-reset-credits.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/helpers/codex-relogin-pause.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/helpers/codex-warmup-rate-limit.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/helpers/combo-context-overflow-cases.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/helpers/enforce-pr-target-harness.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/helpers/link-relay-harness.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/helpers/management-auth-fixture.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/helpers/messages-sse-assertions.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/helpers/messaging-mcp-queue.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/helpers/native-main-claim-diagnostics.ts	A	NEW	fork-adapted	adapt	upstream helper adopted; skipInvalidQuotaTag (the hostedWindowsQuarantine opt-in) removed because the fork never masks red results
+tests/helpers/responses-core-source.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/helpers/rust-toolchain-env.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/helpers/telemetry-collector-d1.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/helpers/update-capability-policy.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/helpers/update-helper-control-contracts.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/helpers/update-import-policy.ts	M	MOD	fork-adapted	adapt	three-way merge, no conflict
+tests/helpers/update-node-harness.mjs	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/helpers/update-primitive-allowlist.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/helpers/update-process-allowlist.ts	M	MOD	fork-adapted	adapt	three-way merge, no conflict
+tests/helpers/update-release-adapter-entry.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/helpers/update-release-adapter-harness.mjs	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/helpers/update-review-signed-supply.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/lab/core-lab-boundary.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/lab/lab-community-mutation-lock.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/lab/lab-fabric-task.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/lab/lab-post-merge-hardening.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/lab/lab-private-file-durability.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/lab/lab-public-coderabbit-regressions.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/lab/lab-public-file-safety.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/lib/bun-runtime-preflight.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/lib/definite-overflow-verdict.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/lib/file-identity-callers.test.ts	M	MOD	fork-adapted	adapt	three-way merge, no conflict
+tests/lib/fix-jsonc-cr-comments.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/lib/privacy-mask-account.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/lib/token-estimate.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/oauth/local-token-detect.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/oauth/oauth-account-auto-pause.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/oauth/oauth-account-resume-if-healthy.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/oauth/oauth-accounts-api.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/preload.ts	M	MOD	fork-adapted	adapt	fork env OCX_FORK_TEST_TELEMETRY opens the telemetry gate for the suite (D1)
+tests/providers/api-key-auto-pause-distribution.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/providers/cheapaimodel-provider.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/providers/claude-cli-adapter.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/providers/claude-cli-client-http.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/providers/claude-cli-efficiency.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/providers/cursor/cursor-native-exec-policy.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/providers/cursor/cursor-tool-definitions.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/providers/cursor/cursor-tool-wording.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/providers/devin-adapter.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/providers/devin-chat-wire-fixes.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/providers/github-copilot/github-copilot-account-origin.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/providers/github-copilot/github-copilot-auto.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/providers/kimi-monthly-quota.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/providers/kiro/kiro-device-iam.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/providers/kiro/kiro-wire-estimate.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/providers/meta-muse-plan-refusal.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/providers/mistral-budget-quota.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/providers/mistral-image-limit.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/providers/model-discovery-skip-invalid-rows.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/providers/provider-anthropic-pool-capacity.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/providers/provider-anthropic-usage-windows.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/providers/provider-api-keys.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/providers/provider-model-discovery-contract.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/providers/provider-quota-claude-cli.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/providers/vision-classification-seed-repair.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/providers/workbuddy-quota.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/responses/agent-assertion-routes.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/responses/chat-inbound-tool-strict-defaults.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/responses/combo-codex-ws-overload-failover.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/responses/compact-transient-alternate.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/responses/jev-initial-effort-wire.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/responses/native-compaction-gateway.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/responses/opengateway-completion-receipts.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/responses/pool-retry-client-metadata.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/responses/responses-claude-preflight-lease.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/responses/responses-combo-exhausted-error.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/responses/responses-forward-client-headers-live.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/responses/responses-forward-client-headers.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/responses/responses-hosted-tool-conditional.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/responses/responses-native-compact-ocx-envelope.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/responses/responses-reasoning-effort-diagnostics.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/responses/responses-reasoning-effort-downgrade.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/responses/responses-reset-replay-chained.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/responses/ws-endpoint.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/routing/combo-cooldown-persistence.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/routing/combo-failure-transport-parity.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/routing/combo-management-api.test.ts	M	MOD	fork-adapted	adapt	combos import block compacted to stay under the 2000-line file-size ratchet
+tests/routing/combo-stream-preflight.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/routing/jev-quota-config.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/routing/router-blocked-cross-provider.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/routing/router-combo-failover-classification.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/server/api-usage.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/server/audio-dictation.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/server/link-child-ops-routes.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/server/link-enrollment-ephemeral-child.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/server/link-enrollment.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/server/link-management-routes.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/server/local-control-socket.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/server/management-account-auto-pause.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/server/management-client-config-route.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/server/management-provider-compat-carry.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/server/management-provider-model-discovery.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/server/management-provider-thinking-display.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/server/model-costs-pricing-cache.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/server/persistent-dashboard-admission.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/server/proxy-liveness-nonloopback-bind-proof.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/server/server-combo-opaque-error-failover.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/server/server-combo-zero-output-failover.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/server/server-images-pool-admission.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/server/server-telemetry-profile-routes.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/server/server-telemetry-routes.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/service/doctor-bun-install.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/service/launchd-repair.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/service/service-desktop-recovery.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/update/update-bounded-json.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/update/update-candidate-id.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/update/update-checkpoint-codec.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/update/update-contracts.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/update/update-external-metadata.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/update/update-job.test.ts	M	MOD	fork-adapted	adapt	three-way merge, no conflict
+tests/update/update-minisign.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/update/update-npm-allow-scripts.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/update/update-root-snapshot.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/update/update-signed-supply.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/update/update-signed-version.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/update/update-trust-root.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/usage/cache-diagnostic-caller-isolation.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/usage/cache-diagnostic-hook-compat.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/usage/cache-diagnostic.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/usage/mistral-budget-reset-identity.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/usage/provider-failure-detail.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/usage/quota-pool.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/usage/request-log-conversation.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/usage/usage-aggregate-cache.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/usage/usage-anthropic-fast-pricing.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/usage/usage-cost.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/usage/usage-fable-5-2-pricing.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/usage/usage-filter-index.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/usage/usage-telemetry-client.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/usage/usage-telemetry-collector-privacy.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/usage/usage-telemetry-collector-typecheck.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/usage/usage-telemetry-collector-worker.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/usage/usage-telemetry-core-boundary.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/usage/usage-telemetry-profile-collector.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/usage/usage-telemetry-profile-contract.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/usage/usage-telemetry-profile-lifecycle.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/usage/usage-telemetry-profile-sync.test.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
+tests/web-search/fix-search-frame-shapes.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/web-search/web-search-eof.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+tests/web-search/web-search-sources.test.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken

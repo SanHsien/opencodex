@@ -1,4 +1,3 @@
-import { sameFileIdentity, lstatFileIdentity, type IdentityStats } from "../../lib/file-identity";
 import { randomUUID } from "node:crypto";
 import {
   closeSync,
@@ -11,8 +10,9 @@ import {
   unlinkSync,
   writeSync,
 } from "node:fs";
-
+import type { Stats } from "node:fs";
 import { basename, dirname, join } from "node:path";
+import { sameFileIdentity } from "../../lib/file-identity";
 
 export type PrivateFileCommitFault = "before_publish" | "parent_directory_sync" | null;
 let privateFileCommitFaultForTests: PrivateFileCommitFault = null;
@@ -87,7 +87,7 @@ export function isPrivateFileStageName(name: string): boolean {
   return PRIVATE_STAGE_RE.test(name);
 }
 
-function isPrivateRegularStage(stats: IdentityStats): boolean {
+function isPrivateRegularStage(stats: Stats): boolean {
   return stats.isFile() && !stats.isSymbolicLink();
 }
 
@@ -97,9 +97,9 @@ function shouldReclaimPrivateFileStage(dir: string, name: string, nowMs: number)
   const pid = Number(match[1]);
   if (!Number.isSafeInteger(pid) || pid <= 0) return false;
 
-  let stats: IdentityStats;
+  let stats: Stats;
   try {
-    stats = lstatFileIdentity(join(dir, name));
+    stats = lstatSync(join(dir, name));
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
     throw error;
@@ -153,7 +153,7 @@ export function cleanupStalePrivateFileStages(finalPath: string): void {
 function cleanupPublishedPrivateFileStages(finalPath: string): void {
   let finalStats;
   try {
-    finalStats = lstatFileIdentity(finalPath);
+    finalStats = lstatSync(finalPath, { bigint: true });
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
     throw error;
@@ -167,7 +167,7 @@ function cleanupPublishedPrivateFileStages(finalPath: string): void {
     if (!name.startsWith(prefix) || !PRIVATE_STAGE_RE.test(name)) continue;
     const stagePath = join(dir, name);
     try {
-      const stageStats = lstatFileIdentity(stagePath);
+      const stageStats = lstatSync(stagePath, { bigint: true });
       if (!stageStats.isFile() || stageStats.isSymbolicLink()) continue;
       if (!sameFileIdentity(stageStats, finalStats)) continue;
       unlinkSync(stagePath);

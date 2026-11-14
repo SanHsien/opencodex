@@ -19,6 +19,21 @@ OpenCodex 桌面應用程式結合原生系統匣與網頁儀表板。內附的 
 
 下載 `OpenCodex-<version>-windows-x64.msi` 並執行安裝程式。由於安裝程式尚未經過程式碼簽署，Windows SmartScreen 可能顯示警告；確認檔案來自版本發布頁面後，選擇 **More info → Run anyway**。
 
+> **本 fork 的 MSI 沒有遙測頁。** 下列說明描述的是上游安裝程式；fork 建置不送出遙測，也不連結該安裝頁
+> （見[遙測與隱私](/zh-tw/guides/telemetry/)）。
+
+上游安裝程式有一頁說明 OpenCodex 送出的匿名每日使用摘要，連結[隱私聲明](/zh-tw/reference/code-signing/#privacy)，並有預設勾選的 **Send anonymous usage statistics** 核取方塊。取消勾選，應用程式會在第一次啟動時、任何代理執行之前，把停用儲存到你的 opencodex 設定。這個選擇套用於電腦上的每個帳號（每個帳號各一次），所以也適用於管理員或部署工具（Intune、SCCM）執行的靜默安裝。靜默安裝時請傳入 `OCX_TELEMETRY_CHOICE=optout`：
+
+```powershell
+msiexec /i OpenCodex-<version>-windows-x64.msi /qn OCX_TELEMETRY_CHOICE=optout
+```
+
+安裝程式需要管理員權限，並為整台電腦記錄該選擇。只有 `send` 會保持遙測開啟；任何大小寫的 `optout` 與其他任何值（`off`、`0`）都會關閉它。每次傳入 `OCX_TELEMETRY_CHOICE` 的安裝都會記錄一個新的決定，所以每個版本都重用同一道指令的部署，會在每次升級後再次套用停用，覆蓋期間在儀表板做出的任何選擇。
+
+保持勾選本身不會開始送出：儀表板仍會先顯示一次性的告知，且已勾選的方塊絕不會讓已關閉遙測的帳號重新開啟。應用程式內更新、精簡 UI 安裝（`/qr`）與已安裝版本的維護執行會略過此頁並保留已記錄的選擇。手動執行較新的安裝程式會再次顯示此頁，若你先前已停用則為未勾選。不更動核取方塊直接繼續會保持先前的決定，所以不會再覆蓋你之後在儀表板做出的選擇；更動核取方塊則記錄新的決定。
+
+若你以 `ocx service install` 安裝了背景服務，它可能在登入時不經應用程式就啟動代理。後來的安裝程式記錄的停用，會在應用程式下次啟動時才傳達到該服務的設定；在那之前服務可能仍會送出每日摘要。要立即停止，請執行 `ocx telemetry disable`。
+
 ### Linux
 
 從版本發布頁面下載 `OpenCodex-<version>-linux-x86_64.AppImage` 或 `OpenCodex-<version>-linux-amd64.deb`。

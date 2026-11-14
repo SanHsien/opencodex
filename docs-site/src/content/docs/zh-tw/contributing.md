@@ -56,7 +56,7 @@ bun run prepare:package           # 重新整理 package launcher/asset
 cd docs-site && bun install && bun dev
 ```
 
-## 文件釋出
+## CI / Release / Pages
 
 公開文件釋出到 GitHub Pages：<https://opencodex.me/>。
 `.github/workflows/deploy-docs.yml` 會在 `main` push 中 `docs-site/**` 或 workflow 本身發生變化時
@@ -72,13 +72,13 @@ bun run build
 
 GitHub Actions 有意只保留必要步驟：
 
-- **Cross-platform CI**（`.github/workflows/ci.yml`）會在改動 runtime、test、package、script、
-  TypeScript 或 workflow 檔案的 pull request 與 `main` push 上執行。Bun matrix 覆蓋 Linux、
-  Windows 和 macOS，執行 install、typecheck、test、privacy scan、release-helper build smoke、GUI
-  build 和 `ocx help`。另一個三系統 lane 使用 package 內建 runtime，驗證無需單獨安裝 Bun 也能
-  完成 npm global install。
-- **Release**（`.github/workflows/release.yml`）只能手動執行。它不是第二套完整 CI；dry-run 或
-  publish 前，精確的 release commit（`GITHUB_SHA`）必須已有成功的 Cross-platform CI run。
+- **Cross-platform CI**（`.github/workflows/ci.yml`）在 pull request 上執行範圍限定的 Linux 檢查；完整的
+  Linux、macOS 與 Windows 矩陣則由 `dev` 上帶 `lane=all` 的手動 dispatch 執行。PR 綠燈不是完整平台的釋出
+  證據。合併一批 PR 之後，維護者會在 `dev` 上執行一次完整 dispatch，而不是每個 PR 各一次。
+- **Release**（`.github/workflows/release.yml`）是手動的 `dev` workflow：它選出具備合格完整 lane 證據的確切
+  來源、在建置 checkout 中蓋上版本，並在發佈前檢查 npm 與 GitHub release 歷史。發佈維持關閉，直到維護者完成
+  切換檢查並啟用；被中斷的執行由操作者證明的 resume 復原，且絕不重新發佈 npm 版本。目前流程請見
+  [`MAINTAINERS.md`](https://github.com/lidge-jun/opencodex/blob/dev/MAINTAINERS.md)。
 - **Stale needs-info**（`.github/workflows/stale-needs-info.yml`）在預設分支上每天執行。標記為
   `needs-info`且 14 天沒有活動的 open issue 會收到警告；再過 7 天閒置後會以「not planned」關閉。
   任何更新都會清除這個過時警告。若要讓長期進行中的工作保持開啟，請移除 `needs-info`（例如把
@@ -92,30 +92,13 @@ GitHub Actions 有意只保留必要步驟：
   第二個領域標籤（文件表單本身已經帶有 `documentation`）。維護者可以在該 workflow 進入預設分支後，
   用 workflow_dispatch 的 `backfill_open_areas` 為所有 open issue 重新套用領域標籤。
 
-釋出請使用 helper：
-
-
-執行 helper 前，先確定目標發佈版本，並從預設分支執行
-`.github/workflows/dev-version-bump.yml`，設定 `intended-version=<version>` 和
-`mode=pre-move`。審查產生的 PR 並合併到 `dev`，再提升到 `main` 或 `preview`，
-最後執行 helper。如果 `dev` 的版本已高於目標版本，工作流程會回傳
-`changed=false`，無需建立版本更新 PR。發佈仍要求對應發佈提交的 CI 全部通過。
-
-```bash
-bun run release <version>           # commit/push 版本 bump；publish workflow 預設 dry-run
-bun run release --bump minor        # 依 tag 與 npm channel 推導下一個 patch、minor 或 major 版本
-bun run release <version> --publish # 確認 CI-gated dry-run 後真正 publish
-bun run release:watch               # 觀察最新的 Release workflow run
-```
-
-可用 `--bump patch|minor|major` 取代明確版本。較高 core 的 preview tag 建立後，`--bump patch`
-會拒絕延續舊的 stable patch 版本線；請把修正納入已開啟的 preview core 中釋出。
+舊的版本 bump 與提升流程不是新的釋出路徑。在新的發佈閘門尚未解決之前，請勿用它當替代方案。
 
 ## 分支
 
-- `dev` — 唯一的整合目標。請在此開啟 pull request。
-- `main` — 僅供釋出。它只能由維護者從 `dev` 提升；請勿對它開啟功能 pull request。
-- `preview` — prerelease train。
+- `dev` — 唯一的整合目標，也是 repository 預設分支。請在此開啟 pull request。
+- `main` 與 `preview` 在單一分支模型到位後已被刪除。其已釋出的歷史仍可透過 tag 取得；兩者都不是整合或提升
+  目標。
 
 承載 Go 原生版本的 `dev2-go` 分支線已經退役，雙軌 carry 政策也隨之結束。其歷史以唯讀方式發佈在
 [lidge-jun/opencodex-go-archive](https://github.com/lidge-jun/opencodex-go-archive)。
@@ -125,10 +108,9 @@ bun run release:watch               # 觀察最新的 Release workflow run
 
 ## Pull request
 
-- 目標為 **`dev`**。請勿對 **`main`** 開啟功能或修復 pull request。
-- 從目前 **`dev`** tip 建立分支，而不是從 **`main`**。必填的 **`enforce-target`** 檢查會拒絕
-  head merge base 位於 **`main`** tip 且分支遠落後於 pull request base 的請求（#644 中出現的
-  失敗模式）。
+- 目標為 **`dev`**，它也是 repository 的預設分支。**`main`** 與 **`preview`** 已隨單一分支
+  模型上線而刪除。必填的 **`enforce-target`** 檢查會拒絕以 **`dev`** 以外分支為 base 的請求
+  （stacked 子 PR 除外）。
 - 撰寫真實的描述：說明變更內容與原因的 **Summary**，加上 **Test plan**（或同等實質內容）。空的
   內文、只有佔位符的文字，以及使用跳脫 `\n` 而非真實換行的描述都會無法通過檢查。
 - 若 pull request 變更 `gui/` 下的檔案，請在描述中附上 UI 變更的螢幕截圖；`enforce-target` 會在
@@ -141,7 +123,7 @@ bun run release:watch               # 觀察最新的 Release workflow run
 ## 專案維護者
 
 目前維護者、其職責，以及 review 與 merge 政策記錄在
-[`MAINTAINERS.md`](https://github.com/lidge-jun/opencodex/blob/main/MAINTAINERS.md)。repository 與
+[`MAINTAINERS.md`](https://github.com/lidge-jun/opencodex/blob/dev/MAINTAINERS.md)。repository 與
 安全敏感路徑的 GitHub review 所有權宣告在 `.github/CODEOWNERS`。
 
 貢獻者的 pull request 通常需要維護者核准。擁有 GitHub `maintain` 或 `admin` 權限的現任

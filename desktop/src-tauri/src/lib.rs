@@ -14,6 +14,7 @@ mod first_run;
 mod formatting;
 mod guest_choice;
 mod identity;
+mod installer_telemetry;
 mod logging;
 mod login_autostart;
 // The judgment is portable so Linux CI runs its fixture parity tests; only macOS reads launchd.

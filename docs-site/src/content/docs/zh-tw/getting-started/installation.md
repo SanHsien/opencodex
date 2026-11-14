@@ -24,7 +24,7 @@ On macOS and Linux, a current npm/pnpm package launcher that still runs delegate
 ## 安裝
 
 ```bash
-npm install -g @bitkyc08/opencodex
+npm install -g --allow-scripts=bun @bitkyc08/opencodex
 ```
 
 若使用 pnpm 10.4 或更新版本：
@@ -74,7 +74,7 @@ GPT-5.6 Sol/Terra/Luna 目錄資訊，但這些條目本身不會授予上游模
 opencodex 建置時，才需要使用 preview 渠道：
 
 ```bash
-npm install -g @bitkyc08/opencodex@preview
+npm install -g --allow-scripts=bun @bitkyc08/opencodex@preview
 ocx update --tag preview
 ```
 

@@ -113,15 +113,18 @@ async function loadIntegration(): Promise<InternalLinks> {
 describe("docs link targets", () => {
   test("CI selects hard-coded URL checks for README, skills, and issue-template edits", () => {
     const workflow = Bun.YAML.parse(readFileSync(repoPath(".github/workflows/ci.yml"), "utf8")) as {
-      on?: { push?: { paths?: string[] } };
+      on?: { push?: { paths?: string[] }; pull_request?: unknown; workflow_dispatch?: unknown };
       jobs?: { changes?: { steps?: Array<{ uses?: string; with?: { filters?: string } }> } };
     };
     const filter = workflow.jobs?.changes?.steps?.find(step => step.uses?.startsWith("dorny/paths-filter@"));
     const ciPaths = (Bun.YAML.parse(filter?.with?.filters ?? "") as { ci?: string[] }).ci ?? [];
     for (const path of ["readme/**", "skills/**", ".github/ISSUE_TEMPLATE/**"]) {
       expect(ciPaths).toContain(path);
+      // Fork: ci.yml keeps its main/preview push trigger, whose paths mirror the ci filter.
       expect(workflow.on?.push?.paths).toContain(path);
     }
+    expect(workflow.on?.pull_request).toBeDefined();
+    expect(workflow.on?.workflow_dispatch).toBeDefined();
   });
 
   test("every hard-coded docs URL names a page the site builds", () => {
@@ -205,5 +208,97 @@ describe("docs link targets", () => {
     const config = readFileSync(repoPath("docs-site/astro.config.mjs"), "utf8");
     expect(config).toContain('from "./src/integrations/internal-links.mjs"');
     expect(config).toMatch(/internalLinks\(\)/);
+  });
+
+  test("README, code-signing policy, telemetry guide, server reference, and structure doc match D1-D19", () => {
+    const expectedPrivacy =
+      "Privacy: opencodex sends one anonymous daily usage summary (a per-day install hash that changes daily, version, release channel, platform, install channel, provider kind, coarse model family, active minutes and request, token and error counts; never prompts, model outputs, keys, accounts, hostnames or paths) to telemetry.opencodex.me, and only after the person installing or operating it has seen the notice in the dashboard or an interactive CLI prompt and has not declined. It can be turned off in that notice, in the Windows installer (\"Send anonymous usage statistics\", checked by default), in Proxy details, or with ocx telemetry disable, OCX_TELEMETRY=0 or DO_NOT_TRACK=1. Only project-wide aggregates of this anonymous data are public. A separate public leaderboard profile is off unless you connect one yourself (dashboard Home or ocx telemetry profile connect); it shares only a chosen handle, display name and colour and your daily request, token and model-family totals, never your anonymous telemetry ID, and disconnecting deletes it. Everything else goes only to the providers and services you configure.";
+
+    // Fork: README.md and README.en.md are the fork's own documents and readme/ keeps only the
+    // zh-TW translation (no i18n-manifest), so the upstream privacy sentence is not mirrored there.
+    // They may keep saying that nothing is transferred: that is true here, because a fork build never
+    // sends telemetry (decision D1, pinned by tests/usage/usage-telemetry-fork-policy.test.ts).
+
+    const codeSigning = readFileSync(repoPath("docs-site/src/content/docs/reference/code-signing.md"), "utf8");
+    expect(codeSigning).not.toContain("will not transfer any information to other networked systems");
+    expect(codeSigning).not.toContain("carry none of your prompts,\ncredentials or usage data");
+    // The page has its own Privacy heading, so the statement starts without the README's label.
+    expect(codeSigning).toContain(expectedPrivacy.slice("Privacy: ".length));
+    expect(codeSigning).not.toContain("\nPrivacy: opencodex");
+    expect(codeSigning).toContain("(/guides/telemetry/)");
+
+    const guide = readFileSync(repoPath("docs-site/src/content/docs/guides/telemetry.md"), "utf8");
+    // D13: POST /api/telemetry/notice is removed; popup dismissal records nothing
+    expect(guide).not.toContain("/api/telemetry/notice");
+    expect(guide).toContain("records **nothing**");
+    // D1: strictly after the UTC day of (decidedAt ?? noticeShownAt)
+    expect(guide).toContain("day > formatUtcDay(decidedAt ?? noticeShownAt)");
+    expect(guide).not.toContain("day < formatUtcDay(decidedAt ?? noticeShownAt)");
+    // D2: env opt-out persists ineligibleThroughDay and deletes install id
+    expect(guide).toContain("ineligibleThroughDay");
+    // D3: version regex and dated preview vectors
+    expect(guide).toContain("^\\d+\\.\\d+\\.\\d+(-preview\\.\\d{8}(\\.\\d+)?)?$");
+    expect(guide).toContain("2.6.15-preview.20260701.1");
+    expect(guide).toContain("2.7.9-preview.20260712.2");
+    // D4 & D5: interactive TTY requirement and disclosure block
+    expect(guide).toContain("tty_required");
+    expect(guide).toContain("opencodex.me/dashboard");
+    // D6, D7, D8, D9
+    expect(guide).toContain("for every caller");
+    expect(guide).toContain("AbortSignal");
+    expect(guide).toContain("onEntry");
+    expect(guide).toContain("mutatePersistedConfig");
+    // D10: preview uses next eligible unsent day or previewEligible: false
+    expect(guide).toContain("previewEligible");
+    // D11: honors 429/503 Retry-After via retryAfterUntil
+    expect(guide).toContain("retryAfterUntil");
+    expect(guide).toContain("Retry-After");
+    // D14: install-days and avgDailyActiveInstalls
+    expect(guide).toContain("avgDailyActiveInstalls");
+    expect(guide).toContain("install-days");
+    // D15: small-cohort protection per day on distinct installs, subtraction risk
+    expect(guide).toContain("daily_models");
+    expect(guide).toContain("10 distinct\n  installs");
+    expect(guide).not.toContain("10 install-days");
+    expect(guide).toContain("subtraction");
+    // D16 & D19: 120 reports per hour per salted hourly key; IPv6 keyed on the /64
+    expect(guide).toContain("/64 prefix");
+    expect(guide).toContain("120 reports per hour");
+    expect(guide).not.toContain("30 reports per hour");
+    expect(guide).toContain("RATE_LIMIT_SALT");
+    // D17: self-reported and unauthenticated
+    expect(guide).toContain("self-reported by opencodex installs");
+    expect(guide).toContain("unauthenticated");
+    // D18: collector-first rollout
+    expect(guide).toContain("collector-first");
+
+    const serverDoc = readFileSync(repoPath("docs-site/src/content/docs/reference/configuration/server.md"), "utf8");
+    expect(serverDoc).toContain("day > formatUtcDay(decidedAt ?? noticeShownAt)");
+    expect(serverDoc).toContain("ineligibleThroughDay");
+    expect(serverDoc).toContain("tty_required");
+    for (const locale of ["zh-tw"]) {
+      const localizedServer = readFileSync(
+        repoPath("docs-site/src/content/docs/" + locale + "/reference/configuration/server.md"),
+        "utf8",
+      );
+      expect(localizedServer, locale).toContain("ineligibleThroughDay");
+    }
+
+    const structureDoc = readFileSync(repoPath("structure/telemetry.md"), "utf8");
+    expect(structureDoc).not.toContain("/api/telemetry/notice");
+    for (const token of [
+      "day > formatUtcDay(decidedAt ?? noticeShownAt)",
+      "ineligibleThroughDay",
+      "^\\d+\\.\\d+\\.\\d+(-preview\\.\\d{8}(\\.\\d+)?)?$",
+      "tty_required",
+      "previewEligible",
+      "retryAfterUntil",
+      "avgDailyActiveInstalls",
+      "120 reports/hour",
+      "self-reported",
+      "collector-first",
+    ]) {
+      expect(structureDoc).toContain(token);
+    }
   });
 });

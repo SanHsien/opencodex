@@ -2,7 +2,6 @@
 # Consumed by scripts/ci/run-bun-test-batches.sh to balance shards; a file without a row weighs the median.
 # Regenerate with scripts/ci/test-durations.ts (usage in its header); do not edit by hand.
 # Source: Ubuntu and macOS passing jobs: run 42694893702 on 4b38e9a072 (test 1-5/5: 129424126084,129424126100,129424126131,129424126088,129424126091; macos 1-4/4: 129424126216,129424126104,129424126041,129424125988); unmeasured existing rows retained
-# Fork note: rows for tests this Windows-only fork removed are dropped; Windows shard weights live in test-durations.windows.tsv.
 372	tests/adapters/abort-race.test.ts
 496	tests/adapters/adapter-buffered-tool-conformance.test.ts
 105	tests/adapters/adapter-error-inline.test.ts

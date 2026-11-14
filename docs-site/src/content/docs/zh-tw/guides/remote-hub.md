@@ -27,7 +27,14 @@ Remote Hub 把供應商憑證、模型目錄與用量記錄保存在一台主機
 連線時只能使用一種暫時性授權來源。授權從 stdin 讀取，絕不會寫進設定或金鑰檔：
 
 ```bash
-ocx connect https://hub-name.tailnet-name.ts.net --pairing-code-stdin
+# Bash only: if using zsh, run bash first in this terminal.
+# Bash: enter the one-time code without echoing it or putting it in shell history.
+read -r -s -p 'Pairing code: ' pairing_code; printf '\n'
+printf '%s\n' "$pairing_code" | ocx connect https://hub-name.tailnet-name.ts.net:8443 \
+  --management-url https://hub-name.tailnet-name.ts.net \
+  --admin-token-stdin
+unset admin_token
+unset pairing_code
 ocx connect status
 ocx sync
 ```
@@ -186,6 +193,8 @@ curl --fail --silent --show-error https://hub-name.tailnet-name.ts.net/ >/dev/nu
 
 正向的瀏覽器測試必須使用真正已登入的 Tailscale 工作階段；單純的 `curl` 可能不會帶上自動簽發工作階段所需的身分標頭。當 HTTPS 前端無法提供可信的 Tailscale 身分時，配對仍是退路。
 
+<a id="giving-the-data-listener-tls"></a>
+
 ### 為資料監聽器提供 TLS
 
 上面的 Serve 對應只發布**管理**入口。該入口從不提供 `/v1/*`、`/healthz` 或 `/readyz`，因此光靠它並不能讓遠端用戶端取得可用的資料平面。opencodex 本身也不終結 TLS：監聽器是明文 HTTP，HTTPS 一律由維運方自建的前端負責。
@@ -210,8 +219,10 @@ Serve 只接受有限的幾個 HTTPS 連接埠；請用 `tailscale serve status`
 接著連線時把兩個 origin 分開寫。位置參數 URL 是**資料** origin，`/readyz` 與 `/v1/catalog` 都從這裡取得；`--management-url` 則是用於配對與金鑰簽發的儀表板 origin。兩者不必共用連接埠：
 
 ```bash
-# 這正是 `ocx hub invite` 印出的那一行，只是把配對碼填好了。
-echo '<pairing-code>' | ocx connect https://hub-name.tailnet-name.ts.net:8443 \
+# Bash only: if using zsh, run bash first in this terminal.
+# Bash: enter the management admin token without echoing it.
+read -r -s -p 'Admin token: ' admin_token; printf '\n'
+printf '%s\n' "$admin_token" | ocx connect https://hub-name.tailnet-name.ts.net:8443 \
   --management-url https://hub-name.tailnet-name.ts.net \
   --pairing-code-stdin
 ```
@@ -233,7 +244,17 @@ Serve 就緒後，請對 HTTPS 資料 origin 重新執行驗收檢查：`/readyz
 若你自行運作 TLS proxy，只為完整的 ts.net FQDN 取得憑證：
 
 ```bash
-tailscale cert hub-name.tailnet-name.ts.net
+ocx config set oauthOpenBrowser false
+# Bash only: if using zsh, run bash first in this terminal.
+# Bash: choose one authority source.
+read -r -s -p 'Pairing code: ' pairing_code; printf '\n'
+printf '%s\n' "$pairing_code" | ocx connect rotate --pairing-code-stdin
+unset pairing_code
+
+# Alternatively, only over HTTPS, use the management admin token:
+read -r -s -p 'Admin token: ' admin_token; printf '\n'
+printf '%s\n' "$admin_token" | ocx connect rotate --admin-token-stdin
+unset admin_token
 ```
 
 請保護私鑰、透過 Tailscale 支援的機制更新，並且只代理到 `127.0.0.1:10101`。一般的 TLS proxy 無法提供可信的 Tailscale 身分。不要偽造 `Tailscale-User-*` 標頭；請改用一次性、綁定 origin 的配對流程。

@@ -1,13 +1,14 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { saveCodexAccountCredential } from "../../src/codex/account-store";
 import { checkAccountIdCollisionWithNativeMain as checkAccountIdCollision, CodexCollisionReadBusyError } from "../../src/codex/auth-api/login-collision";
 import { saveConfig } from "../../src/config";
 import type { OcxConfig } from "../../src/types";
 import { removeTreeWithRetry } from "../helpers/remove-tree";
 
-const TEST_DIR = join(import.meta.dir, ".tmp-codex-auth-collision-test");
+const TEST_DIR = mkdtempSync(join(tmpdir(), "ocx-codex-auth-collision-"));
 const TEST_CODEX_HOME = join(TEST_DIR, "codex");
 let previousOpencodexHome: string | undefined;
 let previousCodexHome: string | undefined;

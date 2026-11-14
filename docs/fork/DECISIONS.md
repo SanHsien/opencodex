@@ -1500,3 +1500,14 @@ Windows 適用性：只用 `node:crypto` 與環境變數，不碰檔案系統、
 | #8545 | 相關但延後；#8529 不證明 legacy bare-flag／companion owner 分類已完整解決，不新增重複工作列。 | 整合時對照 Windows wrapper marker、disconnect／restart 及不可證明 owner 的拒絕路徑。 |
 
 **水位與路線圖**：`tools/upstream_baseline.json` 不變。PR／issue 軸沒有新增項，刪除 ROADMAP 已完成的分類列；stable 整合、MSI 與 Tailscale 列仍保留，不宣稱整版整合完成。
+
+
+## 2026-11-14：v2.100.3 重放適配
+
+- D2：所有 Windows 停止路徑採上游 checked stop，以行程建立時間、路徑與血緣綁定終止對象，並確認 port。保留 wrapper 三檔的具名刪除與 typed failure，但 `removeWindowsServiceWrapperResidue` 不再終止行程；可讀 wrapper 仍在、行程表不可讀或有不可讀候選時，保留檔案並要求先執行 checked stop。`uninstallServiceDetailed` 先完成 scheduler／WinSW status／ownership 探測才開始刪除。`service repair` 的既有例外不擴大。
+- D3：Windows 測試由 12 分片增為 14，30 分鐘上限不變。前版最長片 28.1 分鐘，本版又新增 235 個測試檔與 ocx-child 冷編譯；既有 fork 權重保留，沒有 fork 權重的新檔以本版上游資料作種子。matrix、TEST_SHARD、aggregate 計數同步變更。
+- D4：採用 `src/link/child-binary-cache-fill.mjs`。Windows 在任何下載前直接 skipped，套件缺少 `native/ocx-child/SHA256SUMS` 也不下載；fork 不包含該 digest 檔，由 fork hygiene 契約固定此條件。此模組的 POSIX file identity 比較保留上游形式，因 Windows 不可達；未啟用 fork 自更新或上游 release 安裝通道。
+- D5：文件站與 GUI 僅保留 en／zh-TW，不引入西班牙文頁面。通用 code-block locale resolver 與獨立解析契約保留，兩個新文件頁提供繁中版本；新的 GUI copy 表縮為兩欄。
+- D6：`pr-gates.yml` 的 label、hygiene、enforce caller 均要求官方 repository；本機 reusable workflow 來源、最小 permissions 與 callees 的既有 guard 保留，不把 PR head 程式碼帶入可寫 token 的執行環境。
+
+`#8299` 與 `#8276` 已由本版重新合入，前版「撤回」結論僅適用於 v2.100.2。版本來源維持 2.100.3，遙測與 registry 更新的 fork 閘門不變。

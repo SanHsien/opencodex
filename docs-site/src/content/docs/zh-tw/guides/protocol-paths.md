@@ -6,7 +6,7 @@ description: Responses、Chat Completions 或 Messages API 上的請求如何送
 opencodex 提供三種用戶端 API：**Responses**（`/v1/responses`）、**Chat Completions**
 （`/v1/chat/completions`）與 **Messages**（`/v1/messages`）。每個供應商都只接收一種由其適配器決定的上游線路格式。當用戶端 API 與上游線路格式不同時，請求會在送出時轉換、回應會在送回時轉換回來。本頁說明這條路徑如何命名、如何在請求前後查看它，以及哪些設定會改變它。
 
-本頁的每個設定預設都是關閉的。維持預設值時，請求的傳送方式與這些設定出現之前完全相同。
+本頁設定除 antigravityDirect 預設啟用，以及已辨識且啟用 Anthropic 帳戶池實例的兩個 managed-Messages 開關外，其餘預設關閉。帳戶池在 anthropicAccountPool.nativeMessages 不為 false 時衍生 managedMessagesNative／managedMessagesNativeOAuth；明確 rollout false 仍可停用任一預設。
 
 ## 傳送模式
 
@@ -112,3 +112,7 @@ ocx api policy --unrepresentable reject
 - 受管理的 native Messages 路徑只會從一份簡短的允許清單轉發呼叫者的
   `anthropic-beta` 值,且僅轉發給 `api.anthropic.com`,允許清單以外的頂層欄位會在沒有功能影響記錄的情況下被捨棄,也不會套用
   `claudeCode.stabilizePromptCache`。
+
+原生 Anthropic 身分傳遞同時支援前景 X-App: cli 與背景 claude --bg／X-App: cli-bg。必要組合包含已辨識 User-Agent、X-App、UUID 的 X-Claude-Code-Session-Id、X-Stainless-Lang: js、X-Stainless-Runtime: node。可選 SDK 欄位僅從 allowlist 保留，操作者 headers 優先。
+
+原生 Messages 也保留 dangerous-tool-use-2026-09-03 與 safeguards，讓伺服器審查工具並原樣回傳判決。已辨識 Claude Code 的 OAuth 工具名稱不加 custom_；身分標頭可複製，其他 caller 若複製也會得到此行為。操作者 beta 若替未辨識 caller 加入 safeguards，工具名仍加前綴，伺服器無法依原名配對。

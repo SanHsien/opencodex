@@ -1074,3 +1074,5 @@ OpenCodex refuses those ambiguous settings. It also refuses an
 unsafe target or a row edited since apply. The integration is loopback only and
 never copies provider credentials. Factory documents the [BYOK schema](https://docs.factory.ai/model-independence/byok)
 and [personal settings path](https://docs.factory.ai/droid-cli/settings).
+
+CLI 的 `ocx integration client enable|disable --client <id>` 只改本機，與 dashboard 開關相同。使用 route intent 的 Home 會保存成 Home 自己的決定，sync 不覆寫它，Child 保留 default。修改 Child 繼承值用 `ocx route to <client> on|off`。Child 的一般開關會拒絕並提示 Home 命令；本機退出使用 `ocx route to <client> off --local`。見[依裝置路由](/zh-tw/guides/remote-link/#依裝置指定用戶端路由)。

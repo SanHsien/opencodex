@@ -9,11 +9,7 @@ description: 透過原生 ChatGPT 邊車，讓路由模型獲得真實 web searc
 圖像提示，不會讓整個 turn 失敗。
 
 :::note[自動選擇後端]
-明確的 `backend` 設定優先。`backend` 省略時，兩個邊車的預設值不同：**web search** 一律預設
-`openai`——只有明確設定時才會執行 `anthropic`。**Vision** 在已啟用的 Anthropic OAuth provider
-有一個未標記 `needsReauth` 的可用帳號時預設 `anthropic`，否則預設 `openai`。明確指定 `anthropic`
-卻沒有該憑證時會關閉失敗。明確指定 `xai` 需要一個可用的已儲存 Grok OAuth 帳號，且不會退回。
-`openai` 同時需要 ChatGPT 登入驗證與已啟用的 `forward` provider。
+明確的 `backend` 優先。未設定時，Web search 預設 openai，anthropic／xai 需明確設定；xai 搜尋需要可用的已存 Grok OAuth，不回退。Vision 在已啟用的 Anthropic OAuth 供應商有未標 needsReauth 的活躍帳戶時預設 anthropic，否則 openai。明確選 anthropic 而憑證缺少時拒絕。Vision 只接受 openai、anthropic、routed；符合資格的 xAI 模型經 routed。兩者的 openai 後端都需要 ChatGPT 登入與已啟用的 forward 供應商。
 :::
 
 ### 額外的 web-search 後端（僅限明確設定）

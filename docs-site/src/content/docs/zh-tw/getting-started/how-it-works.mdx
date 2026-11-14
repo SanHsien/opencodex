@@ -54,10 +54,7 @@ Codex 使用 OpenAI **Responses API**。opencodex 接收透過 HTTP 與 Server-S
 
 ## Sub-agent 模型選擇
 
-全新安裝會透過 `subagentModels` 在 Codex 的 sub-agent 選擇器中優先顯示 `gpt-6-astra`、GPT-5.6
-Sol/Terra/Luna 三個模型和 `gpt-5.5`。儀表板可以從原生或已路由模型中重新排序或替換最多
-五個條目。對於 v1 協作請求，可選的 `injectionModel` 與 `injectionEffort` 會新增開發者指令，
-告訴 `spawn_agent` 應使用哪個模型和 reasoning effort；v2 請求保留 Codex 原生的多代理指引。
+全新安裝的 `subagentModels` 在 Codex 子代理選擇器優先顯示 `gpt-6-astra`、`gpt-6.1-sol`、`gpt-6-luna`。儀表板可從原生或路由模型重排或替換最多五項。可選的 `injectionModel`／`injectionEffort` 在代理產生的指引描述偏好，除非啟用原生預設同步，否則只是建議。v1／v2 指引與同步規則見[代理設定](/zh-tw/reference/configuration/agents/)。
 
 ## 生命週期
 
@@ -70,10 +67,7 @@ Sol/Terra/Luna 三個模型和 `gpt-5.5`。儀表板可以從原生或已路由�
    JSON 物件的 `text.format`)等特性標誌。圖像會被保留為真正的內容部分 —— 絕不會被內聯為
    base64 文字。
 
-2. **路由** —— `router.ts` 按固定的優先順序將請求的模型 id 對映到一個已設定的 provider：
-   顯式的 `provider/model` → provider 的 `defaultModel` → 內建字首模式
-   (`claude-`、`gpt-`、`o1-`/`o3-`/`o4-`、`llama-`/`mixtral-`/`gemma-`) → provider 的 `models[]` →
-   `defaultProvider` 回退。參見 [模型路由](/zh-tw/guides/model-routing/)。
+2. **路由** —— `router.ts` 的固定優先順序為：已設定的路由政策 → 精確 Codex 帳戶選擇器 → 組合 ID／別名 → 明確 `provider/model` → 原生 OpenAI 類 ID（`gpt-`、`o1-`／`o3-`／`o4-`）→ 供應商 `defaultModel` → 內建前綴（`claude-`、`llama-`／`mixtral-`／`gemma-`）→ `models[]` → `defaultProvider`。見[模型路由](/zh-tw/guides/model-routing/)。
 
 3. **認證** —— 對於 `oauth` 型別的 provider,opencodex 會換入一個全新、自動重新整理的 access
    token 作為 bearer key,從而讓現有的 adapter 無需改動即可完成認證。對於 ChatGPT/Codex 帳號池，

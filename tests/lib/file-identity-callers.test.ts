@@ -6,6 +6,7 @@ import { repoPath } from "../helpers/repo-root";
 // calls made with { bigint: true }. A lexical tripwire over the named declarations, not a
 // full parser: it catches the regression forms below and fails closed on scopes it cannot find.
 const scopes: Record<string, string[]> = {
+  "src/codex/native-main-auth-file.ts": ["readNativeMainAuthBytesStable", "readBounded"],
   "src/lab/public/mutation-lock.ts": ["assertMutationLockDirectory"],
   "src/lab/public/private-file.ts": ["cleanupPublishedPrivateFileStages"],
   "src/lab/public/file-safety.ts": ["withPrivateRegularFile", "recoverPublishedPrivateFileStage"],

@@ -293,46 +293,11 @@ declare Flex support alongside the existing Fast wire. Merge these fields into t
 }
 ```
 
-With an eligible `openai-responses` route, the Luna row advertises Standard,
-Fast and Flex in Codex's speed selector. For an `openai-chat` route, also set
-`chatServiceTier: true` **only if** the upstream Chat Completions endpoint supports
-caller-provided service tiers. The `fastWire` mapping is **provider-wide**:
-other service-tier-eligible routed models in the same `providers.nanogpt`
-entry can also advertise Flex when the catalog publishes them as ordinary routed
-rows, even when they are not listed in `modelSupportsServiceTier`. That map is not
-an allowlist excluding other eligible models. Combo-namespace and native-alias
-rows are **not** published with Flex. Verify Flex support for **every** eligible
-ordinary routed model;
-if only Luna supports Flex, configure it in a separate provider entry with
-no other Fast-eligible models. Do not infer Flex support from Fast alone.
-
-Keep OpenCodex's global Fast mode on **Auto** (`fastMode` unset), as forcing
-Fast or Default overrides the caller's Flex choice. After `ocx sync`, refresh the
-Codex model list. Select **Flex** from the speed selector, or use
-`/model <routed-id> --speed=flex` in Codex CLI. This is a **selectable tier**,
-not a per-model forced default: switching models does not force Flex automatically.
-The tier is forwarded as `service_tier: "flex"` and can still be declined by
-the upstream; availability, cost and latency depend on the provider. Neither
-the menu nor a request alone proves which tier was billed.
-
-### Selecting Ultra Fast in Codex Desktop
-
-For a provider that supports `service_tier: "ultrafast"`, declare that wire mapping once.
-opencodex then publishes **Ultra Fast** in the routed model's native Codex speed menu;
-there is no need to edit `opencodex-catalog.json` after every sync.
-For example, merge these fields into an API provider configured for GPT-6.1 Sol:
-
-```json
-{
-  "models": ["gpt-6.1-sol"],
-  "modelSupportsServiceTier": { "gpt-6.1-sol": true },
-  "fastWire": {
-    "kind": "service-tier",
-    "canonicalToWire": { "priority": "priority", "ultrafast": "ultrafast" },
-    "foreignCallerTiers": "verbatim"
-  }
-}
-```
+Codex 會按 `priority` 升序排列選擇器中可見的目錄條目，並將前五個顯示為 `spawn_agent` 模型
+override。儀表板的 Subagents 頁面可以選擇並儲存最多五個裸原生 id 或路由的 `provider/model`
+id。手動設定的 `subagentModels` 也接受帳號限定的 `<selector>/<native-openai-model>` id。儲存列表時，儀表板會保留這些已儲存的精確 id，包括目前目錄中已無法使用的模型。opencodex 會按所選順序
+賦予較低的目錄 priority；啟用帳號限定選擇器列時，裸原生選擇會展開為選擇器限定群組。其他模型
+仍可透過精確 id 直接呼叫。
 
 The mapping applies to every Fast-eligible model on that provider. Use a separate provider
 entry if only some of its models support Ultra Fast. Keep opencodex's Fast mode on **Auto**
@@ -388,3 +353,28 @@ opencodex rewrites `models_cache.json` with a deliberately stale cache wrapper w
 visibility, priority, or metadata changes, so the next Codex model refresh reads the new catalog.
 
 After a catalog or model-cache write, OpenCodex invalidates its cached app-server observation so the next request checks process freshness again. A configuration sync also invalidates the observation when catalog contents are unchanged. This refresh does not restart Codex processes.
+
+### 在 Codex Desktop 選擇 Ultra Fast
+
+供應商若支援 `service_tier: "ultrafast"`，只需宣告一次 wire 對應，OpenCodex 就會在路由模型的 Codex 原生速度選單發布 Ultra Fast，不必每次同步後編輯目錄。例如，將這些欄位合併至 GPT-6.1 Sol 的 API 供應商：
+
+```json
+{
+  "models": ["gpt-6.1-sol"],
+  "modelSupportsServiceTier": { "gpt-6.1-sol": true },
+  "fastWire": {
+    "kind": "service-tier",
+    "canonicalToWire": { "priority": "priority", "ultrafast": "ultrafast" },
+    "foreignCallerTiers": "verbatim"
+  }
+}
+```
+
+
+對應適用於該供應商所有符合 Fast 條件的模型；若只有部分模型支援，請拆為不同供應商。Fast 模式保持 Auto（省略 `fastMode`），讓應用程式的速度選擇送達供應商。強制 Fast 會送出 `priority`，強制 Default 則刪除 tier。重新整理目錄；若 Desktop 仍顯示舊列表，重啟 Codex，再選路由模型與 Ultra Fast。Standard 仍為預設。
+
+只有符合資格且明確宣告 `ultrafast → ultrafast` 的 `service-tier` wire 才會新增選項；一般 Fast 支援或 GPT 類名稱不足以啟用。這個路由對應不適用於原生／帳戶列或組合別名。移除對應或停用模型的 service-tier 支援後，下次成功同步會從目錄與快取撤回產生的選項，HTTP 模型清單也遵循現用宣告。
+
+路由列的 `ultraFastTier` 保留同一個持久列中獨立提供的 tier；自動產生的路由 tier 不視為操作者提供。對原生 `gpt-6-astra`、`gpt-6.1-sol` 與可信的帳戶綁定副本，啟用 `ultraFastTier` 也會補上缺少的選項，不改原生預設。停用時只撤回追蹤為自動產生的中繼資料，保留獨立提供或編輯的描述。
+
+OpenAI 的 [API 指引](https://developers.openai.com/api/docs/guides/ultrafast-mode)說明 GPT-6 Astra 與 GPT-6.1 Sol 的 Ultrafast；API 存取權與 [Codex 方案／工作區存取權](https://learn.chatgpt.com/docs/agent-configuration/speed)各自獨立。選單不授予使用權，也不保證實測速度。Ultra Fast 增加用量／成本，仍須符合 Codex 自己的功能條件。

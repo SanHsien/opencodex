@@ -305,6 +305,7 @@ Codex-login 供應商上列出的每個裸 `gpt-*` id（此處為 **GPT-6-Nova**
 | `noStopModels?` | `string[]` | Models that reject caller-specified `stop`. The `openai-chat` adapter, the Chat passthrough and the Responses passthrough omit the field for those ids. The built-in `xai` preset lists its reasoning models (`grok-4.7`, `grok-4.6`, `grok-4.5`, `grok-4.3`, `grok-4.20-multi-agent-0309`, `grok-4.20-0309-reasoning`, `grok-build-0.1`), which xAI documents as rejecting it; `grok-4.20-0309-non-reasoning`, `grok-composer-2.5-fast` keep caller `stop`. |
 | `noPenaltyModels?` | `string[]` | Models that reject presence/frequency penalties. The built-in `xai` preset lists its reasoning models (`grok-4.7`, `grok-4.6`, `grok-4.5`, `grok-4.3`, `grok-4.20-multi-agent-0309`, `grok-4.20-0309-reasoning`, `grok-build-0.1`), which xAI documents as rejecting them; non-reasoning ids keep caller penalties. |
 | `noStructuredOutputModels?` | `string[]` | Exact model IDs whose `openai-chat` endpoint rejects `response_format`. Only an exact requested-model match omits the field; structured-output translation stays enabled for every other `openai-chat` model. |
+| `cacheAffinity?` | `"auto" \| "session" \| "turn" \| "off"` | 優先使用處理上一次成功回合的金鑰，適用於至少有兩個項目的金鑰池，不包括 OAuth/forward。預設值為 `auto`。本機拒絕保留綁定；上游拒絕只釋放與實際提供服務的供應商和項目相符的綁定。請參閱[完整契約](/zh-tw/reference/configuration/providers/#供應商項目ocxproviderconfig)。 |
 | `noJsonSchemaModels?` | `string[]` | 其 `openai-chat` 端點拒絕 `json_schema` 形式但仍接受 `json_object` 的精確模型 ID。這類請求會降級為 `json_object` 而非被丟棄，因此要求 JSON 的呼叫端仍會拿到 JSON。同一模型同時列在兩份清單時，以 `noStructuredOutputModels` 為準。`opencode go`、`opencode zen` 預設已為其 DeepSeek 路由內建。 |
 | `foldDeveloperRoleToSystem?` | `boolean` | 記錄某個 `openai-chat` 目的地是否接受 `developer` 角色。`foldDeveloperRoleToSystem` 未設定時以 `system` 傳送，`true` 時以 `system` 傳送，`false` 時以 `developer` 傳送。未設定表示尚未記錄該目的地的情況；`true` 記錄上游拒絕該角色；`false` 記錄其接受該角色。未啟用 `singleLeadingSystemMessage` 時，訊息保留在對話中的原有位置，只有角色改變。拒絕該角色的目的地會回應 `400 role 'developer' is not allowed`，該回合根本無法開始，這就是未記錄狀態預設摺疊的原因。 |
 | `parallelToolCalls?` | `boolean` | 切換平行工具呼叫。OpenAI Chat 預設開啟；非 chat adapter 僅在明確 `true` 時廣告。 |
@@ -331,6 +332,8 @@ Codex-login 供應商上列出的每個裸 `gpt-*` id（此處為 **GPT-6-Nova**
 | `nativeLocalExec?` | `"off" \| "codex-sandbox" \| "on"` | Cursor local-exec policy. `off` is default; `codex-sandbox` currently fails closed like `off`. |
 
 LM Studio 指示相容性：`singleLeadingSystemMessage: true` 會把僅含文字的 system／developer 訊息合併成一則開頭的 system 訊息，覆寫依時間順序的 Chat 指示位置。LM Studio 預設組合預設啟用它；設為 `false` 可停用合併。
+對原生 Responses 而言，相同開關也涵蓋只收到生命週期事件後正常結束的 EOF。自包含請求與替換次數限制仍然適用。超出這些限制的請求不會被檢查，其串流也不會被暫扣。直接串流即使上游仍無回應，也會在 200 毫秒內收到原始回應標頭。只有在回傳該回應標頭之前選定替換回應時，替換回應才會帶有其自身的狀態和回應標頭：直接串流的重設或 EOF 必須發生在這 200 毫秒內，且替換回應標頭必須在原始回應到達後 15 秒內（若停滯逾時更短則以其為準）到達。彙整為 JSON 的非串流請求與組合目標沒有 200 毫秒視窗，在回應彙整或選定之前不會向用戶端回傳標頭，因此選擇標頭前可能等待同樣的時間。回傳回應標頭之後，是否替換取決於串流如何結束：讀取錯誤保留重設通道的既有行為，替換內文照舊發佈在原始回應標頭之後；只有生命週期事件後正常結束的 EOF 更嚴格，因為它是以另一次嘗試回答同一輪請求，替換回應必須與已提交的標頭在狀態、狀態文字、content-type 媒體類型、`openai-model` 和 `x-codex-turn-state` 上一致。易變與逐跳標頭（`date`、請求 id、`cf-ray`、`server-timing`、`x-ratelimit-*`、`openai-processing-ms`、`content-length`、`transfer-encoding`、`connection`、`keep-alive`）無需一致，因為用戶端已持有原始標頭的值，而真實上游每次嘗試都會變動這些標頭。不一致時保留原始串流及其錯誤。此後仍在檢查的直接串流會隨回應標頭收到一則 SSE keepalive 註解，此後每 15 秒再收到一則；組合預檢會在選定回應前暫扣這些註解。
+
 
 
 註冊或替換供應商（`POST /api/providers`）時，會先驗證 `responsesPath` 和 `chatCompletionsPath`，再修改記憶體或磁碟中的設定。`PATCH /api/providers?name=<provider>` 會將請求內容與已儲存的供應商合併；除僅更新 `requestPacing` 的請求外，凡是修改 `disabled` 以外欄位的更新，都會在儲存前以同樣方式驗證合併後供應商的路徑，若保留的既有路徑無效則回傳 `400`，且不變更設定。載入設定檔時也適用相同的路徑規則。
@@ -396,17 +399,17 @@ and `modelContextWindows` for that exact id when needed. Unknown ids are not gue
 
 ### 儲存供應商時會保留什麼
 
-以既有供應商的名稱呼叫 `POST /api/providers`，會以根據請求建立的列取代已儲存的列。儀表板的新增/編輯表單無法傳送所有欄位，因此儲存時會保留請求省略的部分已儲存欄位。其中十三個記錄的是某個上游的行為：`preserveReasoningContentModels`, `preserveResponsesReasoningContent`, `requiresReasoningPlaceholderModels`, `foldDeveloperRoleToSystem`, `singleLeadingSystemMessage`, `reasoningWireFormat`, `omitReasoningEffortWithToolsModels`, `promoteAdditionalTools`, `retryOn429`, `transientRetryOn5xx`, `retryOnReset`, `unsupportedHostedTools`, `unsupportedHostedToolsWithClientTools`。
+以既有供應商的名稱呼叫 `POST /api/providers`，會以根據請求建立的列取代已儲存的列。儀表板的新增/編輯表單無法傳送所有欄位，因此儲存時會保留請求省略的部分已儲存欄位。其中十四個記錄的是某個上游的行為：`preserveReasoningContentModels`, `preserveResponsesReasoningContent`, `requiresReasoningPlaceholderModels`, `foldDeveloperRoleToSystem`, `singleLeadingSystemMessage`, `reasoningWireFormat`, `omitReasoningEffortWithToolsModels`, `promoteAdditionalTools`, `retryOn429`, `transientRetryOn5xx`, `retryOnReset`, `unsupportedHostedTools`, `unsupportedHostedToolsWithClientTools`, `forwardAdvisorTool`。
 
-| 儲存 | 十三項設定 | 已儲存的 `apiKeyPool` |
+| 儲存 | 十四項設定 | 已儲存的 `apiKeyPool` |
 | --- | --- | --- |
 | 目的地相同，欄位省略 | 保留已儲存的值，包括明確的 `[]` 或 `false` | 保留 |
 | 新目的地，欄位省略 | 不保留；可能套用新目的地的登錄檔預設值 | 不保留 |
 | 請求中傳送了該欄位 | 請求中的值 | 請求中的值 |
 
-目的地指轉接器、base URL（比較協定與主機時不分大小寫，忽略結尾斜線），以及請求有指定時的驗證模式。把供應商移到其他目的地時，描述舊上游的十三項設定和為舊上游核發的金鑰池都不會帶過去。儲存絕不會把舊列的其餘部分合併進新列。
+目的地指轉接器、base URL（比較協定與主機時不分大小寫，忽略結尾斜線），以及請求有指定時的驗證模式。把供應商移到其他目的地時，描述舊上游的十四項設定和為舊上游核發的金鑰池都不會帶過去。儲存絕不會把舊列的其餘部分合併進新列。
 
-`PATCH /api/providers?name=<provider>` 只修改它指定的欄位，無論目的地為何都保留其他所有已儲存欄位。它接受全部十三項設定，`null` 表示清除。對於兩個推理清單，空陣列會作為明確的退出選項儲存，而不會被刪除。
+`PATCH /api/providers?name=<provider>` 只修改它指定的欄位，無論目的地為何都保留其他所有已儲存欄位。它接受全部十四項設定，`null` 表示清除。對於兩個推理清單，空陣列會作為明確的退出選項儲存，而不會被刪除。
 
 ## 供應商診斷對外安全
 
@@ -1403,41 +1406,7 @@ Tool-enabled DeepSeek requests also require reasoning on earlier assistant answe
 calls. The configured placeholder fills these omissions; no original reasoning can be recovered
 from the tool-call cache for those turns. Preserve their supplied reasoning for full fidelity.
 
-## Auto-pause permanently refused accounts
+## 遭永久拒絕帳戶的自動暫停
 
-`providers.<provider>.accountAutoPause` is opt-in and defaults to off. It applies to that
-provider's OAuth accounts, Codex pool accounts (including the main account in pool mode),
-and configured API-key pool entries. For example:
+帳戶自動暫停請見[專用設定頁](/zh-tw/reference/configuration/account-auto-pause/)。
 
-```sh
-ocx config set providers.anthropic.accountAutoPause.enabled true
-ocx config set providers.anthropic.accountAutoPause.consecutiveFailures 2
-```
-
-`consecutiveFailures` is an integer from 1 to 100; omitting it uses 2. Only exact,
-account-scoped HTTP 401/403 refusals qualify: an organization forbidding OAuth, an inactive
-or expired subscription, an account denied API/Claude Code access, or a downgrade to a free
-plan with no credits. A model permission error, expired access token, quota window, 429,
-5xx, malformed response or network failure never pauses an account.
-
-The counter is process-local, serialized per account, and resets on a successful HTTP
-response, explicit resume or a new login. Token refresh alone does not reset an OAuth
-account's streak. Transient errors leave the counter unchanged. Restarting the proxy clears
-counters; completed pauses, their fixed reason codes and timestamps persist. Independent
-proxy processes maintain independent counters. Changing, disabling or re-enabling the policy, disabling the provider,
-or changing its endpoint discards in-flight refusal observations, so a refusal from a request
-sent under the earlier policy can never pause an account afterwards. A refusal counts only for the credential that actually
-reached the upstream: when a local plugin rewrites the credential or destination of a send, that
-send never counts toward a pause. For Codex pool accounts this includes the workspace
-(`chatgpt-account-id`) the request was sent for.
-
-At the threshold, OpenCodex excludes the account using its existing pause mechanism and
-attempts an eligible sibling for the current request within the existing retry/send budget.
-Fixed Codex account selectors and account-bound uploaded files retain their restrictions.
-A pause never cancels already dispatched work or changes credentials. It emits one generic
-log line without account identifiers or upstream error text.
-
-`ocx account list <provider>` shows the pause reason. The dashboard's Paused badge exposes
-the reason and time. Use `ocx account resume <provider> <account-id-or-alias>` to clear the
-reason and allow selection again. On an API-key row, clicking Resume also activates the key.
-This policy never resumes an account automatically.

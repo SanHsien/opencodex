@@ -60,7 +60,13 @@ Connect with exactly one transient authority source. The authority is read from 
 written to config or the token file:
 
 ```bash
-ocx connect https://hub-name.tailnet-name.ts.net --pairing-code-stdin
+# Bash only: if using zsh, run bash first in this terminal.
+# Bash: enter the one-time code without echoing it or putting it in shell history.
+read -r -s -p 'Pairing code: ' pairing_code; printf '\n'
+printf '%s\n' "$pairing_code" | ocx connect https://hub-name.tailnet-name.ts.net:8443 \
+  --management-url https://hub-name.tailnet-name.ts.net \
+  --pairing-code-stdin
+unset pairing_code
 ocx connect status
 ocx sync
 ```
@@ -89,9 +95,16 @@ to the Hub with `https://` (or use loopback HTTP when both sides are on the same
 Rotate a connected client with a fresh transient authority:
 
 ```bash
-ocx connect rotate --pairing-code-stdin
-# or, only over HTTPS:
-ocx connect rotate --admin-token-stdin
+# Bash only: if using zsh, run bash first in this terminal.
+# Bash: choose one authority source.
+read -r -s -p 'Pairing code: ' pairing_code; printf '\n'
+printf '%s\n' "$pairing_code" | ocx connect rotate --pairing-code-stdin
+unset pairing_code
+
+# Alternatively, only over HTTPS, use the management admin token:
+read -r -s -p 'Admin token: ' admin_token; printf '\n'
+printf '%s\n' "$admin_token" | ocx connect rotate --admin-token-stdin
+unset admin_token
 ```
 
 Rotation keeps the old and new data keys valid for at most ten minutes under the same `apiKeyId`.
@@ -148,6 +161,17 @@ a page you visit can make your browser connect to `127.0.0.1`. The listener ther
 same `Host` and `Origin` checks as an ordinary loopback bind.
 :::
 
+:::caution[Create the `hub` and `remoteGui` objects only when they are absent]
+`ocx config set hub '{…}'` and `ocx config set remoteGui '{…}'` replace the whole object, so on an
+existing installation they silently drop the settings already there. Check first: `ocx config get hub`
+and `ocx config get remoteGui` answer `config path not found` when the object is absent, and print it
+when it exists. Only then is the `'{}'` seed line below safe to run; when the object exists, skip it
+and use the nested `hub.<field>` form, which itself fails with `config parent path not found: hub`
+when a parent is genuinely missing. Setting a nested array or object field such as
+`hub.managementIngress` or `remoteGui.allowedTailscaleUsers` also replaces that field rather than
+merging into it, so read the current value before you overwrite one.
+:::
+
 ```bash
 ocx config set runtimeRole hub
 ocx config set hostname 100.64.0.10
@@ -180,11 +204,11 @@ ocx config set hub '{"managementPublicOrigin":"https://hub-name.tailnet-name.ts.
 ocx config set remoteGui '{"allowedTailscaleUsers":["operator@example.com"]}'
 ```
 
-Use that form only when the object does not exist yet. A whole-object set **replaces** the object
-rather than merging into it, so running the line above against a config that already had
-`hub.managementIngress` silently drops the ingress. When you are adapting an existing
-configuration, set one field at a time — the parent is already there, so the nested form works and
-touches nothing else.
+Use that form only when the object does not exist yet, as the `ocx config get` check above decides.
+A whole-object set **replaces** the object rather than merging into it, so running it against a
+config that already had `hub.managementIngress` silently drops the ingress. When you are adapting an
+existing configuration, set one field at a time — the parent is already there, so the nested form
+works and touches nothing else. Setting a nested array or object field replaces that field too.
 
 Two details that decide whether a line is accepted. The value is parsed as JSON first and falls
 back to the raw string, which is why a URL is written as `'"https://…"'`: objects, arrays, booleans
@@ -331,13 +355,20 @@ a session. Verify both directions:
 # Negative: the loopback-only port must not be reachable through the node's tailnet address.
 curl --fail --connect-timeout 3 http://100.64.0.10:10101/ && echo "unexpected exposure"
 
-# Positive: the HTTPS dashboard loads through Serve from an allowed tailnet user.
+# Transport only: an identity-required dashboard may reject curl; verify it in an allowed user's browser.
 curl --fail --silent --show-error https://hub-name.tailnet-name.ts.net/ >/dev/null
 ```
 
 The positive browser test must use a real signed-in Tailscale session; a bare `curl` may not carry the
 identity headers needed for automatic session issuance. Pairing remains the fallback when the HTTPS
 frontend cannot provide trustworthy Tailscale identity.
+
+**Remember this device** works on this management origin: the hub's management listener is the
+trusted ingress, so a dashboard opened at `hub.managementPublicOrigin` can remember a device. A
+standalone instance behind its own TLS-terminating proxy has no such listener; it can remember devices
+only after you set `dashboardTrustedProxy` (see
+[Remember behind a reverse proxy](/guides/web-dashboard/#remember-behind-a-reverse-proxy)). A hub
+ignores that setting.
 
 ### Giving the data listener TLS
 
@@ -379,10 +410,13 @@ it is where `/readyz` and `/v1/catalog` are fetched — and `--management-url` i
 origin used for pairing and key issuance. They do not have to share a port:
 
 ```bash
-# This is exactly the line `ocx hub invite` prints, with the code filled in.
-echo '<pairing-code>' | ocx connect https://hub-name.tailnet-name.ts.net:8443 \
+# Bash only: if using zsh, run bash first in this terminal.
+# Bash: enter the one-time code without echoing it or putting it in shell history.
+read -r -s -p 'Pairing code: ' pairing_code; printf '\n'
+printf '%s\n' "$pairing_code" | ocx connect https://hub-name.tailnet-name.ts.net:8443 \
   --management-url https://hub-name.tailnet-name.ts.net \
   --pairing-code-stdin
+unset pairing_code
 ```
 
 Record those two origins on the hub as `hub.dataPublicOrigin` and `hub.managementPublicOrigin`, and
@@ -435,11 +469,15 @@ Run this on the hub rather than writing an `ocx connect` line by hand:
 ocx hub invite
 ```
 
-It mints a single-use, short-lived pairing code and prints the command to run on the other machine:
+It mints a single-use, short-lived pairing code and prints the command to run on the other machine.
+To keep the code out of shell history, read it silently and pass it through stdin:
 
-```text
-# Run on the other machine:
-echo '<code>' | ocx connect https://hub-name.tailnet-name.ts.net:8443 --management-url https://hub-name.tailnet-name.ts.net --pairing-code-stdin
+```bash
+# Bash only: if using zsh, run bash first in this terminal.
+# Bash, on the other machine:
+read -r -s -p 'Pairing code: ' pairing_code; printf '\n'
+printf '%s\n' "$pairing_code" | ocx connect https://hub-name.tailnet-name.ts.net:8443 --management-url https://hub-name.tailnet-name.ts.net --pairing-code-stdin
+unset pairing_code
 ```
 
 The data origin comes from `--data-url`, then `hub.dataPublicOrigin`, then the bind address. That
@@ -524,7 +562,7 @@ on the node; use a narrower supported removal command when unrelated mappings ex
 tailscale serve status
 tailscale serve reset
 ocx config set hub.managementIngress '{"enabled":false}'
-ocx service repair
+ocx service restart
 ```
 
 For a container rollback, retain both named state volumes and their mappings. An older image

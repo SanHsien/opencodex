@@ -117,13 +117,7 @@ item，因此 MCP 名稱空間、`apply_patch` 風格的 freeform 工具和用�
 
 ## 管理 API、OAuth 與用量
 
-`server/management-api.ts` 為儀表板提供後端，並把專門的 route 分派給
-`server/management/*.ts`。其 `/api/*` route 涵蓋安全的設定/設定、provider
-CRUD 與 key pool、模型選擇/context cap/v2 控制、catalog sync、診斷與 debug log、usage 與
-quota、sidecar 設定、更新、生成用戶端 API key、OAuth 登入/狀態/登出與帳號選擇、Codex 帳號
-管理，以及 graceful stop。proxy 繫結到 loopback 之外時，`server/auth-cors.ts` 會要求
-`/api/*` 和 `/v1/*` 都提供 `OPENCODEX_API_AUTH_TOKEN`；設定的 `corsAllowOrigins` 會擴充套件本機
-origin allowlist。
+`server/management-api.ts` 將儀表板管理操作分派至 `server/management/*.ts`。管理 `/api/*` 使用獨立的 OPENCODEX_ADMIN_AUTH_TOKEN 或產生的 admin token，即使 loopback 也需要認證；模型 `/v1/*` 使用資料 token 或設定的用戶端 API keys。資料憑證不授予管理權限。corsAllowOrigins 只擴充 origin allowlist，不取代憑證。
 
 OAuth 實作在 `oauth/` 中；每次路由呼叫前都會即時載入或重新整理 access token，而
 `oauth/token-guardian.ts` 只會主動重新整理策略允許的 provider。重新整理由 process 內
@@ -150,8 +144,7 @@ quota 更新會歸屬於服務中的帳號，不會回溯加進已送出的標�
 訊框呈現，會以該 HTTP 狀態回傳：訊框標頭除了 framing 與編碼相關標頭外會被複製，
 `content-type` 為 `application/json`，`cache-control` 為 `no-store`，body 為 `{"error": ...}`
 JSON，因此與 HTTP 路徑相同的重新整理、quota 與帳號輪替處理都適用。這些對映不會啟用用戶端
-可見的 WebSocket 設定，也不會改變其他 provider 的 transport 選擇。內附的 Bun 1.3.14、
-prerelease 與無法驗證的 runtime 身分一律使用 HTTP/SSE。成功的上游 WS 回應會維持下游 SSE
+可見的 WebSocket 設定，也不會改變其他 provider 的 transport 選擇。目前套件內附 Bun **1.4.4**；較舊的 Bun 1.3.14、prerelease 與無法驗證的 runtime 身分使用 HTTP/SSE。成功的上游 WS 回應會維持下游 SSE
 合約，並透過有界的 eager single-reader relay 繞過 `tee()`（每個原始/封裝訊框 4 MiB，
 producer queue 8 MiB）。Queue 溢位會關閉上游，並發出一個終止的下游 `response.failed`
 event，接著是 `[DONE]`。
@@ -222,8 +215,7 @@ Remote compact 請求可以把回應緩衝得比伺服器的 request-idle timeou
 註解、空 delta 與閘道 keepalive 不會重設 adapter-event 停滯監控。預設停滯逾時維持 300
 秒；加密的 compaction 內容維持不變並保留。
 
-原生 compact 回應緩衝同樣使用 `stallTimeoutSec`（預設 300 秒）強制執行 body-byte 無活動
-期限。非空區塊會重設該期限；停滯的 body 回傳 HTTP 504，用戶端取消維持 HTTP 499，清理程序
+原生 compact 以 `stallTimeoutSec` 限制 body-byte 無活動時間；與串流不同，本機上游也維持 300 秒預設，因為緩衝整個內文時仍持有 active-turn lease。明確值（含 0）優先。非空區塊會重設該期限；停滯的 body 回傳 HTTP 504，用戶端取消維持 HTTP 499，清理程序
 不會等待卡住的上游取消 promise。32 MiB 回應上限與原始 body bytes 都會保留。
 
 canonical 上游 WebSocket 的 refused-create 錯誤只有在回應被提交之前、且經過串流關聯性
@@ -242,3 +234,5 @@ HTTP 拒絕要求觀察到一次非成功回應。Invalid output 包含不合法
 沒有已分類的 recovery 結果時會省略此欄位，既有回傳原始目標失敗的 combo 分支則維持
 原本的回應。`recovery_unavailable` 包含 cache/singleflight 容量問題，並不能證明曾經
 嘗試過上游請求。不會啟用重試或更寬鬆的 envelope 接受方式。
+
+一般 HTTP 適配器的搜尋使用 fetch 路徑；Cursor 等 runTurn 適配器在搜尋計畫合格時使用 `server/responses/run-turn-execution.ts` 的 runTurnWebSearchLoop，不再一律繞過搜尋。

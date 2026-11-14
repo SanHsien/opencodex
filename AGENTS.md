@@ -377,9 +377,8 @@ than nudged.
   `workflow_dispatch` on `dev`. A successful complete `lane=all` run establishes
   evidence for its exact dev commit; a PR run or narrower manual lane does not.
 - A manual `lane=all` dispatch is a **batch check on `dev`**, never a per-PR gate.
-  One run is about 32 jobs (12 Windows, at least 6 macOS, 15 Linux) and six runner-hours, and the
-  account has only five macOS slots (a macOS job can queue), so per-PR dispatches starve
-  every other check. On 2026-10-27, parallel agent lanes dispatched 48 of them in twelve hours (about 13,000
+  This fork runs fourteen Windows test shards and no macOS or Linux test-suite jobs.
+  Full dispatches remain batch checks, because each one consumes fourteen Windows runners. On 2026-10-27, parallel agent lanes dispatched 48 of them in twelve hours (about 13,000
   runner-minutes). The queue passed 200 runs, and ordinary PR checks waited hours to start.
   - Merge a pull request, including a Windows- or macOS-sensitive one, on its green PR
     CI. After a batch of merges, run one `gh workflow run ci.yml --ref dev` as described
@@ -387,8 +386,8 @@ than nudged.
   - Do not dispatch `lane=all` for a PR branch. Run it once for a batch on `dev`;
     never re-dispatch merely because the head moved or rerun to green. Cancel your
     own superseded dispatches with `gh run cancel`.
-  - Every description edit or label change starts three event-gate workflows. Batch those
-    edits, and keep the number of agents working pull requests in parallel small.
+  - Every description edit or label change starts a `PR gates` run with three gate jobs. Batch
+    those edits, and keep the number of agents working pull requests in parallel small.
 - **Never** add a `dev` push trigger, or `pull_request` runs for macOS/Windows
   jobs, to any workflow. PRs that change this policy will be closed.
 

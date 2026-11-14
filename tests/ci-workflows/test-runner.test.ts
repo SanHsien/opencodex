@@ -23,6 +23,8 @@ import {
   ensureGuiDependencies,
   inspectChangedRun,
   listFullSuiteTestFiles,
+  OCX_CHILD_CONFORMANCE_BUILD_MS,
+  OCX_CHILD_CONFORMANCE_RUN_MS,
   resolveBunTestArgs,
   resolveBunTestPlan,
   resolveFullSuiteSettings,
@@ -34,6 +36,7 @@ import {
 import {
   NESTED_LIVE_LOCK_RECEIPT_KEY,
 } from "../helpers/nested-test-run-lock-controller";
+import { repositoryGitEnv } from "../helpers/git-fixture";
 import { helperPath, repoPath, repoRoot } from "../helpers/repo-root";
 import {
   acquireTestRunLock,
@@ -64,7 +67,7 @@ import { INTERNAL_DEADLINE_MS, SPAWN_BUDGET_MS } from "../helpers/test-budget";
 
 
 function runGit(cwd: string, ...args: string[]): string {
-  const result = Bun.spawnSync(["git", ...args], { cwd, stdout: "pipe", stderr: "pipe" });
+  const result = Bun.spawnSync(["git", ...args], { cwd, env: repositoryGitEnv(), stdout: "pipe", stderr: "pipe" });
   if (result.exitCode !== 0) {
     throw new Error(new TextDecoder().decode(result.stderr));
   }
@@ -492,6 +495,9 @@ describe("bun test argv", () => {
     }
     expect(plan.find(lane => lane.label === "release-helper.test.ts")?.timeoutMs).toBe(5 * 60 * 1000);
     expect(plan.find(lane => lane.label === "codex-shim.test.ts")?.timeoutMs).toBe(3 * 60 * 1000);
+    // The conformance lane outlasts a build that uses its whole bound followed by the whole run bound.
+    expect(plan.find(lane => lane.label === "link-ocx-child-conformance.test.ts")?.timeoutMs)
+      .toBeGreaterThan(OCX_CHILD_CONFORMANCE_BUILD_MS + OCX_CHILD_CONFORMANCE_RUN_MS);
   });
 
   test("the Windows host-process lane restores only profile identity, not product homes", () => {

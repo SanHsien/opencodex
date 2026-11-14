@@ -7,6 +7,8 @@ description: opencodex 控制平面的認證、錯誤與端點參考。
 
 使用[網頁儀表板](/zh-tw/guides/web-dashboard/)作為互動式客戶端，或在建構自動化時使用此參考。持久值最終遵循[設定](/zh-tw/reference/configuration/)。
 
+<a id="authentication-model"></a>
+
 ## 認證模型
 
 管理 API 有自己的管理憑證，獨立於 data-plane API 金鑰。在啟動時，opencodex 依此順序解析它：
@@ -81,7 +83,7 @@ Session 簽發在需要 data-plane 認證時停用，這包含遠端綁定。遠
 
 在 **Providers > xAI Grok > Accounts** 中，每個帳號的票券徽章可查看剩餘優惠券及有效期間。對話框送出客戶端產生的 `operationId`。請求送達或結果不確定時，儀表板會在瀏覽器分頁工作階段期間保留同一次嘗試，關閉並重新開啟對話框、切換頁面或重新載入後也會保留。該記錄在送出請求之前寫入，只有收到同一 `operationId` 的確定回應時才會清除。重新整理只送出 GET，不允許額外的兌換 POST。對應的終端指令是 `ocx account grok-reset-coupons`。
 
-Claude 用量重設也可從 **Providers > Anthropic > Accounts** 以相同方式操作。每個已登入帳號列都有票券徽章，顯示剩餘重設次數；對話框會在第二次確認後使用一次重設機會。重設會補滿 5 小時與每週額度，但不會改變每週重設日。如果使用請求未收到回應，對話框會保留其 `operationId`，並在十分鐘內提供使用相同 ID 重試的選項；Claude Code 用戶端也以此方式復原。在此期間，系統會拒絕對同一重設機會發起新操作。重設機會只能透過儀表板使用：僅持有管理員權杖會收到 `403 session_required`。
+Claude 用量重設也可從 **Providers > Anthropic > Accounts** 以相同方式操作。每個已登入帳號列都有票券徽章，顯示剩餘重設次數；對話框會在第二次確認後使用一次重設機會。每個重設機會的過期時間與可重設的額度各不相同，因此對話框可選擇要使用的重設機會：預設選取目前可用且最先過期的一個，目前無法使用的會顯示為停用並註明原因；確認步驟會顯示所選重設機會的名稱、過期時間與可重設的額度，再送出對應的 `grantId`。伺服器會再次檢查所選重設機會，無法使用時以 `409 grant_not_usable` 拒絕。重設會補滿該重設機會可重設的額度（通常是 5 小時與每週額度），但不會改變每週重設日。如果使用請求未收到回應，對話框會保留其 `operationId`，並在十分鐘內提供使用相同 ID 重試的選項；Claude Code 用戶端也以此方式復原。在此期間，系統會拒絕對該帳號發起任何新操作（無論哪個重設機會）。重設機會只能透過儀表板使用：僅持有管理員權杖會收到 `403 session_required`。
 
 關於模型名冊與加密 worker-task 行為背後的概念，請見[子代理介面](/zh-tw/guides/sub-agent-surface/)。
 
@@ -645,3 +647,15 @@ This takes effect on the **next routed `ocx claude` launch**, injecting `CLAUDE_
 Claude Code **2.1.257 or newer** is required for FORCE. Plugin and built-in agents (including Explore/Plan) and per-call model arguments are overridden. Forks and subagent skills with `model: inherit` keep the main conversation model. The main loop and Haiku/small-fast sidecars are unaffected. Existing roster files remain available.
 
 The dashboard warns about old or unknown CLI versions, unavailable targets, and either variable already present in `settings.json` → `env` (which overrides launch env). Detection is read-only and server-local: it cannot inspect another launch shell, another machine, or project-local settings. An unknown result is not proof of force support.
+
+## 桌面授權
+
+桌面相容性變更除目前本機 dashboard session 外，還需 Desktop 用途的一次性 grant。在代理電腦執行 `ocx gui pair --desktop --origin <dashboard-origin>`，使用面板的精確 loopback origin，再輸入代碼。一般配對或已配對 session 不授予此範圍；自動發出的 loopback session 可交換有效 Desktop grant，無需先變為 operator-paired。
+
+`POST /api/codex/desktop-compatibility/authorization` 只接受 `{ "grant": "<code>" }`，成功回 200 `{ "ok": true, "authorized": true }`，只擴充既有 session，不另發／取代憑證。JSON／形狀錯誤回 400，拒絕交換回 403 desktop_authorization_required。grant 必須未用、未過期、Desktop 用途且綁定本獨立 loopback origin。raw admin token、remembered-admin、Hub／connected-client 不可交換；可在同一合格本機 origin 的私有瀏覽視窗取得新 loopback session 後交換新 grant。
+
+GET 經一般管理 admission 後回 200 `{ok:true,supported:boolean,authorized:boolean,rememberedSession:boolean}`，即使無範圍或不支援也回 false；缺少／過期憑證仍可被共同邊界拒絕，不繞過它。範圍最多五分鐘且不超過 session，不自動續期、不建立一般配對、不改 Remote Link 或 data-key 揭露權限。面板須刷新憑證／runtime 與設定 revision，再要求新的操作與同意；授權不重放舊操作。每個 mutation 都重新查 scope，缺少則 403。
+
+### 本機憑證更新時的健康檢查
+
+非同步 native-profile 更新等待其他本機程序釋放憑證發布鎖時，`/healthz` 仍可回應。取得鎖的期限維持十秒，只在持有鎖後開始寫入。

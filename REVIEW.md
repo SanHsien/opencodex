@@ -882,3 +882,15 @@ Triaged through `#8545`.
 
 No new `platform` issues since that number.
 ```
+
+
+## 2026-11-14：v2.100.3 的 wrapper 殘留處理
+
+前述完整移除留下 wrapper 檔案的修正，現與上游 checked stop 接線整合。殘留清理保留具名失敗與三種拒絕條件，但不自行終止行程；可讀 wrapper 仍在時要求先執行 `ocx stop`／`ocx service stop`。WinSW ownership 在任何刪除前確認，原 locked-file 案例注入 owned 證據以對應此契約。14 分片取代 12 分片，既有量測權重保留，新測試以 tag 的權重作種子。
+
+
+## 2026-11-15：繁中錨點與 React Doctor 啟動器回註
+
+繁中頁面的內部連結須使用翻譯後標題產生的 slug。安裝、桌面、整合、Remote Link、子代理介面、生命週期、帳號與兩份設定參考中的 14 筆連結已改用既有繁中段落的錨點；目標段落均存在，無須新增段落或修改英文頁。
+
+2026-11-14 表列的 React Doctor native npx 啟動案例，其 255 發生於 `bun run doctor` 選到 `node_modules/.bin/bun.exe` 後無法 remap，早於 npx 啟動。`doctor-gui-if-changed.ts` 在 HEAD 與 v2.100.3 都可遇到同一錯誤；fork 的 `run-react-doctor.ts` 與 GUI doctor scripts 相對 HEAD 沒有差異。這是本機 Bun 套件啟動器問題，並非 v2.100.3 重放回歸；保留缺少 npx 時略過掃描的處理及原測試斷言。

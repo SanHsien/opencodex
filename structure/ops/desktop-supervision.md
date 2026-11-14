@@ -69,21 +69,11 @@ claim (this installation's or another's) is not covered: the service stands down
 installation asking to take over remains a real question. Older blocked reasons keep their
 precedence, and the way to let the app own a service-supervised runtime is `ocx service uninstall`
 first, which also deletes the wrapper files. If the Task Scheduler state cannot be read at all (the query and its CSV fallback both fail), the full uninstall deletes nothing and throws "Could not determine Task Scheduler state", telling you to run the uninstall from an elevated terminal (Run as administrator). The full-uninstall path `uninstallServiceDetailed`
-removes that residue when the task is already gone, via `removeWindowsServiceWrapperResidue`: a live
-wscript/cscript/cmd process carrying the wrapper or launcher path is stopped first (the kill `ocx stop`
-performs; an editor or other program that merely shows the path is neither stopped nor counted) and re-checked up to three times, one
-second apart, because the stop is asynchronous; the files stay if it cannot be confirmed gone, if the
-process table cannot be read, or if an unreadable wscript/cscript/cmd row remains (the kill matches
-command lines, so it can neither see nor stop that one; the reason says to uninstall from an elevated
-terminal). The kill matches only the exact absolute wrapper and launcher paths as whole tokens, and only in
-wscript/cscript/cmd images (`WRAPPER_HOST_IMAGE_NAMES` in `src/lib/windows-service-wrappers.ts`, the same
-rule the live-wrapper checks use); the path token alone never qualifies (pinned in `tests/windows/windows-service-wrappers.test.ts` and
-`tests/windows/windows-guarded-manager.test.ts`; the generated chain uses absolute paths, so a bare,
-relative or 8.3-aliased spelling is deliberately not a match), and it stops the wrapper, not the
-`ocx start` child it launched, so the full uninstall relies on having stopped the proxy first
-(`handleUninstall` runs "proxy stopped" before "service removed", pinned in
-`tests/cli/uninstall.test.ts`). A file that cannot be deleted is reported by name
-and the outcome is the typed `failed`, not an exception from the step.
+removes that residue when the task is already gone, via `removeWindowsServiceWrapperResidue`.
+It never terminates a process: a readable live wrapper requires `ocx stop` or `ocx service stop`
+(checked stop) before retry. An unreadable process table or wrapper candidate keeps every file.
+Only confirmed wrapper absence allows file removal; deletion failures name the file and return
+`failed`. Full uninstall runs checked stop before service removal.
 `ocx service claim` is not blocked by this rule and does not need to be: a claim carries the
 compatibility token `ocx resolve` issues, a blocked answer issues none, and the assessment the claim
 revalidates internally (`assessServiceTakeoverCompatibility`) does not apply the `service-managed`

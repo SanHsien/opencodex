@@ -82,6 +82,8 @@ ocx update --tag preview
 
 若要對 opencodex 本身進行開發:
 
+從原始碼建置前，PATH 必須已有獨立 Bun 執行檔，再執行 `bun install`。npm 套件只提供 ocx／opencodex，不提供全域 bun。
+
 ```bash
 git clone https://github.com/lidge-jun/opencodex.git
 cd opencodex
@@ -111,8 +113,7 @@ opencodex 狀態檔案位於 `$OPENCODEX_HOME`（預設 `~/.opencodex`），Code
 | `$CODEX_HOME/opencodex-catalog.json` | 供 Codex 使用的原生與已路由模型目錄。 |
 
 :::note
-opencodex 絕不會刪除你的 Codex 設定。每次注入都是可逆的 —— `ocx stop`、`ocx restore`
-或 `ocx eject` 會精確剝離 opencodex 所新增的那些行,並恢復原生 Codex。
+opencodex 保留 Codex 設定。擁有設定的獨立執行個體可用 `ocx stop`、`ocx restore`、`ocx eject` 移除受管理行並還原原生 Codex。已連線的 Hub client 保留路由，停止 sibling 不改共用設定。依賴還原前先閱讀[生命週期與所有權](/zh-tw/reference/cli/lifecycle/#執行期所有權)。
 :::
 
 ## 下一步

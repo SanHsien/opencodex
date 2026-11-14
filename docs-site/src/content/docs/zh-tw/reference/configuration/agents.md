@@ -19,8 +19,8 @@ Agent 設定控制要廣告哪個 Codex 協作介面，以及 opencodex 如何�
 
 | 欄位 | 型別 | 預設值 | 意義 |
 | --- | --- | --- | --- |
-| `multiAgentMode?` | `"v1" \| "default" \| "v2"` | `"default"` | `v1` 將每個目錄模型標記為 v1；`v2` 將每個模型標記為 v2。`default` 還原上游 pin（Sol/Terra v2、Luna v1），否則遵循原生的 `multi_agent_v2` 旗標。套用於新 session。 |
-| `subagentModels?` | `string[]` | `gpt-6-astra`, `gpt-6.1-sol`, `gpt-6-luna` | 最多五個原生或路由 id，在子代理 picker 中優先顯示。[Astra 一次性升級](/zh-tw/reference/configuration/agents/#astra-roster-升級)後，明確的空清單會被保留。 |
+| `multiAgentMode?` | `"v1" \| "default" \| "v2" \| "v2-plaintext"` | `"default"` | `v1` 將每個目錄模型標記為 v1；`v2` 將每個模型標記為 v2。`default` 還原上游 pin（Sol/Terra v2、Luna v1），否則遵循原生的 `multi_agent_v2` 旗標。目錄 pin 適用於新 session。`v2-plaintext` 選擇 V2、關閉全域強制並啟用實驗性明文任務傳遞；編譯器也影響既有 V2 工作階段的後續合格請求。 |
+| `subagentModels?` | `string[]` | `gpt-6-astra`, `gpt-6.1-sol`, `gpt-6-luna` | 最多五個原生 id、帳號限定的 `<selector>/<native-openai-model>` id 或路由 `provider/model` id，優先顯示在子代理選擇器中。新增選項只提供原生和路由 id；儲存時會保留已設定的精確帳號限定 id，包括目前目錄中無法使用的 id。如需新增精確帳號限定 id，請使用 `ocx agent subagents set` 或編輯設定。[Astra 一次性升級](/zh-tw/reference/configuration/agents/#astra-roster-升級)後，明確的空清單會被保留。 |
 | `injectionModel?` | `string` | — | 在代理撰寫的 v2 委派指引中使用的偏好原生或路由子代理模型。 |
 | `injectionEffort?` | `string` | — | 偏好 effort（`low` 到 `ultra`），僅在搭配 `injectionModel` 時有意義。 |
 | `injectionPrompt?` | `string` | — | 取代內建指引本文。支援 `{{model}}`、`{{effort}}`、`{{roster}}` 與 `{{fallback}}`。只要設定了 `injectionModel` 就足以產生自訂 prompt。 |
@@ -30,6 +30,7 @@ Agent 設定控制要廣告哪個 Codex 協作介面，以及 opencodex 如何�
 | `subagentModelFallbackByModel?` | `Record<string, string[]>` | `{}` | 以請求的主模型 id 為鍵的每一主模型 fallback 鏈。這是每角色 fallback metadata 受支援的存放位置；Codex agent TOML 中的 `model_fallback` 會讓 Codex 0.146+ 略過該角色（#1190）。 |
 | `subagentModelFallbackPollMs?` | `number` | `60000` | 可用性探測快取間隔。低於 1000 ms 的值會回退到預設值。 |
 | `effortCap?` | `string` | — | 合格 v2 主回合與標記的生成子回合的硬性上限。接受 `low` 到 `ultra`。 |
+| `plaintextV2AgentMessages?` | `boolean` | —（未設定） | 實驗性選項。明確設為 `true` 或選擇 `multiAgentMode: "v2-plaintext"` 會要求合格的原生 ChatGPT v2 父代理以明文產生 `spawn_agent`、`send_message`、`followup_task` 的訊息引數。詳見[明文 v2 代理訊息](#明文-v2-代理訊息)。 |
 | `subagentEffortCap?` | `string` | — | 僅針對生成子回合的額外上限。當兩個上限都適用時，取較低者。 |
 | `plaintextV2AgentMessages?` | `boolean` | —（未設定） | 實驗性選用功能。只有在明確設為 `true` 時才會運作，會要求合格的原生 ChatGPT v2 父層以明文方式發出 `spawn_agent`、`send_message` 與 `followup_task` 的訊息參數。詳見「明文 v2 代理訊息」一節。 |
 | `agentTaskRecovery?` | `object` | — | 針對送往路由供應商之後端加密 v2 任務的實驗性選用復原機制。除非設定 `enabled: true`，否則停用；詳見「加密 v2 任務復原」一節。 |
@@ -38,13 +39,8 @@ Agent 設定控制要廣告哪個 Codex 協作介面，以及 opencodex 如何�
 
 Subagents → Advanced 中的**永遠主動委派**（前身為**Ultra 模式**）會改變委派觸發條件，但不會改變 reasoning effort。它的預設集會保留使用者指示、權限邊界、任務範圍與工具規則。儀表板切換開關、`PUT /api/v2` 欄位 `multiAgentModeHintText`，以及 `ocx v2 mode-hint` 都會把 `features.multi_agent_v2.multi_agent_mode_hint_text` 寫進 Codex 的 `$CODEX_HOME/config.toml`。即使 `multi_agent_v2` 已停用，CLI 的 `ocx v2 mode-hint` 命令仍會持久化此 key；它不會切換此功能本身。當該原生介面啟用時，此提示會取代 codex-rs 依 effort 推導的 multi-agent 策略。設為 `null` 會移除該 key，讓依 effort 推導的策略（ultra = 主動，否則為明確）恢復；空字串或僅含空白的值會被拒絕，因為存在一個空的覆寫值會連 ultra 推導出的「主動」訊息都一併抑制。Subagents 儀表板的**永遠主動委派**切換開關，需要同時具備原生功能與明確的 v2 介面（`multiAgentMode: "v2"`，等同於 `ocx v2 mode v2`）；單靠 `ocx v2 on` 無法滿足這道儀表板閘門。
 
-`GET` 與 `PUT /api/v2` 也會回傳 `multiAgentModeHintRecommendation: { text, revision }`。啟用或還原預設集時，儀表板會使用這段伺服器提供的文字，沒有寫死的退路。若較舊的伺服器省略此建議值或回傳格式錯誤的值，預設集的安裝與還原就無法使用；編輯或清除既有的自訂提示仍然可用。**還原預設集**只會改動本機草稿；**儲存**才會持久化它。
+使用儀表板或 `ocx v2 status|on|off|mode <v1|default|v2|v2-plaintext>|threads <n>` 管理介面。目錄 pin 變更適用於新工作階段；明文編譯器依目前設定處理合格請求，包括既有 V2 工作階段的後續請求。`maxConcurrentThreadsPerSession` 是 `PUT /api/v2` 欄位，不是 `config.json` key；`ocx v2 threads <n>` 在啟用 v2 後，將 `max_concurrent_threads_per_session` 寫入 Codex 的 `$CODEX_HOME/config.toml` 中 `[features.multi_agent_v2]` 之下。
 
-讀取設定、不相關的更新與升級都不會遷移已儲存的提示。只有明確的提示更新、且逐位元組相符於兩個已知舊版 OpenCodex 預設集之一時，才會被目前的建議值取代。其他有效的自訂文字（包含僅有空白差異的版本）會逐位元組保留。寫入前仍會檢查 mode-hint 支援與否，變更套用於新的 Codex session。
-
-管理 API 暴露 `GET`/`PUT /api/v2`、`/api/injection-model`、`/api/effort-caps`、`/api/subagent-models` 與 `/api/subagent-model-fallback`。注入模型更新為部分更新；自訂 prompt 是該 API 的 `prompt` 欄位。
-
-Codex Auth 頁面也可以切換 Codex 自身的 `default_mode_request_user_input` feature flag（`GET`/`PUT /api/codex-auth/features/default-mode-request-user-input`）。啟用它會透過官方的 `codex features enable|disable` CLI（保留格式的編輯，停用時會再次移除），把 `[features] default_mode_request_user_input = true` 加進 Codex 的 `$CODEX_HOME/config.toml`，讓 Codex 可以在 Default 模式 session 中暫停，並用 `request_user_input` 工具向你提問。此旗標在上游仍在開發中，僅套用於新 session；當已安裝的 Codex 版本尚不認識此旗標時，切換會明確失敗，而不是靜默無效。
 
 ## Roster 與指引
 
@@ -77,14 +73,11 @@ opencodex 會跳過已停用、不可路由、不健康、冷卻中或達到配�
 ```json
 {
   "multiAgentMode": "v2",
-  "subagentModels": ["gpt-5.5", "anthropic/claude-sonnet-5"],
-  "injectionModel": "gpt-5.5",
+  "subagentModels": ["gpt-6.1-sol", "anthropic/claude-sonnet-5"],
+  "injectionModel": "gpt-6.1-sol",
   "injectionEffort": "high",
   "syncCodexSubagentDefaults": true,
-  "subagentModelFallback": ["gpt-5.6-luna"],
-  "subagentModelFallbackByModel": {
-    "gpt-5.5": ["gpt-5.6-luna"]
-  },
+  "subagentModelFallback": ["gpt-6-luna"],
   "subagentModelFallbackPollMs": 60000,
   "subagentEffortCap": "high"
 }

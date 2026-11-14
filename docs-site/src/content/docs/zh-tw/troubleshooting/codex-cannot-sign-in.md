@@ -35,8 +35,13 @@ ocx restore
 
 **或重新啟動代理：**
 
+請在第一個終端啟動前景代理，保留視窗；第二個終端確認 ready 後再安裝服務。安裝可能結束第一個終端的前景代理。
+
 ```bash
 ocx start
+```
+
+```bash
 ocx service install   # keep it running across restarts
 ```
 

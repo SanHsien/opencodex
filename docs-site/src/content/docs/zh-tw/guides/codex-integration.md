@@ -348,6 +348,8 @@ Codex 保持一致。opencodex 也透過 WebSocket 提供 `/v1/responses`。專�
 `"websockets": true` 時宣告 `supports_websockets = true`；loopback 模式下，Codex 的內建 provider
 可能先嘗試 WebSocket，若 proxy 未啟用此功能則回傳 `426`，讓 Codex fallback 到 HTTP/SSE。
 
+啟用 `v2-plaintext` 模式或 `plaintextV2AgentMessages` 旗標時，本機重放要求同一個獲准的 OpenCodex 呼叫方，以及請求自身非空白的 `thread-id`。父執行緒、loopback 位址、上游憑證或預留位置金鑰都不是該身分。沒有獲准呼叫方主體身分的用戶端，以及沒有自身執行緒的請求，必須省略 `previous_response_id`，重新傳送完整對話。預設的 loopback Codex 與 DSH 設定不會建立該呼叫方身分。任一設定啟用期間保留的狀態在停用後仍維持綁定。預設 `v1` 對未綁定的狀態保留既有的父執行緒範圍續接行為，包括預設 loopback 呼叫方。這與上游原生擁有的 Responses ID 各自獨立。
+
 若規範的 ChatGPT forward 延續參照的本機重播狀態已過期或缺失，opencodex 會在送出任何內容到上游
 之前，回傳 `previous_response_not_found`。Codex 的 WebSocket 客戶端能辨識這個錯誤，並可以在它正常
 的串流重試預算內，帶著完整保留的 context（包括已完成的工具呼叫與其結果）重新連線。因此一個閒置的

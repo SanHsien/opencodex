@@ -185,6 +185,8 @@ Claude Code 需要在 `ANTHROPIC_AUTH_TOKEN` 中有 token 才能與閘道器通�
 | 完全沒有 Claude 認證 | 注入佔位 token，讓 Claude Code 不再要求登入，並經由代理路由 |
 | 無法判斷（keychain 無法讀取、檔案損毀） | 假設為訂閱並印出警告——讀取失敗時絕不會把付費訂閱者改成走代理 |
 
+鎖住的 macOS keychain 視為「無法判斷」。opencodex 最多等待 keychain 回應 1.5 秒，絕不取消解鎖提示；執行中的代理在一次查詢逾時後 60 秒內不再詢問 keychain，因此重新整理儀表板不會疊加提示。每個新的 `ocx claude` 程序會各自詢問一次。若手動將 `authMode` 設為 proxy 或 subscription，則完全不查詢 keychain。
+
 此判斷會在每次啟動時重新計算，不會被記住，因此登入或登出會在下一次 `ocx claude` 時自動生效，
 無需重新設定。
 
@@ -1033,3 +1035,15 @@ Claude Code **2.1.257 or newer** is required for FORCE. Plugin and built-in agen
 The dashboard warns about old or unknown CLI versions, unavailable targets, and either variable already present in `settings.json` → `env` (which overrides launch env). Detection is read-only and server-local: it cannot inspect another launch shell, another machine, or project-local settings. An unknown result is not proof of force support.
 
 Explicit gateway selectors on a generated agent request take precedence over its legacy `ocx-route` fallback, even if the saved force setting changes after launch. For shell or settings overrides of generated roster agents, use an explicit gateway alias; bare Claude ids retain the older-client fallback behavior. Native aliases restore their bare model before the existing credential and model-map checks. Connected launches validate force targets against a fresh authenticated gateway catalog; failed discovery skips automatic force injection, and cached context windows alone never prove availability.
+
+### 轉換路由上的 Anthropic Advisor 工具
+
+新版 Claude Code 可宣告 `advisor_20260301` 與 `advisor-tool-2026-03-01` beta。Anthropic 在同一請求內執行 Advisor，回 `server_tool_use`（advisor）與 `advisor_tool_result`。
+
+第一方 api.anthropic.com 的 anthropic 適配器原樣接收宣告與 beta；相容閘道僅在供應商 `forwardAdvisorTool:true` 時轉送，避免不支援功能的閘道拒絕每筆請求。false 也可關閉第一方轉送。其他目的地直接移除宣告，繼續本輪，不阻擋 combo child／fallback。
+
+OpenCodex 自身 Advisor 啟用時占用 advisor 名稱，不轉送並記 `advisor-tool-shadowed-by-proxy-advisor`。宣告 model 超出 caller API key scope 時不轉送，記 `advisor-tool-outside-model-scope`；受管理原生 Messages lane 則拒絕。
+
+串流／非串流都原樣傳回 srvtoolu_ ID 與三種結果：advisor_result、advisor_redacted_result、advisor_tool_result_error；不讀、改寫或記錄密文。歷史中的完整交換只在目的地收到宣告時連同 beta 原位重送；call input 須為空物件，結果須為已定義變體，其他形狀與其他目的地都丟棄。
+
+回應以 pause_turn 或 client tool_use 結束但 Advisor 尚未完成時，不呈現／恢復該 call；下次仍可重新宣告諮詢。OpenCodex Advisor 占名時，也在本輪所有請求隱藏舊交換，避免提示中途改變。Anthropic 分開回報 Advisor tokens，OpenCodex 不加進用量日誌、key spend 或 Claude Code 收到的用量；成本請查 Anthropic console。

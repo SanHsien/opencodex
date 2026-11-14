@@ -2,6 +2,7 @@
 import { defineConfig } from "astro/config";
 import starlight from "@astrojs/starlight";
 import internalLinks from "./src/integrations/internal-links.mjs";
+import { codeBlockLocale } from "./src/data/code-block-locale";
 
 // Canonical GitHub Pages custom domain. The site is served at the domain root,
 // so Starlight must not emit the former /opencodex project-site prefix.
@@ -62,9 +63,10 @@ export default defineConfig({
         { icon: "github", label: "GitHub", href: "https://github.com/lidge-jun/opencodex" },
       ],
       editLink: {
-        baseUrl: "https://github.com/lidge-jun/opencodex/edit/main/docs-site/",
+        baseUrl: "https://github.com/lidge-jun/opencodex/edit/dev/docs-site/",
       },
       lastUpdated: true,
+      expressiveCode: { getBlockLocale: ({ file }) => codeBlockLocale(file) },
       // English at the site root; Traditional Chinese under /zh-tw.
       defaultLocale: "root",
       locales: {

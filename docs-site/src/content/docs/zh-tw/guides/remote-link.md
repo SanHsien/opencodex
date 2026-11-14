@@ -119,13 +119,74 @@ ocx link port [--json]
 ocx link issue --alias <alias> --tunnel-port <port> [--json]
 ocx link status [--json]
 ocx link revoke --link-id <id> [--json]
+ocx link recover (--link-id <id> | --operation-id <id>) [--json]
 ocx link reconnect --link-id <id> [--json]
 ocx link check (--link-id <id> | --all) [--no-wait] [--json]
+ocx link update (--link-id <id> | --all) --yes [--no-wait] [--json]
+ocx link sync (--link-id <id> | --all) [--no-wait] [--json]
+ocx link sync --link-id <id> (--restart-app-server-only | --restart-codex --yes) [--no-wait] [--json]
+ocx link restart-codex --link-id <id> [--scope app-server|codex] --yes [--no-wait] [--json]
 ```
 
 非互動式終端（非 TTY）必須提供 `--expect-fingerprint`。互動式終端中可省略此參數，但必須明確確認提供的指紋。
 
 在 Home 上，`ocx link check (--link-id <id> | --all)` 會讀取每個由 Home 新增的 Child 的已安裝版本、安裝類型和更新途徑：它透過連結的 SSH 連線在 Child 上執行 `ocx update --plan`（每台 Child 60 秒，同時最多三台），該命令只計算更新計畫，不會做任何修改。早於 2.97.0 的 Child 會顯示為 `owner-action`（`legacy-ocx`），其版本在 macOS 和 Linux 上透過再一次唯讀 SSH 呼叫取得，在 Windows 上則取自 Child 透過連結回報的版本。由 Child 發起的連結和 `ocx-child` Child 不經 SSH 直接回報。`ocx link status --json` 會為每一列加上 `child` 區塊（版本、版本差異、目錄是否最新、活動狀態、最近一次操作）。詳情與結束代碼請見 [Child install, catalog and activity](/zh-tw/guides/remote-link/#child-install-catalog-and-activity)（英文）。
+
+### 從 Home 操作 Child
+
+`ocx link sync`、`ocx link restart-codex` 和 `ocx link update` 會透過連結的 SSH 連線在由 Home 新增的 Child 上執行，並以 JSON 輸出工作。`sync` 執行固定的 `ocx sync --expect-link`（Child 需為 2.93.0 或更新版本）。`restart-codex` 會先同步，再重新啟動 Child 上的 Codex app-server，讓執行中的 Codex 載入目前的目錄；`--scope codex` 也會重新啟動桌面應用程式。重新啟動只能指定一個連結；`restart-codex` 和 `--restart-codex` 需要 `--yes`，而 `ocx link sync --link-id <id> --restart-app-server-only` 不需確認即可重新啟動 app-server。當 Home 正在為該 Child 中繼模型請求時，會略過重新啟動（`restart-skipped:link-active`）。對於早於 2.69 的 Child，非串流請求要到回應開始後才看得到。`update --yes` 會使用 Child 自己的更新程式，把 Child 的 OpenCodex 更新到這個 Home 的版本，絕不會更新到其他版本（Child 需為 2.97.0 或更新版本；npm 和 pnpm 安裝透過其 Node 啟動器套用更新，因此 `ocx link check` 也會在那裡以唯讀方式執行 `node --version`）。一次更新一台 Child，套用成功、失敗或回復後會再次同步；結果未知的套用不會重試也不會同步，請用 `ocx link check` 檢查。正在為該 Child 中繼的請求會中斷。Windows Child 只支援 `sync`，`ocx-child` Child 會將重新啟動和更新回報為不支援。CLI 需要繫結到 loopback 的 Home；在其他 Home 上無法執行這些操作，儀表板的 Remote Link 頁面會為由 Home 新增的 Child 提供相同的操作。詳情與結束代碼請見 [從 Home 操作 Child](/zh-tw/guides/remote-link/#從-home-操作-child)。 此保護僅為盡力而為：在檢查與重新啟動之間開始的請求仍可能被結束，因此需要保留回合時，請先暫停該 Child 上的新請求。 Home 也無法判斷 Codex 是否正處在執行工具而非模型請求的回合中，因此在重新啟動該 Child 上的 Codex 或更新其 OpenCodex 之前，請等待進行中的 Codex 回合結束。手動更新會重新啟動該 Child 的 OpenCodex，並結束仍為其轉送的任何回合；自動更新會等到 Child 閒置。 `ocx sync --restart-children`（或 `--restart-children=codex --yes`）在 Home 同步向外傳播時，對所有 Child 或以 `--child <linkId>` 指定的 Child 套用同一規則：每台 Child 都會同步，只有在有中繼請求進行時才略過其重新啟動（`restart-skipped:link-active`）。
+
+### Child 版本與操作
+
+在 Home 上，每個 Remote Link 列都會顯示 Home 最後得知的該 Child 資訊，由 Home 新增的列還帶有控制該 Child 的按鈕。徽章代表：
+
+- Child 的版本，以及旁邊的 `Behind Home (<home version>)`、`Same version as Home` 或 `Newer than Home`；可以套用更新時還會顯示 `Update available: <home version>`。從 Child 自身儀表板開始的連結只顯示版本，沒有版本差異徽章；`ocx-child` Child 一律顯示 `unknown`。
+- 安裝類型（`Desktop app`、`GOAT`、`Source checkout`），本版本未命名的類型以等寬字型顯示原始權杖。
+- `Catalog current` 或 `Catalog out of date`。`Codex restart needed (<n>)` 與 `Codex not running` 徽章只有在 Child 回報其 Codex 狀態後才會出現，該回報將由後續版本加入；目前還沒有 Child 版本會傳送它，因此這兩個徽章現在還不會顯示。
+- 上一次操作，顯示為 `Last <operation>: <state>`，原因以等寬字型顯示；工作佔用該連結期間則顯示正在執行的操作。
+
+當 Home 無法自行更新該 Child 時，該列會說明應該改做什麼：在該 Child 的 OpenCodex Desktop 中使用 Check for Updates、手動更新、透過 `mise` 更新，或交給 GOAT 處理。未知原因會以權杖顯示，而不是猜測的句子。
+
+這四個操作會啟動與 CLI 相同的工作，因此 Child 也需要相同的版本：
+
+- **Check** 像 `ocx link check` 一樣讀取 Child 的安裝資訊。
+- **Sync now** 在該處像 `ocx link sync` 一樣執行固定版本的 `ocx sync --expect-link`。
+- **Restart Codex** 會開啟範圍選擇。`Codex app-servers` 重新啟動 Child 的背景 app-server，使其載入目前目錄；它不會重新整理 Codex 桌面應用程式本身的 app-server，因此這種情況請重新啟動桌面應用程式。`Codex desktop app` 也會結束並重新啟動桌面應用程式，其中開啟的對話會結束。
+- **Update** 像 `ocx link update` 一樣，用 Child 自身的更新程式把 Child 的 OpenCodex 更新到本 Home 的版本。確認文字會說明 Child 的 OpenCodex 會重新啟動、仍為該 Child 轉送的任何回合會結束，且自動更新會等到 Child 閒置。
+
+**Check all** 和 **Update all** 作用於所有符合條件的 Home 新增連結；Update all 仍然一次只處理一台 Child，且絕不針對其他版本。執行中的工作會為每台 Child 顯示一列，包含狀態、更新前後的版本、目錄同步結果與重新啟動結果。工作結束後面板消失，各列重新整理；Home 已不再知道的工作（因為 Home 重新啟動過）會如此說明，並以各列自身的狀態作為答案。工作佔用連結期間，該列的動作與 Disconnect 會停用；伺服器本來也會拒絕該請求。
+
+列表下方的 **Child automation** 面板顯示並編輯與 `ocx link policy` 相同的原則檔案：目錄分發（預設自動）、Codex 重新啟動（預設從不）、更新（預設閒置時自動，本版本尚未啟用）以及閒置時間。儲存時只寫入你變更過的值。如果原則檔案已損毀，面板會說明自動目錄分發與自動更新已關閉，此時儲存會寫入全部設定，使你選擇的模式得以保留。這些控制項不會繞過伺服器：伺服器會在每個工作中重新檢查原則、連結狀態與 Child 活動。
+
+不要連結你不擁有的機器：Home 會用你的 SSH 金鑰在那裡執行命令。
+
+### 目錄自動分發與 Child 政策
+
+目錄分發預設為開啟。當 Home 的目錄變更時（目錄自動重新整理回報變更，或每 5 分鐘一次的檢查發現在儀表板或管理 API 中所做的編輯），Home 會等待 60 秒讓編輯穩定下來（距第一次變更最多 5 分鐘）。之後不需要你做任何操作，它會在背景為每台符合條件的 Child 開啟一個 SSH 工作階段，執行與 `ocx link sync` 相同的固定 `ocx sync --expect-link`；除非你啟用（見下文 `childCodexRestart`），否則不會重新啟動 Codex。符合條件的 Child 是：由 Home 發起的連結、通道已連線、沒有其他操作在執行，而且此 Home 在那裡最後一次執行的同步早於這次變更；只下載過目錄的 Child 仍視為落後。正在中繼模型請求的 Child，只有在其 Codex 設定已經與 Home 一致、且套用這些設定後其 OpenCodex 用戶端執行環境已經重新啟動過時才會同步，否則同步會重新啟動該執行環境；否則會在它閒置後再同步。同步失敗會在 5 分鐘後重試，間隔逐次加倍，最長 6 小時；低於 2.93.0 的 Child 在回報其他版本之前不會重試。這些工作與其他工作顯示方式相同，帶有 `trigger: "auto"`。沒有連結的 Home 不會執行其中任何部分。
+
+分發修正的是 Child 的目錄檔案。Child 上已經在執行的 Codex app-server 會繼續使用已載入的清單，直到重新啟動：請使用 `ocx link restart-codex --link-id <id> --yes` 或 `ocx sync --restart-children`，或以 `ocx link policy --child-codex-restart app-server-when-idle` 讓 Home 重新啟動 app-server；Home 只會在同步執行時仍然閒置的 Child 上這麼做。該設定從下一次自動同步起生效；目錄已是最新的 Child 不會被同步，因此也不會被重新啟動，請手動重新啟動它。
+
+政策儲存在 Home 的 `<configDir>/link/child-policy.json` 中，不會寫入 `config.json`：
+
+| 設定 | 預設值 | 可用值 |
+|---|---|---|
+| `catalogFanout` | `auto` | `auto`, `manual` |
+| `childCodexRestart` | `never` | `never`, `app-server-when-idle` |
+| `updates` | `auto-when-idle` | `off`, `notify`, `auto-when-idle` |
+| `idleAfterMs` | `600000` (10 分鐘) | 1 到 60 分鐘 |
+
+`updates` 預設會自動讓閒置的 Child 維持與 Home 相同的版本。本版本中自動更新尚未生效；該設定現在就會儲存，因此以 `ocx link policy --updates notify` 或 `--updates off` 做出的退出選擇，在自動更新推出時依然有效。`idleAfterMs` 表示 Child 在沒有被中繼的模型請求的情況下持續多久才算閒置；它也決定 `ocx link status` 中的 `activity.idle`。
+
+```text
+ocx link policy                                    # 讀取政策
+ocx link policy --catalog-fanout manual            # 關閉目錄自動分發
+ocx link policy --child-codex-restart app-server-when-idle
+ocx link policy --updates off --idle-after-minutes 20 --json
+```
+
+`GET` 和 `PUT /api/link/children/policy` 讀取和變更相同的設定（迴路介面上的管理權杖，或儀表板工作階段）；`PUT` 只傳送要變更的設定。如果檔案損毀或包含未知的值，目錄自動分發和更新都會關閉，而且 `ocx link policy` 會提示這一點。儲存會清除警告，但未指定的設定仍保持關閉，請明確開啟，例如 `ocx link policy --catalog-fanout auto --updates auto-when-idle`。Home 從不自行改寫該檔案。
+
+不要連結不屬於你的機器：Home 會用你的 SSH 金鑰在那裡執行指令。
 
 ## 相關指南
 
@@ -214,3 +275,63 @@ Home 只植入它能驗證的建置，也不會下載或自行建置。npm 套�
 `ocx link add` and the dashboard refuse a Windows computer during the probe or host confirmation, before any link key is issued or tunnel started. The refusal covers Windows OpenSSH with Git Bash, MSYS2 or Cygwin as its shell (`uname -s` reports MINGW, MSYS or CYGWIN) and with cmd or PowerShell as its shell. Connect a Windows computer in Hub mode instead: run `ocx hub invite` on a Hub and run the printed `ocx connect` command on the Windows computer.
 
 A Windows Child linked by an older release keeps its link. Run `ocx link cleanup` on the Home to find such links; add `--link-id <id>` to check one, or `--json` for a machine-readable report. It asks each Home-initiated Child for its platform over the link's pinned SSH trust and changes nothing. For each Windows Child it prints the recovery order: run `ocx disconnect` and `ocx restart` on the Windows computer, then `ocx link revoke --link-id <id> --force --yes` on the Home, then connect it in Hub mode. A plain revoke fails on these Children because its remote disconnect runs a POSIX command that Windows refuses.
+
+## 同一 Child 的多條路由
+
+Home 新增的 Child 可有多個 SSH 路由，例如同 LAN／tailnet 的直連別名與可從外部使用的 relay。Home 按保存順序連線，首個可用路由承載流量：
+
+```text
+ocx link routes --link-id <id>
+ocx link routes add --link-id <id> --route <alias> [--position <n>]
+ocx link routes remove --link-id <id> --route <alias>
+ocx link routes order --link-id <id> --routes <alias,alias,...>
+```
+
+
+所有路由必須到同一台機器。原 link 別名是固定 pin，保留在清單，所有路由只能呈現已確認的同一主機金鑰。新增前以此金鑰嚴格探測；錯誤金鑰、拒絕登入或不回應不儲存，回 `route_unproven` 及 hostkey／auth／forward／transient 原因。私有 known_hosts 若為同一別名信任其他金鑰，拒絕 pin_mismatch／trust_file_unexpected。新增 Child 也拒絕 OpenCodex 不會產生的 wildcard、host-list、marker 行；移除該行再探測確認。舊版可能保存雜湊行，允許同別名多行但必須同一金鑰。既有 link 的別名不可直接確認新金鑰（link_pin_conflict），換機須刪 link 後重建。保存成功但 tunnel reload 失敗時回 routes_stored_reload_failed，保留設定，重啟 Home 使其套用。
+
+新路由預設放在原別名前，可用 --position 指定。每次連線順序探測，各 10 秒；成功候選再有 30 秒取得遠端 listener、30 秒確認 ready。Child 必須透過 tunnel 用 link key 取回 Home 目錄才算連上，之前為 Connecting。網路失敗冷卻數秒，forward 拒絕一分鐘、auth 五分鐘、host key 十分鐘；只有全部路由都呈現錯誤金鑰才以 hostkey 失敗。
+
+Home 異常停止後若 ssh 還占 port，多路由 link 會以 stale tunnel may hold the port 失敗，須等該 ssh 結束。PID 見 `<config dir>/link/<link id>.pid`；若 PID 已被其他程式重用，先證明沒有該 link 的 ssh，再刪 pid 檔重啟 Home。檔案不可讀也保持阻擋；恢復可讀後等原 ssh 退出，或確認無 ssh 後刪檔，下一秒／重試到期會恢復。
+
+新增／重排不搬動執行中的 tunnel；較後路由保持可用時不切回。斷線或 `ocx link reconnect --link-id <id>` 才從頭選擇，後者會中斷該 link 的請求。JSON status 包含現用 route／起始時間、各 routes 的重試時間與上次結果及 routeBlocked。
+
+Home 必須使用 OpenSSH，否則 ssh_client_unsupported；Child 在 POSIX 需 curl，在 Windows 需 PowerShell。命令以本機回送 admin API 執行，不能透過非回送 Hub 的 private control socket 修改。relay 只傳 SSH 加密位元組；別名可見於本機 status／route 命令，不進診斷日誌。舊版 Home 不接受多路由 store，降版前先移除額外路由。
+
+## 依裝置指定用戶端路由
+
+Home 持有路由意圖，每台 Child 依自己的安裝、路徑、listener port 與目錄套用，不複製 Home 的用戶端檔案或憑證。裝置覆寫優先於 Home 預設，內建預設只開 Codex／Claude Code。
+
+Home 本身的 Codex、Claude Code、Grok、Claude Desktop 遵循自身開關，只有明確 false 才關閉；Home defaults／device overrides 不決定 Home 的這四項。未被路由寫入處理的 Grok／Desktop 只依啟動同步規則更新既有受管理設定，不建立新 Desktop profile 或變更模式；受管理檔案被改過則回衝突，未管理的 Desktop library 不變並視為 current。建立 Desktop profile 使用 `ocx route to claude-desktop on --device home`，不會因此開啟 Child 的 Grok／Desktop。
+
+Child 依序讀 device override、已存 Home default、內建值，不讀 Home 現用開關。新增 Child 或無 --device 的 Home default 寫入時，Home 會先保存 Codex／Claude Code 當時狀態，Grok／Desktop 為 off。已有一般 Child 時，Home-only 整合變更、listener 啟動前會保存所有可繼承 default，之後 Home 開關只影響 Home。只含 ephemeral ocx-child 的 links 不需要此保護。listener 若保存失敗會背景重試；單純讀取 route status 不寫入。route-intent.json 不可讀時，已連結 Home 的相關變更與所有 route to 寫入會先拒絕並指名需修復的檔案。
+
+用 `ocx route to <client> on|off` 修改 Child 繼承的 Home default，`--device home` 只改 Home，`--device <linkId>` 指定裝置。套用結果須逐裝置讀回；裝置使用自己的路徑與憑證，不能把 Home 的成功視為 Child 已完成。
+
+### 擷取 SSH 診斷
+
+預設關閉，只能由欲檢查 tunnel 所在機器的本機操作開啟：
+
+```bash
+ocx link capture start            # 15 minutes; --minutes accepts 1 to 60
+ocx link capture status
+ocx link capture stop
+```
+
+
+Home 擷取連往 Child 的 tunnel；Child 擷取自己連往 Home 的 tunnel，不需代理或 admin token。Home 同步、dashboard 或遠端請求不能開啟它。視窗內再次 start 更新到期時間並沿用同一檔案。
+
+下次 SSH 嘗試改用 DEBUG1，現有連線直到重連才改變；Home 可 reconnect 立即重試。stop／到期後停止保存，下次恢復 ERROR。請求 admission 不變，額外診斷行不進 status 的失敗原因；但不認識的行仍計入原因，伺服器 banner 只在較高等級出現，因此含 Permission denied 等詞的 banner 可能改變原因與重試延遲。
+
+每行先比對已知 OpenSSH 格式，再存 `link/ssh-capture/ssh-<start time>.jsonl`，包含時間、home／child、隨機 link ID、SSH 等級、固定事件與遮蔽文字。host、IP、使用者、port、路徑、金鑰／指紋、proxy 命令、環境值與 server 訊息都替換為預留文字；只保留標準演算法與認證方法名稱。未知行只存 unrecognized 計數，不存內容。
+
+每視窗最多 1 MiB，滿時寫 capture_truncated 並停止；最多四檔，最後寫入 72 小時後刪除。啟動 OpenCodex／tunnel、capture 命令與執行中的到期計時都清理，停止期間到期者下次再清。stop 保留檔供分享，不再需要時可自行刪除。目錄／檔案在 POSIX 為 0700／0600，Windows 使用私有 ACL，不讀寫符號連結。
+
+```sh
+ocx route to status --device all --json
+ocx route to aside on --accounts all
+ocx route to aside on --device my-child --accounts stable-aside-user-id
+ocx route to pi off --device my-child
+ocx route to pi inherit --device my-child
+ocx route to sync --device my-child
+```

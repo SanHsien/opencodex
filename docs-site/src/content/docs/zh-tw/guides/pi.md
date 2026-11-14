@@ -3,9 +3,7 @@ title: Pi
 description: 使用 Pi 的任何路由模型——ocx export 會為 Pi 的 models.json 寫入自訂 provider 區塊，連接到執行中的 proxy。
 ---
 
-Pi 從單一全域 JSON 檔案而非環境變數讀取它的 provider，因此 opencodex 不會啟動它。取而代之，
-`ocx export` 會序列化 `opencodex` provider 區塊——base URL、模型清單，以及 Pi 會內插的環境
-參考——再由你合併進自己的設定。
+Pi 從單一全域 JSON 檔案讀取供應商。opencodex 不會啟動 Pi；`ocx export` 輸出 `opencodex` 供應商區塊，包含基底 URL、模型清單及非機密的本機金鑰預留位置。請將此區塊合併到現有設定。
 
 ## 快速入門
 
@@ -13,11 +11,15 @@ Pi 從單一全域 JSON 檔案而非環境變數讀取它的 provider，因此 o
 
 ```bash
 ocx start
+```
+
+讓此程序繼續執行。在另一個終端機中輸出設定：
+
+```bash
 ocx export --client pi
 ```
 
-輸出以 JSON 開頭，接著印出目標路徑、合併警告、環境匯出行，以及有多少模型帶有權威的 context
-限制。
+JSON 之後會顯示目的地路徑、合併警告、回環使用提示，以及具有已確認內容視窗限制的模型數量。此匯出僅支援不需驗證的回環代理，不會設定遠端存取驗證。
 
 ```json
 {
@@ -25,7 +27,7 @@ ocx export --client pi
     "opencodex": {
       "baseUrl": "http://127.0.0.1:10100/v1",
       "api": "openai-completions",
-      "apiKey": "$OPENCODEX_API_KEY",
+      "apiKey": "opencodex-loopback",
       "compat": {
         "sendSessionAffinityHeaders": true,
         "supportsDeveloperRole": false
@@ -52,6 +54,8 @@ OpenCode Go 親和性。當 `cacheRetention` 為 `none` 時，Pi 可能會省略
 
 模型 id 是代理的規範選擇器，因此路由模型顯示為 `provider/model`（`anthropic/claude-opus-5`），而原生 OpenAI slug 保持無前綴（`gpt-5.6-sol`）。`name` 後綴 — `(anthropic)`、`(native)`、`(routed)` — 正是讓來自不同上游的兩個同名模型在 Pi 的 picker 中可區分的關鍵。
 
+對於巢狀的上游模型 ID，只要執行中的代理證明原始選擇器指向同一個模型，Pi 匯出就會使用帶斜線的原始選擇器：例如，`openrouter/openrouter/free` 會選擇 OpenRouter 的 `openrouter/free` 模型，其 Fast 列為 `openrouter/openrouter/free--fast`。代理無法如此證明的模型（例如其清單尚未載入，或原始寫法已被另一個模型佔用）會保留編碼後的選擇器。自訂別名保留原有名稱。
+
 ## 放置位置
 
 Pi 的全域模型設定是：
@@ -76,23 +80,7 @@ ocx export --client pi --json > ~/opencodex-pi-models.json   # 或重導向逐�
 
 ## 准入金鑰
 
-這裡有兩把容易混淆的 key，而且只有第一把會出現在這個檔案裡：
-
-| Key | 是什麼 | 位於何處 |
-| --- | --- | --- |
-| Proxy 准入 key | opencodex 自己的憑證，在儀表板的 **API** 分頁產生 | 由 `apiKey` 以 `$OPENCODEX_API_KEY` 參照；值留在你的環境中 |
-| Provider key | 你的 Anthropic / OpenAI / OpenRouter key | opencodex 自己的設定，見[Providers](/zh-tw/guides/providers/) |
-
-匯出的設定只帶參考，絕不帶密鑰。Pi 會內插一個裸的 `$NAME`，所以這個變數是：
-
-```bash
-export OPENCODEX_API_KEY=<your key>
-```
-
-那個名稱只屬於 Pi。opencode 使用不同的變數
-（`OPENCODEX_OPENCODE_API_KEY`，以 `{env:…}` 形式）——見 [opencode 指南](/zh-tw/guides/opencode/)。
-
-**回送代理完全不需要 key。** opencodex 預設綁定 `127.0.0.1` 且在那裡不認證任何東西，因此 `$OPENCODEX_API_KEY` 參照是無效的，你可以讓變數未設定。它只在 `hostname` 設定到回送以外時才重要，這也是代理在沒有 token 時拒絕啟動的情況 — 見[遠端存取](/zh-tw/reference/configuration/server/#遠端存取)。
+匯出的 `apiKey` 是非機密預留值 `opencodex-loopback`，不需要匯出金鑰環境變數。匯出器只允許不需驗證的回環代理，會拒絕遠端代理或受權杖保護的代理。供應商憑證保留在 opencodex 設定中，請參閱[供應商](/zh-tw/guides/providers/)；不要把上游供應商金鑰放入此 Pi 區塊。遠端存取應使用支援代理存取憑證的整合。修改預留值不會啟用 Pi 遠端匯出。
 
 ## 模型中繼資料
 
@@ -102,46 +90,11 @@ export OPENCODEX_API_KEY=<your key>
 
 輸出上限使用目錄或產生的中繼資料中已知的模型上限，僅在未知時回退到 `32000`。輸出上限始終不超過 context window；已知低於 `32000` 的上限也會保留。
 
-有兩個欄位是刻意省略的。`cost` 需要全部四個價格欄位，而 opencodex 沒有路由模型的價格
-資料——發出零值等於斷言每個模型都是免費的。
+`cost` 刻意省略：它需要完整的四個價格欄位，而 opencodex 沒有路由模型的價格資料。輸出零值會誤稱所有模型都免費。
 
-`reasoning` 是曾經省略、現在不再省略的欄位：Pi 儲存的是一個布林值，而目錄帶的是 effort
-階梯，把一個映射到另一個過去只能用猜的。既然目錄的階梯就是 proxy 自己對「這個模型是否接受
-reasoning 參數」的宣告（adapter 會遵守 `reasoning_effort`），現在匯出列只要有**非空**階梯
-就會發出 `"reasoning": true`，沒有階梯（或明確為空階梯）的列則維持無 reasoning。這樣 Pi
-就只會為 opencodex 真正會接受的那些模型提供 effort 控制項。匯出也會產生一個
-`thinkingLevelMap`，把每個沒有宣告對應目標（`null`）的 pi 等級都隱藏起來，所以 pi 永遠不會
-提供——也永遠不會送出——階梯中沒有的 effort。有一個退路能讓模型保持可用：當宣告了 `ultra`
-卻沒有宣告 `max` 時，pi 的 `max` 等級會對應到 `ultra`（它仍是階梯的成員）。如果你需要不同
-的對應方式，請事後依 Pi 的文件手動編輯 `thinkingLevelMap`。
+當目錄的 effort 階梯**非空**時，匯出 `"reasoning": true`；階梯缺少或明確為空時則不宣告推理支援。`thinkingLevelMap` 以 `null` 隱藏沒有已宣告目標的 Pi 層級，防止顯示或傳送清單以外的值。若宣告了 `ultra` 而沒有 `max`，就將 Pi 的 `max` 對應至 `ultra`。需要其他對應時，請依 Pi 文件手動修改 `thinkingLevelMap`。
 
-請把 `reasoning` 當成 Pi UI 用的中繼資料：它是從目錄階梯推導出來的，不能證明上游原生支援
-reasoning 參數。對於給定的 `reasoning_effort` 值，proxy 實際上會送出什麼，取決於該 provider
-的 adapter 與模型——它可能原樣傳遞、翻譯（wire alias）、限制在設定的階梯內、模擬，或完全
-省略（例如 `noReasoningModels`）。這個布林值只控制 Pi 要不要提供這個控制項。
-
-## 附件與請求相容性
-
-:::note[開發中的行為]
-這裡描述的 provider 對等化變更目前位於開發中的 PR 堆疊上；較舊的已安裝版本可能仍是先前的
-轉換行為。
-:::
-
-OpenCodex 會先正規化 Pi/MCP 與 Anthropic 格式的使用者圖像，再決定要走原生 Chat 還是轉換
-路徑。工具回傳的圖像，在配對的工具結果之後，會使用轉換過的 user-message 載體；一般的使用者
-圖像與純文字工具結果則可以維持原生路徑。請使用現代的 `tool_calls` 與帶 `tool_call_id` 的
-`role: "tool"`：舊式 `function` 結果的圖像轉換會被拒絕，而不是悄悄捨棄結果。
-
-明確設為 `none` 的 reasoning effort 在轉成 Chat 之後仍會保留。輸出上限與取樣控制對一般
-API-key 的 Responses 目標會被保留；標準的 ChatGPT 目標仍會套用自己的限制。這不代表所有
-provider 的控制項都是對等的。
-
-**音訊與檔案需要支援它們的原生輸入通道。** OpenCodex 目前還沒有給轉換後請求用的無損音訊／
-檔案載體。當 Chat 需要投影轉換，或一個 Responses 請求的目標是轉換過的 adapter 時，已識別
-的音訊／檔案附件會回傳明確錯誤，而不是在沒有附件的情況下悄悄成功。僅有 File-ID 的圖像也有
-同樣的限制，因為轉換過的 adapter 無法解析那些 ID。請先把附件轉成文字，或改用支援它的原生
-通道與模型。原生 Chat 與原始 Responses（包含 Azure）維持既有行為；這不代表保證每個模型的
-上游都支援該媒體。影片轉換限制仍依 adapter 而定。
+`reasoning` 是從目錄衍生的 Pi 介面中繼資料，不證明上游原生支援推理參數。實際 `reasoning_effort` 取決於適配器與模型，可被轉送、轉換、限制、模擬或省略（例如 `noReasoningModels`）。此布林值只決定 Pi 是否提供該控制項。
 
 ## Schema 狀態
 
@@ -156,3 +109,15 @@ provider 的控制項都是對等的。
 一個執行中的 opencodex proxy（`ocx start`）與已安裝的 Pi。`ocx export` 會透過 proxy 的
 管理 API 讀取即時目錄，所以設定絕不會在模型清單為空的情況下被發出。
 </content>
+
+## 附件與請求相容性
+
+:::note[開發中的行為]
+以下供應商相容性變更位於開發 PR 中；較舊的已安裝版本可能仍使用先前的轉換行為。
+:::
+
+OpenCodex 在選擇原生 Chat 或轉換路由前，先正規化 Pi／MCP 與 Anthropic 格式的使用者影像。工具影像會放在配對工具結果之後的使用者訊息；一般使用者影像與純文字工具結果可保留原生路徑。請使用現代 `tool_calls` 及帶有 `tool_call_id` 的 `role: "tool"`；舊式 `function` 結果影像會被拒絕，不會靜默丟棄。
+
+明確的 `none` 推理強度會保留到 Chat 轉換。一般 API 金鑰 Responses 目的地保留輸出上限與取樣控制；標準 ChatGPT 目的地仍套用自己的限制，並不代表所有供應商控制等價。
+
+使用者訊息或工具結果內嵌的 WAV／MP3 會轉為 OpenAI Chat 的 `input_audio`。Chat 工具訊息僅能含文字，因此工具音訊會移至配對結果後的使用者訊息。使用者訊息中自帶 base64 位元組的文件，也能以 Anthropic 原生文件、OpenAI Chat 檔案部分或 Google inline data 傳送。其他情況會明確報錯：遠端或不支援的音訊、代理無法解析的檔案 ID／遠端參考、system 訊息附件、工具結果中的文件，以及沒有位元組載體的 wire。只有檔案 ID 的影像也受相同限制。請先轉文字，或改用支援該附件的原生 wire 與模型。原生 Chat 與原始 Responses（含 Azure）維持既有行為；這不是對所有模型媒體支援的保證。影片限制仍由適配器決定。

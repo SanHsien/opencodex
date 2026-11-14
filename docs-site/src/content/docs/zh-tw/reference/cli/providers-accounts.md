@@ -551,7 +551,7 @@ ocx account resume google-antigravity <account-id-or-alias>
 
 #### Resume if healthy
 
-無人值守的 supervisor 可以執行 `ocx account resume <provider> <account-id-or-alias> --if-healthy`。只有在對該帳號自己的用量做一次新的讀取成功之後，它才會恢復帳號：Codex 池帳號為 WHAM 配額讀取，Anthropic OAuth 帳號為使用已儲存 token 的用量讀取。由[自動暫停](/zh-tw/reference/configuration/providers/#auto-pause-permanently-refused-accounts)記錄為 `oauth_organization_disabled` 或 `account_permission_denied` 的暫停絕不會以此方式恢復。已過期的 Anthropic token 不會為了檢查而刷新：指令回報 `credential_expired`，需重新登入才能回來。其他 OAuth provider 與主 Codex 帳號回報 `health_check_unsupported`；API-key 池會拒絕該旗標。被拒絕的恢復以結束碼 3 結束並印出原因，使用 `--json` 時則印出 `{ "ok": false, "resumed": false, "reason": ... }`。
+無人值守的 supervisor 可以執行 `ocx account resume <provider> <account-id-or-alias> --if-healthy`。只有在對該帳號自己的用量做一次新的讀取成功之後，它才會恢復帳號：Codex 池帳號為 WHAM 配額讀取，Anthropic OAuth 帳號為使用已儲存 token 的用量讀取。由[自動暫停](/zh-tw/reference/configuration/providers/#遭永久拒絕帳戶的自動暫停)記錄為 `oauth_organization_disabled` 或 `account_permission_denied` 的暫停絕不會以此方式恢復。已過期的 Anthropic token 不會為了檢查而刷新：指令回報 `credential_expired`，需重新登入才能回來。其他 OAuth provider 與主 Codex 帳號回報 `health_check_unsupported`；API-key 池會拒絕該旗標。被拒絕的恢復以結束碼 3 結束並印出原因，使用 `--json` 時則印出 `{ "ok": false, "resumed": false, "reason": ... }`。
 
 對已暫停的 OAuth 或 Codex 池帳號明確登入或重新認證，會清除自動暫停記錄的暫停，因為該證據描述的是已被此次登入取代的憑證。手動設定的暫停會持續到 `ocx account resume`。
 
@@ -663,7 +663,7 @@ ocx account login openai --device --no-wait --json
 
 在任何其他機器上開啟該 URL、輸入短碼，登入就會完成。不加 `--no-wait` 時，指令會輪詢直到完成為止；裝置授權的有效期是 15 分鐘，指令會等待這麼久，而不是瀏覽器登入允許的 5 分鐘，因為重點就是要讓你走去另一台裝置操作。`kimi`、`nous` 與 `github-copilot` 會把這個旗標當成 no-op 接受，因為它們唯一的登入方式本來就是裝置流程；沒有裝置授權的供應商會拒絕它。
 
-在儀表板中，相同的登入方式由 add-account 對話框上的 **「Don't open a browser on the proxy machine」** 核取方塊選取。該設定本身就意味著維運方不在 proxy 主機前，而這正是回呼 URL 派不上用場的時候——所以勾選它會把 Codex 登入切換為裝置流程，改為顯示可複製的代碼。
+儀表板 add-account 的 **「Don't open a browser on the proxy machine」** 只停止啟動瀏覽器，不選擇裝置授權，仍使用 callback 協定並由使用者自行開啟 URL。Codex 的 Device code login 與 Kiro device panel 是獨立入口；xAI device 必須使用 CLI。
 
 ### `ocx account remove <provider> <id|alias|main> --yes [--json]`
 
@@ -917,3 +917,13 @@ ocx account routes anthropic --clear
 檔案上限為 64 KiB。伺服器會驗證每條路由，並把它們儲存在 `anthropicAccountPool.routes` 之下；寫入需要正在執行的 proxy。請使用 `ocx account list anthropic --json` 中已儲存的帳號 ID。規則只影響已啟用的帳號池，且絕不聲稱某個帳號有權使用某個模型。請求記錄會把符合的規則標示為 `route:#<n>`（清單中從 1 起算的位置），不含它的操作者名稱。
 
 Vision 與 web-search helper 各自獨立比對自己的模型，當它們的嚴格路由沒有合格帳號時，可能在本機失敗。請見 [Anthropic helper 帳號路由](/zh-tw/reference/configuration/providers/#anthropicaccountpool實驗性)。
+
+餘額未知時 quotaUnknownReason 區分 no_balance_source、passive_not_observed、read_failed、not_read、not_reported；probe 額外回 quotaReadAt（epoch ms，含失敗），只在有 balance reader 的目的地顯示餘額，絕不以 0 代替未知。未知 reason 被舊 CLI 忽略；尚無觀測的被動 OAuth 帳戶顯示 UNKNOWN (not observed yet)。
+
+Anthropic 429 若列出拒絕的用量視窗，已啟用 OAuth 實例的背景 sweep 約每分鐘重讀；仍耗盡時退避至每十分鐘，所有被拒視窗恢復餘裕即可重選。只有 Retry-After 而無可讀視窗時保留到 deadline，clear-cooldown 仍是人工覆寫。
+
+xAI 的 --headless 改用裝置授權；`ocx account login xai --device` 顯示網址與短碼，不接收貼上的 code。期限依 expires_in，最多 30 分鐘，輪詢不快於每秒一次；429／5xx 的 Retry-After 只影響該次等待且不超過期限。任一裝置請求 redirect 立即以認證失敗拒絕，不跟隨。--device 與 --code 互斥；xAI --json 必須搭配 --no-wait，回 verification URL、code、flow ID，瀏覽器完成後背景繼續，可用 account cancel xai --flow 指定取消。kimi／nous／github-copilot 原本即裝置登入，旗標不改行為；無 device grant 的供應商拒絕。Codex device 仍是 15 分鐘。
+
+Dashboard 的「不在代理電腦開瀏覽器」只停止啟動瀏覽器，仍用原 callback protocol；不能用它選 device flow。Codex 有獨立 Device code login，Kiro 用自己的面板；xAI 需 CLI。
+
+new-policy 的 admit 會將新模型加入自訂 selectedModels。帳戶回報兩個衝突七日視窗時，weeklyQuotaConflicts 列各自用量、reset、來源與觀測時間；CLI／dashboard 警告，但不選其一、不改選帳、hard lock 或 credits；較早 reset 過後清除。

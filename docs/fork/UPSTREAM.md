@@ -1621,3 +1621,12 @@ PR 軸的精確已審清單為 26 筆；舊範圍仍是 #8086 以下且於 2026-
 | [#8545](https://github.com/lidge-jun/opencodex/issues/8545) | 既有 issue 水位終點；#8529（`de0914a1a`）在本版，處理 manager-owned Child 的 disconnect／restart。原題是 owner 無法證明的舊 bare-flag 與 companion proxy。 | 維持相關但延後；不以 #7771 的本機停止接線當作已解決遠端 owner 不可證明的情況，仍需在後續整合時對照 fork wrapper marker 與分類。 |
 
 詳細決策見 [DECISIONS.md](DECISIONS.md#v21003-pr-issue-decisions)。`reviewed_pr_numbers`、`reviewed_issue_through` 與 commit 水位均維持原值。
+
+
+## 2026-11-14：v2.100.2..v2.100.3 內容重放
+
+逐檔取捨見 [1684 檔清冊](upstream-v2.100.2-v2.100.3-files.tsv)：採用 1248、適配 155、不適用 281、已等價 0。三方合併的 48 個衝突檔保留各自的 fork 邊界；TSV 的 note 欄逐檔記錄取捨。
+
+Windows 停止採 checked stop，殘留 wrapper 清理只確認行程已退出再刪檔；Windows suite 改為 14 分片，既有 fork 權重保留、新檔以 tag 權重作種子。PR gates 的三個 caller 都有官方 repo guard。GUI／文件只保留 en／zh-TW，通用 locale resolver 與獨立解析契約保留。D4 的 child binary cache fill 在 Windows 不下載，fork 不含其授權下載的 SHA256SUMS。版本來源維持 2.100.3，遙測與更新閘門不變。
+
+`#8299`、`#8276` 隨本版重新合入。舊版撤回紀錄仍描述當時的 tag；本節不改審查或整合水位。決策理由見 [DECISIONS.md](DECISIONS.md)。

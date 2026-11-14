@@ -1,4 +1,5 @@
 import * as z from "zod/v4";
+import { EXPORT_CLIENT_IDS } from "../../clients/client-ids";
 import { accountAutoPausePolicySchema, accountPauseDetailsSchema } from "./account-auto-pause";
 import { anthropicAccountPoolSchema } from "./anthropic-account-pool";
 import { join } from "node:path";
@@ -343,6 +344,8 @@ export const providerConfigSchema = z.object({
   // load silently and then be ignored at selection time, which reads as a broken feature
   // rather than a rejected setting.
   apiKeyPoolStrategy: z.enum(["round-robin", "fill-first", "quota"]).optional(),
+  // Strict writes reject invalid modes; load degradation removes invalid hand edits.
+  cacheAffinity: z.enum(["auto", "session", "turn", "off"]).optional(),
   autoReviewModel: autoReviewModelSchema.optional(),
   autoReviewModelOverrides: autoReviewModelOverridesSchema.optional(),
   adapter: z.string().min(1),
@@ -350,6 +353,8 @@ export const providerConfigSchema = z.object({
   tlsProfile: z.literal("antigravity-browser").optional(),
   alias: z.string().optional(),
   modelAliases: z.record(z.string(), z.string()).optional(),
+  // Grammar is checked by sanitizeAliasesForLoad and the alias-template route (#7705).
+  aliasTemplate: z.string().optional(),
   modelDisplayNames: modelDisplayNamesSchema.optional(),
   defaultAliases: z.boolean().optional(),
   initialModelSelection: z.object({
@@ -454,6 +459,7 @@ export const providerConfigSchema = z.object({
   responsesSnapshotRepair: z.boolean().optional(),
   messagePhaseInference: z.boolean().optional(),
   hideRawReasoning: z.boolean().optional(),
+  forwardAdvisorTool: z.boolean().optional(),
   // Invalid blocks degrade to "absent" rather than failing the whole config load: an unusable
   // bridge block must never send an operator through invalid-config recovery for an opt-in
   // feature that is off by default. The management write boundary still rejects it loudly.
@@ -985,7 +991,7 @@ export const remoteGuiConfigSchema = z.object({
   allowInsecureHttp: z.boolean().optional(),
 }).strict();
 
-const connectedClientIdSchema = z.enum(["codex", "claude"]);
+const connectedClientIdSchema = z.enum(["codex", "claude", "claude-desktop", "grok", ...EXPORT_CLIENT_IDS]);
 const clientTimestampSchema = z.string().datetime({ offset: true });
 const clientTransportSchema = z.enum(["hub", "link"]);
 const linkTransportSchema = z.object({
@@ -1008,7 +1014,7 @@ export const clientConnectionSchema = z.object({
   managementTransport: z.enum(["direct", "relay"]),
   transport: clientTransportSchema.optional(),
   link: linkTransportSchema.optional(),
-  selectedClients: z.array(connectedClientIdSchema).min(1).max(2).superRefine((clients, ctx) => {
+  selectedClients: z.array(connectedClientIdSchema).superRefine((clients, ctx) => {
     if (new Set(clients).size !== clients.length) {
       ctx.addIssue({ code: "custom", message: "must contain unique client ids" });
     }
@@ -1074,6 +1080,7 @@ export const codexPoolSchema = z.object({
   excludedPlans: z.array(z.string().trim().min(1)).optional(),
   startIdleWindows: z.boolean().optional(),
   requestOwnedAffinity: z.boolean().optional(),
+  poolOnly: z.boolean().optional(),
   lowQuotaProtection: z.object({
     enabled: z.boolean(),
     threshold: z.number().finite().min(1).max(100),

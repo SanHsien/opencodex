@@ -41,6 +41,12 @@ const rows = {
   observedPackage: ["Last observed package version", "上次偵測到的套件版本"],
   lastObservedAt: ["Observed at", "偵測時間"],
   noObservedPackage: ["Not detected", "未偵測到"],
+  authorizationUnavailable: ["Desktop authorization is unavailable here. On the proxy computer, configure the standalone proxy hostname as the literal loopback address 127.0.0.1 or ::1 if it is localhost or a non-loopback address such as 0.0.0.0. Restart the proxy, then open the matching address and configured port directly over HTTP. Forwarding, a different role or port, and the current session can also prevent authorization.", "此處無法授權 Desktop。如果獨立代理的 hostname 是 localhost 或 0.0.0.0 等非迴圈位址，請在代理電腦上設為字面迴圈位址 127.0.0.1 或 ::1。重新啟動代理，再透過 HTTP 直接開啟對應位址和設定的連接埠。轉送、其他角色或連接埠以及目前的工作階段也可能阻止授權。"],
+  rememberedSession: ["This remembered session cannot authorize Desktop. On the proxy computer, open the same address and port in a private browser window, then return to this page and request a new code there.", "記住的工作階段無法授權 Desktop。在代理電腦的私人瀏覽視窗開啟相同位址和連接埠，回到此頁面並申請新代碼。"],
+  authorizeHint: ["Authorize Desktop actions for up to five minutes. Run this command on the proxy computer and paste its one-use code. If ocx is missing, install the CLI first; a private-home permission refusal must be resolved before a code can be issued. Reauthorization never repeats an earlier action.", "授權 Desktop 操作最多五分鐘。在代理電腦執行命令並貼上一次性代碼。若缺少 ocx，請先安裝 CLI；須先解決私人家目錄權限問題。重新授權不會重播先前的操作。"],
+  authorizationCode: ["One-use Desktop code", "Desktop 一次性代碼"],
+  authorize: ["Authorize Desktop", "授權 Desktop"],
+  authorized: ["Desktop actions are temporarily authorized for this session.", "此工作階段已暫時獲准執行 Desktop 操作。"],
 } as const satisfies Record<string, Row>;
 
 export function desktopCompatibilityCopy(locale: Locale): Record<`desktopCompat.${keyof typeof rows}`, string> {

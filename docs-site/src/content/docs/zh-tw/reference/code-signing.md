@@ -7,17 +7,9 @@ description: 說明 OpenCodex 如何透過 SignPath Foundation 簽署 Windows �
 
 以下內容暫以英文呈現。
 
-OpenCodex is moving its Windows downloads, the standalone `ocx.exe` and the desktop installer
-`OpenCodex-<version>-windows-x64.msi`, to Authenticode code signing through
-[SignPath Foundation](https://signpath.org). A signed file tells Windows, SmartScreen and antivirus
-products who published it and that nobody changed it after the build, which is what stops
-unsigned-binary false positives like the one reported in
-[#7207](https://github.com/lidge-jun/opencodex/issues/7207).
+上游正將獨立 ocx.exe 與 Windows 桌面 MSI 改為透過 [SignPath Foundation](https://signpath.org) 的 Authenticode 簽署。簽章可證明發布者與建置後未遭修改，並降低未簽章警告與誤判，但不保證 SmartScreen 接受，也不證明檔案安全；新簽署檔仍可能因信譽不足而警告。本 fork 的 MSI 維持未簽署。
 
-Signing is rolling out. The release workflow is wired, and SignPath is validating it with a test
-certificate. Until the production certificate is issued, Windows release files stay unsigned, and
-SmartScreen may ask once (**More info → Run anyway**). Releases published after that switch carry
-a signature from **SignPath Foundation**.
+上游簽署仍逐步推出，workflow 已接線，SignPath 正以測試憑證驗證；正式憑證核發前維持未簽署。切換後 workflow 會嘗試正式簽署，但簽署／驗證失敗時仍可能發布原始未簽署檔。
 
 ## Code signing policy
 
@@ -89,7 +81,7 @@ Signing never blocks a release. What a run does depends on the policy:
 | `release-signing` | Signed and verified as trusted | Signed and verified as trusted |
 
 If a signing request fails, times out or is rejected, or if verification fails, the job logs a
-warning and ships the unsigned file together with its original updater signature.
+警告並發布原始未簽署檔；MSI 若原本有 updater signature 則保留，獨立 ocx.exe 沒有 updater signature。
 
 **Switching to the production certificate.** Once SignPath issues it, set the repository variable
 `SIGNPATH_SIGNING_POLICY_SLUG` to `release-signing` (Settings → Secrets and variables → Actions →

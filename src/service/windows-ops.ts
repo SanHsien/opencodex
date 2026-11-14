@@ -16,11 +16,9 @@ import { OCX_ELEVATED_STAGING_UNREADABLE, runWindowsElevatedScheduledTaskRegistr
 import { defaultWinswEntry, installWinswService, statusWinswRaw, uninstallWinswService, WINSW_SERVICE_ID, type WinswStatus } from "../lib/winsw";
 import { forgetEphemeralSecretDir, forgetEphemeralSecretPath, hardenElevatedStageDir, hardenElevatedStagePath, hardenSecretDir } from "../lib/windows-secret-acl";
 import { recordOwnedConfigPath } from "../lib/config-ownership";
-import { killWindowsSchedulerWrappers } from "../lib/windows-service-wrappers";
 import { unreadableWrapperCandidates, windowsProcessList, wrapperProcessesAlive, type WindowsProcessEntry } from "./windows-guarded-manager";
 import { isTestHomeGuardArmed } from "../lib/test-home-guard";
 import { writeServiceApiTokenFile } from "./guards";
-import type { ServiceStopOutcome } from "./orchestration";
 import { TASK, windowsLauncherVbsPath, windowsTaskXmlPath, serviceStatePath, writeServiceInstallState, serviceSourceDir, cliEntry } from "./state";
 import { decodeSchtasksOutput, querySchtasks, schtasks, type WindowsSchedulerTaskProbe, schtasksErrorDetail, probeWindowsSchedulerTask, rollbackWindowsSchedulerTaskOwnedByAttempt } from "./windows-scheduler";
 import { buildWindowsServiceScript, buildWindowsSchtasksCreateArgs, buildWindowsSchtasksCreateArgsForXml, buildWindowsLauncherVbs, resolvedWindowsTaskSid, buildWindowsTaskXmlDocument, windowsTaskRegistrationOwnedByAttempt, windowsTaskRegistrationHealthy } from "./windows-taskxml";
@@ -64,11 +62,14 @@ export function winswListenPort(deps: { readXml?: () => string } = {}): number |
  * over, since before #2107 these files had no hardening at all and a failure here would
  * regress a user who has no credential to protect.
  */
-export function writeServiceDefinitionFile(path: string, content: string, encoding: "utf8" | "utf16le"): void {
-  writeFileSync(path, content, { encoding, mode: 0o600 });
+/** Bytes are written as they are: a restored snapshot must not be re-encoded through `encoding`. */
+export function writeServiceDefinitionFile(path: string, content: string | Buffer, encoding: "utf8" | "utf16le"): void {
+  if (typeof content === "string") writeFileSync(path, content, { encoding, mode: 0o600 });
+  else writeFileSync(path, content, { mode: 0o600 });
   try { chmodSync(path, 0o600); } catch { /* superseded by the Windows ACL below */ }
   if (process.platform === "win32") {
-    hardenSecretPath(path, { required: definitionCarriesCredential(content) });
+    const text = typeof content === "string" ? content : content.toString(encoding);
+    hardenSecretPath(path, { required: definitionCarriesCredential(text) });
   }
 }
 
@@ -124,6 +125,38 @@ export function writeWindowsSchedulerAssets(runtime: DurableBunRuntime = durable
     buildWindowsTaskXmlDocument(script, windowsLauncherVbsPath()),
     "utf16le",
   );
+}
+
+/**
+ * The on-disk scheduler assets as they are now, so a failed rewrite can put back what the
+ * registered task already runs. The returned restore rewrites only assets whose bytes changed
+ * (one that failed to write is still intact) and removes one that did not exist before.
+ */
+export function snapshotWindowsSchedulerAssets(): () => void {
+  const assets = [
+    { path: windowsServiceScriptPath(), encoding: "utf8" as const },
+    { path: windowsLauncherVbsPath(), encoding: "utf16le" as const },
+    { path: windowsTaskXmlPath(), encoding: "utf16le" as const },
+  ].map(asset => {
+    try { return { ...asset, bytes: readFileSync(asset.path) as Buffer | null }; }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return { ...asset, bytes: null };
+      throw error;
+    }
+  });
+  return () => {
+    for (const asset of assets) {
+      let current: Buffer | null;
+      try { current = readFileSync(asset.path); }
+      catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+        current = null;
+      }
+      if (asset.bytes === null) { if (current !== null) unlinkSync(asset.path); continue; }
+      if (current !== null && current.equals(asset.bytes)) continue;
+      writeServiceDefinitionFile(asset.path, asset.bytes, asset.encoding);
+    }
+  };
 }
 
 const WINDOWS_SCHEDULER_STAGE_PREFIX = "opencodex-service-stage-";
@@ -852,41 +885,9 @@ export function stopWindows(beforeMutation?: () => void): void {
   }
 }
 
-/**
- * `stopWindows` for callers that need to know whether it worked.
- *
- * The void form swallows a non-benign `/end` failure, which is right for best-effort
- * teardown and wrong for deciding whether an update may replace files: a scheduler that
- * refused to stop can respawn the proxy on top of a half-written install (#3008).
- */
-export function stopWindowsChecked(): boolean {
-  try {
-    schtasks(["/end", "/tn", TASK]);
-    return true;
-  } catch (error) {
-    return isWindowsSchedulerEndBenign(error);
-  }
-}
-
 export function statusWindows(): string { try { return schtasks(["/query", "/tn", TASK]); } catch { return ""; } }
 
 export function statusWindowsXml(): string { try { return schtasks(["/query", "/tn", TASK, "/xml"]); } catch { return ""; } }
-
-/**
- * Best-effort termination of surviving Windows scheduler launcher/wrapper processes.
- * `schtasks /end` ends the task instance but often leaves wscript/cmd running the
- * `:loop` batch, which brings the proxy back during a stop or restart.
- *
- * The matching rule — canonical paths of THIS installation, as complete
- * command-line tokens — lives in lib/windows-service-wrappers so the update job
- * cannot drift away from it again.
- */
-export function killWindowsServiceWrapperProcesses(): void {
-  killWindowsSchedulerWrappers({
-    scriptPath: windowsServiceScriptPath(),
-    launcherPath: windowsLauncherVbsPath(),
-  });
-}
 
 /**
  * A wrapper file that cannot be deleted (locked by a running script, antivirus). Thrown by
@@ -944,17 +945,6 @@ export interface WrapperResidueDeps {
   unlink?: (path: string) => void;
   /** Process table, null when it could not be read. */
   listProcesses?: () => WindowsProcessEntry[] | null;
-  killWrappers?: () => void;
-  /** Synchronous pause between re-checks after the kill. */
-  sleep?: (ms: number) => void;
-}
-
-/** Stop-Process returns before the process is gone, so the re-check is retried briefly. */
-const RESIDUE_RECHECK_ATTEMPTS = 3;
-const RESIDUE_RECHECK_INTERVAL_MS = 1000;
-
-function sleepSync(ms: number): void {
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
 /**
@@ -965,21 +955,10 @@ function sleepSync(ms: number): void {
  * service. The caller has already proven the task absent, but a wrapper loop started from it
  * can outlive the task, so before any file goes:
  *
- * - a live wscript/cscript/cmd process (the images that run a wrapper file) carrying the wrapper
- *   or launcher path is stopped (the best-effort kill `ocx stop` performs) and re-checked up to
- *   three times, one second apart, because the stop is asynchronous; an editor or other program
- *   that merely shows the path is neither stopped nor counted;
- * - a wscript/cscript/cmd row with no readable command line (another user's or an elevated
- *   process) counts as a possible wrapper that the kill cannot see or stop, so the files stay and
- *   the reason says to run the uninstall from an elevated terminal;
- * - an unreadable process table is not proof either, before or after the kill.
- *
- * The kill matches only the exact absolute wrapper and launcher paths as whole command-line
- * tokens, and only in wscript/cscript/cmd images. It stops only the wrapper (and launcher)
- * processes, not the `ocx start` child they launched: the full uninstall therefore stops the
- * proxy first (`handleUninstall`, "proxy stopped" before "service removed"). A file that cannot
- * be deleted (locked by a running script, antivirus) is reported by name instead of thrown, so
- * the caller can say what is left.
+ * - a readable live wrapper refuses removal and asks for checked stop first;
+ * - unreadable wrapper candidates or process evidence keep every file;
+ * - only a confirmed absence of wrapper processes permits deleting the files.
+ * This function never terminates processes. Full uninstall runs checked stop first.
  */
 export function removeWindowsServiceWrapperResidue(deps: WrapperResidueDeps = {}): WrapperResidueOutcome {
   const files = (deps.files ?? (() => [windowsServiceScriptPath(), windowsLauncherVbsPath(), windowsTaskXmlPath()]))();
@@ -1004,21 +983,7 @@ export function removeWindowsServiceWrapperResidue(deps: WrapperResidueDeps = {}
     return { kind: "failed", reason: "the Windows process list could not be read, so a running service wrapper could not be ruled out; wrapper files were left in place" };
   }
   if (before.readable.length > 0) {
-    (deps.killWrappers ?? killWindowsServiceWrapperProcesses)();
-    const sleep = deps.sleep ?? sleepSync;
-    let after: Survey = before;
-    for (let attempt = 0; attempt < RESIDUE_RECHECK_ATTEMPTS; attempt += 1) {
-      sleep(RESIDUE_RECHECK_INTERVAL_MS);
-      after = survey();
-      if (after !== null && after.readable.length === 0) break;
-    }
-    if (after === null) {
-      return { kind: "failed", reason: "the Windows process list could not be read after stopping the service wrapper, so it could not be confirmed gone; wrapper files were left in place" };
-    }
-    if (after.readable.length > 0) {
-      return { kind: "failed", reason: `a service wrapper process (pid ${after.readable.join(", ")}) is still running and could not be stopped; wrapper files were left in place` };
-    }
-    if (after.unreadable.length > 0) return { kind: "failed", reason: unreadableReason(after.unreadable) };
+    return { kind: "failed", reason: `a service wrapper process (pid ${before.readable.join(", ")}) is still running; run ocx stop or ocx service stop (checked stop), then retry. Wrapper files were left in place` };
   } else if (before.unreadable.length > 0) {
     return { kind: "failed", reason: unreadableReason(before.unreadable) };
   }
@@ -1031,23 +996,4 @@ export function removeWindowsServiceWrapperResidue(deps: WrapperResidueDeps = {}
     }
   }
   return { kind: "removed" };
-}
-
-/**
- * Collapse the Windows backend observations into one outcome.
- *
- * Extracted so the precedence is testable by calling it. The rule that matters: a readable
- * failure outranks an unreadable state, and an unreadable state outranks success — a
- * scheduler we cannot see may still respawn the proxy.
- */
-export function classifyWindowsServiceStop(o: {
-  stopped: boolean;
-  failed: boolean;
-  schedulerStopped: boolean;
-  stateUnknown: boolean;
-}): ServiceStopOutcome {
-  if (o.failed) return "failed";
-  if (o.stateUnknown) return "state-unknown";
-  if (o.stopped) return o.schedulerStopped ? "stopped-respawnable" : "stopped";
-  return "absent";
 }

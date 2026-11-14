@@ -9,8 +9,7 @@ wire, decided by its adapter. When the client API and the upstream wire differ, 
 converted on the way in and the answer is converted on the way back. This page explains how that
 path is named, how to see it before and after a request, and which settings change it.
 
-Every setting on this page is off by default. With the defaults, requests travel exactly as they
-did before these settings existed.
+The settings on this page are off by default except `antigravityDirect`, which is on, and the two managed-Messages switches on a recognized Anthropic instance whose account pool is enabled. `antigravityDirect` enables the direct Antigravity path when applicable, and a pooled instance derives `managedMessagesNative` and `managedMessagesNativeOAuth` unless its `anthropicAccountPool.nativeMessages` is `false`. Every other switch requires explicit activation, and an explicit rollout `false` disables either pooled default.
 
 ## Delivery modes
 
@@ -94,7 +93,7 @@ each candidate and skips one that cannot carry the request.
 
 ## Rollout switches
 
-These switches stage the new paths. Each defaults to off except `antigravityDirect`, and a switch that is off changes nothing.
+These switches stage the new paths. Each defaults to off except `antigravityDirect` and, on a recognized Anthropic instance with its account pool enabled, the two managed-Messages switches. A pooled instance enables `managedMessagesNative` and `managedMessagesNativeOAuth` unless `anthropicAccountPool.nativeMessages` is `false`; an explicit rollout `false` still turns either off. A switch that is off changes nothing.
 
 | Switch | When on |
 | --- | --- |
@@ -153,7 +152,12 @@ These paths still use the internal Responses bridge or are not covered:
 - Adapters whose wire is none of the three APIs (Gemini, Kiro, Cursor, and others) are translated
   through the IR with no feature claims.
 - Managed native Messages to first-party Anthropic preserve a coherent observed Claude Code CLI
-  user agent, session UUID and allowlisted SDK headers across token refresh and account selection.
+  user agent, session UUID and allowlisted SDK headers across token refresh and account selection,
+  for foreground (`X-App: cli`) and background (`claude --bg`, `X-App: cli-bg`) sessions alike.
+  The required bundle includes a recognized `User-Agent`, `X-App: cli` or `X-App: cli-bg`, a UUID
+  `X-Claude-Code-Session-Id`, `X-Stainless-Lang: js`, and `X-Stainless-Runtime: node`.
+  Optional SDK fields are preserved only from the identity allowlist; operator-configured headers
+  retain precedence.
   Credential placement remains proxy-owned and beta allowlisting still applies. Missing or invalid
   identity uses the existing compatibility headers; compatible hosts and generated Responses retain
   their current behavior. Headers alone do not authorize requests or establish official support.
@@ -166,7 +170,15 @@ These paths still use the internal Responses bridge or are not covered:
   top-level fields outside its allowlist without a feature effect, and does not apply
   `claudeCode.stabilizePromptCache`.
   A recognized Claude Code client keeps `context-management-2025-06-27` together with its
-  `context_management` body field. For first-party Anthropic key and OAuth requests, any native
+  `context_management` body field, and `dangerous-tool-use-2026-09-03` together with its
+  `safeguards` field, so Claude Code's auto mode can have the server review its tool calls; the
+  verdicts come back in the stream unchanged. Over Anthropic OAuth such a client also keeps its own
+  tool names, without the `custom_` prefix other OAuth callers get, because the server review
+  matches calls by tool name. Recognition rests on headers a client can copy, so a client that
+  copies Claude Code's identity headers also sends its own tool names unprefixed on the OAuth
+  account. An operator `anthropic-beta` header that adds `dangerous-tool-use-2026-09-03` sends
+  `safeguards` for unrecognized callers too, but their tool names stay prefixed, so the server
+  review cannot match them. For first-party Anthropic key and OAuth requests, any native
   Messages client can send `thinking-binding-controls-2026-08-01` with `thinking.block_binding`
   on adaptive or enabled thinking. The proxy strips that nested field when the beta is absent or
   the destination does not support it, preserving the rest of the thinking configuration. Cloud

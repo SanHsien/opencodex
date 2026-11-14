@@ -217,6 +217,9 @@ session-only action with another API client.
 PID、恢復 worker 已死但仍在進行中的任務、把超過十分鐘且沒有 PID 的舊 active 記錄
 視為過期，並保護執行中的 worker 免受並行更新影響。
 
+
+進入實驗性明文子代理模式請執行 `ocx v2 mode v2-plaintext --acknowledge-plaintext-agent-messages`。一般 `config set` 和 `config import` 會拒絕新進入此模式，因為專用命令也會協調原生模式轉換。還原含有 `multiAgentMode: "v2-plaintext"` 的匯出設定前，請先完成上述確認轉換，再匯入檔案。還原已啟用的模式、更改其他設定及離開明文模式仍受允許；獨立的 `plaintextV2AgentMessages` 偏好不變。
+
 ## 能力引數驗證
 
 `ocx capabilities` 會以結束碼 64 拒絕未知的引數、重複的旗標與空白的 `--route` 值。有效的路由若沒有宣告任何能力，會以結束碼 4 結束。

@@ -40,7 +40,7 @@ opencodex 必須正在執行（`ocx service status`）。以下兩種方式都�
 | 欄位 | 值 |
 |---|---|
 | Base URL | `http://127.0.0.1:10100/v1`（須包含 `/v1`；允許純 `http://` loopback） |
-| API Key | 若服務使用 API auth，填入 `OPENCODEX_API_AUTH_TOKEN` 的值；否則填入任何佔位值，例如 `opencodex-loopback` |
+| API Key | 啟用 API-key admission 時，使用被接受的資料 token（OPENCODEX_API_AUTH_TOKEN）或設定的用戶端 API key；只有接受預留值的設定才能使用 opencodex-loopback。 |
 
 點擊 **Refresh model list**。選擇器會載入 opencodex 的 `/v1/models`；開啟你要使用的資料列。
 

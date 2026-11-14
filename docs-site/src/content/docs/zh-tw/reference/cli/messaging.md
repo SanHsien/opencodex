@@ -87,18 +87,12 @@ guidance is not a technical authorization boundary or a guarantee of model behav
 The default kind is `request`. Answer by using the generated `replyCommand` in
 the envelope, or explicitly correlate a response:
 
-```bash
-printf '%s\n' 'Review findings: ...' |
-  ocx message send --thread <sender-thread-uuid> --kind response \
-    --in-reply-to <request-message-uuid> --stdin --json
-```
 
 `response` requires `--in-reply-to`; other kinds reject it. Use `--kind notification`
 for an FYI. Responses and notifications do not request acknowledgements. A normal
 agent final answer is not sent back to its peer; missing routes must not be guessed.
 No global prompt changes or acknowledgement loops are introduced.
 
-## 寄件者與回覆
 
 包裝器會產生訊息 UUID，並從已載入的 `CODEX_THREAD_ID` 與 daemon 中繼資料附上寄件者 ID／名稱。
 此上下文**不是經過驗證的對等授權**，也絕不授予使用者核准或權限提升。無效或未載入的宣稱寄件者會失敗；
@@ -323,3 +317,47 @@ is not controlled by it.
 Mesh, dashboard/cache controls, isolation, Claude messaging, managed skills and
 idle notifications remain outside this contribution.
 
+## MCP 佇列主機
+
+明確執行 `ocx message mcp` 才會讓 Claude Code／Desktop 等 MCP 用戶端列出儲存的 Codex 對話並排入純文字。主機使用 stdio，不開網路 listener、不自行註冊用戶端。指定 Codex CLI 與既有 home：
+
+```json
+{
+  "mcpServers": {
+    "opencodex-queue": {
+      "command": "ocx",
+      "args": [
+        "message", "mcp",
+        "--codex", "/absolute/path/to/codex",
+        "--codex-home", "/absolute/path/to/.codex"
+      ]
+    }
+  }
+}
+```
+
+
+替換兩個絕對路徑；用戶端沒繼承 PATH 時，ocx 也用絕對路徑。目前只支援 macOS／Linux，Windows 明確拒絕。
+
+`codex_threads` 每頁最多 50 個未封存對話，回 IDs／名稱而不含歷史、預覽或 cwd；`liveStateVerified:false` 不證明對話已開啟或能處理訊息。`codex_queue_message` 接受精確 UUID 與 message，只排入使用者授權的文字；連同固定 peer 標籤最多 16 KiB，拒絕 NUL／空白，不猜名稱、不覆寫模型、不授權權限、不自動回覆。
+
+每次工具操作會以 stdio 啟動短命、明確選定的 Codex app-server，使用 thread/list 或 thread/queue/add，不把訊息放 argv；不登入、不啟動 daemon、不 resume／start／steer。一般 OpenCodex 啟動不會啟動 helper。原生 CLI 可維護選定 home 的狀態，但不建立 OpenCodex store。
+
+queued 只證明儲存，不證明處理；明確拒絕為 not_sent，寫入後斷線／逾時／無效收據為 unknown，不能重送不確定訊息。未載入對話不會被喚醒，活躍回合／goal 可能延後處理；預設不讀答案。每主機最多四個同時 helper，每操作 20 秒（含驗證）、RPC 12 秒、輸出 1 MiB，清理 600 ms 後升級 SIGKILL。取消／斷線只結束本次 helper，不停收件者。macOS 執行檔通過 bundle trust 檢查。MCP 與 home 是本機使用者信任邊界，不是專案／執行緒授權；peer 文字不證明授權。
+
+此路徑與 sessions／send 的已載入 socket 探索分開，不提供遠端 peers、Claude inbox、持久交接、自動答案傳送、steer 或用戶端自動設定。
+
+## 明確指定既有伺服器的恢復檢查
+
+**缺少原生原子條件式 resume 支援，目前不執行恢復。** 已檢查的 Codex 0.166.0 API 無法安全恢復未載入對話；工具只做有界前置檢查並拒絕，不執行排隊工作。佇列／已儲存回覆工具仍獨立可用。啟用此檢查須同時設定相關引數：
+
+```sh
+ocx message mcp --codex /absolute/path/to/codex --codex-home /absolute/path/to/.codex --allow-reply-read --allow-resume --resume-socket /absolute/path/to/existing.sock --resume-permissions :read-only
+```
+
+
+socket 必須是可信本機 Unix App Server，回報同一 canonical Codex home；不安裝或啟動伺服器。精確 UUID 正規化後只查中繼資料。已載入的閒置／活躍目標回 already_loaded，不健康目標拒絕。未載入目標若政策受管理、API 不支援、中繼資料無效或 profile 缺失／不允許／未觀測，一律拒絕。profile 由主機設定，不由工具引數或訊息授權；目標 cwd 的 profile 只讀一頁最多 50 筆。
+
+即使通過，也回 `not_resumed`／`resume_atomicity_unsupported`，不送 thread/resume。其他用戶端可能在讀取與恢復間載入／取消訂閱，而原生伺服器可用提供的權限取代閒置快取。用戶端鎖或第二次讀取無法消除此視窗；需要伺服器原子地強制「只恢復未載入對話」。不能用版本字串推定安全，也不能把確認當成撤回已啟動工作的方式。
+
+`executionVerified` 永遠 false；不啟動對話／回合、不改權限、不回答 approval。每次共用 20 秒與四操作上限，同 UUID 重疊拒絕。斷線只關 bridge。網路／SSH endpoints 與 Windows 不在支援範圍。

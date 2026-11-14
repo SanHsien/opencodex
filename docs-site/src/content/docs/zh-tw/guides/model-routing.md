@@ -47,8 +47,8 @@ OpenAI 的 bare `gpt-*` 使用單一 `openai` provider。`codexAccountMode` 在 
    | `claude-`、`claude-sonnet-`、`claude-opus-`、`claude-haiku-` | `anthropic` |
    | `llama-`、`mixtral-`、`gemma-` | `groq` |
 
-   該匹配器只檢查名稱。與 `defaultModel` / `models[]` 掃描不同，目前即使匹配供應商的 `disabled`
-   為 true，它也不會跳過該供應商。
+   該匹配器只檢查名稱。與 `defaultModel` / `models[]` 掃描一樣，匹配供應商的 `disabled` 為 true
+   時會跳過該供應商。
 
 7. **某個供應商的 `models[]`** —— 如果字首規則沒有命中，而某個啟用的供應商在 `models[]` 中列出
    該 id，則使用該供應商。第 4 條已經讓裸 `gpt-*` id 在其他供應商的 `models[]` 宣告能夠命中之前，
@@ -105,3 +105,9 @@ on this transport, and models can still return an invalid answer. The adapter do
 into an approval decision. Auto-review callers should validate the returned JSON and use a
 structured-output-capable route when strict enforcement is required. Ordinary text requests and
 intermediate tool calls keep their existing behavior.
+
+## 模型別名範本
+
+供應商可選用 `aliasTemplate`，替沒有手動或內建別名的模型產生名稱。例如別名為 `CC` 的供應商使用 `"{providerAlias}-{modelBasename}"`，會將 `reflection/beam:free` 命名為 `CC-beam-free`。僅支援 `{providerAlias}` 與必要的 `{modelBasename}`；後者取最後一段模型 ID，並把 `:` 改為 `-`。需要供應商別名但未設定時不產生名稱。別名在解析模型時衍生，不寫入設定，因此新模型探索完成即可取得別名，移除範本也立即撤回。
+
+優先順序為手動、內建、範本。產生的名稱無效、使用保留前綴（`gpt-`、`o1-`、`o3-`、`o4-`、`codex-`）或與已占用名稱衝突時會略過，不會自行改名。

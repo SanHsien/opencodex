@@ -217,3 +217,5 @@ assertion id。請把不含機密的請求向量加進 `tests/fixtures/compatibi
 
 遵循上述測試政策，並針對型別變更執行 `bun run typecheck`，以及受影響範圍所需的其他檢查。
 報告命令、結果和未測試範圍，只聲明實際完成的驗證。
+
+測試使用 Bun 1.4.4（testRunnerBun），發行版 runtime 為 1.4.4。

@@ -607,7 +607,7 @@ jobs:
   # each landed with green pull-request CI while breaking Windows, which is why
   # that dispatch is part of merging a Windows-sensitive pull request.
   platform-windows:
-    name: windows ${{ matrix.shard }}/12
+    name: windows ${{ matrix.shard }}/14
     needs: [changes, select-windows-runner]
     if: >-
       github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && (github.event.inputs.lane == '' || github.event.inputs.lane == 'all')
@@ -655,7 +655,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]
     steps:
       - name: Show selected runner
         shell: bash
@@ -715,7 +715,7 @@ jobs:
         # Three of its failures were the default firing on tests that had not hung — the
         # composed-acceptance cases spawn a real `ocx start` and were still working at 41s.
         #
-        # Nothing is retried. Run 35171877721 proved Linux's 12-file/120-second defaults are
+        # Nothing is retried. Run 35171877721 proved Linux's 12-file/140-second defaults are
         # not Windows defaults: 58 completed primary batches took 4.6-105.8s and seven more
         # hit 120s. Six of those passed every file alone; splitting their attribution times
         # into six-file halves gives a 148.0s maximum. The seventh carried
@@ -725,7 +725,7 @@ jobs:
         # Six-file batches add twelve Bun processes per shard, but the two green shards measured
         # only 0.106-0.168s of wrapper overhead per process: at most ~2.1s against the margin.
         # A timeout or crash still fixes the shard red before singleton attribution. scope=all
-        # preserves the full Windows suite; Linux keeps its correctly sized 12-file/120s defaults.
+        # preserves the full Windows suite; Linux keeps its correctly sized 12-file/140s defaults.
         #
         # The preload's Windows-only user lock serializes separate test runners on one machine.
         # These batches are already one dedicated job's sequential pieces, so treating each Bun
@@ -735,7 +735,7 @@ jobs:
         # and service-manager guard before the lock boundary.
         shell: bash
         env:
-          TEST_SHARD: ${{ matrix.shard }}/12
+          TEST_SHARD: ${{ matrix.shard }}/14
           BUN_TEST_FILE_SCOPE: all
           BUN_TEST_BATCH_SIZE: "6"
           BUN_TEST_BATCH_TIMEOUT_SECONDS: "480"
@@ -939,6 +939,13 @@ jobs:
       - name: Run Rust tests
         run: cargo test --locked --manifest-path native/remote-workspace-helper/Cargo.toml
 
+      - name: Check, lint and test ocx-child
+        if: runner.os == 'Linux'
+        run: |
+          cargo fmt --manifest-path native/ocx-child/Cargo.toml --check
+          cargo clippy --locked --manifest-path native/ocx-child/Cargo.toml --all-targets -- -D warnings
+          cargo test --locked --manifest-path native/ocx-child/Cargo.toml
+
   # `gates` already runs `privacy:scan` on every event it runs for, so this job
   # covers exactly the pull requests `gates` skips -- its condition is the
   # complement of `gates`' own, with no path list: every pull request runs the
@@ -1134,7 +1141,7 @@ jobs:
           # matrix that produced FEWER legs than the twelve a dispatch is run to read, so count
           # them by name. The twelve Windows legs are the entire output of that dispatch.
           if [ "$windows" = requested ]; then
-            shards=12
+            shards=14
             # `filter=latest` (the default) is the latest execution of each job in the run,
             # which is what a human reading the run sees. Asking for one ATTEMPT instead would
             # fail every partial re-run: "Re-run failed jobs" puts only the repaired shard in

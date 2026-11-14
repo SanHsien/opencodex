@@ -63,7 +63,7 @@ Image Bridge 僅在選取了**非 OpenAI** 模型、且 **Responses** 回合的 
 
 ## 限制
 
-- **僅支援 xAI Grok Imagine。** DALL-E 與其他圖片供應商日後可能加入。
-- **網頁搜尋優先**，於支援網頁搜尋 sidecar 迴圈的 adapter 上。若同一回合同時請求網頁搜尋與圖片生成，會執行網頁搜尋並略過圖片生成。Cursor/`runTurn` adapter 目前無法使用該 sidecar，因此 image bridge 對那些雙工具回合仍可能執行。
-- **適用 xAI 費用。** 透過 xAI 的圖片生成需要有效的 xAI 訂閱或 API 額度。
-- **僅限串流。** Bridge 透過攔截 SSE 回應串流運作；帶有 `stream: false` 的請求會以 400 錯誤拒絕。
+- **網頁搜尋優先**：請求符合搜尋 loop 資格時，雙工具回合先搜尋、略過生圖；包含 Cursor 等經 runTurnWebSearchLoop 的 runTurn 適配器。只有搜尋不合格時，image bridge 才可處理雙工具回合。
+
+xAI 供應商存在但缺少 grant／API key 時，`/v1/images` 會報錯，不回退 ChatGPT。若完全沒有 xAI 供應商，relay 不處理該請求，正常影像供應商選擇仍可選已設定的 ChatGPT 影像供應商。
+

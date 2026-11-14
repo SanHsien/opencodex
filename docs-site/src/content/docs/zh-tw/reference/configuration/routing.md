@@ -234,3 +234,11 @@ CLI：`ocx logs explain <request-id>`、`ocx logs rebuild-index`、`ocx logs ind
 ## 遷移
 
 `routingProfiles` 為可選且附加式：既有設定檔載入不變。舊 `usage.jsonl` 列（無 `routeDecision`）解析不變。歷史索引可拋棄——刪除 `routing-history.sqlite` 會在下一次查詢時從 `usage.jsonl` 自動重建；`ocx logs rebuild-index` 強制執行一次。此系統中沒有任何東西會自動調校權重、預算或候選集。
+
+### Codex 帳戶池專用政策
+
+`codexPool.poolOnly` 為布林值，預設 `false`。啟用後，自動選擇只使用已登記的額外帳戶：原生主登入不參與排序、不保留為現用池帳戶，也不作 caller-main 回退；手動 pin 主帳戶會被忽略。沒有合格帳戶時拒絕請求。帳戶限定模型（含 `__main__`）、Reserve 模型與 Direct 模式是政策外的明確選擇。暫停、重複帳戶、權益與冷卻檢查不變。自動借用 Codex 登入的搜尋與影像 helper 也遵循此規則；只登入主帳戶時視為不可用。
+
+```json
+{"codexPool":{"poolOnly":true}}
+```

@@ -10,6 +10,21 @@ import type { AnthropicAccountPoolConfig } from "./anthropic-account-pool";
  */
 export type RefreshPolicy = "proactive" | "lazy-only" | "disabled";
 
+/**
+ * Per-provider conversation affinity to the credential that served a conversation's
+ * last turn, so that credential's upstream prompt cache is read again instead of
+ * rebuilt on another key. `auto` keeps a binding only while the cache it built is
+ * measured to be worth keeping and still warm; `session` keeps it while the
+ * credential stays eligible; `turn` only across immediate continuations; `off`
+ * disables binding entirely. See src/providers/cache-affinity.ts.
+ */
+export type CacheAffinityMode = "auto" | "session" | "turn" | "off";
+
+/** Provider cache-affinity outcome recorded on a request-log row. */
+export type CacheAffinityOutcome = "kept" | "bound" | "released";
+/** Why that outcome happened; mirrors the store's keep reasons plus lifecycle outcomes. */
+export type CacheAffinityLogReason = "cache" | "session" | "turn" | "continuation" | "new" | "quota" | "auth";
+
 /** Request-owned identity of the configured key, before env/keychain resolution. */
 export interface ProviderApiKeySelection {
   entryId?: string;
@@ -17,6 +32,10 @@ export interface ProviderApiKeySelection {
   revision?: string;
   /** Request-local allocation; does not replace the saved active key. */
   distributed?: boolean;
+  /** Request-local cache-affinity pick; survives selection re-reads while its entry stays live. */
+  cacheAffinity?: boolean;
+  /** Opaque process-local credential and destination generation for an affinity pick. */
+  cacheAffinityGeneration?: string;
 }
 
 export interface OpenRouterProviderRouting {
@@ -296,6 +315,8 @@ export interface ModelCapabilities extends ReasoningCapabilities {
   deepseekImageFiles?: boolean;
   /** Images a first-party Mistral Chat request may carry for this model; older ones are pruned. */
   mistralMaxImages?: number;
+  /** Exact-model Responses custom-tool support; absent inherits the provider contract. */
+  responsesCustomTools?: boolean;
 }
 
 /**
@@ -313,6 +334,12 @@ export interface OcxProviderConfig {
   alias?: string;
   /** Native model id -> short, slash-free request alias. */
   modelAliases?: Record<string, string>;
+  /**
+   * Opt-in alias template for models without a manual or built-in alias (#7705), for example
+   * `{providerAlias}-{modelBasename}`. Derived at resolution time and never written back; only the
+   * literal `{providerAlias}` and `{modelBasename}` placeholders are allowed.
+   */
+  aliasTemplate?: string;
   /** Display-only labels for exact native model ids discovered under this provider. */
   modelDisplayNames?: Record<string, string>;
   /** Override the global built-in model-alias switch for this provider. */
@@ -649,8 +676,11 @@ export interface OcxProviderConfig {
    * visible. Empty/undefined = no opt-in (default behavior). See #1690.
    */
   retainModels?: string[];
-  /** Override for newly discovered models. Absent/"inherit" uses the install policy. */
-  newModelPolicy?: "on" | "off" | "inherit";
+  /**
+   * Override for newly discovered models. Absent/"inherit" uses the install policy. `admit`
+   * appends arrivals to a custom `selectedModels` (never a preset-derived one).
+   */
+  newModelPolicy?: "on" | "off" | "admit" | "inherit";
   /**
    * Model-preset marker for `selectedModels` (#2465). Absent means "all", exactly today's
    * semantics — an existing provider is never narrowed by an upgrade.
@@ -1061,6 +1091,14 @@ export interface OcxProviderConfig {
    */
   promptCacheKey?: boolean;
   /**
+   * Conversation affinity to the key-pool credential that served a conversation's
+   * last turn, so its upstream prompt cache is read again on the next turn instead
+   * of rebuilt on another key. Only affects providers with 2+ key-pool entries;
+   * eligibility (cooldowns, pacing, disabled keys) always outranks the preference.
+   * Default `auto`. See src/providers/cache-affinity.ts.
+   */
+  cacheAffinity?: CacheAffinityMode;
+  /**
    * Opt-in: forward caller `service_tier` values to the upstream `/chat/completions` body.
    * On a classified route it governs foreign values (for example `flex`), not proxy-owned
    * canonical Fast after capability validation. On an unclassified route it governs every caller
@@ -1168,6 +1206,13 @@ export interface OcxProviderConfig {
    * other EOFs remain truncation errors. Absent = strict default behavior.
    */
   anthropicEofTolerance?: boolean;
+  /**
+   * Claude Code's typed Advisor server tool (`advisor_20260301`) on the translated Messages lane.
+   * Absent: forwarded only to an `anthropic`-adapter provider on first-party `api.anthropic.com`.
+   * `true`: an Anthropic-compatible gateway that runs it receives the declaration, its history and
+   * the `advisor-tool-2026-03-01` beta too. `false`: never forwarded, even first-party.
+   */
+  forwardAdvisorTool?: boolean;
   /**
    * Model ids that do NOT accept image inputs. The proxy gives them "eyes" via the vision sidecar:
    * attached images are described by a gpt vision model and replaced with text before the call.

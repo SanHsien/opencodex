@@ -55,6 +55,11 @@ const KEEP_RUNNING_UPSTREAM_WORKFLOWS = new Set([
 ]);
 
 describe("fork maintainer files", () => {
+  test("fork package excludes ocx-child release digests that authorize upstream downloads", async () => {
+    expect(existsSync(join(ROOT, "native/ocx-child/SHA256SUMS"))).toBe(false);
+    const { files } = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
+    expect(files).not.toContain("native/ocx-child/SHA256SUMS");
+  });
   test("required overlay files exist", () => {
     const required = [
       "FORK.md",

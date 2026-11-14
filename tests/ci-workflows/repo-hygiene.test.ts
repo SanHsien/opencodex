@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { repositoryGitEnv } from "../helpers/git-fixture";
 import { repoRoot as resolveRepoRoot } from "../helpers/repo-root";
 
 const repoRoot = resolveRepoRoot();
@@ -64,7 +65,7 @@ const RETIRED_TRACKED_FILES = [
 ];
 
 function trackedFiles(): string[] {
-  const result = Bun.spawnSync(["git", "ls-files"], { cwd: repoRoot });
+  const result = Bun.spawnSync(["git", "ls-files"], { cwd: repoRoot, env: repositoryGitEnv() });
   if (result.exitCode !== 0) {
     throw new Error(`git ls-files failed: ${new TextDecoder().decode(result.stderr)}`);
   }
@@ -76,7 +77,7 @@ function trackedFiles(): string[] {
 }
 
 function trackedEntries(): { mode: string; path: string }[] {
-  const result = Bun.spawnSync(["git", "ls-files", "-s"], { cwd: repoRoot });
+  const result = Bun.spawnSync(["git", "ls-files", "-s"], { cwd: repoRoot, env: repositoryGitEnv() });
   if (result.exitCode !== 0) {
     throw new Error(`git ls-files -s failed: ${new TextDecoder().decode(result.stderr)}`);
   }
@@ -256,7 +257,7 @@ describe("devlog is tracked, with no submodule left behind", () => {
   }, 20_000);
 
   test("no workflow checks out submodules", async () => {
-    const listing = Bun.spawnSync(["git", "ls-files", ".github/workflows"], { cwd: repoRoot });
+    const listing = Bun.spawnSync(["git", "ls-files", ".github/workflows"], { cwd: repoRoot, env: repositoryGitEnv() });
     const workflows = new TextDecoder()
       .decode(listing.stdout)
       .split("\n")

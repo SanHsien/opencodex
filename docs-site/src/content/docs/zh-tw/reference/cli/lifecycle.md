@@ -54,7 +54,7 @@ ocx start --port 10100 --socks5
 ocx start --socks5-off
 ```
 
-### `ocx stop`
+### `ocx stop [--json] [--deadline-ms <ms>]`
 
 無人監督的 Link Child 處理結束訊號時，會在每次寫入前核對連線，並在關閉接聽器前還原 Codex 原生設定及受管理的 Grok。服務/Desktop、sibling、重新啟動交接和父程序 stop 收據會保留設定。結束中的重新啟動要求回傳 `409 runtime_stopping`。強制終止可能略過訊號處理，仍需父程序 `ocx stop` 的還原路徑。
 
@@ -263,34 +263,13 @@ ocx sync
 
 ## 目錄同步
 
-### Read saved state separately from synchronization
+### `ocx sync [--expect-link <linkId> | --expect-hub-key <apiKeyId>] [--local-only] [--json] [--restart-codex] [--restart-app-server-only] [--child <linkId>]... [--restart-children[=app-server] | --restart-children=codex --yes]` <span id="ocx-sync---restart-codex---restart-app-server-only"></span>
 
-Model, provider, settings and v2 receipts have different completion contracts.
-Local custom-model changes opportunistically sync: no proxy means a successful
-save, `needsSync:true`, `sync.status:"not-attempted"` and exit 0. An explicit local
-provider `--sync` without a proxy instead returns nonzero after saving.
+在 Remote Link Home 上成功提交最新目錄後，`ocx sync` 也會向符合條件的已連結 Child 同步。`--local-only` 可停用這個傳播。`--json` 會輸出單一 `ocx.sync.fanout/1` 文件，包含 Home 的結果與各 Child 的狀態；遭略過的 Child 也會顯示原因。Home 自身的非零結束碼會原樣回傳。Home 成功時，若傳播時略過已連結的 Child，或 Child 失敗、逾時或連結儲存區無法讀取，指令以結束碼 6 結束。用戶端發起的連結和 `--local-only` 等刻意略過的情況保留原有行為；遭略過的已連結 Child 會附帶操作建議 `hint`。文字模式下，連結儲存區無法讀取的錯誤不包含路徑。結束碼 7 保留給進行中的更新。JSON 模式下若 Home 同步擲出例外，stdout 仍只包含一份結果文件，stderr 則輸出經安全轉義的診斷訊息。因 `--child` 未選取的連結（`not-selected`）以及正被 Child 操作占用的 Child（`child-busy`）同樣屬於刻意略過，不會產生結束碼 6；要求的 Child 重新啟動未能確定完成時，指令以結束碼 6 結束。
 
-Settings writes use `catalogRefreshPending`, while live v2/catalog writes use a
-full `catalogRefresh` disposition. Local v2 mode/keep-native and changed on/off
-still attempt their established sync even when no port was discovered. JSON
-reports actual changed state and sync evidence; unverified/failed sync is nonzero.
-Threads/hints and unchanged on/off do not introduce a new sync attempt.
+除非傳入 `--restart-children`（重新啟動 app-server）或 `--restart-children=codex --yes`（重新啟動 Codex 桌面應用程式，會結束進行中的對話，並需要該機器上已登入的桌面工作階段），傳播不會要求重新啟動 Child 上的 Codex。Home 會先同步每個選取的 Child，再重新讀取該 Child 的活動狀態，然後才透過第二次固定目標同步送出重新啟動。對於此刻正在中繼模型請求的 Child（`restart-skipped:link-active`）、無法讀取活動狀態的 Child（`restart-skipped:activity-unknown`）、Windows Child（`restart-skipped:windows`）以及 `ocx-child`（`restart-unsupported:ocx-child`），Home 照常同步、只略過重新啟動，並以結束碼 6 結束。未記錄 Child 類型的連結仍會在第二次同步中收到重新啟動旗標，Home 藉此得知它執行的是 `ocx-child`；`ocx-child` 會忽略該旗標。如果重新啟動未能送出，或已送出但結果未知，該 Child 的列會顯示 `restart-not-run` 或 `restart-result-unknown`，結束碼同樣為 6。與 `ocx link restart-codex` 相同，這項保護是盡力而為：在讀取活動狀態與重新啟動之間開始的請求仍可能被中斷。`--child <linkId>`（可重複）只向這些連結傳播，其餘連結回報為 `not-selected`。正被 `ocx link update` 等 Child 操作占用的 Child 會以 `child-busy` 略過。不過，Child 的固定目標同步在套用變更後的 Home 設定時，仍可能重新啟動它自己的 OpenCodex 用戶端執行階段。Home 逾時並停止本機 SSH 程序後，已開始的遠端同步仍可能在 Child 上繼續。
 
-Inspect the same target with `ocx v2 status --json` or `ocx v2 status --live --json`,
-and use `ocx system settings --json` for settings read-back. A saved-but-pending or
-unknown outcome does not prove rollback and is not permission to replay a write.
-See [v2 outcomes](/zh-tw/reference/cli/agents/#explicit-v2-target-and-outcome) and
-[account policy](/zh-tw/reference/cli/providers-accounts/#pool-policy-account-thresholds-and-paid-credit-intent)
-for target, scope and spending boundaries. A reset-grant status read can contact
-upstream status but never consumes or resumes a grant.
-
-### `ocx sync [--expect-link <linkId> | --expect-hub-key <apiKeyId>] [--local-only] [--json] [--restart-codex] [--restart-app-server-only]` <span id="ocx-sync---restart-codex---restart-app-server-only"></span>
-
-在 Remote Link Home 上成功提交最新目錄後，`ocx sync` 也會向符合條件的已連結 Child 同步。`--local-only` 可停用這個傳播。`--json` 會輸出單一 `ocx.sync.fanout/1` 文件，包含 Home 的結果與各 Child 的狀態；遭略過的 Child 也會顯示原因。Home 自身的非零結束碼會原樣回傳。Home 成功時，若傳播時略過已連結的 Child，或 Child 失敗、逾時或連結儲存區無法讀取，指令以結束碼 6 結束。用戶端發起的連結和 `--local-only` 等刻意略過的情況保留原有行為；遭略過的已連結 Child 會附帶操作建議 `hint`。文字模式下，連結儲存區無法讀取的錯誤不包含路徑。結束碼 7 保留給進行中的更新。JSON 模式下若 Home 同步擲出例外，stdout 仍只包含一份結果文件，stderr 則輸出經安全轉義的診斷訊息。
-
-傳播不會要求重新啟動 Child 上的 Codex 應用程式或 app-server。若需要重新啟動，請使用 GOAT，在完整 `ocx` Child 執行 `ocx sync --restart-codex`，或在輕量級 `ocx-child` 主機上單獨重新啟動 Codex 桌面應用程式與 `app-server` 程序。不過，Child 的固定目標同步在套用變更後的 Home 設定時，仍可能重新啟動它自己的 OpenCodex 用戶端執行階段。Home 逾時並停止本機 SSH 程序後，已開始的遠端同步仍可能在 Child 上繼續。
-
-> **Remote Link Child：** 在完整 `ocx` Child 上，`ocx sync` 也會套用 Home 的 Codex 設定並在用戶端執行階段早於該次套用啟動時重新啟動它；重新啟動失敗時原有執行階段會繼續提供服務並以非零狀態結束。在輕量級 `ocx-child` 主機上，`ocx-child sync` 會在中繼未執行時啟動 `ocx-child serve`，在 `runtimeStartedAt < lastApplyAt` 時輪替程序，並在非 `stale` 同步時盡力回報 parity（若輪替失敗，舊中繼已停止且指令以非零狀態結束；Codex 桌面應用程式與長期執行的 `app-server` 程序如需重新載入請單獨重新啟動）。Child 上的 `ocx status --json`（或 `ocx-child status --json`）與 Home 上的 `ocx link status --json` 相關欄位請見 [Remote Link apply parity](/zh-tw/reference/cli/lifecycle/#remote-link-apply-parity)（英文）。 在 Home 上，`ocx link check (--link-id <id> | --all)` 透過 SSH 執行 `ocx update --plan`（每台 Child 60 秒，不修改安裝）讀取每個由 Home 新增的 Child 的已安裝版本和更新途徑，`ocx link status --json` 會為每一列加上 `child` 區塊；詳見 [Child install, catalog and activity](/zh-tw/guides/remote-link/#child-install-catalog-and-activity)（英文）。
+> **Remote Link Child：** 在完整 `ocx` Child 上，`ocx sync` 也會套用 Home 的 Codex 設定並在用戶端執行階段早於該次套用啟動時重新啟動它；重新啟動失敗時原有執行階段會繼續提供服務並以非零狀態結束。在輕量級 `ocx-child` 主機上，`ocx-child sync` 會在中繼未執行時啟動 `ocx-child serve`，在 `runtimeStartedAt < lastApplyAt` 時輪替程序，並在非 `stale` 同步時盡力回報 parity（若輪替失敗，舊中繼已停止且指令以非零狀態結束；Codex 桌面應用程式與長期執行的 `app-server` 程序如需重新載入請單獨重新啟動）。Child 上的 `ocx status --json`（或 `ocx-child status --json`）與 Home 上的 `ocx link status --json` 相關欄位請見 [Remote Link apply parity](/zh-tw/reference/cli/lifecycle/#remote-link-apply-parity)（英文）。 在 Home 上，`ocx link check (--link-id <id> | --all)` 透過 SSH 執行 `ocx update --plan`（每台 Child 60 秒，不修改安裝）讀取每個由 Home 新增的 Child 的已安裝版本和更新途徑，`ocx link status --json` 會為每一列加上 `child` 區塊；詳見 [Child install, catalog and activity](/zh-tw/guides/remote-link/#child-install-catalog-and-activity)（英文）。`ocx link sync`、`ocx link restart-codex --yes` 和 `ocx link update --yes` 會在這些 Child 上執行同步、Codex 重新啟動和更新工作，並輸出 `ocx.link.child-job/1` 文件；詳見 [從 Home 操作 Child](/zh-tw/guides/remote-link/#從-home-操作-child)。`ocx link policy` 讀取或變更 Home 的 Child 政策；目錄自動分發預設為開啟，Home 目錄變更後會透過 SSH 同步符合條件的 Child；請參閱 [目錄自動分發與 Child 政策](/zh-tw/guides/remote-link/#目錄自動分發與-child-政策)。
 
 明確指定重新啟動旗標後，即使目錄和快取的位元組未變，成功提交 `config.toml` 變更也會觸發重新啟動。僅處理設定的操作若沒有變更、遭拒、只做預先檢查或寫入已回復，則不會觸發重新啟動。未指定重新啟動旗標時，sync 不會自動重新啟動 Codex。
 
@@ -992,3 +971,74 @@ On macOS, `ocx service status` distinguishes a loaded Desktop login item from a 
 These commands are local and do not require a running proxy. See
 [custom provider routing](/zh-tw/guides/codex-integration/#opt-in-a-custom-provider-to-managed-local-routing)
 for eligibility, restore behavior and transport preservation.
+
+#### Windows 服務停止
+
+Windows 的 `ocx stop` 透過 checked stop 停止 Task Scheduler 或原生 WinSW：先結束工作，再只終止能以本 home 的 launcher／script 完整路徑、祖先關係與建立時間綁定的 wrapper，確認退出後才優雅停止代理。之後約六秒確認 port 未被重新占用且 wrapper 未重啟，避免迴圈在成功停止後重新啟動代理。
+
+服務無法證明已停時，不向代理傳送停止請求、不還原用戶端設定，並回報失敗。JSON 保留 `outcome: "failed"`、`proxy: "unknown"`，另帶 `serviceStopReason`：
+
+| 原因 | 意義與處理 |
+| --- | --- |
+| `access-denied` | 工作或 wrapper 終止被拒，請從提升權限終端執行 |
+| `unbound-wrapper` | 路徑符合但無法綁定服務，請手動結束該 wrapper 後重試 |
+| `evidence-unreadable` | 服務／行程或 port 證據讀不到，先查 service status |
+| `unverified-budget` | 剩餘時間不足以確認停止，沒有修改；從終端重試 |
+
+若本安裝的行程已退出但其他程式占用 port，停止仍成功，JSON 帶 `portHeldByForeign: true`。`serviceStopReason` 無資訊時省略；port 檢查執行過才帶 true／false 的 `portHeldByForeign`，不增加 outcome 種類。
+
+`--deadline-ms <ms>` 從命令啟動起限制整輪停止時間；修改前會確認足夠容納最壞情況（已登記 scheduler 預設約 57 秒）。未指定時讀取 `OCX_STOP_DEADLINE_MS`，否則用 60 秒；macOS／Linux 忽略它們。
+
+停止只結束現用執行個體，登入／解鎖觸發器保留；永久移除請用 `ocx service uninstall`。service stop／uninstall、完整 uninstall 與 install 都採同一停止契約；無法證明已停時，不刪除／取代工作，install 也拒絕被其他程式占用的 port。Windows Arm 尚不能終止 wrapper，需終止時回 evidence-unreadable，請手動處理後重試。
+
+完整移除的 wrapper 殘留清理只刪檔，不終止行程。有可讀 wrapper、不可讀候選行程或讀不到行程表時，保留三個檔案並回 failed；先執行 `ocx stop` 或 `ocx service stop` 的 checked stop 再重試。
+
+### 儲存狀態與同步分別讀取
+
+模型、供應商、設定與 v2 回覆有不同完成契約。本機自訂模型儲存會盡可能同步；無代理仍儲存成功、`needsSync:true`、`sync.status:"not-attempted"`、exit 0。明確要求本機供應商 `--sync` 而無代理時，則在儲存後回非零。
+
+設定使用 `catalogRefreshPending`，live v2／catalog 使用完整 `catalogRefresh` 結果。本機 v2 mode／keep-native 及有變更的 on／off 即使沒找到 port，也會嘗試既有同步；JSON 回報真實變更與證據，未確認或失敗時非零。threads／hints 與未變更的 on／off 不新增同步。
+
+用同一目標的 `ocx v2 status --json` 或 `--live --json`、以及 `ocx system settings --json` 讀回。已儲存但 pending／unknown 不證明回滾，也不授權重送寫入。重設 grant 的 status 可能連上游，但不消耗或恢復 grant。
+
+## 從 Home 操作 Child
+
+```text
+ocx link update (--link-id <id> | --all) --yes [--no-wait] [--json]
+ocx link sync (--link-id <id> | --all) [--no-wait] [--json]
+ocx link sync --link-id <id> (--restart-app-server-only | --restart-codex --yes) [--no-wait] [--json]
+ocx link restart-codex --link-id <id> [--scope app-server|codex] --yes [--no-wait] [--json]
+```
+
+
+命令為 Home 發起的 Child 建立一個工作，以 `ocx.link.child-job/1` 文件回傳 `{schema, jobId, op, trigger, restart, state, createdAt, finishedAt, items}`。每項帶 linkId、alias、state、reason、startedAt、finishedAt，適用時另含 hint、版本、sync 結果與 restart 結果。restart 只接受一個 link；update、restart-codex 與 --restart-codex 需要 --yes。版本與平台限制見[從 Home 操作 Child](/zh-tw/guides/remote-link/#從-home-操作-child)。
+
+exit 0 表示全部成功／up-to-date 且重啟已送出；--no-wait 的 0 只表示接受，需讀回結果。exit 6 包含 busy、offline、refused、owner-action、unsupported 或部分成功原因；exit 1 是 failed、uncertain、未知狀態、等待逾時或 Home 非回送綁定。exit 2 是引數錯誤，4 是未知 link／Home 不支援，5 是操作鎖、Child 發起的 link、沒有 link 或在 Child 執行。排隊時間不計入等待上限；工作持有 link 時刪除回 `409 link_operation_in_progress`。
+
+## Home 的 Child 政策
+
+```text
+ocx link policy [--updates off|notify|auto-when-idle] [--catalog-fanout auto|manual] [--child-codex-restart never|app-server-when-idle] [--idle-after-minutes <1-60>] [--json]
+```
+
+
+此命令不啟動工作，也不回 child-job 文件。無旗標時讀取，有旗標時只改指定欄位。輸出每項一行或 JSON `{policy, warning}`。檔案損壞時 warning 為 `policy-file-invalid`，自動分發與更新保持關閉；儲存未指名的項目也保持關閉，需明確給 --catalog-fanout auto 與 --updates 才重新啟用。目錄分發預設開啟，Home 目錄變更後自動用 SSH 同步合格 Child。
+
+exit 0 成功、2 引數錯誤、4 Home 不支援、5 runtime_role_client 衝突；1 為 Home 非回送綁定、無效回應或在 Remote Link Child 執行（送出前即拒絕）。
+
+## Remote Link SSH 擷取
+
+```text
+ocx link capture start [--minutes <1-60>] [--json]
+ocx link capture stop [--json]
+ocx link capture status [--json]
+```
+
+
+控制本機短期擷取視窗，預設 15 分鐘、最多 60 分鐘。Remote Link SSH 在此期間採 `LogLevel=DEBUG1`，將遮蔽後內容存至 `<OPENCODEX_HOME>/link/ssh-capture/`。Home／Child 都可使用，不需代理或 admin token。回傳 enabled、logLevel、開始／到期時間、directory、retentionHours、maxMinutes、maxFileBytes、files、removed。stop 關閉視窗但保留檔案；start／status 刪除最後寫入超過 72 小時的檔案並回報數量。詳見[SSH 診斷](/zh-tw/guides/remote-link/#擷取-ssh-診斷)。無效引數 exit 2。
+
+以精確 link ID 進行遠端復原，先讀回狀態，不重送不確定的撤銷：
+
+```bash
+ocx link recover --link-id lnk_0123456789abcdef --json
+```

@@ -301,7 +301,7 @@ pin 讓供應商的 cache 重用成為可能；供應商是否真的提供快取
 無頭設定時，請明確儲存金鑰，或參照 TypeSafe 環境變數：
 
 ```bash
-ocx provider add jev --api-key "${TYPESAFE_API_KEY}"
+ocx provider add jev --api-key '${TYPESAFE_API_KEY}'
 ```
 
 當 provider 沒有已儲存的金鑰時，決策客戶端也接受直接使用 `TYPESAFE_API_KEY`，以及 `ocx provider add` 印出的標準 provider 衍生別名 `JEV_API_KEY`。
@@ -831,3 +831,11 @@ selection-state reset. Existing cooldown-wait behavior is unchanged when disable
 復原階段只屬於預留它的請求；其他請求仍會看到已儲存的冷卻。這項預留會隨著請求經過冷卻等待與 JEV 選擇。
 在等待期間重新可用的目標，若其冷卻沒有改變，仍可重試。較新的冷卻會取消該目標的預留。
 成功只會清除回應者那個未改變的冷卻；未嘗試的目標與較新的失敗則保留各自的冷卻。
+
+TypeSafe 環境參考使用單引號，讓 shell 傳參考而非祕密。`TYPESAFE_API_KEY` 需在代理啟動環境設定；執行中的代理需重啟，背景服務要設定自己的環境。
+
+供應商／閘道以 HTTP 400／422 及結構化 moderation_refusal／content_filter 拒絕時，可不冷卻而嘗試下一目標；只有文字判決仍停止。若同時有 cyber／bio、invalid_prompt、content_policy_violation 或 safety-system 等終止拒絕，仍停止。
+
+直接選取且明確信任 allowEncryptedV2AgentTasks:true 的金鑰 Responses 路徑可收密文，但不因此成為 combo 的合格目標。無可選原生目標或原生嘗試耗盡後，明確啟用的 agentTaskRecovery 可在符合 loopback、原生 incoming credential 與不持久化明文等條件下復原 spawned task，再走 routed combo。未曾原生派送且復原失敗時回 400；已原生失敗時保留最後錯誤。
+
+combo set 支援 --cooldown-reprobe on|off 與 --cooldown-reprobe-interval。每次復原 pass 的間隔預約只存在每個 combo 的記憶體，代理重啟／選擇狀態重設會清除；cooldown 本身仍持久化。最早冷卻恢復時間同時出現在 Retry-After 與錯誤文字，例如 retry in ~2m，Claude Messages 也顯示同一等待時間。

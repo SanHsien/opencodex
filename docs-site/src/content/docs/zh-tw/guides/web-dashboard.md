@@ -17,6 +17,11 @@ ocx gui
 
 ```bash
 ocx start
+```
+
+讓代理在該終端中持續執行。在第二個終端中啟動 GUI 開發伺服器：
+
+```bash
 bun run dev:gui
 ```
 
@@ -31,7 +36,7 @@ GUI session 簽發到服務的頁面中，並在到期或代理重啟時靜默�
 儀表板本身仍然只在記憶體中保留 token，不會寫入 `localStorage` 或 `sessionStorage`；是否儲存完全
 由瀏覽器或密碼管理員決定。
 
-**記住此裝置** 預設關閉。直接 HTTPS 儀表板（或本機回環）會將管理員權杖交換為伺服器簽發的 HttpOnly、SameSite=Strict 裝置 Cookie，以及另外存入本站 localStorage 的裝置證明。HTTPS 下 Cookie 使用 Secure，且僅限本主機。Cookie 和證明都不是管理員權杖，且都不能單獨使用。同一主機名稱的不同連接埠共用 Cookie；依來源隔離的證明將記住的裝置綁定至本儀表板來源。仍建議使用專用主機名稱。管理員權杖不存入 localStorage 或 sessionStorage。瀏覽器儲存空間無法使用或無法儲存證明時，記住裝置會回報無法使用。對於位於終止 TLS 的反向代理後方的獨立儀表板，OpenCodex 看到的是一般 HTTP 請求，因此會拒絕為該位址記住裝置；登入對話框會說明原因並關閉該選項，不勾選記住裝置仍可正常登入。受信任的 Hub 管理監聽器例外，仍可記住裝置。
+**記住此裝置** 預設關閉。直接 HTTPS 儀表板（或本機回環）會將管理員權杖交換為伺服器簽發的 HttpOnly、SameSite=Strict 裝置 Cookie，以及另外存入本站 localStorage 的裝置證明。HTTPS 下 Cookie 使用 Secure，且僅限本主機。Cookie 和證明都不是管理員權杖，且都不能單獨使用。同一主機名稱的不同連接埠共用 Cookie；依來源隔離的證明將記住的裝置綁定至本儀表板來源。仍建議使用專用主機名稱。管理員權杖不存入 localStorage 或 sessionStorage。瀏覽器儲存空間無法使用或無法儲存證明時，記住裝置會回報無法使用。對於位於終止 TLS 的反向代理後方的獨立儀表板，OpenCodex 看到的是一般 HTTP 請求，因此會拒絕為該位址記住裝置；登入對話框會說明原因並關閉該選項，不勾選記住裝置仍可正常登入。受信任的 Hub 管理監聽器例外，仍可記住裝置。例外：獨立模式下設定 `dashboardTrustedProxy` 後，透過這一個代理也能記住裝置（需指定確切的 HTTPS 來源、代理的 IP 位址與要信任的標頭；詳見英文指南的「Remember behind a reverse proxy」）。
 
 私有 dashboard-sessions.json 儲存 Cookie、證明、管理員憑證和瀏覽器識別的雜湊、伺服器來源及固定30天有效期。重新開啟 Safari 主畫面應用程式時，有效裝置記錄可恢復短期工作階段。記住的工作階段無法核准需要同意的操作：GitHub 星號、重設額度消耗、提示詞層編輯、Meta Muse 登入、桌面相容性變更或配額驗證。這些操作請使用新的本機工作階段或已配對工作階段。中繼、跨來源和遠端明文 HTTP 不支援記住裝置。過期、瀏覽器識別變更，或更換管理員權杖並重新啟動伺服器後需重新登入。
 
@@ -409,3 +414,22 @@ test for the same provider returns 409. Completed diagnostics and applicability
 results return 200, including a structured error when inference fails. Destination
 policy and provider egress settings apply; redirects, retries and failover are disabled.
 For the CLI workflow, see [Providers and accounts](/zh-tw/reference/cli/providers-accounts/).
+
+### 在反向代理後記住登入
+
+僅獨立執行個體可主動啟用。指定瀏覽器使用的精確 origin，以及代理連入本機時的來源位址：
+
+```json
+"dashboardTrustedProxy": {
+  "origin": "https://ocx.example.com",
+  "proxyAddresses": ["192.168.1.20"],
+  "trustHeaders": ["x-forwarded-proto"]
+}
+```
+
+
+`origin` 必須是單一 HTTPS origin，不接受 HTTP、萬用字元、路徑或憑證。`proxyAddresses` 僅接受精確 IP，不能是範圍或主機名稱；其他來源不論標頭為何都不視為代理。預設從 `Host` 讀取瀏覽器主機，因此代理須保留原始 Host。可在 `trustHeaders` 指定 `x-forwarded-host`，以及要求 HTTPS 的 `x-forwarded-proto`。任一轉送標頭若與設定矛盾或含多個 hop，即使不受信任也會拒絕。
+
+非預設 port 必須一併轉送（nginx 使用 `$http_host` 而非 `$host`）。同一代理也接受 HTTP 時，應信任 `x-forwarded-proto`，避免將明文誤認為 HTTPS。此設定只在要求 admin token 的非回送綁定生效；Hub 使用自己的管理 listener。
+
+記住登入仍需 admin token，代理驗證的用戶端憑證不會自行授權。Origin 檢查、30 天到期、Forget 與同意限制不變。`ocx config set` 會拒絕無效值；手動寫入的無效設定會停用此功能。變更後重啟 OpenCodex。

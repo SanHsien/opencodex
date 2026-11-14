@@ -142,3 +142,34 @@ Before running the installer, stop the proxy through its owner and confirm it ha
    Wait for the owning app and proxy to exit before installing.
 
 Run the downloaded installer, then reopen the desktop app or restart the owning service.
+
+## 每次更新與同步都回 update-in-flight
+
+中斷更新可能留下 OpenCodex home 的 `update-orchestrated.json`。Windows 預設位置為 `%USERPROFILE%\.opencodex`。新版 marker 記錄 Windows installer 的 supervisor，15 分鐘保護期過後且 supervisor／launcher 都退出時可自行清除；舊版沒有 supervisor 證據，無法自行判定。CLI 會在此情況印 marker 路徑與更名方式，dashboard／Desktop／Remote Link 只回原因。
+
+更名前確認其他視窗沒有 update，沒有 npm／pnpm／bun global install，Windows Task Manager 沒有執行 npm 的 node.exe 或 npm-install-job.ps1 的 PowerShell。然後更名保留備份：
+
+```bat
+ren "%USERPROFILE%\.opencodex\update-orchestrated.json" update-orchestrated.json.stale
+```
+
+```bash
+mv -n ~/.opencodex/update-orchestrated.json ~/.opencodex/update-orchestrated.json.stale
+```
+
+若 OPENCODEX_HOME 不同，使用錯誤實際列出的路徑；有 shell 特殊字元或 Windows 非 ASCII 時不產生命令，請手動更名。仍在保護期或記錄行程仍存活時不顯示復原指引，應等待。fork 的 registry 自更新維持關閉，不能把這份上游復原流程當成啟用更新的方式。
+
+## pnpm 更新回報路徑像 global store
+
+pnpm 11／12 的全域套件是連到 store 的 link。updater 只在 `pnpm store path` 回報此安裝使用的 store，且套件位於其內時接受；像 store 的路徑、標記檔或 .modules.yaml 都不足以證明。
+
+首次辨識無法確認時，在安裝／刪除前拒絕（store 查詢本身可能建空資料夾），訊息包含 this install's path looks like a pnpm global store 與替代命令。pnpm add 後也重查；答案改變時不回滾，因已無法確認回滾寫入哪個 store。先查 ocx --version。
+
+常見原因為未驗證的 pnpm 版本、PNPM_HOME 或祖先符號連結、非單一絕對 v<N> store 回應、Windows 路徑含 `"%!^&|<>`，或資料夾只有類似 store 的名稱。上游可直接用 pnpm 更新再重啟：
+
+```bash
+pnpm add -g @bitkyc08/opencodex@latest
+```
+
+
+預設 pnpm 11／12 可通過檢查；本 fork 不發 npm 且自更新關閉，安裝仍使用 fork 的 Windows MSI。

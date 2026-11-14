@@ -19,7 +19,7 @@ description: OpenCodex pull request 的審查就緒門檻、貢獻者責任、�
 
 ## 自動化 gate
 
-有三個決定性的檢查會在人工作業之前執行，每個失敗訊息都會確切告訴你該改什麼：
+確定性的檢查會在人工作業之前執行，每個失敗訊息都會確切告訴你該改什麼：
 
 - **PR 品質（`enforce-target`）。** Pull request 必須以 `dev` 為目標，並帶有真正的描述：變更內容與原因的 **Summary**，加上 **Test plan**（或同等實質內容）。當 diff 更動 `gui/` 下的檔案，或 GitHub 對大型 diff 回傳不完整的變更檔清單時，描述必須包含 UI 變更的截圖；檢查會讓 PR 維持 draft 並留言，直到截圖出現。不完整的檔案清單會保守地視為 GUI 變更。維護者可以針對 `gui/` 變更、GUI 路徑分類誤判、或不完整檔案清單的誤判，加上 `gui-screenshot-waived` label 來豁免截圖要求；新增或移除該 label 會立即重新評估 gate。舊式維護者留言（例如「no gui changes」）在下次 PR 事件時仍會為相容性而辨識，但留言本身不再觸發這個特權 PR gate。貢獻者不能自行豁免截圖要求。
   沒有 repository push 權限的貢獻者 PR 會以 draft 開啟，並維持 draft 直到描述中的四個格子的 review-ready 檢查清單完成：必要的本機驗證通過，並記錄命令、結果及任何完整套件例外、分支位於最新 `dev` commit、所有正確的 Codex 與 CodeRabbit 發現都已修正、以及 ready-for-review 確認。當每個格子都勾選後，檢查會把 PR 標記為可審查，並通知 `MAINTAINERS.md` 中列出的維護者（不含作者）。gate 的狀態與「該做什麼」集中在單一 bot 留言中，每次執行都會重寫，所以只需看一個地方。完成綁定在 PR head 所指的確切 commit：如果之後又推出新 commit，gate 會把 PR 移回 draft、重設檢查清單與維護者通知，並要求你針對最新程式碼再次測試並勾選。重新定位到 `dev` 會自動清除錯誤分支訊息，並被 gate 記住；draft 會一直持續到檢查清單完成。

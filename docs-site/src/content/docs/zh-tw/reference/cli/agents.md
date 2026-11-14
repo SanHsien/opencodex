@@ -94,76 +94,22 @@ distinguishes native apply deferral/refusal from a saved setting; a missing or
 mismatched new setting is unverified and nonzero. Read status for full observed
 settings, including web reasoning. Do not retry blindly on ownership refusal.
 
-### Memory and compaction routing overrides
+### `ocx v2 <status|on|off|mode <v1|default|v2|v2-plaintext>|threads <n>>`
 
-```bash
-ocx agent memory-models show --json
-ocx agent memory-models set --extract-model <route> --extract-effort high --consolidation-model <route> --json
-ocx agent memory-models show --json
-ocx agent compaction-routing show --json
-ocx agent compaction-routing set --model <route> --effort high --triggers manual,auto --sources '<exact-source>,<provider>/*' --json
-ocx agent compaction-routing show --json
-```
-
-Each set replaces the entire block. Memory accepts extract/consolidation model
-and optional effort pairs; an effort without that phase's model is refused.
-Omitted phases use their existing/default route, not a stopped pipeline.
-`--file memory.json` instead reads the block itself:
-
-```json
-{"extract":{"model":"example/model","reasoningEffort":"high"}}
-```
-
-An explicit memory file `{}` is valid and remains an empty override block;
-`ocx agent memory-models clear --json` writes null. Both mean no custom override,
-not disabled memory processing. File mode is exclusive with scalar options.
-Regular UTF-8 files or piped `--file -` use the 4 MiB/30-second bounded-input
-contract, including a 4 MiB serialized request limit.
-
-Compaction files contain required `model`, optional `reasoningEffort`, `triggers`
-and `sourceModels`. Triggers are unique `manual`/`auto`; source selectors must be
-exact and unique, or provider/* patterns. Omitted triggers use server defaults;
-omitted sources select all sources, not the previous custom scope.
-`ocx agent compaction-routing clear --json` writes null and restores ordinary
-compaction routing without disabling compaction. No synthetic model call verifies
-these saves.
-
-Reads return only `{memoryModels: blockOrNull}` or `{compactionRouting: blockOrNull}`.
-Writes add `catalogRefreshPending`: false exits 0 without promising every client
-applied, true exits 1 after saving. Missing/malformed pending evidence is null with
-`verification:"unverified"` and exit 1. Read back before recovery.
-
-### `ocx effort [status|set|clear]`
-
-透過即時代理檢查或變更主要與子代理的 reasoning-effort 上限；代理無法使用時則改用本機設定。
-上限值為 `low`、`medium`、`high`、`xhigh`、`max` 與 `ultra`；`-` 會清除所選的上限。`none`
-與 `minimal` 不是有效的上限層級，會在探測代理或送出更新之前就被拒絕，即使同一指令中的另一個
-選項有效也一樣。它們對 `--injection` 仍然有效，因為那設定的是獨立的注入 effort，不是上限。
-
-```bash
-ocx effort status --json
-ocx effort set --main high --subagent low
-ocx effort set --subagent -
-```
-
-Status 會保留既有已儲存／執行階段的上限值，並在 `warnings` 中回報不支援的值（沒有不支援值時
-為空陣列）。人類可讀輸出會顯示相同的警告，並指名被忽略的欄位與修正指令。Status 永不修復或
-重寫這些值。被忽略的子代理欄位不會移除有效的主要上限。`ocx effort clear` 會清除兩個上限，
-同時保留獨立的注入 effort 設定。上限適用的請求介面請見[子代理介面](/zh-tw/guides/sub-agent-surface/)。
-
-### `ocx v2 <status|on|off|mode <v1|default|v2>|keep-native-v1 <on|off>|threads <n>|mode-hint <text|--clear>>`
-
-管理 Codex 的 `multi_agent_v2` 功能旗標與三態多代理介面模式。
+管理 Codex 的 `multi_agent_v2` 功能旗標與四態多代理介面模式。
 
 | 子指令 | 動作 |
 | --- | --- |
 | `status`（預設） | 回報目前 v2 旗標、多代理模式與執行緒並行數。 |
-| `on` | 啟用全域 `multi_agent_v2` 功能並重新同步目錄。當 v2 混合 pin 生效中時會被拒絕，因為全域覆寫會破壞它。 |
+| `on` | 啟用 `multi_agent_v2` 功能並重新同步目錄；`v2-plaintext` 或混合 pin 生效時會拒絕，因為全域強制會蓋過目錄 pin。 |
 | `off` | 停用 `multi_agent_v2` 功能並重新同步目錄。 |
 | `mode v1` | 將所有模型強制為 v1、停用原生 v2，並保留現用執行緒上限。 |
 | `mode default` | 遵循上游模型介面 pin。 |
-| `mode v2` | 將模型強制為 v2，並保留現用執行緒上限。當 `keep-native-v1` 關閉時，啟用全域原生 v2；開啟時，停用全域覆寫並改用目錄 pin。 |
-| `keep-native-v1 on\|off` | 在 `mode v2` 下，讓 ChatGPT 原生模型維持 v1、路由模型維持 v2。啟用它會在目錄同步前停用全域 V2 覆寫。 |
+| `mode v2` | 將所有模型設為 v2 並保留執行緒上限；`keep-native-v1` 關閉時啟用全域原生 v2，開啟時關閉全域強制並使用目錄 pin。 |
+| `mode v2-plaintext --acknowledge-plaintext-agent-messages` | 為新工作階段選擇 V2、關閉全域強制，並以明文傳遞符合條件的工作。進入需要 `--acknowledge-plaintext-agent-messages`。 |
+| `keep-native-v1 on\|off` | 在 `mode v2` 下讓原生 ChatGPT 使用 v1、路由模型使用 v2；啟用時關閉全域 V2 強制。 |
+| `mode-hint <text>` | 為所有模型與推理強度設定主動委派提示。 |
+| `mode-hint --clear` | 移除提示，恢復依推理強度決定的策略。 |
 | `threads <n>` | 將現用 v1/v2 執行緒上限設為不小於 1 的整數。 |
 | `mode-hint <text>` | 為每個模型與 effort 設定 Proactive delegation hint（Ultra 模式）。 |
 | `mode-hint --clear` | 移除該提示，恢復依 effort 決定的政策（ultra = proactive）。 |
@@ -178,7 +124,7 @@ ocx v2 mode-hint "Proactive multi-agent delegation is active."
 ocx v2 mode-hint --clear
 ```
 
-`mode` 子指令將 `multiAgentMode` 寫入 opencodex 設定並重新同步 Codex 目錄。模式與旗標轉換會在有效的 v1/v2 Codex key 之間移動目前的數值執行緒上限；失敗的轉換會還原原始的 `config.toml`。變更套用於新的 Codex session，執行中的 session 則保留其 pin 的介面。
+`mode` 子指令將 `multiAgentMode` 寫入 opencodex 設定並重新同步 Codex 目錄。模式與旗標轉換會在有效的 v1/v2 Codex key 之間移動目前的數值執行緒上限；失敗的轉換會還原原始的 `config.toml`。目錄介面變更套用於新的 Codex session，執行中的 session 則保留其 pin；啟用明文編譯也會影響既有 V2 session 的後續合格請求。Subagents 的 Ultra 開啟開關需要已啟用原生功能且模式為 `v2`，或選擇 `v2-plaintext`（其全域強制保持關閉）；僅執行 `ocx v2 on` 不符合條件。
 
 Codex 會在套用所選模型的目錄 pin 之前，先解析已啟用的全域 `multi_agent_v2` 覆寫。因此混合式
 `keep-native-v1` 合約會讓那個全域覆寫保持關閉；否則一個標記為 `v1` 的原生列仍會以 V2 啟動，
@@ -1247,3 +1193,41 @@ This takes effect on the **next routed `ocx claude` launch**, injecting `CLAUDE_
 Claude Code **2.1.257 or newer** is required for FORCE. Plugin and built-in agents (including Explore/Plan) and per-call model arguments are overridden. Forks and subagent skills with `model: inherit` keep the main conversation model. The main loop and Haiku/small-fast sidecars are unaffected. Existing roster files remain available.
 
 The dashboard warns about old or unknown CLI versions, unavailable targets, and either variable already present in `settings.json` → `env` (which overrides launch env). Detection is read-only and server-local: it cannot inspect another launch shell, another machine, or project-local settings. An unknown result is not proof of force support.
+
+### 記憶與壓縮路由覆寫
+
+```bash
+ocx agent memory-models show --json
+ocx agent memory-models set --extract-model <route> --extract-effort high --consolidation-model <route> --json
+ocx agent memory-models show --json
+ocx agent compaction-routing show --json
+ocx agent compaction-routing set --model <route> --effort high --triggers manual,auto --sources '<exact-source>,<provider>/*' --json
+ocx agent compaction-routing show --json
+```
+
+
+每次 set 取代整個區塊。記憶設定接受 extract／consolidation 模型及各自可選的 effort；只給 effort 而沒有對應模型會被拒絕。省略的階段使用既有／預設路由，不會停掉管線。`--file memory.json` 可改讀區塊本身：
+
+```json
+{"extract":{"model":"example/model","reasoningEffort":"high"}}
+```
+
+
+記憶檔明確的 `{}` 有效，保留空覆寫區塊；`ocx agent memory-models clear --json` 寫入 null，兩者都不代表停用記憶處理。檔案模式與逐欄選項互斥。一般 UTF-8 檔或 `--file -` 管線輸入遵循 4 MiB／30 秒上限，序列化請求同樣限 4 MiB。
+
+壓縮檔必須含 `model`，可含 `reasoningEffort`、不重複的 `manual`／`auto` triggers 與 `sourceModels`。來源選擇器須精確且不重複，或使用 provider/*。省略 triggers 使用伺服器預設，省略來源表示全部來源，不沿用舊範圍。`ocx agent compaction-routing clear --json` 寫 null 還原一般路由，不停用壓縮；儲存時不做合成模型呼叫。
+
+讀取僅回傳 `{memoryModels: blockOrNull}` 或 `{compactionRouting: blockOrNull}`。寫入另含 `catalogRefreshPending`：false 時 exit 0，不保證每個用戶端已套用；true 時已儲存但 exit 1。證據缺少或無效時為 null、`verification:"unverified"` 且 exit 1。復原前先讀回。
+
+### `ocx effort [status|set|clear]`
+
+透過執行中的代理檢查或修改主代理／子代理推理強度上限；無代理時使用本機設定。上限可為 `low`、`medium`、`high`、`xhigh`、`max`、`ultra`，`-` 清除指定上限。`none` 與 `minimal` 不是上限，即使同一命令的其他選項有效，也會在探測或寫入前拒絕；它們仍可用於獨立的 `--injection`。
+
+```bash
+ocx effort status --json
+ocx effort set --main high --subagent low
+ocx effort set --subagent -
+```
+
+
+status 保留既有值，並在 `warnings` 與人類輸出指出不支援而忽略的欄位及修正命令，不自行修復。忽略子代理欄位不會清掉有效主代理上限。clear 清除兩者，保留獨立 injection effort。適用的請求介面見[子代理](/zh-tw/guides/sub-agent-surface/)。

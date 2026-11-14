@@ -10,7 +10,7 @@ description: 監聽器、遠端存取、許可金鑰、逾時、儲存、sidecar
 | Field | Type | Default | Meaning |
 | --- | --- | --- | --- |
 | `port` | `number` | `10100` | 代理監聽連接埠。 |
-| `hostname?` | `string` | `"127.0.0.1"` | 綁定位址。非回送綁定需要 `OPENCODEX_API_AUTH_TOKEN`。 |
+| `hostname?` | `string` | `"127.0.0.1"` | 繫結位址。非回環繫結需要 `config.apiKeys` 中的用戶端金鑰，或依序從 `OPENCODEX_API_AUTH_TOKEN`、`OCX_API_TOKEN_FILE`、已安裝且僅擁有者可讀的 `service-api-token` 解析的共用資料權杖。參閱[遠端存取](#remote-access)。 |
 | `proxy?` | `string` | — | 對外 HTTP(S) 或 SOCKS5 代理 URL（`socks5://host:port`）或 `${ENV_VAR}`。HTTP URL 僅在那些變數未設定時套用至 `HTTP_PROXY` / `HTTPS_PROXY`。SOCKS5 URL 使用內建的真實 SOCKS5 通道，也會套用至 `ALL_PROXY`（`ocx start --socks5`），並清除此行程繼承的 `HTTP(S)_PROXY`。回送保留在 `NO_PROXY` 中。 |
 | `emptyCompletionRetry?` | `boolean` | `false` | 明確啟用：當 Responses 完成時沒有文字或工具呼叫，以相同請求重試一次。重試可能產生費用。`OCX_EMPTY_COMPLETION_RETRY=0` 可在不變更設定的情況下停用；combo 與 routed-compaction turn 不適用。 |
 | `stallTimeoutSec?` | `number` | `300`（public）/ 停用（local） | 上游無有效進展（Responses 與原生 Chat）多少秒後切斷串流。未設定時**本地**上游（loopback、private、`.local`/`.lan` 名稱）預設停用，公網上游預設 300 秒；正值對兩者生效（最小 1 秒）；`0` 全面停用靜默 watchdog。對於把 canonical ChatGPT SSE 折疊為非串流 JSON 的 Responses 請求，即使 watchdog 已停用，仍保留獨立的 15 分鐘整體上限。`/v1/responses/compact` 的擱置回應本文讀取共用此預算，但即使本地上游也預設 300 秒；明確值（含 `0`）優先。 |
@@ -231,10 +231,11 @@ OCX_FRESH_CONNECTION_HOSTS="api.example.com, relay.example.net" ocx start
 這些主機的每次請求延遲會略微上升，因為每個請求都要付出一次全新的 TCP 與 TLS 交握；只指名真正
 需要的主機。
 
+<a id="remote-access"></a>
+
 ## 遠端存取
 
-預設的 `127.0.0.1` 綁定僅限回送。如 `0.0.0.0` 或 tailnet IP 的非回送位址，需要在 `/api/*` 與
-data plane 上都進行 token 認證。
+預設的 `127.0.0.1` 僅繫結回環位址。繫結至 `0.0.0.0` 等非回環位址時，模型請求需要 `config.apiKeys` 中的用戶端金鑰或共用資料權杖。管理路由 `/api/*` 使用獨立的 `OPENCODEX_ADMIN_AUTH_TOKEN` 或產生的管理員權杖，在回環上也一樣。資料憑證不授予管理存取權；切勿將管理員權杖交給模型用戶端。
 
 你不需要自己產生那個 token。`ocx service install` 會在非回送綁定上依下列順序準備一個：
 安裝時 shell 中的 `OPENCODEX_API_AUTH_TOKEN`，接著是既有的、僅擁有者可讀的 `service-api-token`
@@ -256,7 +257,7 @@ export OPENCODEX_API_AUTH_TOKEN="your-secret-token"
 ocx start
 ```
 
-客戶端應發送：
+範例使用環境變數權杖。若 `OCX_API_TOKEN_FILE` 或私有 `service-api-token` 已提供權杖，或已設定有效的用戶端金鑰，就不必匯出該變數。`ocx service install` 可以建立缺少的權杖檔案，不強制要求匯出此變數。模型用戶端可以傳送：
 
 ```text
 x-opencodex-api-key: your-secret-token
@@ -264,13 +265,13 @@ x-opencodex-api-key: your-secret-token
 
 | 端點 | `Authorization: Bearer` | `x-opencodex-api-key` | `x-api-key` |
 | --- | --- | --- | --- |
-| `/v1/responses` | 不接受 | **必填** | 不接受 |
-| `/v1/chat/completions` | 不接受 | **必填** | 不接受 |
+| `/v1/responses` | 接受 | 接受 | 不接受 |
+| `/v1/chat/completions` | 接受 | 接受 | 不接受 |
 | `/v1/messages` | 接受 | 接受 | 接受 |
 | `/v1/messages/count_tokens` | 接受 | 接受 | 接受 |
 | `/v1/models` | 接受 | 接受 | 接受 |
 
-Responses 與 Chat Completions 為可能的 Codex Direct passthrough 保留 `Authorization`，因此那裡僅接受專屬的許可標頭。儀表板生成的 `apiKeys` 可在啟動後取代環境 token；候選值以常數時間比對。
+Responses 與 Chat Completions 接受 `x-opencodex-api-key` 中已識別的資料平面憑證；僅當該專用標頭缺少或移除前後空白後為空時，也接受 `Authorization: Bearer`。移除前後空白後非空的專用標頭具有優先權，即使其值無效，有效 bearer 也不能補救。無關 bearer 不授予代理存取權，這些路由不接受 `x-api-key`。產生的 `apiKeys` 與共用資料權杖以常數時間比較；管理憑證不授予模型存取權。
 
 Messages 與 `count_tokens` 為相容路由客戶端仍接受三種許可形式。但在非回環綁定上，原生 Anthropic 透傳只透過
 `x-opencodex-api-key` 接受代理許可，並將 `Authorization` 與 `x-api-key` 保留給 Anthropic

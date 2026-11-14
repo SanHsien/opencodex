@@ -99,7 +99,7 @@ Home is unreachable, a Child answers a retryable `503` (and a Hub client's dashb
 { "error": "link tunnel unavailable", "code": "home_unreachable", "message": "The Home is unreachable, and OpenCodex did not serve this request from this device's local providers. …" }
 ```
 
-Nothing is sent to a local provider, and the link key and the request body never leave the device.
+不會送往本機供應商。若轉送尚未開始，link key 與內文都不離開裝置；若已開始，Home 可能已收到或處理請求，結果屬不確定。重試前先檢查 Home；OpenCodex 不會自動重放已派送的請求。
 
 ### Per-device settings
 

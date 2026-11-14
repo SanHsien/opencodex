@@ -386,20 +386,18 @@ describe("ocx telemetry CLI and interactive prompt", () => {
     }
   });
 
-  test("D12: README.md, translated READMEs, and code-signing.md state the telemetry privacy policy accurately", () => {
+  // Fork: README.md is the fork's own Traditional Chinese document (no telemetry paragraph; a fork build
+  // never sends, decision D1) and readme/ keeps only the zh-TW translation. The pages that do state the
+  // policy must stay accurate, and README.md must never carry the old "no transfer" claim.
+  test("D12: fork README, zh-TW README, and code-signing.md state the telemetry privacy policy accurately", () => {
+    const claim = "will not transfer any information to other networked systems";
+    expect(readFileSync(repoPath("README.md"), "utf8")).not.toContain(claim);
     for (const rel of [
-      "README.md",
-      "readme/README.fr.md",
-      "readme/README.ja.md",
-      "readme/README.ko.md",
-      "readme/README.ru.md",
-      "readme/README.tr.md",
-      "readme/README.zh-CN.md",
       "readme/README.zh-TW.md",
       "docs-site/src/content/docs/reference/code-signing.md",
     ]) {
       const text = readFileSync(repoPath(rel), "utf8");
-      expect(text).not.toContain("will not transfer any information to other networked systems");
+      expect(text).not.toContain(claim);
       expect(text).toContain("telemetry.opencodex.me");
       expect(text).toContain("ocx telemetry disable");
       expect(text).toContain("OCX_TELEMETRY=0");

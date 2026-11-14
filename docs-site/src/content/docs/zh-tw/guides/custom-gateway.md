@@ -27,7 +27,7 @@ ocx models live --provider my-gateway --json
 
 閘道可以在沒有模型清單端點的情況下提供 completion。若其營運者提供了支援的原始 ID，請在既有的
 provider 上設定 `liveModels: false` 與 `models: ["vendor/model"]`，保留其他欄位，並把範例 ID 換成
-提供的值。請參閱[靜態模型目錄](/zh-tw/reference/configuration/providers/#static-model-allowlists)。
+提供的值。請參閱[靜態模型目錄](/zh-tw/reference/configuration/providers/#靜態模型允許清單)。
 
 直接編輯 `config.json` 之前，先儲存工作並等待進行中的請求完成；停止代理可能中斷它們。請透過代理的
 擁有者停止它：從系統匣結束 OpenCodex Desktop、服務安裝使用 `ocx service stop`，或對未受監管的代理
@@ -38,7 +38,7 @@ provider 上設定 `liveModels: false` 與 `models: ["vendor/model"]`，保留�
 不需要目錄列。
 
 在即時目錄中檢視實際的 `id`、`namespaced`、`disabled` 與 `initialSelectionPending` 欄位。初始選取
-可能讓模型保持關閉或待定，請參閱[初始模型選取](/zh-tw/reference/configuration/providers/#initial-model-selection)。
+可能讓模型保持關閉或待定，請參閱[初始模型選取](/zh-tw/reference/configuration/providers/#首次註冊時的模型選擇)。
 啟用某一列之前請先處理待定的初始選取。對可見性指令，請把 provider 名稱與該列的**原始 `id`** 組合，
 並保留 ID 內的斜線：
 

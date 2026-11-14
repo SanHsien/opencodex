@@ -331,4 +331,4 @@ opencodex 絕不會在遙測 payload 中包含下列任何內容：
   [`services/telemetry-collector/`](https://github.com/lidge-jun/opencodex/tree/main/services/telemetry-collector)。
   兩者都匯入 `src/telemetry/contract.ts` 的封閉名冊，因此任何名冊或線上合約的新增都採用**收集器優先
   （collector-first）**的推出方式（先部署到收集器，之後客戶端版本才會送出）。
-  `config.json` 結構與環境變數請見[伺服器與執行階段設定](/zh-tw/reference/configuration/server/#telemetry-telemetry)。
+  `config.json` 結構與環境變數請見[伺服器與執行階段設定](/zh-tw/reference/configuration/server/#遙測telemetry)。

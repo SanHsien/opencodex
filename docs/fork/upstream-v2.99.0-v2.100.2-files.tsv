@@ -528,13 +528,13 @@ scripts/bump-dev-version.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.
 scripts/ci/release-preflight.sh	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
 scripts/ci/test-durations.tsv	M	MOD	fork-adapted	adapt	upstream rows minus tests absent from the fork; upstream header plus a fork note
 scripts/ci/test-durations.windows.tsv	M	MOD	fork-adapted	adapt	fork-measured weights kept; new tests have no row until the next refresh from CI logs
-scripts/doctor-gui-if-changed.ts	M	MOD	fork-adapted	adapt	three-way merge, no conflict
+scripts/doctor-gui-if-changed.ts	M	MOD	fork-adapted	adapt	three-way merge, no conflict; base-ref fallback restored to origin/main/main (upstream moved it to origin/dev/dev; fork has no dev branch); CI follow-up in UPSTREAM.md
 scripts/generate-client-support-matrix.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
 scripts/generate-ocx-skill-surface.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
 scripts/generate-update-trust-root.ts	A	NEW	same-as-upstream	adopt	new upstream file; blob taken
 scripts/install.ps1	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
 scripts/install.sh	M	-	absent	n/a	REMOVED_FILES (tools/fork-hygiene-guards.ts)
-scripts/lint-gui-if-changed.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
+scripts/lint-gui-if-changed.ts	M	TAKE	fork-adapted	adapt	upstream blob taken, then the base-ref fallback restored to origin/main/main (upstream moved it to origin/dev/dev; fork has no dev branch); CI follow-up in UPSTREAM.md
 scripts/model-metadata.source.json	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
 scripts/release-version-sources.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken
 scripts/release.ts	M	TAKE	same-as-upstream	adopt	fork unmodified vs v2.99.0; upstream blob taken

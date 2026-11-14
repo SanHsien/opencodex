@@ -27,7 +27,8 @@
 | `.github/workflows/upstream-check.yml` | 每週檢查上游有沒有比 `tools/upstream_baseline.json` 的 `integrated_tag` 更新的 stable release tag，並列出它帶來的未審查 commit（上游已無 `main`，見 [`docs/fork/DECISIONS.md`](docs/fork/DECISIONS.md) 2026-11-09） |
 | 上游 `release.yml` / `deploy-docs.yml` / issue·PR 治理 workflow | 加上只在官方 `lidge-jun/opencodex` 執行的 guard |
 | 桌面 app 的接管提示（`ocx resolve` 的 `service-managed`、app 內 `guest_choice.rs`） | 有已註冊的背景服務（Windows 的 `opencodex-proxy` 排程）監管同一個 runtime 時，`ocx resolve --json` 的 `takeover` 回 `blocked`／`service-managed`，app 以訪客附著、不問、不停任何東西；使用者在提示按 **Stay a guest** 會被記住（`guest-choice.json`，依設定目錄與擁有者宣告），不再每次啟動重問。改動檔：`src/cli/resolve.ts`、`desktop/src-tauri/src/{ownership,startup,guest_choice,lib}.rs`、`structure/ops/desktop-supervision.md`、`docs-site/.../guides/desktop-app.md`（en／zh-tw）；理由與重放注意見 [`docs/fork/DECISIONS.md`](docs/fork/DECISIONS.md) 2026-11-11 |
-| 上游 `ci.yml` | **保留並在本 fork 跑**，這是產品回歸；macOS 與 Linux 專屬 job（Ubuntu 測試分片、macOS 分片／control／widget、docker、npm-global、Linux 桌面打包）已移除，完整測試只留 Windows 十四分片（排程與手動 dispatch） |
+| Windows wrapper 殘留清理 | 停止路徑採 checked stop；殘留清理不終止行程，可讀 wrapper 仍在、行程表不可讀或候選不可讀時回 failed 並留檔，無 wrapper 才具名清檔。WinSW ownership 在刪除前確認（`docs/fork/DECISIONS.md` 2026-11-15 D2） |
+| 上游 `ci.yml` | **保留並在本 fork 跑**，這是產品回歸；macOS 與 Linux 專屬 job（Ubuntu 測試分片、macOS 分片／control／widget、docker、npm-global、Linux 桌面打包）已移除，完整測試只留 Windows 14 分片（排程與手動 dispatch） |
 | Windows-only 檔案層級移除 | 2026-10-28 起只支援 Windows：`app/`、`docker/`、`Dockerfile`／`compose.yaml`、macOS／Linux 打包與安裝腳本、只在非 Windows 跑的測試與 docs 頁整檔刪除（清單：`tools/fork-hygiene-guards.ts` 的 `REMOVED_DIRECTORIES`／`REMOVED_FILES`／`REMOVED_CI_JOBS`）。**檔案內的平台分支一律保留**（`process.platform === "win32" ? … : …`、POSIX 程式路徑、混合測試檔的 `skipIf`），因為同步靠整檔刪除重放、檔案內編輯會每次衝突。`release.yml` 原樣保留（官方 repo 專用）。`tests/ci-workflows/fork-hygiene.test.ts` 在被刪路徑／job／非 Windows runner 標籤回來時失敗；同步時的處理見 [`docs/fork/UPSTREAM.md`](docs/fork/UPSTREAM.md) 的「Windows-only 刪除清單」，理由見 [`docs/fork/DECISIONS.md`](docs/fork/DECISIONS.md) |
 | `.github/workflows/fork-release-windows.yml` | 只在 `SanHsien/opencodex` 執行：tag（`v*`）或手動觸發，建置未簽章 Windows MSI 並附到本 fork 的 GitHub release；不使用上游簽章／updater 祕鑰 |
 | 桌面自動更新 | `tauri.conf.json` 的 `createUpdaterArtifacts` 為 false、`plugins.updater.endpoints` 為空，不會檢查上游 release |
@@ -38,7 +39,7 @@
 
 ## 分支與 remote
 
-- `origin/main`：SanHsien 維護主線。產品基底為最近一次同步的上游穩定版（`tools/upstream_baseline.json` 的 `integrated_tag`／`integrated_through`，目前 `v2.100.2`）加上 fork overlay；此產品來源不會自行推進 `tools/upstream_baseline.json` 的審查水位。
+- `origin/main`：SanHsien 維護主線。產品基底為最近一次同步的上游穩定版（`tools/upstream_baseline.json` 的 `integrated_tag`／`integrated_through`，目前 `v2.100.3`）加上 fork overlay；此產品來源不會自行推進 `tools/upstream_baseline.json` 的審查水位。
 - 上游發版線：以 stable release tag（`vX.Y.Z`）為準。上游已於 2026-11-08 刪除 `main`，遠端 HEAD 為 `dev`（PR 整合線，含尚未發版的 commit，不追蹤）；上游 tag 抓進 `refs/upstream-tags/`，見 [`docs/fork/UPSTREAM.md`](docs/fork/UPSTREAM.md)。
 - 本 fork **刻意維持壓縮歷史**（2026-09-27 壓縮，2026-10-06 維護者確認），與上游沒有共同祖先，也不建立 ancestry bridge。上游更新一律以 tag 間的 diff（`git diff <integrated_tag> <新 tag>`）套到 `main`，以單一 parent 的 commit 提交，再推進 `integrated_through`／`integrated_tag`。2026-10-03 的 `v2.76.0`、2026-10-19 的 `v2.88.0`、2026-10-23 的 `v2.91.0`、2026-10-25 的 `v2.92.0`、2026-10-27 的 `v2.93.0`、2026-11-06 的 `v2.97.0`、2026-11-08 的 `v2.98.0`、2026-11-09 的 `v2.99.0` 整合皆用此法。細節見 [`docs/fork/UPSTREAM.md`](docs/fork/UPSTREAM.md) 與 [`docs/fork/DECISIONS.md`](docs/fork/DECISIONS.md)。絕不推送上游。
 - 本 fork 的一般修改**直接推 `origin/main`**，不開功能分支、不開維護 PR（維護者 2026-08-22 指示，與其他 repo 一致）。

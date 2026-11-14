@@ -894,3 +894,29 @@ No new `platform` issues since that number.
 繁中頁面的內部連結須使用翻譯後標題產生的 slug。安裝、桌面、整合、Remote Link、子代理介面、生命週期、帳號與兩份設定參考中的 14 筆連結已改用既有繁中段落的錨點；目標段落均存在，無須新增段落或修改英文頁。
 
 2026-11-14 表列的 React Doctor native npx 啟動案例，其 255 發生於 `bun run doctor` 選到 `node_modules/.bin/bun.exe` 後無法 remap，早於 npx 啟動。`doctor-gui-if-changed.ts` 在 HEAD 與 v2.100.3 都可遇到同一錯誤；fork 的 `run-react-doctor.ts` 與 GUI doctor scripts 相對 HEAD 沒有差異。這是本機 Bun 套件啟動器問題，並非 v2.100.3 重放回歸；保留缺少 npx 時略過掃描的處理及原測試斷言。
+
+
+## 2026-11-15：`v2.100.2..v2.100.3` 遠端 CI 結果與水位推進
+
+分支 `ci/tagdiff-v2.100.3`；逐檔清冊共 1684 檔（採用 1247、適配 156、不適用 281、已等價 0）。
+
+| Run | HEAD | 結果 |
+| --- | --- | --- |
+| [43617213956](https://github.com/SanHsien/opencodex/actions/runs/43617213956) | `9a3cc8dbb` 的修正前版本 | failure：gates locale parser、Windows 13/14 ocx-child filter、14/14 已刪語系、3/14 GET `/api/storage` totals、11/14 unsafe Windows ledger 第二次 plan，共五項。 |
+| [43638705529](https://github.com/SanHsien/opencodex/actions/runs/43638705529) | `9a3cc8dbbb6f849d27afbe5617d944c7c87a0690` | success：14 片 Windows 全量 CI 全綠。前三項由此 HEAD 修正，後兩項與上游 tag 相同，重跑通過，判為暫時性。 |
+
+### 問題回註
+
+- locale parser：移除漏讀同行 key 的行首錨點，保留 en／zh-TW 集合相等斷言。
+- ocx-child：補回 `remote_helper` 的 crate 與 conformance fixture 兩條 filter，維持既有 job 與權限。
+- weekly conflict：測試只讀 en／zh-TW，保留 placeholder 與翻譯斷言。
+- GET `/api/storage` 與 unsafe ledger：run `43638705529` 對應案例通過；不修改測試、產品、拒絕順序或逾時。前者兩次 inventory 間的寫入來源、後者第二次 plan 的 toolchain authority／identity 拒絕位置未確定，再次發生時依 `UPSTREAM.md` 表取證。
+- `main-quota-provenance`、`codex-launcher-diagnostics`、`codex-native-residue` 對應檔案在本輪 Windows CI 通過；偶發重審條件與非虛擬化維護者終端驗收分別保留於 `ROADMAP.md`。
+
+### 權重與水位
+
+以 run `43638705529` 的 14 份 Windows job log 執行 `scripts/ci/test-durations.ts refresh --table scripts/ci/test-durations.windows.tsv`，3258 檔均有量測值。各片 job 起訖耗時（分鐘）：1:20.5、2:25.9、3:26.5、4:28.8、5:24.1、6:25.1、7:20.4、8:26.3、9:22.0、10:15.4、11:20.6、12:21.7、13:26.1、14:18.5；最長片 28.8 分鐘，離 30 分鐘上限約 1.2 分鐘。這些是刷新前的實測，刷新後耗時由下一次正常全量 CI 觀察。
+
+水位推進到 `refs/upstream-tags/v2.100.3`（`873ec9b3b8ddf63f06738748d9132d779abefb42`），日期 2026-11-15。PR 清單維持 26 筆，issue 水位維持 8545；依據為 `70e0ee262` 判定、170 筆 commit 審查、逐檔清冊及本節綠燈 run。
+
+**未驗證**：D2 維護者機器的服務停止路徑（`ocx service stop`／`uninstall` 走 checked stop、wrapper 在跑時拒絕而不殺行程、無 wrapper 時清檔）；CI 不代替此項。`Fork maintenance`、`Catalog async contracts` 的本輪結果未查；水位推進後的 `bun tools/check-upstream-updates.ts --strict` 結果亦未取得，不宣稱 exit 0。

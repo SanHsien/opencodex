@@ -1511,3 +1511,50 @@ Windows 適用性：只用 `node:crypto` 與環境變數，不碰檔案系統、
 - D6：`pr-gates.yml` 的 label、hygiene、enforce caller 均要求官方 repository；本機 reusable workflow 來源、最小 permissions 與 callees 的既有 guard 保留，不把 PR head 程式碼帶入可寫 token 的執行環境。
 
 `#8299` 與 `#8276` 已由本版重新合入，前版「撤回」結論僅適用於 v2.100.2。版本來源維持 2.100.3，遙測與 registry 更新的 fork 閘門不變。
+
+
+## 2026-11-15：重放上游 stable `v2.100.3`（`873ec9b3b`）
+
+沿用 tag diff、單一 parent 的整合方式，內容重放與水位分開；不接回上游歷史。170 筆 commit 與 1684 檔取捨見 `UPSTREAM.md` 本輪節及兩份清冊；CI 修正後為採用 1247、適配 156、不適用 281、已等價 0。上游 tag 的版本來源仍為 2.100.0，fork 在整合前已是 2.100.3，因此本輪不再改版號。
+
+**D1（遙測與更新閘門維持）**：保留 `forkTelemetryBlocked()` 的預設關閉與 `fork-build` 理由；MSI 不連結遙測選擇頁。registry 自更新閘門與桌面 updater 的空 endpoints 維持原政策。
+
+**D2（採 checked stop，wrapper 殘留清理不殺行程）**：#7771 的三個 slice 整組採用，以建立時間綁定 PID、確認 wrapper 路徑與血緣，停止後確認 port 釋放。`windows-ops.ts` 保留具名刪檔與 `WrapperFileRemovalError`；`orchestration.ts` 先探測 scheduler／WinSW status 與 ownership，再進入刪除。殘留清理遇到可讀 wrapper 仍在、行程表不可讀或不可讀候選，一律回 failed 並留檔；沒有 wrapper 才清檔。`service repair` 的既有例外不擴大。
+
+| 選項 | 取捨 |
+| --- | --- |
+| 整組取上游並刪除 fork 殘留清理 | 不採：失去 wrapper 三檔的具名清理與失敗回報。 |
+| 保留殘留清理並沿用舊 wrapper 掃除 | 不採：繞過 checked stop 的 PID／建立時間與血緣證據。 |
+| 採 checked stop，殘留清理只確認退出後刪檔 | 採用：停止責任集中，保留 fork 的殘留清理能力。 |
+
+Windows 服務停止路徑需在維護者機器實機驗收，尚未進行；`ocx service stop`／`uninstall`、wrapper 在跑時拒絕而不殺行程、無 wrapper 時清檔的條件列入 `ROADMAP.md`。
+
+**D3（Windows 12 → 14 片，依 fork log 更新權重）**：新增 235 個測試檔與 ocx-child 冷編譯，前版最長片已達 28.1 分鐘，因此採上游 14 片，30 分鐘上限不變。以 run `43638705529` 的 14 份 job log 執行 `scripts/ci/test-durations.ts refresh --table scripts/ci/test-durations.windows.tsv`，3258 個檔案均有量測值。各片 job 起訖耗時（分鐘）：1:20.5、2:25.9、3:26.5、4:28.8、5:24.1、6:25.1、7:20.4、8:26.3、9:22.0、10:15.4、11:20.6、12:21.7、13:26.1、14:18.5。最長 4/14 為 28.8 分鐘，距 30 分鐘約 1.2 分鐘，餘裕仍薄；這是刷新權重前的耗時，不推定刷新後必然縮短。後續由下一次正常全量 CI 觀察，不為此額外 dispatch。
+
+**D4（ocx-child cache fill 採用但不在 fork 下載）**：`src/link/child-binary-cache-fill.mjs` 在 win32 直接 skipped，缺少套件內 `native/ocx-child/SHA256SUMS` 也不下載。fork 不打包該檔，`tests/ci-workflows/fork-hygiene.test.ts` 固定此政策；不新增另一道下載閘門。
+
+**D5（只保留 en／zh-TW）**：不採新增的 85 頁西班牙文，也不恢復已刪語系。通用 locale resolver 與獨立解析契約保留；GUI copy 縮為兩欄，新文件頁提供繁中版本。locale key 與 weekly conflict 測試仍保留集合、placeholder 與翻譯斷言。
+
+**D6（PR gates 保留官方 repo guard）**：`pr-gates.yml` 三個 caller 只在官方 repository 執行，沿用本地 reusable workflow、最小 permissions 與 callees 的 guard；不讓可寫 token 執行 PR head 程式碼。
+
+**安全邊界取捨**：逐檔理由沿用 [清冊](upstream-v2.100.2-v2.100.3-files.tsv)，本輪主要邊界如下。
+
+| 檔案／範圍 | 判定 |
+| --- | --- |
+| `src/service/windows-checked-stop.ts`、`windows-stop-binding.ts`、`windows-process-native.ts`、`desktop/src-tauri/src/runtime_stop.rs` | 採上游 checked stop 與停止期限；DLL 使用 trusted system directory，PID 重用時拒絕終止。fork 殘留清理依 D2 適配。 |
+| `src/server/management/desktop-compatibility-authorization.ts` 與 desktop compatibility routes | 舊授權模組隨 tag 刪除；採 GUI 配對與本機 step-up 授權。 |
+| `src/server/` 的 remembered-device／reverse-proxy 接線 | 採操作者明確指名的反向代理設定，不擴大預設信任範圍。 |
+| `src/lib/config-ownership.ts` 與 Windows command-line reader | 採 ACL 完成後才寫入與行程內命令列讀取，保留 fork 邊界。 |
+| `src/link/` 的 SSH identity、route、relay、journal 與 diagnostics | 採 identity file ownership／可寫目錄拒絕、明確路由不讀 ssh_config、Content-Length 與 inbound 上限、撤銷指名 link id、未知結果維持關閉；擷取輸出保留 redact。Home／Child WebSocket release gate 維持關閉。 |
+| `src/link/child-binary-cache-fill.mjs` | D4 的 Windows 與套件 digest 雙重條件保留。 |
+| `src/update/` 的 interrupted marker、pnpm store 與 Windows restart | 採上游恢復條件、store 身分檢查與 checked stop；fork 更新閘門保留。 |
+| `src/codex/native-main-auth-file.ts` | 集中 auth.json 讀取時保留 fork token 驗證、bounded read 與 file identity helper。 |
+| `src/codex/cli-update-job.ts`、`src/link/diagnostics-read.ts`、`src/link/ssh-capture.ts` | 依逐檔清冊採用 tag 版本，保留其 identity 比對。 |
+| `scripts/git-repository-env.ts`、`scripts/test.ts`、`tests/preload.ts` | 採繼承 Git 環境隔離，保留 fork 測試 home 與 Desktop 環境隔離。 |
+| `.github/workflows/pr-gates.yml` | 依 D6 保留官方 repo guard 與權限限制。 |
+
+`#8299`、`#8276` 已由 #8415（`6d19642f2`）與 #8416（`f23910ab2`）重新合入；上一輪撤回結論僅適用於 v2.100.2。
+
+**CI 紅燈根因與修法**：首輪 run `43617213956` 的五項問題，三項由 `9a3cc8dbb` 修正：locale parser 的行首錨點漏讀同行 key，恢復 tag 的完整解析；remote-helper 缺 ocx-child crate 與 conformance fixture 兩條 filter，補回觸發路徑；weekly conflict 測試引用已刪語系，縮為 en／zh-TW 並保留原斷言。Windows 3/14 的 GET `/api/storage` totals 與 11/14 的 unsafe ledger 第二次 plan 均與 tag 相同，run `43638705529` 同案例通過，判為暫時性，不改產品、拒絕順序、斷言或逾時；再次發生時依 `UPSTREAM.md` 表中方向取得細部證據。
+
+**水位依據**：分支 `ci/tagdiff-v2.100.3` 的 run `43638705529`、HEAD `9a3cc8dbbb6f849d27afbe5617d944c7c87a0690` 的 14 片 Windows 全量 CI 全綠，配合 170 筆審查與逐檔清冊，推進 `integrated_tag = v2.100.3`、`reviewed_through`／`integrated_through = 873ec9b3b8ddf63f06738748d9132d779abefb42`、`reviewed_date = 2026-11-15`。PR／issue 欄位依 `70e0ee262`：26 筆精確 PR 清單、PR scalar 8086、截止日 2026-10-28、issue 水位 8545，均不變。D2 實機驗收獨立保留。

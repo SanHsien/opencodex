@@ -1623,20 +1623,26 @@ PR 軸的精確已審清單為 26 筆；舊範圍仍是 #8086 以下且於 2026-
 詳細決策見 [DECISIONS.md](DECISIONS.md#v21003-pr-issue-decisions)。`reviewed_pr_numbers`、`reviewed_issue_through` 與 commit 水位均維持原值。
 
 
-## 2026-11-14：v2.100.2..v2.100.3 內容重放
+## 2026-11-15（續）：全版 tag diff 重放 v2.100.2..v2.100.3
 
-逐檔取捨見 [1684 檔清冊](upstream-v2.100.2-v2.100.3-files.tsv)：採用 1248、適配 155、不適用 281、已等價 0。三方合併的 48 個衝突檔保留各自的 fork 邊界；TSV 的 note 欄逐檔記錄取捨。
+逐檔取捨見 [1684 檔清冊](upstream-v2.100.2-v2.100.3-files.tsv)：採用 1247、適配 156、不適用 281、已等價 0（重放時為 1248／155／281／0；CI 修正後依清冊更新）。三方合併的 48 個衝突檔保留各自的 fork 邊界；TSV 的 note 欄逐檔記錄取捨。
 
-Windows 停止採 checked stop，殘留 wrapper 清理只確認行程已退出再刪檔；Windows suite 改為 14 分片，既有 fork 權重保留、新檔以 tag 權重作種子。PR gates 的三個 caller 都有官方 repo guard。GUI／文件只保留 en／zh-TW，通用 locale resolver 與獨立解析契約保留。D4 的 child binary cache fill 在 Windows 不下載，fork 不含其授權下載的 SHA256SUMS。版本來源維持 2.100.3，遙測與更新閘門不變。
+Windows 停止採 checked stop，殘留 wrapper 清理只確認行程已退出再刪檔；Windows suite 改為 14 分片，權重以 run `43638705529` 的 14 份 Windows job log 刷新，共 3258 檔均有量測值。PR gates 的三個 caller 都有官方 repo guard。GUI／文件只保留 en／zh-TW，通用 locale resolver 與獨立解析契約保留。D4 的 child binary cache fill 在 Windows 不下載，fork 不含其授權下載的 SHA256SUMS。版本來源維持 2.100.3，遙測與更新閘門不變。
 
-`#8299`、`#8276` 隨本版重新合入。舊版撤回紀錄仍描述當時的 tag；本節不改審查或整合水位。決策理由見 [DECISIONS.md](DECISIONS.md)。
+`#8299`、`#8276` 隨本版重新合入。舊版撤回紀錄仍描述當時的 tag；本輪審查與整合水位見本節末。決策理由見 [DECISIONS.md](DECISIONS.md)。
 
 ### CI 後續修正（v2.100.3）
+
+首輪 run `43617213956` 紅燈五項；`9a3cc8dbb` 修正前三項整合適配遺漏。run `43638705529`（HEAD `9a3cc8dbbb6f849d27afbe5617d944c7c87a0690`）14 片 Windows 全綠，後兩項依下表結案；遠端結果詳見 `REVIEW.md` 同日節。
 
 | 失敗項目 | 原因與上游對照 | 修正／判定 |
 | --- | --- | --- |
 | gates：locale key sets | `claude-desktop-locale.test.ts` 的行首錨點每行只讀第一個 key；英文的 `models.newPolicy_admit` 與其他 key 同行，繁中獨立成行，形成 4456／4457 的假差異。tag 同檔已移除錨點；重放沒有帶入此修正。 | 整合適配遺漏：恢復 tag 的完整 key 解析，保留兩語系的集合相等斷言。 |
 | Windows 13/14：ocx-child 選擇 | `ci.yml` 已有 crate 的 Linux fmt／clippy／test 步驟，但 `remote_helper` 少了 tag 的 `native/ocx-child/**` 與 conformance fixture 兩條 filter；TSV 雖記錄採用 Rust checks，未完整帶入觸發路徑。 | 整合適配遺漏：補回兩條 filter，沿用既有 job 與權限；與 14 分片計算無關。 |
 | Windows 14/14：weekly conflict 語系 | 新增測試按 tag 原樣採用，硬編碼十一語系，第一個缺檔為 `ko`；與 fork 的 en／zh-TW 邊界不符。 | 整合適配遺漏：只列 fork 支援的兩語系，各自仍檢查兩個 placeholder 與非英文翻譯。 |
-| Windows 11/14：unsafe ledger／disabled plan | run 43617213956 中 unsafe ledger 的斷言已走完，失敗在 helper 第 171 行的第二次 plan：預期 `windows_apply_disabled`，實際 `target_unresolved`。helper、plan、Windows apply 與 toolchain provenance 均與 tag 相同；第二次 plan 仍須重開 toolchain authority 並重新核對 identity。 | 尚無足夠證據區分 toolchain authority／identity 拒絕與暫時性；不改拒絕順序、不放寬斷言。需取得第二次 plan 的 target reason 及 toolchain 觀測拒絕位置。 |
-| Windows 3/14：storage totals | 測試與 tag 相同。HTTP 掃描回 666 bytes／4 files，隨後同步 filesystem inventory 為 1178 bytes／6 files；兩次讀取不是同一快照，目錄容許 native-main SQLite 與 sidecar 寫入。 | 存在掃描間寫入的競態證據，尚未確認新增的兩個檔名與 producer；不能斷言是整合回歸或單純執行器暫停。保留完整 totals 相等斷言，需捕捉兩次 inventory 的差集及寫入來源。 |
+| Windows 11/14：unsafe ledger／disabled plan | run 43617213956 中 unsafe ledger 的斷言已走完，失敗在 helper 第 171 行的第二次 plan：預期 `windows_apply_disabled`，實際 `target_unresolved`。helper、plan、Windows apply 與 toolchain provenance 均與 tag 相同；第二次 plan 仍須重開 toolchain authority 並重新核對 identity。 | run `43638705529` 同案例通過，判為暫時性失敗；不改拒絕順序、不放寬斷言。若再次發生，再取第二次 plan 的 target reason 與 toolchain 觀測拒絕位置。 |
+| Windows 3/14：storage totals | 測試與 tag 相同。HTTP 掃描回 666 bytes／4 files，隨後同步 filesystem inventory 為 1178 bytes／6 files；兩次讀取不是同一快照，目錄容許 native-main SQLite 與 sidecar 寫入。 | run `43638705529` 同案例通過，判為暫時性失敗；保留完整 totals 相等斷言。掃描間寫入的具體來源仍未確定；若再次發生，再取兩次 inventory 差集與寫入來源。 |
+
+### 水位
+
+`tools/upstream_baseline.json`：`integrated_tag = v2.100.3`、`reviewed_through`／`integrated_through = 873ec9b3b8ddf63f06738748d9132d779abefb42`、`reviewed_date = 2026-11-15`。依據為 170 筆 commit 審查、1684 檔逐檔清冊，以及分支 `ci/tagdiff-v2.100.3` 在 `9a3cc8dbb` 的 Windows 全量 CI run `43638705529`。PR／issue 欄位沿用 `70e0ee262` 的判定：26 筆 `reviewed_pr_numbers`、`reviewed_pr_through = 8086`、`reviewed_pr_closed_before = 2026-10-28`、`reviewed_issue_through = 8545`。#8246、#8318、#8545 仍延後；D2 維護者機器的服務停止路徑實機驗收尚未進行，列入 `ROADMAP.md`，不以 CI 代替。

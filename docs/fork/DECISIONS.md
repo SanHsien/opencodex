@@ -1477,3 +1477,26 @@ Windows 適用性：只用 `node:crypto` 與環境變數，不碰檔案系統、
 - 驗收 run `43587187450`（同分支 `8c220aad6`，`workflow_dispatch` lane=all）：12 個 Windows shard、`keyring windows`、`gates`、aggregate `ci` 全部 success（`windows native-main claim diagnostic` 依設計 skipped）。**未涉及**：`Fork maintenance`、`Catalog async contracts` 沒有對此分支觸發，這兩個 workflow 的結果在本輪**未驗證**。
 - 權重：依該 run 的 12 份 Windows job log 跑 `scripts/ci/test-durations.ts refresh --table scripts/ci/test-durations.windows.tsv`（3033 檔，`61a0582c0`）。該 run 各片耗時（job 起訖，分鐘）：1/12 20.0、2/12 22.5、3/12 23.3、4/12 25.1、5/12 24.7、6/12 21.2、7/12 24.2、8/12 26.3、9/12 23.6、10/12 19.4、11/12 23.1、12/12 28.1。最長片 12/12 為 28.1 分鐘，離 30 分鐘上限只剩約 1.9 分鐘，比 2026-11-09 的 26.9 分鐘更薄；刷新後的權重還沒有 CI 量測，所以不在此決定 13 片，沿用 `ROADMAP.md`「Windows 12 片 shard 的餘裕偏薄」列的處理流程，下一個全量 run 後判斷。
 - 水位推進：`tools/upstream_baseline.json` 的 `integrated_tag` 由 `v2.99.0` 推到 `v2.100.2`，`integrated_through`／`reviewed_through` 為 `61147ec681bc8374d350e0eae08b71c117c6df30`，`reviewed_date` 為 2026-11-14；`reviewed_pr_numbers` 加入 7941、8504、8650，`reviewed_issue_through` 由 8336 推到 8545（上一節判定）。依據：run `43587187450` 全綠加逐檔清冊。`bun tools/check-upstream-updates.ts --strict` 推進後 PR 軸與 issue 軸都是空的，但 commit 軸仍列出 `v2.100.3` 的 170 筆而 **exit 1**，是上一節決定三預告的預期狀態，不是回歸；要等整合 `v2.100.3` 才會 exit 0。
+
+## 2026-11-14：v2.100.3 commit 軸整合前取捨（未整合）
+
+170 筆 commit 的主題判定見 [UPSTREAM.md](UPSTREAM.md#v21003-commit-review)，逐筆規模與理由見 [commit 清冊](upstream-v2.100.2-v2.100.3-commits.md)。採用／適配是後續 tag diff 的整合決策；fork 基底仍是 `v2.100.2`，不推進水位。
+
+**重新合入 #8299、#8276**：前節決定七的「不在本版」只指 `v2.100.2`。`v2.100.3` 已含 #8415（`6d19642f2`，SSE 未分類錯誤轉為 `response.failed`）與 #8416（`f23910ab2`，route intent 與逐裝置 client materialization）；這輪採重新合入的版本，不另外 cherry-pick 被撤回的 `9aeffab72`、`83c9c3e6c`。
+
+<a id="v21003-pr-issue-decisions"></a>
+
+## 2026-11-14：v2.100.3 PR／issue 軸判定
+
+**PR 軸**：報告沒有待分類 closed-unmerged PR，既有 26 筆清單不變。#7941 不另採，由 #7918（`a80a329e1`）取代，保留 fork token 與 file identity 適配；#8504 不另採，由 #8531（`34a872c3b`）的 carry 版本取代；#8650 不採，與 #8648（`741d4d4c3`）重複且只改 fork 不保留的西班牙文。
+
+**Issue 軸**：報告沒有 #8545 之後的新 `platform` issue，並非 `Not checked`。既有項目逐筆複查如下；事實與來源連結見 [UPSTREAM.md](UPSTREAM.md#v21003-pr-issue-review)。
+
+| Issue | 決定 | 重審條件 |
+| --- | --- | --- |
+| #7771 | 採本版三個 slice，依 T3 適配 checked stop 與 wrapper 檔殘留清理；上一節「只有設計」不再適用於 v2.100.3。上游實作存在與 fork 修復分開判定。 | 重放與適配完成後，以 Task Scheduler wrapper、停止後 port 釋放及桌面接管結果判斷。 |
+| #8246 | 相關但延後；MSI 沒有新增停止舊 runtime 的接線，保留 ROADMAP 既有列。 | 上游有直接修正，或 MSI 升級重現並能判定重啟責任。 |
+| #8318 | 相關但延後；Tailscale hostname 的 timeout 未有針對性修復，保留 ROADMAP 既有列。 | 上游直接修正，或同主機 bind／listener 證據能在不放寬 unknown 契約下證明 absent。 |
+| #8545 | 相關但延後；#8529 不證明 legacy bare-flag／companion owner 分類已完整解決，不新增重複工作列。 | 整合時對照 Windows wrapper marker、disconnect／restart 及不可證明 owner 的拒絕路徑。 |
+
+**水位與路線圖**：`tools/upstream_baseline.json` 不變。PR／issue 軸沒有新增項，刪除 ROADMAP 已完成的分類列；stable 整合、MSI 與 Tailscale 列仍保留，不宣稱整版整合完成。

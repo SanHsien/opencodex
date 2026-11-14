@@ -1575,3 +1575,49 @@ issue 軸：strict 新列出 `#8181`（desktop takeover 在預設 bind 時，`ru
 ### 水位
 
 **已推進**（獨立 commit `docs(upstream): integrate v2.100.2 — advance watermarks`）。`tools/upstream_baseline.json`：`integrated_tag = v2.100.2`、`reviewed_through`／`integrated_through = 61147ec681bc8374d350e0eae08b71c117c6df30`、`reviewed_date = 2026-11-14`、`reviewed_pr_numbers` 加 7941、8504、8650、`reviewed_issue_through = 8545`。依據是分支 `ci/tagdiff-v2.100.2` 在 `8c220aad6` 的 Windows 全量 CI run `43587187450`（12 個 Windows shard、`keyring windows`、`gates`、aggregate `ci` 全部 success；首輪 run `43582644150` 紅燈的原因與修正見上表），加上逐檔清冊。`bun tools/check-upstream-updates.ts --strict` 在新水位上 PR 軸與 issue 軸為空，commit 軸仍有 `v2.100.3` 的 170 筆，exit 1（預期，`DECISIONS.md` 2026-11-14 決定三）。決定記在 `DECISIONS.md` 2026-11-14（續）。
+
+<a id="v21003-commit-review"></a>
+
+## 2026-11-14：v2.100.2..v2.100.3 commit 軸整合前審查（170 筆，未整合）
+
+範圍：`refs/upstream-tags/v2.100.2`（`61147ec68`）→ `refs/upstream-tags/v2.100.3`（`873ec9b3b`）；fork 基準 `3f2f1a1af`。逐筆 hash、日期、規模、判定與主旨見 [170 筆 commit 清冊](upstream-v2.100.2-v2.100.3-commits.md)。採用與適配均指後續 tag diff 的取捨；目前產品基底與水位仍是 `v2.100.2`。
+
+| 主題 | 筆數 | 判定與整合限制 |
+| --- | --- | --- |
+| T1 CI／發版政策 | 8 | 適配：Windows 14 片，保留 fork 權重與觸發政策；`pr-gates.yml` 各 job 加官方 repo guard。採 release evidence 檔但不執行上游發版。不採 macOS／Linux 測試 shard；既有 `remote-helper` 的 `ocx-child` 步驟採用。 |
+| T2 其他測試穩定化 | 13 | 採用 Windows 路徑、port 碰撞重試、測試隔離與計時修正。 |
+| T3 Windows 服務與停止 | 7 | 適配 #7771：停止路徑採 checked stop（PID＋建立時間綁定、wrapper 血緣、port 釋放）；保留 wrapper 檔殘留清理但不在清理函式殺行程。wrapper 仍在、行程表不可讀或候選不可讀時回 failed 並留檔；`service repair` 仍是舊停止路徑的例外。 |
+| T4 更新 | 8 | 採用 interrupted marker、pnpm store 與 Windows restart 修正；`forkSelfUpdateBlocked()` 維持在安裝前，保留 symlink 能力判斷。 |
+| T5 設定與 ACL | 4 | 採用行程內 Windows 命令列讀取、服務替換證明與 config-root ACL 寫入修正；保留 fork 的安全邊界。 |
+| T6 Remote Link 與 ocx-child | 69 | 採用多路由 SSH、identity file、journal、Child 更新／同步／重啟與診斷。Home／Child WebSocket release gate 維持關閉；bounded read 與 file identity helper 保留。cache fill 在 win32 跳過，套件缺 `native/ocx-child/SHA256SUMS` 時不下載，fork 維持不打包該檔。 |
+| T7 Claude／Anthropic／advisor | 8 | 採用 translated Messages Advisor、OAuth auto review 與背景 quota cooldown 解除；#8504 取 #8531（`34a872c3b`）的 carry 版本，不另採原 PR。 |
+| T8 provider／routing／responses／usage／Codex | 38 | 採用；#7918（`a80a329e1`）的 `parseCodexTokens()` 保留 fork token 驗證，`native-main-auth-file.ts` 的 bounded read 與 stamp 改用 identity helper；`cli-update-job.ts`、`diagnostics-read.ts`、`ssh-capture.ts` 新增比對同樣適配。測試 git 環境隔離與 fork 隔離相加；plaintext V2 維持預設關閉與同意視窗。 |
+| T9 GUI／dashboard／desktop | 6 | 採用桌面 GUI 配對與本機 step-up 授權；Codex CLI 更新頁不連到 ocx 自我更新。多語系欄位縮成 en／zh-TW；operator-named reverse proxy 須明確設定。 |
+| T10 文件與語系 | 7 | 4 筆西班牙文不採，Homebrew Cask 不適用；compaction 與 #7771 設計文件採用。通用 code-block-locale 工具可採；不依賴 es 的測試保留，不恢復已刪語系。 |
+| T11 重新合入 | 2 | 採用 #8415（`6d19642f2`）重新合入的 #8299 SSE 錯誤正規化，以及 #8416（`f23910ab2`）重新合入的 #8276 route intent。先前「不在本版」限定 `v2.100.2`；兩者已在 `v2.100.3`，不另 cherry-pick 撤回版本。 |
+| 合計 | 170 | 只記整合取捨，不推進 `tools/upstream_baseline.json`。 |
+
+<a id="v21003-pr-issue-review"></a>
+
+## 2026-11-14：v2.100.3 PR／issue 軸判定（整合前）
+
+PR 軸的精確已審清單為 26 筆；舊範圍仍是 #8086 以下且於 2026-10-28 UTC 前關閉者。本次報告明列無待分類 closed-unmerged PR，且 #8545 之後無新 `platform` issue；沒有 `Not checked`，新增待分類數均為 0。commit 軸的 170 筆與這兩軸分開記錄，不因本節判定而推進水位。
+
+### 既有 PR 判定與本版對應
+
+| PR | v2.100.3 對應 | 判定與理由 |
+| --- | --- | --- |
+| [#7941](https://github.com/lidge-jun/opencodex/pull/7941) | #7918（`a80a329e1`）在 tag 範圍內。 | 不另採已關閉分支；採合併後的 auth.json 模組，token 驗證與 file identity 依 T8 適配。 |
+| [#8504](https://github.com/lidge-jun/opencodex/pull/8504) | #8531（`34a872c3b`）在 tag 範圍內。 | 不另採原 PR；採 carry 後的背景用量解除 Anthropic 429 cooldown。 |
+| [#8650](https://github.com/lidge-jun/opencodex/pull/8650) | 同段文件已由 #8648（`741d4d4c3`）涵蓋。 | 不採；西班牙文文件重複變更，fork 只保留 en／zh-TW。 |
+
+### 既有 Windows issue 複查
+
+| Issue | 本版事實 | 判定與理由 |
+| --- | --- | --- |
+| [#7771](https://github.com/lidge-jun/opencodex/issues/7771) | 頁面仍 open，但三個實作 slice 已在 tag：#8564（`4ed97f191`）primitives、#8573（`d1f36eda2`）停止路徑接線、#8560（`46dc1a64d`）桌面停止期限；另有 #8487（`ff9f9463e`）命令列讀取。 | 適配，依 T3 採 checked stop。更正前節「Option B 只有設計」的現況；實作已在上游，尚不能當作 fork 已修復。wrapper 檔殘留清理保留；`service repair` 的例外不擴大到其他停止路徑。 |
+| [#8246](https://github.com/lidge-jun/opencodex/issues/8246) | 頁面仍 open；tag 差異未改 `desktop/scripts/windows-installer-config.ts`，也沒有以 #8246 為主題的 commit。#7771 提供停止操作，並不等於 MSI 升級會自動停止舊 runtime。 | 相關但延後；保留 ROADMAP 的 MSI 升級追蹤列，不以 checked stop 推定本題已修。 |
+| [#8318](https://github.com/lidge-jun/opencodex/issues/8318) | 頁面仍 open／needs-info；回報者將 `OCX_PROBE_TIMEOUT_MS` 調至 30000 仍失敗。`src/cli/resolve.ts` 在 tag 差異無變更；`proxy-liveness.ts` 新增的是 #8552 的同 PID 舊生命週期／owner scope 判斷，沒有修改 Tailscale bind 的連線逾時分類。 | 相關但延後；保留 ROADMAP 列，不把前版 `0c3fd3fbb` 或本版 #8552 當作修復證明，維持 unknown 不當 absent 的契約。 |
+| [#8545](https://github.com/lidge-jun/opencodex/issues/8545) | 既有 issue 水位終點；#8529（`de0914a1a`）在本版，處理 manager-owned Child 的 disconnect／restart。原題是 owner 無法證明的舊 bare-flag 與 companion proxy。 | 維持相關但延後；不以 #7771 的本機停止接線當作已解決遠端 owner 不可證明的情況，仍需在後續整合時對照 fork wrapper marker 與分類。 |
+
+詳細決策見 [DECISIONS.md](DECISIONS.md#v21003-pr-issue-decisions)。`reviewed_pr_numbers`、`reviewed_issue_through` 與 commit 水位均維持原值。

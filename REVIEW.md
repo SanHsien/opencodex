@@ -831,3 +831,54 @@ service 與 lab 相關測試（`stop-restore-writer-runner.ts` 等）會在**真
 - 3 案 symlink 測試與 19 案 service 鎖測試在本機不可驗證，要看遠端 CI。
 - `bun tools/check-upstream-updates.ts --strict` 沒有重跑（水位沒動，結果仍是整合前的 exit 1）。
 - 3.4 的實機檢查（MSI 升級、桌面接管對話框、`ocx telemetry status --json`、wrapper 迴圈）：**未驗證**，等 MSI 建出並由維護者授權。
+
+## 2026-11-14：`v2.99.0..v2.100.2` 全版 tag diff 重放的遠端 CI 結果與水位推進（分支 `ci/tagdiff-v2.100.2`）
+
+上一節（本機驗證）當時遠端 CI 尚未觸發；本節補遠端結果。判定與修正細節在 `docs/fork/UPSTREAM.md`「CI 後續修正」表與 `docs/fork/DECISIONS.md` 2026-11-14（續）決定八。
+
+| Run | HEAD | 結果 |
+| --- | --- | --- |
+| `43582644150`（`Cross-platform CI`，`workflow_dispatch` lane=all） | `ce988fe85` | failure：Windows 5/12 的 `link-child-update-contract`、Windows 12/12 的 `main-quota-provenance` 兩案；`8c220aad6` 修正 |
+| `43587187450`（同上） | `8c220aad6` | success：12 個 Windows shard、`keyring windows`、`gates`、aggregate `ci` 全部 success（`windows native-main claim diagnostic` 依設計 skipped） |
+
+**未驗證**：`Fork maintenance`、`Catalog async contracts` 沒有對此分支觸發，結果未查；`service-lifecycle` 的本機 lane 因為會寫真實的 `%LOCALAPPDATA%\OpenCodex\Runtime`（上一節），沒有重跑；`3.4` 實機檢查（MSI 升級、桌面接管對話框、`ocx telemetry status --json`、wrapper 迴圈）仍是**未驗證**，等 MSI 建出並由維護者授權。
+
+Windows 各片耗時（run `43587187450`，job 起訖分鐘）：1/12 20.0、2/12 22.5、3/12 23.3、4/12 25.1、5/12 24.7、6/12 21.2、7/12 24.2、8/12 26.3、9/12 23.6、10/12 19.4、11/12 23.1、12/12 28.1（上限 30）。權重表以該 run 的 12 份 job log 刷新（`61a0582c0`，3033 檔）；刷新後的耗時尚未量。
+
+shim 鎖回收（上游 `#8317`、`f3657d3f3`）的驗收：`bun test tests/codex-integration/codex-shim-windows-revision.test.ts tests/codex-integration/codex-shim-autorestore.test.ts`（31 pass、2 skip、0 fail）與 `codex-shim.test.ts`、`codex-shim-runtime-preflight.test.ts`（113 pass、8 skip、0 fail）；其中含「an aged lock whose owner records all name dead pids is reclaimed」與「an aged lock held by a live restore owner is never reclaimed」。對應的 `ROADMAP.md` 列已刪。
+
+### `bun tools/check-upstream-updates.ts --strict`（水位推進後，exit **1**）
+
+exit 1 的唯一原因是 commit 軸：`v2.100.3`（2026-11-14，`873ec9b3b`，與 `v2.100.2` 相差 170 筆）在本輪開工當天出現，整合目標刻意維持 `v2.100.2`（`DECISIONS.md` 2026-11-14 決定三）。PR 軸與 issue 軸都已清空。要 exit 0 只能等整合 `v2.100.3`；沒有為了讓它綠而調整水位或工具。170 列 commit 表在此略去（逐列內容與 `v2.100.2..v2.100.3` 的 `git log` 相同），其餘輸出原樣：
+
+```text
+# Upstream review report
+
+- Upstream: `https://github.com/lidge-jun/opencodex.git` (stable release tags above `v2.100.2`)
+- Reviewed through: `61147ec`
+- Last review date: 2026-11-14
+
+## Result
+
+170 upstream commit(s) require review.
+
+| Commit | Date | Subject | Files |
+| --- | --- | --- | --- |
+(170 rows omitted)
+
+Review each commit, record adopt/skip decisions in `docs/fork/DECISIONS.md`,
+then advance `tools/upstream_baseline.json` only after verification.
+
+## Upstream pull requests closed without merging
+
+Exact triage list: 26 PR(s) in `reviewed_pr_numbers`.
+Legacy coverage: PRs <= #8086 closed before 2026-10-28 (UTC).
+
+No untriaged closed-unmerged pull requests. Merged pull requests arrive with releases.
+
+## Upstream platform issues
+
+Triaged through `#8545`.
+
+No new `platform` issues since that number.
+```

@@ -38,7 +38,7 @@
 
 ## 分支與 remote
 
-- `origin/main`：SanHsien 維護主線。產品基底為最近一次同步的上游穩定版（`tools/upstream_baseline.json` 的 `integrated_tag`／`integrated_through`，目前 `v2.99.0`）加上 fork overlay；此產品來源不會自行推進 `tools/upstream_baseline.json` 的審查水位。
+- `origin/main`：SanHsien 維護主線。產品基底為最近一次同步的上游穩定版（`tools/upstream_baseline.json` 的 `integrated_tag`／`integrated_through`，目前 `v2.100.2`）加上 fork overlay；此產品來源不會自行推進 `tools/upstream_baseline.json` 的審查水位。
 - 上游發版線：以 stable release tag（`vX.Y.Z`）為準。上游已於 2026-11-08 刪除 `main`，遠端 HEAD 為 `dev`（PR 整合線，含尚未發版的 commit，不追蹤）；上游 tag 抓進 `refs/upstream-tags/`，見 [`docs/fork/UPSTREAM.md`](docs/fork/UPSTREAM.md)。
 - 本 fork **刻意維持壓縮歷史**（2026-09-27 壓縮，2026-10-06 維護者確認），與上游沒有共同祖先，也不建立 ancestry bridge。上游更新一律以 tag 間的 diff（`git diff <integrated_tag> <新 tag>`）套到 `main`，以單一 parent 的 commit 提交，再推進 `integrated_through`／`integrated_tag`。2026-10-03 的 `v2.76.0`、2026-10-19 的 `v2.88.0`、2026-10-23 的 `v2.91.0`、2026-10-25 的 `v2.92.0`、2026-10-27 的 `v2.93.0`、2026-11-06 的 `v2.97.0`、2026-11-08 的 `v2.98.0`、2026-11-09 的 `v2.99.0` 整合皆用此法。細節見 [`docs/fork/UPSTREAM.md`](docs/fork/UPSTREAM.md) 與 [`docs/fork/DECISIONS.md`](docs/fork/DECISIONS.md)。絕不推送上游。
 - 本 fork 的一般修改**直接推 `origin/main`**，不開功能分支、不開維護 PR（維護者 2026-08-22 指示，與其他 repo 一致）。

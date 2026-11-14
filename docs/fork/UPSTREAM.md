@@ -1504,7 +1504,7 @@ issue 軸：strict 新列出 `#8181`（desktop takeover 在預設 bind 時，`ru
 | #8317（shim restore 鎖有兩個已死 owner 永不回收） | 上游於 2026-11-09 關閉；修正是 #8349（`f3657d3f3`），**在 `v2.100.2` 內**。 | 觸發條件成立：隨本次重放帶入 `src/codex/shim-restore-lock.ts`；`ROADMAP.md` 該列於步驟 6 在跑過該列驗收測試後刪除。 |
 | #8318（Windows 以本機 Tailscale IP 當 `hostname`，Desktop 不啟動 runtime） | 上游仍 open（`needs-info`）。`0c3fd3fbb`（特定 bind 位址的啟動復原）在 `v2.100.2` 內，但回報者在 2.99.0 上量到 `OCX_PROBE_TIMEOUT_MS` 調到 30000 也不影響耗時（探測預算不是主因），**不能認定 `0c3fd3fbb` 已修掉**。 | `ROADMAP.md` 該列保留，整合後照該列驗收方式判斷，不直接刪列。 |
 
-## 2026-11-14（續二）：全版 tag diff 重放 `v2.99.0..v2.100.2`（`61147ec68`；分支 `ci/tagdiff-v2.100.2`，尚未推送、水位未動）
+## 2026-11-14（續二）：全版 tag diff 重放 `v2.99.0..v2.100.2`（`61147ec68`；分支 `ci/tagdiff-v2.100.2`，遠端 CI 全綠，水位已推進）
 
 `git diff refs/upstream-tags/v2.99.0 refs/upstream-tags/v2.100.2` 共 1236 個檔案（370 新增、866 修改、0 刪除；+129468／-13987；`v2.100.2` = `61147ec681bc8374d350e0eae08b71c117c6df30`），以單一 parent、不 merge 上游的 tag-diff 法套到 `main`（fork 基準 `025dd546a`，2.99.2）。重放 commit 是 `133061f40`；逐檔清冊在 [`upstream-v2.99.0-v2.100.2-files.tsv`](upstream-v2.99.0-v2.100.2-files.tsv)（欄位同前三份，由 blob 雜湊比對機器產生；後續修正造成的判定變更才手改該列並在下方記錄；`/docs/` 在 `.gitignore`，要 `git add -f`）。方法、Windows-only 刪除清單、已刪語系與生成物規則同「2026-11-05：全版 tag diff 重放」節。上游在同日又發了 `v2.100.3`，本輪刻意不納入（見上一節）。
 
@@ -1553,7 +1553,7 @@ issue 軸：strict 新列出 `#8181`（desktop takeover 在預設 bind 時，`ru
 
 ### CI 後續修正（分支 `ci/tagdiff-v2.100.2`）
 
-「重放時修掉」列併入 `133061f40`；「本機驗證」列是之後各自獨立的 commit。遠端失敗的判定以 run `43582644150`（`ce988fe85`）的對應案例與子行程注入模式區分。
+「重放時修掉」列併入 `133061f40`；「本機驗證」列是之後各自獨立的 commit。遠端失敗的判定以 run `43582644150`（`ce988fe85`）的對應案例與子行程注入模式區分；修正後 run `43587187450`（`8c220aad6`）全綠。
 
 | 來源 | 失敗與原因 | 修正 |
 | --- | --- | --- |
@@ -1570,7 +1570,8 @@ issue 軸：strict 新列出 `#8181`（desktop takeover 在預設 bind 時，`ru
 | run `43582644150`，Windows 12/12 | `verified replacement`：不是本輪新增的暫時性 ACL 失敗。正式案例在 10:05:43Z 通過；10:05:52Z 與 10:06:08Z 的同名失敗是外層診斷測試啟動的子測試。`OCX_TEST_CLAIM_REGRESSION=exit` 注入 open 錯誤（`EICACLS`、`/inheritance:r`、`child_result`、`timedOut:false`）；`timeout` 在 hardening 刻意停滯 | 維持真實 claim 的 fail-closed 行為與原有重審條件，不增加重試。`native-main-lock-file.ts` 與上游 tag 相同；`native-main-claim.ts` 僅保留 fork 的 `fileIdentityKey` identity 表示差異，沒有改 ACL 呼叫 |
 | run `43582644150`，Windows 12/12 | `positive selection exit failure reports sanitized claim diagnostics`：整合回歸。TSV 原為 adapt，合併時保留 fork 原始 stderr 尾端，與上游只輸出允許清單診斷的契約衝突；刻意拋出的 `private-marker-child-stderr` 透過失敗物件外洩 | exit code 恢復上游的精確純量斷言，selection 失敗物件僅留已限制的 refusal／detail／reads；移除兩處原始 stderr，保留 `not.toContain("private-marker")` 斷言 |
 | run `43582644150`，Windows 12/12 | `forced claim setup timeout reports the latest sanitized phase`：同一整合回歸。helper 刻意輸出敏感標記後停在 hardening；最新診斷正確是 `phase: hardening`，但 fork 的失敗物件又印出原始 stderr | 同上，僅輸出已清理診斷；保留最新 phase、私密路徑、token 與標記的全部斷言，維持原逾時 |
+| run `43587187450`（綠）後 | 12 個 Windows shard 最長 28.1 分鐘（12/12），離 `timeout-minutes: 30` 只剩約 1.9 分鐘；權重表仍是重放前的 fork 量測值 | `61a0582c0` 用該 run 的 12 份 job log 刷新 `test-durations.windows.tsv`（3033 檔）；刷新後耗時未量，`ROADMAP.md` 的 shard 餘裕列追蹤 |
 
 ### 水位
 
-**未推進**。`tools/upstream_baseline.json` 仍是 `integrated_tag = v2.99.0`；遠端 `Cross-platform CI` 全綠後才用獨立 commit 推進（計畫步驟 6）。
+**已推進**（獨立 commit `docs(upstream): integrate v2.100.2 — advance watermarks`）。`tools/upstream_baseline.json`：`integrated_tag = v2.100.2`、`reviewed_through`／`integrated_through = 61147ec681bc8374d350e0eae08b71c117c6df30`、`reviewed_date = 2026-11-14`、`reviewed_pr_numbers` 加 7941、8504、8650、`reviewed_issue_through = 8545`。依據是分支 `ci/tagdiff-v2.100.2` 在 `8c220aad6` 的 Windows 全量 CI run `43587187450`（12 個 Windows shard、`keyring windows`、`gates`、aggregate `ci` 全部 success；首輪 run `43582644150` 紅燈的原因與修正見上表），加上逐檔清冊。`bun tools/check-upstream-updates.ts --strict` 在新水位上 PR 軸與 issue 軸為空，commit 軸仍有 `v2.100.3` 的 170 筆，exit 1（預期，`DECISIONS.md` 2026-11-14 決定三）。決定記在 `DECISIONS.md` 2026-11-14（續）。

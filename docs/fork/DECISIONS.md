@@ -1410,3 +1410,49 @@ Windows 適用性：只用 `node:crypto` 與環境變數，不碰檔案系統、
 **決定二（issue #8545 相關但延後，步驟 6 把 `reviewed_issue_through` 由 8336 推到 8545）**：它是 #8529（`v2.100.3` 範圍）的後續設計題，沒有可採程式碼；`v2.100.3` 整合時重查 fork 的 Windows wrapper 子行程在 `ocx disconnect`／`restart` 的分類。
 
 **決定三（整合目標維持 `v2.100.2`，不追到 `v2.100.3`）**：`Upstream check` 追蹤的是最新 stable tag，而 `v2.100.3`（2026-11-14，與 `v2.100.2` 差 170 筆）在本輪開工當天出現。這一輪的計畫、逐檔清冊與遙測／CI 政策判斷都以 `v2.100.2` 為基準；多帶 170 筆會讓驗證範圍失控。因此水位推進到 `v2.100.2` 後 `--strict` 仍會 exit 1（commit 軸 170 筆），是預期狀態，下一輪整合 `v2.100.3`。`ROADMAP.md` 的「整合上游下一個 stable 版」列在步驟 6 改為 `v2.100.2` 之後並註明 `v2.100.3` 已發。
+
+## 2026-11-14（續）：重放上游 stable `v2.100.2`（`61147ec68`）；遙測預設關閉、CI 政策不跟上游
+
+逐檔清冊在 `docs/fork/upstream-v2.99.0-v2.100.2-files.tsv`（`/docs/` 被 `.gitignore` 擋，要 `git add -f`），計數、衝突取捨與 CI 後續修正表在 `docs/fork/UPSTREAM.md` 同日（續二）節。PR／issue 軸的判定在上一節。
+
+**決定一（重放方式與水位分開；本輪跨三個 stable tag 一次整合）**：同 2026-11-09 決定一：`git diff refs/upstream-tags/v2.99.0 refs/upstream-tags/v2.100.2`（1236 檔）逐檔套到 `main`，單一 parent、不 merge 上游，水位另開 commit。`v2.100.0`、`v2.100.1`、`v2.100.2` 三個 tag 一次吃下（163 筆 commit，線性），不逐 tag 重放。重放 commit `133061f40`：採用 948、適配 144、不適用 144、已等價 0。
+
+**決定二（版號：fork 自行設為 `2.100.2`）**：上游改成發版時才蓋版號（`569bacd67`，#8328），`v2.100.0`、`v2.100.1`、`v2.100.2` 三個 tag 的四個版本來源（`package.json`、`Cargo.toml`、`Cargo.lock`、`tauri.conf.json`）全部是 `2.100.0`。取上游 blob 只會得到 2.100.0，所以用 `bun scripts/release-version-sources.ts sync 2.100.2` 設定，`check 2.100.2` exit 0；`tauri.conf.json` 的 updater 設定（`createUpdaterArtifacts: false`、`endpoints: []`）不動。
+
+**決定三（遙測，D1：程式整份採用，fork 預設關閉、不詢問、不送出）**：上游加了預設開啟的每日匿名用量，送往寫死在常數裡的 `https://telemetry.opencodex.me`（`leaf-validators.ts` 註解明寫不接受設定），另有選擇性的公開個人檔案與排名。
+
+| 選項 | 取捨 |
+| --- | --- |
+| 照上游預設 | fork 版本的使用資料送到 fork 無法負責的第三方，也讓上游的公開統計混入 fork 版本；與 2026-10-27「更新路徑只認 fork releases」、2026-10-19 桌面自動更新停用的立場相反 |
+| **fork 預設關閉（採用）** | 程式照採，上游測試照跑；改動集中在一個閘門，要照上游預設時只改一處預設值並連結 wix fragment，可逆 |
+| 整組不採 | `src/telemetry/` 整個目錄、`services/telemetry-collector/`、docs-site 頁都要排除，之後每輪整合都要重新排除，維護成本最高；而且沒有「指到 fork 自己的 collector」這個選項 |
+
+實作：`src/telemetry/fork-policy.ts` 的 `forkTelemetryBlocked()` 預設 `true`，只有 `NODE_ENV=test` 且 `OCX_FORK_TEST_TELEMETRY=1`（`tests/preload.ts` 設定，與 `OCX_FORK_TEST_REGISTRY_UPDATE` 同做法）才放行。閘門在 `src/telemetry/consent.ts` 的 `isTelemetryEnvOptOut()`（回 `OCX_TELEMETRY`，同時讓排程不送、CLI 不詢問、dashboard 不跳同意視窗），`src/telemetry/sender.ts` 與 `src/telemetry/profile/client.ts` 兩個對外出口在 `fetch` 之前各再擋一次。`desktop/src-tauri/tauri.conf.json` **不連結** wix fragment，MSI 沒有遙測安裝頁（不送資料卻顯示告知頁會誤導）；`installer_telemetry.rs` 與 `wix/telemetry-choice.wxs` 照採（沒有登錄值時是 no-op）。測試 `tests/usage/usage-telemetry-fork-policy.test.ts`（6 案）釘住預設與兩個出口；`tests/clients/desktop-telemetry-installer.test.ts` 的「連結 fragment」案例改成斷言 fork 沒有連結。文件：`guides/telemetry.md`（en、zh-tw）開頭加 fork 說明，`FORK.md` 差異表加一列。`ROADMAP.md` 中期表有「重新評估 fork 的遙測預設」列。
+
+**決定四（CI 政策不跟上游；採 `windows-native-claim` lane）**：上游 `ci.yml` 拿掉 `push` 與 `schedule`、手動觸發只准 `dev`，fork 沒有 `dev`，靠 `push main`＋夜間排程。**保留**：`push main`／夜間排程、12 片 Windows shard、`timeout-minutes: 30`。**不採**：dev-only 的「Validate dispatch source」、`vars.LIDGE_RUNNERS` 自架 runner（`28b38f915`）與 `LIDGE_JOBS`、macOS／Linux job；`service-lifecycle.yml`、`catalog-async-contracts.yml` 保留 fork 版。**採用**：`windows-native-claim` 診斷 lane（`1c97e3c16`），`if` 去掉 `refs/heads/dev` 條件、不帶 quarantine 環境變數（2026-11-09 決定三／五：fork 不遮蔽紅燈）。規則：改測試去符合 fork 的 workflow，不改 workflow 去符合上游測試；因此改寫的契約測試是 `ci-concurrency-groups`、`ci-privacy-gate`、`release-pipeline-contract`（service-lifecycle 觸發案例）、`ci-bun-install-frozen`、`docs-link-targets`；`release.yml` 取上游全部並放回官方 repo guard。`.github/scripts/release-evidence.test.cjs` 與 `release-evidence-policy.json` 當成不執行的檔案採用，fork 的 gates 維持不加那一步。
+
+**決定五（Lab 檔案 identity 五檔取上游設計）**：`src/lab/artifacts/secure-fs.ts`、`fabric/scratch.ts`、`public/file-safety.ts`、`mutation-lock.ts`、`private-file.ts` 整檔取上游（`fabc69ee1`，#8035：OS 鎖序列化加 bigint identity），`public/community.ts` 無衝突。fork 的 `06aa61fb0` 做的是同一件事（`lstatFileIdentity`／`fstatFileIdentity`／`sameFileIdentity`），語意等價時採上游設計是 2026-11-05 的既定做法。驗證：`tests/lib/file-identity-callers.test.ts` 加 `tests/lab`（56 檔）本機合跑 552 pass，2 fail 都不是本輪回歸（`CL-08` 在負載下失敗、單檔過；`lab-activation` hook 逾時在乾淨 `v2.100.2` 同樣發生）；遠端 12 片全綠。
+
+**決定六（安全邊界逐項判定）**：以下依 commit 主旨與變更檔、重放時的衝突狀況與已跑的測試判定；**沒有逐行審**，上游沒有標 CVE 或 advisory。
+
+| Commit | 內容 | fork 判定與證據 |
+| --- | --- | --- |
+| `8c28f5f2b` #8422、`25a1bfc69` #8270 | config ownership：用掉的等待後重新驗證擁有權、首次登記等完整 owner metadata | 採用；`src/lib/config-ownership.ts` 三方合併無衝突（fork +7／-9 保留）；`tests/service`、`tests/windows`、`cli/uninstall` 的本機結果見 `REVIEW.md`，遠端 12 片全綠 |
+| `9e7b3ea9b` #8370 | `ocx link status` 改走私有本機控制 socket | 採用（新檔）；Windows named pipe／ACL 路徑的測試覆蓋**未逐項查** |
+| `e5e757afd` #8255 | 透過 SSH 把 `ocx-child` 種到遠端、`--purge` | 採用；新攻擊面（遠端寫入執行檔）。`native/ocx-child` 與 `v2.100.2` 位元相同，fork 的 MSI 與 CI 不建它；本機 `cargo test` 有 4 案因 `failed to spawn detached ocx-child serve`（存取被拒）失敗，屬環境，遠端沒有該 crate 的測試，所以遠端種子行為在 fork **未實測** |
+| `550d0d669` #8433 | 路由前拒絕格式錯誤的 retained compact input | 採用；`compact.ts` 三方合併無衝突 |
+| `809033329` #8434、`fdcf20b74` #8431、`77d97d290` #8380 | 記憶體與輸出上限 | 乾淨採用 |
+| `33726958e` #8438 | dashboard 儲存綁定目標 proxy | 乾淨採用；GUI 本機 4346 pass |
+| `10972dd96` #8294 | 離線簽章更新驗證 | 採用；實查尚未接上執行路徑，只是函式庫與測試；`forkSelfUpdateBlocked()` 不受影響，`tests/update` 整個目錄 fresh-process 跑過（4 案 symlink `EPERM` 為環境限制，乾淨 `v2.100.2` 同樣失敗） |
+| `a235ef5d1`、`9d7473f9e` | 帳號 email 顯示受 `privacy.maskEmails` 控制 | 採用；`privacy:scan` exit 0 |
+| `80d79b51a` #8327 | 不再殺掉被擋住的 Keychain 讀取 | 採用；macOS 為主，Windows 行為不變 |
+| 遙測整組 | 對外送資料 | 見決定三 |
+
+**決定七（`#8299`、`#8276` 被上游撤回，不在本版）**：`0fac612a9` 撤回 14 筆 PR，其中 12 筆在 `v2.100.2` 內重新合入，`9aeffab72`（#8299 relay 未分類 SSE 錯誤）與 `83c9c3e6c`（#8274／#8276 link route intent）沒有。兩者**不在 `v2.100.2`**，不另外 cherry-pick。
+
+**決定八（CI 紅燈的根因與修法、權重重量測、水位推進依據）**：
+- 本機驗證階段的真實回歸：`scripts/doctor-gui-if-changed.ts`、`lint-gui-if-changed.ts` 的 fallback 範圍被上游改成 `origin/dev`，fork 沒有 `dev`，掃描靜默略過；`2c6f0bcd7` 還原 `origin/main`。
+- 首輪 run `43582644150`（`ce988fe85`，`workflow_dispatch` lane=all）紅燈在 Windows 5/12 與 12/12，`8c220aad6` 修掉：(a) `link-child-update-contract` 的 CLI fixture 自訂 env 丟掉 preload 的 `NODE_ENV` 與既有測試閘門，fork 的自更新封鎖輸出 `fork-self-update-disabled`，上游 parser 的封閉原因集合不接受；只在該 fixture 補傳閘門，不改產品封鎖。(b) `main-quota-provenance` 的兩案：合併時保留了 fork 原本的原始 stderr 輸出，與上游「只輸出允許清單診斷」的隱私斷言衝突；移除原始 stderr、斷言不放寬。正式 `verified replacement` 案例本身通過，同名紅燈來自外層診斷測試啟動的子測試（刻意注入 `EICACLS` 與 hardening 逾時），不是新的暫時性 ACL 失敗，所以不增加重試。
+- 驗收 run `43587187450`（同分支 `8c220aad6`，`workflow_dispatch` lane=all）：12 個 Windows shard、`keyring windows`、`gates`、aggregate `ci` 全部 success（`windows native-main claim diagnostic` 依設計 skipped）。**未涉及**：`Fork maintenance`、`Catalog async contracts` 沒有對此分支觸發，這兩個 workflow 的結果在本輪**未驗證**。
+- 權重：依該 run 的 12 份 Windows job log 跑 `scripts/ci/test-durations.ts refresh --table scripts/ci/test-durations.windows.tsv`（3033 檔，`61a0582c0`）。該 run 各片耗時（job 起訖，分鐘）：1/12 20.0、2/12 22.5、3/12 23.3、4/12 25.1、5/12 24.7、6/12 21.2、7/12 24.2、8/12 26.3、9/12 23.6、10/12 19.4、11/12 23.1、12/12 28.1。最長片 12/12 為 28.1 分鐘，離 30 分鐘上限只剩約 1.9 分鐘，比 2026-11-09 的 26.9 分鐘更薄；刷新後的權重還沒有 CI 量測，所以不在此決定 13 片，沿用 `ROADMAP.md`「Windows 12 片 shard 的餘裕偏薄」列的處理流程，下一個全量 run 後判斷。
+- 水位推進：`tools/upstream_baseline.json` 的 `integrated_tag` 由 `v2.99.0` 推到 `v2.100.2`，`integrated_through`／`reviewed_through` 為 `61147ec681bc8374d350e0eae08b71c117c6df30`，`reviewed_date` 為 2026-11-14；`reviewed_pr_numbers` 加入 7941、8504、8650，`reviewed_issue_through` 由 8336 推到 8545（上一節判定）。依據：run `43587187450` 全綠加逐檔清冊。`bun tools/check-upstream-updates.ts --strict` 推進後 PR 軸與 issue 軸都是空的，但 commit 軸仍列出 `v2.100.3` 的 170 筆而 **exit 1**，是上一節決定三預告的預期狀態，不是回歸；要等整合 `v2.100.3` 才會 exit 0。

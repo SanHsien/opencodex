@@ -1923,6 +1923,7 @@
     "windows-lifecycle-root-acl.test.ts": "windows",
     "windows-secret-acl-diagnostics.test.ts": "windows", "windows-secret-acl.test.ts": "windows", "windows-secret-acl-removal-flight.test.ts": "windows",
     "windows-config-read-acl-memo.test.ts": "windows",
+    "powershell-quote-reversibility.test.ts": "windows", "powershell-single-quote-parse.test.ts": "windows",
     "windows-service-mutation-lock.test.ts": "windows",
     "windows-service-wrappers.test.ts": "windows",
     "windows-text-decoding.test.ts": "windows",

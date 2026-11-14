@@ -199,6 +199,8 @@ const baseStaticImports: Readonly<Record<string, readonly string[]>> = {
     "import { type Channel, type Installer, PKG, STANDALONE_UPDATE_HINT, checkUpdatePackageIntegrity, currentVersion, defaultUpdateTag, detectInstall, detectInstallOwnership, latestVersion, miseUpdateCommand, updateCommand, updateCommandStr, resolveCurrentPnpmGlobalOwner, resolvePnpmActiveLauncher, } from \"./index\";",
     "import { isNewer } from \"./notify\";",
     "import { isRealBunBinary } from \"../lib/bun-binary-validator.mjs\";",
+    // Pure string-escaping helper (no I/O, no process access); quotes the elevated relaunch PowerShell literals.
+    "import { powerShellSingleQuoted } from \"../lib/powershell-quote\";",
     "import { planWindowsTrayUpdate } from \"./tray-update-plan.mjs\";",
     "import { GUI_UPDATE_FAILURE_NEXT_STEP } from \"./update-failure-guidance.mjs\";",
     "import { npmCachePreflightFailureMessage, runNpmCachePreflight, type NpmCachePreflightReason, } from \"./npm-cache-preflight.mjs\";",

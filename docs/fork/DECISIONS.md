@@ -1,5 +1,17 @@
 # 維護決策
 
+## 2026-11-14：排程 Cross-platform CI 全量跑紅——新測試檔與新 import 沒登錄到結構清單
+
+**症狀**：排程（nightly）full 跑 `43527631825` 的 windows 1/12 與 10/12 紅，共四個測試：`tests/ layout > every test file resolves to a domain…`、`membership oracle > the live tree and the fixture agree entry by entry`、`known-pattern lint finds no unclassified update primitive references`、`known-pattern helper inventory has explicit control-site contracts`。push 跑只跑 impact 選出的子集，沒選到這幾個結構測試，所以一路綠。
+
+**根因（兩個，都是登錄漏掉，不是程式錯）**：
+1. `51f14fbcb` 新增 `tests/windows/powershell-quote-reversibility.test.ts`、`powershell-single-quote-parse.test.ts`，沒寫進 `scripts/test-layout/layout.json` `explicit` 與 `tests/fixtures/test-layout-expected.json`，兩個版面測試回報 `unresolved`。
+2. `c0835d4ec` 讓 `src/update/job.ts` 匯入 `powerShellSingleQuoted`（`../lib/powershell-quote`），沒登錄到 `tests/helpers/update-import-policy.ts`，更新突變守衛回報 unreviewed static dependency／raw imported capability reference。
+
+**決定**：照 AGENTS.md 的程序補登錄，不放寬任何測試：兩個測試檔以 `windows` 網域寫進 layout 與 fixture；`powershell-quote.ts` 是純字串跳脫函式（無 I/O、無行程存取），在 `job.ts` 的審查匯入清單加一行並註明理由。
+
+**教訓**：新增測試檔或讓 `src/update/` 多一條 import 時，push 跑不會替你擋，本機要自己跑 `tests/test-layout*.test.ts` 與 `tests/update/update-mutation-guard.test.ts`。
+
 ## 2026-11-14：真機 MSI 驗收通過——新 wrapper 在 `ocx.exe` 被覆寫後自動恢復
 
 **做法**：在維護者機器上用 release `v2.99.1` 的 `OpenCodex-2.99.1-windows-x64.msi`（sha256 與 release 附檔相符，tag 指向 `d5c446cc8`）。兩次 `msiexec` 都由 UAC 經維護者核准；量測腳本在 `msiexec` 結束後每 2 秒查 `Get-NetTCPConnection -LocalPort 10100`。

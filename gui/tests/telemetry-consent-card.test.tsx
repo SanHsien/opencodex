@@ -343,6 +343,7 @@ test("stays hidden once decided or when an environment opt-out override is activ
     makeStatus({ effective: false, reason: "declined", decision: "declined" }),
     makeStatus({ effective: false, reason: "env-ocx-telemetry", envOverride: "OCX_TELEMETRY" }),
     makeStatus({ effective: false, reason: "env-do-not-track", envOverride: "DO_NOT_TRACK" }),
+    makeStatus({ effective: false, reason: "fork-build", envOverride: "fork-build" }),
   ]) {
     statusResponse = state;
     calls = [];

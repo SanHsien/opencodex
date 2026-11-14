@@ -43,6 +43,7 @@ const rows = {
   telemetryPreviewHint: ["Exact JSON payload prepared from the latest completed UTC day:", "根據最近一個完整 UTC 日產生的完整 JSON 負載："],
   telemetryPreviewIneligible: ["This day would not be sent", "該日不會傳送"],
   telemetryEnvOverride: ["Disabled by environment variable {envVar}. Unset it in the proxy environment to change this setting here.", "已被環境變數 {envVar} 停用。若要在此變更，請在代理環境中取消設定該變數。"],
+  telemetryForkBuild: ["Disabled in this fork build. Telemetry is off by default here and never sends or asks.", "此 fork 版本已預設停用。遙測在此永不傳送也不詢問。"],
   telemetryReadOnlyHint: ["Managed on the Home proxy for this Remote Link.", "由該遠端連線的 Home 代理管理。"],
   telemetryLoadFailed: ["Could not load telemetry status.", "無法載入遙測狀態。"],
   telemetrySaveFailed: ["Could not save telemetry preference.", "無法儲存遙測偏好設定。"],

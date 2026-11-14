@@ -104,6 +104,48 @@ describe("ocx telemetry CLI and interactive prompt", () => {
     }
   });
 
+  test("status text says the fork build disabled telemetry and never names an environment variable", async () => {
+    const saved = process.env.OCX_FORK_TEST_TELEMETRY;
+    delete process.env.OCX_FORK_TEST_TELEMETRY;
+    const lines: string[] = [];
+    const log = spyOn(console, "log").mockImplementation((...args: unknown[]) => {
+      lines.push(args.map(String).join(" "));
+    });
+    try {
+      const code = await handleTelemetryCommand(["status"], {
+        fetch: (async () => { throw new Error("connect ECONNREFUSED"); }) as unknown as typeof fetch,
+      });
+      expect(code).toBe(0);
+      const text = lines.join("\n");
+      expect(text).toContain("Telemetry: disabled (fork-build)");
+      expect(text).toContain("Disabled in this fork build");
+      expect(text).not.toContain("env-ocx-telemetry");
+      expect(text).not.toContain("Environment override");
+    } finally {
+      log.mockRestore();
+      if (saved === undefined) delete process.env.OCX_FORK_TEST_TELEMETRY;
+      else process.env.OCX_FORK_TEST_TELEMETRY = saved;
+    }
+  });
+
+  test("status text still names a real OCX_TELEMETRY opt-out as an environment override", async () => {
+    process.env.OCX_TELEMETRY = "0";
+    const lines: string[] = [];
+    const log = spyOn(console, "log").mockImplementation((...args: unknown[]) => {
+      lines.push(args.map(String).join(" "));
+    });
+    try {
+      await handleTelemetryCommand(["status"], {
+        fetch: (async () => { throw new Error("connect ECONNREFUSED"); }) as unknown as typeof fetch,
+      });
+      const text = lines.join("\n");
+      expect(text).toContain("Telemetry: disabled (env-ocx-telemetry)");
+      expect(text).toContain("Environment override: OCX_TELEMETRY");
+    } finally {
+      log.mockRestore();
+    }
+  });
+
   test("enable and disable mutate config.json; enable refuses when agent-driven while disable succeeds", async () => {
     const log = spyOn(console, "log").mockImplementation(() => {});
     const err = spyOn(console, "error").mockImplementation(() => {});

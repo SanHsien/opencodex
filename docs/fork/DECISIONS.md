@@ -1,5 +1,11 @@
 # 維護決策
 
+## 2026-11-14：telemetry status 不再把 fork 預設關閉說成環境變數覆寫
+
+**起因**：v2.100.2 真機驗收時，沒設 `OCX_TELEMETRY` 卻看到 `disabled (env-ocx-telemetry)` 與 `Environment override: OCX_TELEMETRY`。行為（不送、不問）正確，只有文字誤導；原因是 `isTelemetryEnvOptOut()` 借用 `OCX_TELEMETRY` 值實作 D1 閘門。
+
+**做法**：`isTelemetryEnvOptOut()` 在 `forkTelemetryBlocked()` 時改回 `"fork-build"`，`TelemetryStatusReason` 與 `TelemetryEnvOverride` 新增同名成員。所有呼叫端（scheduler、profile sync／service、CLI 提示、dashboard 同意對話框、`background-lifecycle`）本來就只判斷「非 null ＝ 不送、不問」，行為不變。CLI 顯示 `Telemetry: disabled (fork-build)` 與「Disabled in this fork build」一行；GUI 設定面板顯示新文案 `proxyV2.telemetryForkBuild`（en、zh-TW）。真實的 `OCX_TELEMETRY`／`DO_NOT_TRACK` 在閘門開啟（測試）時仍照舊回報。`usage-telemetry-fork-policy.test.ts`、`cli-telemetry.test.ts` 與兩個 GUI 測試釘住新舊標籤。
+
 ## 2026-11-14：v2.100.2 真機 MSI 驗收通過
 
 **環境**：維護者機器，升級前安裝 2.99.1，排程 `opencodex-proxy` 管理 service。

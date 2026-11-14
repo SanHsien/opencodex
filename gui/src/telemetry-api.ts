@@ -3,13 +3,14 @@ import { createBoundedFetch } from "./bounded-fetch";
 /** Wire shape of GET/PUT /api/telemetry. */
 export type TelemetryDecision = "accepted" | "declined";
 export type TelemetryStatusReason =
+  | "fork-build"
   | "env-ocx-telemetry"
   | "env-do-not-track"
   | "declined"
   | "accepted"
   | "default-on"
   | "awaiting-notice";
-export type TelemetryEnvOverride = "OCX_TELEMETRY" | "DO_NOT_TRACK" | null;
+export type TelemetryEnvOverride = "fork-build" | "OCX_TELEMETRY" | "DO_NOT_TRACK" | null;
 
 export interface TelemetryStatusSnapshot {
   effective: boolean;
@@ -29,6 +30,7 @@ export const TELEMETRY_TIMEOUT_MS = 15_000;
 export const TELEMETRY_STATUS_CHANGED_EVENT = "ocx:telemetry-status-changed";
 
 const VALID_REASONS: ReadonlySet<string> = new Set([
+  "fork-build",
   "env-ocx-telemetry",
   "env-do-not-track",
   "declined",
@@ -54,9 +56,11 @@ export function parseTelemetryStatus(value: unknown): TelemetryStatusSnapshot | 
             ? "default-on"
             : "awaiting-notice";
   const envOverride: TelemetryEnvOverride =
-    raw.envOverride === "OCX_TELEMETRY" || raw.envOverride === "DO_NOT_TRACK"
+    raw.envOverride === "fork-build" || raw.envOverride === "OCX_TELEMETRY" || raw.envOverride === "DO_NOT_TRACK"
       ? raw.envOverride
-      : reason === "env-ocx-telemetry"
+      : reason === "fork-build"
+        ? "fork-build"
+        : reason === "env-ocx-telemetry"
         ? "OCX_TELEMETRY"
         : reason === "env-do-not-track"
           ? "DO_NOT_TRACK"

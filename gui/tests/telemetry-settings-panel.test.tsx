@@ -205,6 +205,15 @@ test("disables switch and renders a warning notice naming the variable when OCX_
   expect(host.querySelector(".notice-warn")?.textContent).toContain("DO_NOT_TRACK=1");
 });
 
+test("a fork-build disable disables the switch with the fork message and names no environment variable", async () => {
+  statusResponse = makeStatus({ effective: false, reason: "fork-build", envOverride: "fork-build" });
+  await mountPanel();
+  expect(toggleSwitch().disabled).toBe(true);
+  const warn = host.querySelector(".notice-warn");
+  expect(warn?.textContent).toContain("Disabled in this fork build");
+  expect(warn?.textContent).not.toContain("OCX_TELEMETRY");
+});
+
 test("a Remote Link child shows only the Home hint and fetches nothing", async () => {
   await mountPanel(true);
   // /api/telemetry is not a link-readable path, so a fetch would only produce a permanent error.

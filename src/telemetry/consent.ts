@@ -2,6 +2,7 @@ import type { OcxTelemetryConfig, OcxTelemetryDecision } from "../types/telemetr
 import { forkTelemetryBlocked } from "./fork-policy";
 
 export type TelemetryStatusReason =
+  | "fork-build"
   | "env-ocx-telemetry"
   | "env-do-not-track"
   | "declined"
@@ -9,7 +10,7 @@ export type TelemetryStatusReason =
   | "default-on"
   | "awaiting-notice";
 
-export type TelemetryEnvOverride = "OCX_TELEMETRY" | "DO_NOT_TRACK" | null;
+export type TelemetryEnvOverride = "fork-build" | "OCX_TELEMETRY" | "DO_NOT_TRACK" | null;
 
 export interface TelemetryConsentStatus {
   effective: boolean;
@@ -45,12 +46,12 @@ function validIsoString(value: unknown): string | null {
 }
 
 export function isTelemetryEnvOptOut(env: Record<string, string | undefined> = process.env): TelemetryEnvOverride {
-  // Fork build (docs/fork/DECISIONS.md, D1): telemetry is off and never asks. Reporting it as the
-  // OCX_TELEMETRY opt-out is what every caller already treats as "do not send, do not prompt"
-  // (scheduler, profile sync, CLI prompt, dashboard consent dialog), so this one point covers all
-  // of them. Read from process.env on purpose: the `env` argument is a caller-supplied view of the
+  // Fork build (docs/fork/DECISIONS.md, D1): telemetry is off and never asks. A non-null result is
+  // what every caller already treats as "do not send, do not prompt" (scheduler, profile sync, CLI
+  // prompt, dashboard consent dialog), so this one point covers all of them. It is reported as its
+  // own "fork-build" value so the status never claims the user set OCX_TELEMETRY. Read from process.env on purpose: the `env` argument is a caller-supplied view of the
   // user's opt-out, not a way to reopen a gate the build closed.
-  if (forkTelemetryBlocked()) return "OCX_TELEMETRY";
+  if (forkTelemetryBlocked()) return "fork-build";
   const ocx = env.OCX_TELEMETRY?.trim().toLowerCase();
   if (ocx !== undefined && OCX_TELEMETRY_OFF_VALUES.has(ocx)) {
     return "OCX_TELEMETRY";
@@ -74,6 +75,16 @@ export function resolveTelemetryStatus(
   const noticeShownAt = validIsoString(telemetry?.noticeShownAt);
   const envOverride = isTelemetryEnvOptOut(env);
 
+  if (envOverride === "fork-build") {
+    return {
+      effective: false,
+      reason: "fork-build",
+      decision,
+      decidedAt,
+      noticeShownAt,
+      envOverride,
+    };
+  }
   if (envOverride === "OCX_TELEMETRY") {
     return {
       effective: false,

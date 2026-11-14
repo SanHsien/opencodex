@@ -47,13 +47,29 @@ describe("fork telemetry policy (shipped default)", () => {
     for (const config of [undefined, {}, accepted]) {
       const status = resolveTelemetryStatus(config, {});
       expect(status.effective).toBe(false);
-      expect(status.reason).toBe("env-ocx-telemetry");
-      expect(status.envOverride).toBe("OCX_TELEMETRY");
+      // Not "env-ocx-telemetry": nobody set OCX_TELEMETRY, the build closed the gate.
+      expect(status.reason).toBe("fork-build");
+      expect(status.envOverride).toBe("fork-build");
     }
     // Every caller (scheduler, profile sync, CLI prompt, dashboard dialog) treats a non-null
     // override as "do not send and do not ask".
-    expect(isTelemetryEnvOptOut({})).toBe("OCX_TELEMETRY");
-    expect(isTelemetryEnvOptOut(process.env)).toBe("OCX_TELEMETRY");
+    expect(isTelemetryEnvOptOut({})).toBe("fork-build");
+    expect(isTelemetryEnvOptOut(process.env)).toBe("fork-build");
+    // A caller-supplied env cannot reopen the gate or relabel it as a user opt-out.
+    expect(isTelemetryEnvOptOut({ OCX_TELEMETRY: "0", DO_NOT_TRACK: "1" })).toBe("fork-build");
+  });
+
+  test("with the gate open, a real OCX_TELEMETRY or DO_NOT_TRACK opt-out still reports as before", () => {
+    const open = { NODE_ENV: "test", [FORK_TEST_TELEMETRY_ENV]: "1" };
+    process.env[FORK_TEST_TELEMETRY_ENV] = "1";
+    process.env.NODE_ENV = "test";
+    expect(resolveTelemetryStatus({}, { ...open, OCX_TELEMETRY: "0" })).toMatchObject({
+      effective: false, reason: "env-ocx-telemetry", envOverride: "OCX_TELEMETRY",
+    });
+    expect(resolveTelemetryStatus({}, { ...open, DO_NOT_TRACK: "1" })).toMatchObject({
+      effective: false, reason: "env-do-not-track", envOverride: "DO_NOT_TRACK",
+    });
+    expect(isTelemetryEnvOptOut({})).toBeNull();
   });
 
   test("the anonymous sender never calls fetch", async () => {

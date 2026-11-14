@@ -160,7 +160,11 @@ function formatStatusLines(snapshot: TelemetryStatusSnapshot): string[] {
   return [
     `Telemetry: ${snapshot.effective ? "enabled" : "disabled"} (${snapshot.reason})`,
     `Decision: ${snapshot.decision ?? "undecided"}`,
-    ...(snapshot.envOverride ? [`Environment override: ${snapshot.envOverride}`] : []),
+    ...(snapshot.envOverride === "fork-build"
+      ? ["Disabled in this fork build: telemetry is off by default and never sends or asks (no environment variable is set)."]
+      : snapshot.envOverride
+        ? [`Environment override: ${snapshot.envOverride}`]
+        : []),
     `Install channel: ${snapshot.installChannel}`,
     `Last sent day: ${snapshot.lastSentDay ?? "never"}`,
     ...(snapshot.stateUnreadable

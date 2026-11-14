@@ -180,6 +180,7 @@ export function TelemetrySettingsPanel({
     if (refresh) void load();
   }, [apiBase, load, readOnly, saveUnconfirmed, status]);
 
+  const forkBuild = envOverride === "fork-build";
   const envVarDisplay =
     envOverride === "DO_NOT_TRACK"
       ? "DO_NOT_TRACK=1"
@@ -236,6 +237,7 @@ export function TelemetrySettingsPanel({
           )
         }
       >
+        {forkBuild && <Notice tone="warn">{t("proxyV2.telemetryForkBuild")}</Notice>}
         {envVarDisplay && (
           <Notice tone="warn">{t("proxyV2.telemetryEnvOverride", { envVar: envVarDisplay })}</Notice>
         )}

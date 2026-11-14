@@ -1,5 +1,15 @@
 # 維護決策
 
+## 2026-11-14：真機 MSI 驗收通過——新 wrapper 在 `ocx.exe` 被覆寫後自動恢復
+
+**做法**：在維護者機器上用 release `v2.99.1` 的 `OpenCodex-2.99.1-windows-x64.msi`（sha256 與 release 附檔相符，tag 指向 `d5c446cc8`）。兩次 `msiexec` 都由 UAC 經維護者核准；量測腳本在 `msiexec` 結束後每 2 秒查 `Get-NetTCPConnection -LocalPort 10100`。
+
+1. **舊 wrapper 遇升級（重現）**：已安裝的 wrapper 是舊版，不含 `<nul`。`msiexec /i … /qb` 從 v2.99.0 升到 v2.99.1，exit 0。`service.log` 停在 `Shutting down opencodex proxy...`，之後沒有 `child exited` 行；`msiexec` 結束後 180 秒內 10100 都沒有 listener，`/healthz` 連線被拒。與 2026-11-13 的事故一致。
+2. **`ocx service repair`**：`ocx --version` 為 `2.99.1`。repair 後 `opencodex-service.cmd` 含 `call :ocx_service_main <nul` 與 `runtime is missing; waiting up to 120s` 行，`/healthz` 回 `version 2.99.1`。
+3. **新 wrapper 遇覆寫（驗收）**：同一個 MSI 跑 `msiexec /i … REINSTALL=ALL REINSTALLMODE=amus /qb`，exit 0。`service.log` 出現 `Shutting down opencodex proxy...`，接著是 `child exited with code 0; restarting in 5s`；`msiexec` 結束後第一次量測（t+2s）10100 已回到單一 PID（19384 → 58192），`/healthz` 回 `status ok`、`version 2.99.1`。全程沒有用 `Stop-ScheduledTask` 或手動結束 wrapper。
+
+**沒有驗到的部分**：這次覆寫 `ocx.exe` 很快，`runtime is missing; waiting up to 120s` 那條等待路徑沒有觸發，只靠單元測試覆蓋。第 3 步是同版本重裝，不是版本升級；採用的理由是驗收要看的是 `ocx.exe` 被覆寫後 wrapper 會不會重啟，與版本號無關。ROADMAP 的驗收列已刪。
+
 ## 2026-11-14：發 fork 修補版 v2.99.1，讓 wrapper 修正可以做真機 MSI 驗收
 
 **原因**：`617fb5912` 的 wrapper 修正要靠 MSI 升級驗收，但 fork 最新 release 是 `v2.99.0`，不含這個修正；`fork-release-windows.yml` 要有對得上版本來源的 tag 才建 MSI。

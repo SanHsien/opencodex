@@ -1,6 +1,11 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
+import {
+  TELEMETRY_INSTALLER_COMPONENT_GROUP,
+  TELEMETRY_INSTALLER_DIALOG,
+  TELEMETRY_INSTALLER_FRAGMENT_PATH,
+} from "../../desktop/scripts/telemetry-installer-dialog";
 import { isTelemetryEnvOptOut, resolveTelemetryStatus } from "../../src/telemetry/consent";
 import {
   FORK_TELEMETRY_BLOCKED_REASON,
@@ -118,10 +123,16 @@ describe("fork telemetry policy (shipped default)", () => {
 
   test("the Windows MSI links no telemetry installer page", () => {
     const conf = JSON.parse(readFileSync(repoPath("desktop", "src-tauri", "tauri.conf.json"), "utf8")) as {
-      bundle?: { windows?: { wix?: Record<string, unknown> } };
+      bundle?: { windows?: { wix?: { fragmentPaths?: string[]; componentGroupRefs?: string[]; template?: string } } };
     };
     const wix = conf.bundle?.windows?.wix ?? {};
-    expect(wix.fragmentPaths).toBeUndefined();
-    expect(wix.componentGroupRefs).toBeUndefined();
+    expect(wix.fragmentPaths ?? []).not.toContain(TELEMETRY_INSTALLER_FRAGMENT_PATH);
+    expect(wix.componentGroupRefs ?? []).not.toContain(TELEMETRY_INSTALLER_COMPONENT_GROUP);
+    // A renamed fragment or custom template must not bring the telemetry page back either.
+    for (const path of [...(wix.fragmentPaths ?? []), ...(wix.template ? [wix.template] : [])]) {
+      const source = readFileSync(repoPath("desktop", "src-tauri", path), "utf8");
+      expect(source).not.toContain(TELEMETRY_INSTALLER_DIALOG);
+      expect(source).not.toContain(TELEMETRY_INSTALLER_COMPONENT_GROUP);
+    }
   });
 });

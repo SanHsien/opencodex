@@ -950,3 +950,5 @@ MSI 的 `/qn` 紀錄確認 Restart Manager 關閉 wrapper；排程「就緒」�
 CP950 固件含「功」（尾位元組 0x5c），防止把損壞 JSON 當成空行程表，也防止 UTF-8 生產端設定被移除。PowerShell 測試以固件函式取代 CIM，MSI 分支測試以函式取代排程 cmdlet，均不接觸真實行程或排程。
 
 既有安裝測試改為直接禁止遙測 fragment 與 component group，不再禁止所有 WiX 擴充；新增的服務恢復 fragment 不會連回遙測頁。
+
+**CI 遙測斷言回註**：`b49441160` 只同步了 `desktop-telemetry-installer.test.ts`，漏掉 `usage-telemetry-fork-policy.test.ts` 的重複限制；run `43687623401` 因 `wix/service-recovery.wxs` 存在而失敗。後者現改為禁止遙測 fragment 與 component group，並檢查連結的 fragment／自訂模板不得包含遙測安裝頁或 component group。遙測預設關閉、不詢問、不送出的斷言維持不變。

@@ -952,3 +952,9 @@ CP950 固件含「功」（尾位元組 0x5c），防止把損壞 JSON 當成空
 既有安裝測試改為直接禁止遙測 fragment 與 component group，不再禁止所有 WiX 擴充；新增的服務恢復 fragment 不會連回遙測頁。
 
 **CI 遙測斷言回註**：`b49441160` 只同步了 `desktop-telemetry-installer.test.ts`，漏掉 `usage-telemetry-fork-policy.test.ts` 的重複限制；run `43687623401` 因 `wix/service-recovery.wxs` 存在而失敗。後者現改為禁止遙測 fragment 與 component group，並檢查連結的 fragment／自訂模板不得包含遙測安裝頁或 component group。遙測預設關閉、不詢問、不送出的斷言維持不變。
+
+## 2026-11-15：ensure 遞迴與 ACL 放大問題回註
+
+內部 Codex 呼叫補上 `OCX_SHIM_BYPASS=1`；設定目錄讀取改以新鮮的嚴格 ACL 證據跳過合規目錄傳播，非合規與檢查失敗仍走 hardening。原版 shim 的分流原本存在，自訂 shim 遺漏與上游內部呼叫缺少防線是兩個不同原因。
+
+服務安裝仍採 required hardening；跨行程無同樹工作所有權證據，不能把 timeout 當成可安全等待或成功。spill 已有啟動及定期清理，751 個項目的實體分類仍需釐清，保留 ROADMAP 的 D2 驗收列並加入分類項目。根因、程式碼依據與未增加跨行程鎖的理由見 `docs/fork/DECISIONS.md` 同日「阻斷 Codex shim 遞迴與避免重複 ACL 傳播」。

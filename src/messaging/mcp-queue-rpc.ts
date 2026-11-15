@@ -30,7 +30,7 @@ export async function queueMcpRpc(options: QueueMcpOptions, method: "thread/list
     budget.throwIfEnded();
     return await new Promise<QueueRpcResult>(resolve => {
       const child = spawn(invocation.file, invocation.args, {
-        ...invocation.options, env, cwd: options.codexHome, detached: true, stdio: ["pipe", "pipe", "ignore"],
+        ...invocation.options, env: { ...env, OCX_SHIM_BYPASS: "1" }, cwd: options.codexHome, detached: true, stdio: ["pipe", "pipe", "ignore"],
       });
       const decoder = new TextDecoder("utf-8", { fatal: true });
       let pending = "", bytes = 0, submitted = false, stage = "initialize";

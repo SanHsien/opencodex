@@ -526,7 +526,7 @@ function versionProbeInvocation(deps: ResolveCodexRuntimeDeps, probeHome: string
       stdio: ["ignore", "pipe", "ignore"] as ["ignore", "pipe", "ignore"],
       timeout: 8_000,
       windowsHide: true,
-      env: { ...(deps.env ?? process.env), CODEX_HOME: probeHome },
+      env: { ...(deps.env ?? process.env), CODEX_HOME: probeHome, OCX_SHIM_BYPASS: "1" },
       ...invocation.options,
     },
   };

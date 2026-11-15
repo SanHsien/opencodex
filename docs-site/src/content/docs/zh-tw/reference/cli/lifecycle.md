@@ -5,6 +5,8 @@ description: 安裝、啟動、停止、服務、診斷、同步與更新指令�
 
 這些指令安裝、執行、檢查、修復並更新本機 opencodex 代理及其 Codex 整合。
 
+內部 Codex 探測與輔助命令會設定 `OCX_SHIM_BYPASS=1`。自訂 Codex wrapper 必須遵守此變數，跳過 `ocx ensure`，版本與說明查詢也應直接執行 Codex。Windows 設定目錄只有在新鮮且嚴格的 ACL 檢查確認合規後才跳過權限傳播；多餘權限或檢查失敗仍會觸發 hardening。
+
 ## Discover before starting services
 
 `ocx help`, `ocx help <family>` and `ocx help <family> <leaf>` are offline.

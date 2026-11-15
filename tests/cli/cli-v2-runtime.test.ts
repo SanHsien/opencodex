@@ -167,6 +167,19 @@ describe("live V2 fixed management operations", () => {
 });
 
 describe("local V2 state and synchronization graph", () => {
+  test("internal feature toggle bypasses custom shims instead of recursively running ensure", async () => {
+    const local = localDeps();
+    const execute = local.deps.execFile!;
+    let observed: NodeJS.ProcessEnv | undefined;
+    local.deps.execFile = (file, args, options) => {
+      observed = options?.env;
+      return execute(file, args, options);
+    };
+    expect(await cmdV2(["on", "--json"], local.deps, async () => undefined)).toBe(0);
+    expect(local.actions).toEqual(["enable"]);
+    expect(observed?.OCX_SHIM_BYPASS).toBe("1");
+  });
+
   test("status identifies the canonical agents key in a global-V2 conflict", async () => {
     writeFileSync(path, "[features.multi_agent_v2]\nenabled = true\n\n[agents]\nmax_concurrent_threads_per_session = 16\n");
     const local = localDeps();

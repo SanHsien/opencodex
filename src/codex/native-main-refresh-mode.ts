@@ -119,7 +119,7 @@ export async function requestCodexAuthStatus(
   let proc: ReturnType<typeof Bun.spawn<"pipe", "pipe", "ignore">>;
   try {
     proc = Bun.spawn([invocation.file, ...invocation.args], {
-      env: { ...process.env, CODEX_HOME: options.codexHome ?? resolveCodexHomeDir() },
+      env: { ...process.env, CODEX_HOME: options.codexHome ?? resolveCodexHomeDir(), OCX_SHIM_BYPASS: "1" },
       stdin: "pipe",
       stdout: "pipe",
       stderr: "ignore",

@@ -104,7 +104,7 @@ export function runCodexFeaturesCommand(
     {
       stdio: ["ignore", "pipe", "pipe"], timeout: 15_000, windowsHide: true, encoding: "utf8",
       ...inv.options,
-      env,
+      env: { ...env, OCX_SHIM_BYPASS: "1" },
     });
 }
 
@@ -113,7 +113,7 @@ function runCodexFeatures(action: "enable" | "disable", deps: V2CliDeps, env: No
     const inv = deps.featuresInvocation ? deps.featuresInvocation(action)
       : codexFeaturesInvocation(action, "multi_agent_v2", process.platform, { env });
     validateBeforeSpawn();
-    deps.execFile(inv.file, inv.args, { ...inv.options, env });
+    deps.execFile(inv.file, inv.args, { ...inv.options, env: { ...env, OCX_SHIM_BYPASS: "1" } });
     return;
   }
   runCodexFeaturesCommand(action, "multi_agent_v2", env, validateBeforeSpawn);

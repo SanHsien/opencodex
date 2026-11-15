@@ -134,7 +134,7 @@ async function spawnOfficialCodexLogin(codexHome: string): Promise<NativeMainLog
   // to spawn; the prepared-invocation builder above stays trust-free on purpose.
   const validated = await nativeMainCodexLoginValidatedInvocation();
   const child = Bun.spawn([validated.file, ...validated.args], {
-    env: { ...process.env, CODEX_HOME: codexHome },
+    env: { ...process.env, CODEX_HOME: codexHome, OCX_SHIM_BYPASS: "1" },
     stdin: "inherit",
     stdout: "inherit",
     stderr: "inherit",

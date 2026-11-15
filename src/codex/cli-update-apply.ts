@@ -91,7 +91,7 @@ export function verifyInstalledCodexVersion(command: string, version: string, cw
     // setup evidence; asynchronous spawn errors still arrive as error+close.
     let child: ReturnType<typeof spawn>;
     try {
-      child = spawn(command, ["--version"], { cwd, env: { ...env, CODEX_HOME: home, HOME: home, TMPDIR: home,
+      child = spawn(command, ["--version"], { cwd, env: { ...env, OCX_SHIM_BYPASS: "1", CODEX_HOME: home, HOME: home, TMPDIR: home,
         XDG_CONFIG_HOME: home, XDG_CACHE_HOME: home, XDG_DATA_HOME: home },
         stdio: ["ignore", "pipe", "ignore"], windowsHide: true, detached: process.platform !== "win32" });
     } catch {

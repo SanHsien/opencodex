@@ -1,6 +1,43 @@
 import { describe, expect, test } from "bun:test";
 import { escapeCmdArg, escapeCmdCommand } from "../../src/lib/win-exec";
 import { codexExecInvocation, isSpawnableCodexCandidate } from "../../src/codex/catalog";
+import { runCodexDebugModels, runCodexDebugModelsAsync } from "../../src/codex/catalog/bundled";
+import { resolveCodexRuntime, resolveCodexRuntimeAsync } from "../../src/codex/runtime";
+
+for (const asynchronous of [false, true]) {
+  test(`internal ${asynchronous ? "async" : "sync"} version probe bypasses custom shims to prevent ensure recursion`, async () => {
+    const environments: NodeJS.ProcessEnv[] = [];
+    const capture = (_file: string, _args: string[], options: { env?: NodeJS.ProcessEnv }) => {
+      environments.push(options.env ?? {});
+      return "codex-cli 0.133.0";
+    };
+    const deps = {
+      platform: "win32" as const,
+      env: { OPENCODEX_CODEX_BIN: "C:\\fixture\\codex.cmd", PATH: "", OCX_SHIM_BYPASS: "0" },
+      existsSync: () => true,
+      execFileSync: capture,
+      execFile: async (...args: Parameters<typeof capture>) => capture(...args),
+    };
+    if (asynchronous) await resolveCodexRuntimeAsync(deps); else resolveCodexRuntime(deps);
+    expect(environments.length).toBeGreaterThan(0);
+    for (const env of environments) expect(env.OCX_SHIM_BYPASS).toBe("1");
+    expect(deps.env.OCX_SHIM_BYPASS).toBe("0");
+  });
+
+  test(`internal ${asynchronous ? "async" : "sync"} catalog command bypasses ensure while preserving caller environment`, async () => {
+    let observed: NodeJS.ProcessEnv | undefined;
+    const capture = (_file: string, _args: string[], options: { env?: NodeJS.ProcessEnv }) => {
+      observed = options.env;
+      return "{}";
+    };
+    const deps = { platform: "win32" as const, env: { CODEX_HOME: "fixture-home", OCX_SHIM_BYPASS: "0" } };
+    if (asynchronous) await runCodexDebugModelsAsync("C:\\fixture\\codex.cmd", async (...args) => capture(...args), deps);
+    else runCodexDebugModels("C:\\fixture\\codex.cmd", capture, deps);
+    expect(observed?.OCX_SHIM_BYPASS).toBe("1");
+    expect(observed?.CODEX_HOME).toBe("fixture-home");
+    expect(deps.env.OCX_SHIM_BYPASS).toBe("0");
+  });
+}
 
 describe("codexExecInvocation", () => {
   test("routes Windows .cmd/.bat through ComSpec with escaped args (no shell:true)", () => {

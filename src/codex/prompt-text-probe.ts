@@ -649,6 +649,7 @@ function runProbe(
         stdio: ["ignore", "pipe", "pipe"],
         windowsHide: true,
         ...invocation.options,
+        env: { ...process.env, OCX_SHIM_BYPASS: "1" },
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);

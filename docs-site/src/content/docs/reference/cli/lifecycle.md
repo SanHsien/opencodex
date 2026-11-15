@@ -5,6 +5,8 @@ description: Setup, start, stop, service, diagnostics, sync, and update commands
 
 These commands install, run, inspect, repair, and update the local opencodex proxy and its Codex integration.
 
+Internal Codex probes and helper commands set `OCX_SHIM_BYPASS=1`. Custom Codex wrappers must honor this variable by skipping `ocx ensure`, including for `--version` and help requests. On Windows, an already compliant config directory skips ACL propagation only after fresh strict inspection; extra permissions or failed inspection still trigger hardening.
+
 ## Discover before starting services
 
 `ocx help`, `ocx help <family>` and `ocx help <family> <leaf>` are offline.

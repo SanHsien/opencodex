@@ -183,6 +183,7 @@ export type ExecFile = (
     shell?: boolean;
     windowsVerbatimArguments?: boolean;
     signal?: AbortSignal;
+    env?: NodeJS.ProcessEnv;
     maxBuffer?: number;
   },
 ) => string;
@@ -284,6 +285,7 @@ export function runCodexDebugModels<T>(
     maxBuffer: 64 * 1024 * 1024,
     windowsHide: true,
     ...invocation.options,
+    env: { ...(deps.env ?? process.env), OCX_SHIM_BYPASS: "1" },
   });
 }
 
@@ -311,6 +313,7 @@ export async function runCodexDebugModelsAsync<T>(
     maxBuffer: 64 * 1024 * 1024,
     windowsHide: true,
     ...invocation.options,
+    env: { ...(deps.env ?? process.env), OCX_SHIM_BYPASS: "1" },
   });
 }
 

@@ -1,5 +1,17 @@
 # 維護決策
 
+## 2026-11-15：阻斷 Codex shim 遞迴與避免重複 ACL 傳播
+
+**根因與證據**：維護者實機觀察到自訂 `codex.cmd` 缺少原版 `src/codex/shim-templates.ts` 的版本／說明／`OCX_SHIM_BYPASS` 分流，造成 `ensure → codex --version → ensure`，約每五秒增加一層。每個新行程又對約 939 個項目的設定目錄執行 ACL hardening；服務安裝在 4–10 秒預算內出現 `ETIMEDOUT`。Codex 啟動加入的 `CodexSandboxUsers:(OI)(CI)(RX)` 與 hardening 相互干擾。自訂 shim 的遺漏屬本機整合問題；原版 shim 已有分流。
+
+**上游缺陷與修法**：內部版本探測、bundled catalog、feature toggle、登入、認證刷新、prompt probe、messaging app-server 與 CLI 更新探測的子行程環境固定帶 `OCX_SHIM_BYPASS=1`，保留其他環境且不修改呼叫者物件。上游原先依賴 shim 自行分流，內部呼叫缺少一致防線。自訂 shim 仍須遵守 bypass；完全忽略此變數的 wrapper 無法由環境變數阻斷。
+
+另一個上游問題是設定讀取只記住本行程成功的 hardening，新 ensure 行程仍重做目錄 ACL 傳播。`src/config/paths.ts` 改用既有 `verifyExistingRuntimeDirectory`：先讀取並嚴格驗證 owner、受保護 DACL、當前使用者完整控制與允許的 SYSTEM／Administrators ACE，前後物件與 metadata 均一致才跳過。多餘 ACE（含 sandbox 群組）、繼承未關閉、不可讀或檢查期間變動均不算合規；不採時間節流，不放寬 required hardening 的 fail-closed。
+
+**服務安裝的並行判斷**：`src/service/guards.ts` 的 token 寫入前以同步 required hardening 保護目錄；`windows-secret-acl.ts` 的 active-work registry 只涵蓋本行程，沒有跨行程的同樹工作與退出證據。既有 timeout 最多重試一次且共用 deadline。`ETIMEDOUT` 無法區分另一個 ocx、外部 ACL 修改或子程序停滯，不能據此延長預算或視為成功。本次不新增跨行程鎖：同步與非同步 hardening、父子目錄重疊、逾時後仍持有 handle 的子程序及失效鎖回收都必須共用所有權協定，單一路徑的 lock file 不能安全涵蓋。先消除遞迴及合規目錄的重複傳播，保留明確失敗。
+
+**spill 調查**：`src/responses/state.ts` 的 `ensureLoaded` 在還原快照後呼叫 `recoverOrphanedResponseSpills`；liveness 註冊每 60 秒呼叫 `sweepOrphanedResponseSpills`，首次載入前不掃描。`spill-store.ts` 的啟動掃描上限 4096、清理上限 512；定期掃描每輪 512、清理 64、25 ms，使用持續 iterator 避免只掃前綴。清理只處理無引用、符合命名且超過 15 分鐘的普通檔案，保留 live stub、延後 unlink 與排隊發布引用。有效 state 的 TTL 為 24 小時，另有 spill bytes 預算；751 個項目本身不足以判定洩漏。尚無該批檔案的引用、年齡與失敗分類，不能指定唯一成因或直接刪除；實體分類列入 ROADMAP。
+
 ## 2026-11-15：fork 修補版的版本號規則（避免與上游撞名）
 
 **問題**：整合上游 `v2.100.3` 之後，為了 D2 實機驗收，fork 自行發了 `v2.100.4`、`v2.100.6`（`v2.100.5` 建置失敗、無 release），main 已前推到 `2.100.7`。上游下一個 patch 版很可能也是 `2.100.4`～`2.100.6`，會出現同名、內容不同的版本；而且 `release version line` 測試要求版本不能落後 fork 已發佈的最高 tag，直接沿用上游版本號會被擋。

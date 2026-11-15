@@ -1,5 +1,9 @@
 # 維護決策
 
+## 2026-11-15：發 fork release v2.100.6 後把版本來源前推到 2.100.7
+
+tag `v2.100.6` 指向 `a2367448b`（v2.100.5 內容加 WiX TARGETDIR 修正；lane=all 綠），觸發 `fork-release-windows.yml` 建 MSI；發版後 main 以 `release-version-sources.ts sync 2.100.7` 前推。D2 實機驗收用這個 release 從第 3 項接著做。
+
 ## 2026-11-15：v2.100.5 的 MSI 建置失敗（WiX light 找不到 SystemFolder），修正後改發 v2.100.6
 
 **症狀**：tag `v2.100.5`（`06abbb70a`）觸發的 `fork-release-windows.yml`（run 43703262966）在 `light.exe` 連結時失敗，沒有產生 release。

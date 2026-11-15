@@ -5,7 +5,7 @@ description: 安裝、啟動、停止、服務、診斷、同步與更新指令�
 
 這些指令安裝、執行、檢查、修復並更新本機 opencodex 代理及其 Codex 整合。
 
-內部 Codex 探測與輔助命令會設定 `OCX_SHIM_BYPASS=1`。自訂 Codex wrapper 必須遵守此變數，跳過 `ocx ensure`，版本與說明查詢也應直接執行 Codex。Windows 設定目錄只有在新鮮且嚴格的 ACL 檢查確認合規後才跳過權限傳播；多餘權限或檢查失敗仍會觸發 hardening。
+內部 Codex 探測與輔助命令會設定 `OCX_SHIM_BYPASS=1`。自訂 Codex wrapper 必須遵守此變數，跳過 `ocx ensure`，版本與說明查詢也應直接執行 Codex。
 
 ## Discover before starting services
 
@@ -999,8 +999,6 @@ Windows 的 `ocx stop` 透過 checked stop 停止 Task Scheduler 或原生 WinSW
 已知的本地化排程狀態（包含繁中「就緒」）會直接解析；未知狀態仍須在原預算內透過 PowerShell 備援確認，讀不到就拒絕確認停止。
 
 `ocx service uninstall` 與完整移除都先執行 checked stop，再移除服務與 wrapper 檔案。即使排程已手動刪除，WMI 啟動的 wrapper 若是已驗明代理的祖先，且映像、完整腳本路徑與建立時間符合，仍屬 bound，可以被停止。缺少血緣證據的 unbound wrapper 不被終止，移除會拒絕。後面的 wrapper 殘留清理只刪檔，不終止行程；到了這個階段仍有可讀 wrapper、不可讀候選行程或讀不到行程表時，保留三個檔案並回 failed。
-
-Windows 服務操作、設定 mutation 協調與服務 token 發布會先嚴格驗證既有 runtime／設定目錄 ACL；新鮮、受保護且具必要 owner 與可繼承完整控制的私有 DACL，可跳過目錄 ACL 重寫與子項目傳播。未知或不合規仍須 harden，服務 lock／token 的失敗仍拒絕操作；token 與 lock 檔案各自 harden，逾時預算不變。
 
 ### 儲存狀態與同步分別讀取
 

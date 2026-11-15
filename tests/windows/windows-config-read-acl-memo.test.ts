@@ -7,7 +7,6 @@ import { hardenExistingSecret } from "../../src/config/load-degrade";
 import { flushConfigDirHardeningForTests, hardenConfigDir } from "../../src/config/paths";
 import * as acl from "../../src/lib/windows-secret-acl";
 import * as principal from "../../src/lib/windows-user-principal";
-import { setWindowsOwnerAclAsyncRunnerForTests } from "../../src/lib/windows-owner-acl";
 import { removeTreeWithRetry } from "../helpers/remove-tree";
 
 const originalPlatform = process.platform;
@@ -31,7 +30,6 @@ beforeEach(() => {
     stdout: "S-1-5-21-1-2-3-1001\nfixture\\user\n" });
   principal.setWindowsPrincipalRunnerForTests(identity);
   principal.setAsyncWindowsPrincipalRunnerForTests(async () => identity());
-  setWindowsOwnerAclAsyncRunnerForTests(async () => ({ success: false, timedOut: false, stdout: "" }));
   calls.length = 0;
   const run = (args: string[], _timeout?: number): acl.IcaclsResult => {
     calls.push(args[0]);
@@ -47,7 +45,6 @@ afterEach(async () => {
   acl.setIcaclsRunnerForTests(null);
   acl.setAsyncIcaclsRunnerForTests(null);
   acl.setPlatformForTests(null);
-  setWindowsOwnerAclAsyncRunnerForTests(null);
   principal.setWindowsPrincipalRunnerForTests(null);
   principal.setAsyncWindowsPrincipalRunnerForTests(null);
   principal.resetWindowsPrincipalForTests();
@@ -59,40 +56,6 @@ afterEach(async () => {
   else process.env.OPENCODEX_ACL_VERIFY_EXISTING = previousVerify;
   removeTreeWithRetry(home);
 });
-
-test("separate ensure config reads skip directory propagation only after fresh strict ACL verification", async () => {
-  const sid = "S-1-5-21-1-2-3-1001";
-  let probes = 0;
-  setWindowsOwnerAclAsyncRunnerForTests(async () => {
-    probes++;
-    return { success: true, timedOut: false, exitCode: 0,
-      stdout: `U|${sid}|${sid}|False\nE|0|${sid}|4100|1\nA|0|0|3|2032127|${sid}|False\nEND\n` };
-  });
-  for (let i = 0; i < 2; i++) {
-    acl.resetHardenedStateForTests(); // A new ensure process has no successful memo.
-    hardenConfigDir();
-    await flushConfigDirHardeningForTests();
-  }
-  expect(probes).toBe(2);
-  expect(calls).toEqual([]);
-});
-
-for (const defect of ["inherited", "extra-reader", "unreadable", "changed-during-inspection"]) {
-  test(`ensure does not skip hardening when strict ACL inspection is ${defect}`, async () => {
-    const sid = "S-1-5-21-1-2-3-1001";
-    let freshness = 1n;
-    acl.setStatForTests(() => ({ dev: 1n, ino: 1n, ctimeNs: freshness }));
-    setWindowsOwnerAclAsyncRunnerForTests(async () => {
-      if (defect === "changed-during-inspection") freshness++;
-      return { success: defect !== "unreadable", timedOut: false,
-        stdout: `U|${sid}|${sid}|False\nE|0|${sid}|${defect === "inherited" ? 4 : 4100}|${defect === "extra-reader" ? 2 : 1}\nA|0|0|3|2032127|${sid}|False\n`
-          + (defect === "extra-reader" ? "A|0|0|3|1179817|S-1-5-32-545|False\n" : "") + "END\n" };
-    });
-    hardenConfigDir();
-    await flushConfigDirHardeningForTests();
-    expect(calls.length).toBeGreaterThan(0);
-  });
-}
 
 test("repeated Windows config reads preserve successful ACL observations", async () => {
   expect(loadConfig().port).toBe(19481);

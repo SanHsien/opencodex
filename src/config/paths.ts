@@ -50,7 +50,7 @@ export function hardenConfigDir(): void {
     // their own awaited/fail-closed hardening; ordinary config reads only start one soft flight.
     // Tracked: icacls holds the directory open, and a config write or removal that lands on
     // it before the child exits fails with a sharing violation on Windows.
-    const flight = trackBackgroundWork("config-dir-acl-harden", hardenSecretDirAsync(dir, { required: false, verifyExistingRuntimeDirectory: true })
+    const flight = trackBackgroundWork("config-dir-acl-harden", hardenSecretDirAsync(dir, { required: false })
       .then(() => undefined)
       .catch(() => undefined)
       .finally(() => {

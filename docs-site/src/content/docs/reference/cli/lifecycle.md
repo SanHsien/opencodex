@@ -5,7 +5,7 @@ description: Setup, start, stop, service, diagnostics, sync, and update commands
 
 These commands install, run, inspect, repair, and update the local opencodex proxy and its Codex integration.
 
-Internal Codex probes and helper commands set `OCX_SHIM_BYPASS=1`. Custom Codex wrappers must honor this variable by skipping `ocx ensure`, including for `--version` and help requests. On Windows, an already compliant config directory skips ACL propagation only after fresh strict inspection; extra permissions or failed inspection still trigger hardening.
+Internal Codex probes and helper commands set `OCX_SHIM_BYPASS=1`. Custom Codex wrappers must honor this variable by skipping `ocx ensure`, including for `--version` and help requests.
 
 ## Discover before starting services
 
@@ -194,12 +194,6 @@ path, ancestry and creation time are verified. An unbound wrapper is left runnin
 refuses. Only after checked stop succeeds does removal clean up the wrapper files. That residue
 cleanup never stops processes: any remaining wrapper, unreadable candidate or unreadable process
 table makes it fail and retain the files.
-
-Windows service mutations, config mutation coordination and service-token publication first
-verify existing runtime/config directory ACLs. A fresh protected private DACL with the required
-owner and inheritable Full Control avoids rewriting the directory ACL and propagating it through
-an existing tree. Unknown or noncompliant ACLs still require hardening; service lock/token failures
-remain fatal. Tokens and lock files are hardened separately, within the existing timeout budgets.
 
 For a desktop-approved takeover, `ocx stop --json` also accepts the complete set of
 `--expect-*` values supplied by `ocx resolve --json`. On Windows, this guarded stop can

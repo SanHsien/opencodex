@@ -9,7 +9,6 @@ import { saveConfig } from "../../src/config";
 import { handleManagementAPI } from "../../src/server/management-api";
 import { flushConfigDirHardeningAndReaps, hardenConfigDir } from "../../src/config/paths";
 import { resetHardenedStateForTests, setAsyncIcaclsRunnerForTests, setPlatformForTests } from "../../src/lib/windows-secret-acl";
-import { setWindowsOwnerAclAsyncRunnerForTests } from "../../src/lib/windows-owner-acl";
 import { removeTreeWithRetry } from "../helpers/remove-tree";
 import { supportsDesktopPicker } from "../../src/claude/desktop-picker-platform";
 import { inspectDesktopPickerProfile } from "../../src/claude/desktop-picker-profile";
@@ -95,8 +94,6 @@ test("Windows fixture cleanup waits for pending config-directory ACL hardening",
   const { root } = setup();
   resetHardenedStateForTests();
   setPlatformForTests("win32");
-  // Non-compliant strict read, so the flight always reaches the injected icacls runner (no real PowerShell).
-  setWindowsOwnerAclAsyncRunnerForTests(async () => ({ success: false, timedOut: false, stdout: "" }));
   setAsyncIcaclsRunnerForTests(async () => {
     started();
     await blocked;
@@ -122,7 +119,6 @@ test("Windows fixture cleanup waits for pending config-directory ACL hardening",
       await cleanup;
     } finally {
       setAsyncIcaclsRunnerForTests(null);
-      setWindowsOwnerAclAsyncRunnerForTests(null);
       setPlatformForTests(null);
       resetHardenedStateForTests();
     }

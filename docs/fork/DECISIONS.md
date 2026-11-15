@@ -1,12 +1,29 @@
 # 維護決策
 
-## 2026-11-15：嚴格 ACL 證據留本行程 memo，綁定讀取當下的 observation
+## 2026-11-16：撤回 ACL 合規跳過與合規結果 memo
 
-**問題**：`verifyExistingRuntimeDirectory` 的合規結果原本不留任何 memo。合規目錄在同一行程內每次 `hardenSecretDir` 都重跑一次 PowerShell 讀取；接到 config mutation lock 之後，每次 `saveConfig` 由約 3 ms 變成 1.2–2 s 的同步阻塞（本機量測，見 `REVIEW.md` 同日回註），完整 Windows CI 有六個 shard 超過 30 分鐘。
+**決定與原因**：撤回 `10c8bfa79`、`785856d93` 擴展到設定讀取、config mutation lock、Windows service mutation lock 與服務 token 發布的 ACL 合規跳過路徑，以及 `5f5b69f53` 的合規結果 memo、測試與文件。每個全新目錄仍先啟動一次 PowerShell 嚴格 ACL 讀取，約 1.3 秒；memo 只能減少同一行程同一目錄的後續讀取，未消除大量新目錄的成本。兩輪 Windows CI 各有六片超過 30 分鐘而取消，也沒有證據證明此方案能解決維護者機器的 ACL 逾時。因此恢復這四條路徑與相關測試至 `10c8bfa79^` 的行為，不延長預算、不放寬 required hardening。更早已有的 lifecycle lock 嚴格目錄驗證及 `OPENCODEX_ACL_VERIFY_EXISTING` 選用行為保留。
 
-**決定**：證據成立且讀取前後 observation（device／inode／ctime）相同時，寫入既有的 `hardenedDirectories` memo。這與成功 harden 留下的紀錄同型、同一失效條件：ACL 或物件變動會移動 ctime 或身分，`memoSatisfied` 即退役該筆並重新驗證。檢查期間變動、逾時、不可讀、非合規都不寫 memo，仍走原 hardening；elevated stage 用獨立 cache，不受影響。新行程沒有 memo，仍須重新取得證據，跨行程不重複傳播的原目的不變。不採時間節流、不放寬 required 的 fail-closed、不改預算。
+**CI 證據**：以下為 GitHub Actions 各分片 `started_at` 至 `completed_at` 的耗時（分:秒），不是純測試時間；「取消」表示未完成，不能視為通過。
 
-**取捨**：memo 的效力以 ctime 為界，與既有成功 harden memo 的證明邊界相同；不比原設計多信任任何名稱或時間。全新目錄的第一次呼叫仍付一次讀取（非合規）再傳播，這部分未處理。
+| 分片 | [run 43720865406](https://github.com/SanHsien/opencodex/actions/runs/43720865406)（`785856d93`） | [run 43726376154](https://github.com/SanHsien/opencodex/actions/runs/43726376154)（`5f5b69f53`） |
+| --- | --- | --- |
+| 1/14 | 27:19，成功 | 29:54，成功 |
+| 2/14 | 28:19，成功 | 27:45，成功 |
+| 3/14 | 27:24，成功 | 27:42，成功 |
+| 4/14 | 30:12，取消 | 30:12，取消 |
+| 5/14 | 30:12，取消 | 28:30，成功 |
+| 6/14 | 18:34，失敗 | 23:46，成功 |
+| 7/14 | 25:00，成功 | 22:55，成功 |
+| 8/14 | 30:12，取消 | 30:12，取消 |
+| 9/14 | 30:13，取消 | 30:03，取消 |
+| 10/14 | 30:12，取消 | 30:13，取消 |
+| 11/14 | 30:11，取消 | 30:12，取消 |
+| 12/14 | 19:55，失敗 | 20:33，失敗 |
+| 13/14 | 27:56，成功 | 26:59，失敗 |
+| 14/14 | 29:21，失敗 | 30:12，取消 |
+
+**保留**：內部 Codex 呼叫一律設定 `OCX_SHIM_BYPASS=1` 及其測試；MSI 的 `OcxStopProxyService`、`REBOOT=ReallySuppress`、`TARGETDIR`／`INSTALLDIR` 修正及測試；D2 第 4 項的 checked stop／bound 與 unbound wrapper 語意更正，以及 ROADMAP、REVIEW、生命週期與結構文件的對應說明。ACL hardening 原有的成功 memo、逾時與拒絕操作政策不變。實機約一半 `ocx service stop`／`uninstall`／`install` 仍因 `ACL hardening timed out` 失敗，根因未定；調查條件與方向列在 ROADMAP。
 
 ## 2026-11-15：MSI 升級先停止服務，預設禁止自動重新開機
 
@@ -16,27 +33,19 @@
 
 **最後防線**：套件預設 `REBOOT=ReallySuppress`，保留 Restart Manager。這會抑制 Windows Installer 的重新開機與提示；無法即時替換的檔案仍可能排到重開機後處理，安裝回傳 3010 時由操作者安排重開機。重新開機前可能仍使用舊執行檔，不能把排程已啟動視為新版本已生效。命令列仍可明確覆寫 REBOOT；此預設不約束外部部署工具自行安排重開機。停止後若安裝失敗，沒有到達 InstallFinalize 就不自動恢復，需排除安裝錯誤後手動啟動既有服務。
 
-## 2026-11-15：釐清 D2 移除語意並補齊服務目錄 ACL 檢查
+## 2026-11-15：釐清 D2 移除語意
 
 **D2 預期更正**：`ocx service uninstall` 是先 checked stop，再移除服務與 wrapper 檔案，不是看到執行中的 wrapper 就一律拒絕。`src/service/cli.ts` 先呼叫 `windowsServiceRemovalStop`；其 Part A 綁定 wrapper、停止後再停止代理及確認 port，成功才進入 `uninstallServiceDetailed`。`cli-windows-stop.ts` 與 `windows-stop-binding.ts` 的此項行為和 `refs/upstream-tags/v2.100.3` 相同。排程不存在不會取消「已驗明代理的祖先」這條 binding：WMI 啟動的 cmd wrapper 若是該代理的祖先，且映像、完整路徑 token 與建立時間符合，仍可停止。只有缺少血緣證據的 unbound wrapper 不被終止，Part A 回 survived／unbound-wrapper，CLI 拒絕後續移除。
 
 原 D2「wrapper 還在跑就 failed、留檔、不終止行程」只約束 `removeWindowsServiceWrapperResidue`，不是整個 uninstall。該函式位於 scheduler 已不存在、沒有移除其他 manager 的殘留分支；它不執行 checked stop，也不終止行程。到了這個階段仍有可讀 wrapper、不可讀候選或行程表不可讀，就回 failed 並留檔；確認沒有 wrapper 才刪三個具名檔案。checked stop 已成功停止 bound wrapper 後，這裡可以正常清檔。保留上游停止語意及 fork 的殘留拒絕條件，不新增「所有執行中 wrapper 都禁止停止」規則。
 
-**ACL 原因與修法**：`windows-secret-acl.ts` 的參數沒有 `/T`。目錄 owner grant 帶 `(OI)(CI)(F)`，修改目錄 ACL 仍可能讓 Windows 傳播繼承權限；不能以沒有 `/T` 推論成本與子項目無關。shim 遞迴停止後，`windows-service-mutation-lock.ts` 每個非 status 的服務指令仍直接 harden 共用 runtime 目錄；`config/mutation-lock.ts` 與 `service/guards.ts` 的 token 發布也仍直接 harden 設定根目錄，未使用設定讀取已有的合規檢查。大量子項目下這些重複修改仍會消耗預算。檔案占用是否造成特定一次子程序停滯，現有證據不足以確認。
-
-三處改用既有 `verifyExistingRuntimeDirectory`：僅新鮮、嚴格的 owner／受保護 DACL／完整控制與子項目繼承旗標證據，且前後 device／inode／ctime 不變時跳過目錄修改。額外 ACE（含 sandbox 群組）、不可讀、逾時或物件變動仍走原 hardening。service lock 與 token 發布保持 required、失敗即拒絕；config mutation 保留原本警告後繼續的既有行為。token 與 lock database 仍各自 harden，目錄證據不代表子項目合規。新 staging 目錄的處理不變。
-
-**預算不變**：每次 hardening 共用一個 deadline，預設 30000 ms，環境覆寫限制在 1000–60000 ms；最多一次 timeout 重試，只用剩餘預算，診斷亦共用該 deadline。`child_result` 表示子程序回報逾時，`budgetMs` 是該步收到的剩餘預算，`elapsedMs` 是該次 runner 的實測時間；退出與回收延遲可能使實測超過預算，不能因此把 timeout 當成功。不依項目數放大預算、不新增跨行程鎖、不放寬 fail-closed。
-
-## 2026-11-15：阻斷 Codex shim 遞迴與避免重複 ACL 傳播
+## 2026-11-15：阻斷 Codex shim 遞迴
 
 **根因與證據**：維護者實機觀察到自訂 `codex.cmd` 缺少原版 `src/codex/shim-templates.ts` 的版本／說明／`OCX_SHIM_BYPASS` 分流，造成 `ensure → codex --version → ensure`，約每五秒增加一層。每個新行程又對約 939 個項目的設定目錄執行 ACL hardening；服務安裝在 4–10 秒預算內出現 `ETIMEDOUT`。Codex 啟動加入的 `CodexSandboxUsers:(OI)(CI)(RX)` 與 hardening 相互干擾。自訂 shim 的遺漏屬本機整合問題；原版 shim 已有分流。
 
 **上游缺陷與修法**：內部版本探測、bundled catalog、feature toggle、登入、認證刷新、prompt probe、messaging app-server 與 CLI 更新探測的子行程環境固定帶 `OCX_SHIM_BYPASS=1`，保留其他環境且不修改呼叫者物件。上游原先依賴 shim 自行分流，內部呼叫缺少一致防線。自訂 shim 仍須遵守 bypass；完全忽略此變數的 wrapper 無法由環境變數阻斷。
 
-另一個上游問題是設定讀取只記住本行程成功的 hardening，新 ensure 行程仍重做目錄 ACL 傳播。`src/config/paths.ts` 改用既有 `verifyExistingRuntimeDirectory`：先讀取並嚴格驗證 owner、受保護 DACL、當前使用者完整控制與允許的 SYSTEM／Administrators ACE，前後物件與 metadata 均一致才跳過。多餘 ACE（含 sandbox 群組）、繼承未關閉、不可讀或檢查期間變動均不算合規；不採時間節流，不放寬 required hardening 的 fail-closed。
-
-**服務安裝的並行判斷**：`src/service/guards.ts` 的 token 寫入前以同步 required hardening 保護目錄；`windows-secret-acl.ts` 的 active-work registry 只涵蓋本行程，沒有跨行程的同樹工作與退出證據。既有 timeout 最多重試一次且共用 deadline。`ETIMEDOUT` 無法區分另一個 ocx、外部 ACL 修改或子程序停滯，不能據此延長預算或視為成功。本次不新增跨行程鎖：同步與非同步 hardening、父子目錄重疊、逾時後仍持有 handle 的子程序及失效鎖回收都必須共用所有權協定，單一路徑的 lock file 不能安全涵蓋。先消除遞迴及合規目錄的重複傳播，保留明確失敗。
+**服務安裝的並行判斷**：`src/service/guards.ts` 的 token 寫入前以同步 required hardening 保護目錄；`windows-secret-acl.ts` 的 active-work registry 只涵蓋本行程，沒有跨行程的同樹工作與退出證據。既有 timeout 最多重試一次且共用 deadline。`ETIMEDOUT` 無法區分另一個 ocx、外部 ACL 修改或子程序停滯，不能據此延長預算或視為成功。本次不新增跨行程鎖：同步與非同步 hardening、父子目錄重疊、逾時後仍持有 handle 的子程序及失效鎖回收都必須共用所有權協定，單一路徑的 lock file 不能安全涵蓋。不新增跨行程鎖，保留明確失敗。
 
 **spill 調查**：`src/responses/state.ts` 的 `ensureLoaded` 在還原快照後呼叫 `recoverOrphanedResponseSpills`；liveness 註冊每 60 秒呼叫 `sweepOrphanedResponseSpills`，首次載入前不掃描。`spill-store.ts` 的啟動掃描上限 4096、清理上限 512；定期掃描每輪 512、清理 64、25 ms，使用持續 iterator 避免只掃前綴。清理只處理無引用、符合命名且超過 15 分鐘的普通檔案，保留 live stub、延後 unlink 與排隊發布引用。有效 state 的 TTL 為 24 小時，另有 spill bytes 預算；751 個項目本身不足以判定洩漏。尚無該批檔案的引用、年齡與失敗分類，不能指定唯一成因或直接刪除；實體分類列入 ROADMAP。
 

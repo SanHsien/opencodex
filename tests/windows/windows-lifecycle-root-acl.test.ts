@@ -10,9 +10,6 @@ import {
 import { setWindowsOwnerAclRunnerForTests, setWindowsOwnerAclAsyncRunnerForTests, windowsEntriesAclMatches, windowsPrivateEntriesAclMatches } from "../../src/lib/windows-owner-acl";
 import { setWindowsPrincipalRunnerForTests, setAsyncWindowsPrincipalRunnerForTests, resetWindowsPrincipalForTests, resolveCurrentWindowsPrincipal } from "../../src/lib/windows-user-principal";
 import { withClientLifecycleSync } from "../../src/client/lifecycle-lock";
-import { withWindowsServiceMutationLock } from "../../src/lib/windows-service-mutation-lock";
-import { withConfigMutationLockSync } from "../../src/config/mutation-lock";
-import { writeServiceApiTokenFile } from "../../src/service/guards";
 import { removeTreeWithRetry } from "../helpers/remove-tree";
 
 const SID = "S-1-5-21-9-9-9-1001";
@@ -179,35 +176,18 @@ for (const async of [false, true]) {
     expect(result.ok).toBe(true);
     expect(budgets).toEqual([60, 60, 60]);
   });
-  test(`a verified ${async ? "async" : "sync"} proof is reused only while the observation is unchanged, and never mutates`, async () => {
-    let probes = 0, freshness = 1n;
-    setStatForTests(() => ({ dev: 1n, ino: 1n, ctimeNs: freshness }));
+  test(`verified ${async ? "async" : "sync"} calls create no mutation or timeout memo`, async () => {
+    let probes = 0;
     const verify = () => { probes++; return { ...OK, stdout: descriptor() }; };
     setWindowsOwnerAclRunnerForTests(verify);
     setWindowsOwnerAclAsyncRunnerForTests(async () => verify());
-    const harden = async () => { if (async) await hardenSecretDirAsync(root, options); else hardenSecretDir(root, options); };
-    // Repeating the PowerShell read for a directory this process just proved cost over a second per config save.
-    for (let i = 0; i < 3; i++) await harden();
-    expect(probes).toBe(1);
-    expect(hardenedSecretDirCountForTests()).toBe(1);
-    // An ACL edit moves ctime: the remembered proof must not outlive the observation it was read at.
-    freshness++;
-    await harden();
+    for (let i = 0; i < 2; i++) {
+      if (async) await hardenSecretDirAsync(root, options); else hardenSecretDir(root, options);
+    }
     expect(probes).toBe(2);
+    expect(hardenedSecretDirCountForTests()).toBe(0);
     expect(timedOutSecretPathCountForTests()).toBe(0);
     expect(commands).toEqual([]);
-  });
-  test(`a ${async ? "async" : "sync"} proof read while the directory changed is not remembered`, async () => {
-    let probes = 0, freshness = 1n;
-    setStatForTests(() => ({ dev: 1n, ino: 1n, ctimeNs: freshness }));
-    const verify = () => { probes++; if (probes === 1) freshness++; return { ...OK, stdout: descriptor() }; };
-    setWindowsOwnerAclRunnerForTests(verify);
-    setWindowsOwnerAclAsyncRunnerForTests(async () => verify());
-    const result = async ? await hardenSecretDirAsync(root, options) : hardenSecretDir(root, options);
-    expect(result.ok).toBe(true);
-    // The unstable proof was refused, so the directory went through the real hardening instead.
-    expect(commands.length).toBeGreaterThan(0);
-    expect(commands.every(args => args[0] === root)).toBe(true);
   });
 }
 
@@ -231,53 +211,3 @@ test("lifecycle acquisition opts in for its parent and still hardens its databas
   expect(commands.filter(args => args[0] === join(root, "lock.sqlite")).map(args => args[1]))
     .toEqual(["/grant:r", "/inheritance:r", "/remove:g"]);
 });
-
-test("service install, stop and uninstall lock skips compliant root propagation but hardens its database", async () => {
-  const lockPath = join(root, "windows-service-mutation.sqlite");
-  expect(await withWindowsServiceMutationLock(async () => 42, { lockPath })).toBe(42);
-  expect(commands.filter(args => args[0] === root)).toEqual([]);
-  expect(commands.filter(args => args[0] === lockPath).map(args => args[1]))
-    .toEqual(["/grant:r", "/inheritance:r", "/remove:g"]);
-});
-
-test("config mutation lock skips compliant home propagation", () => {
-  expect(withConfigMutationLockSync(() => 42, root)).toBe(42);
-  expect(commands.filter(args => args[0] === root)).toEqual([]);
-});
-
-test("service token publication skips compliant home propagation but still hardens the token", () => {
-  const savedHome = process.env.OPENCODEX_HOME;
-  const savedToken = process.env.OPENCODEX_API_AUTH_TOKEN;
-  process.env.OPENCODEX_HOME = root;
-  process.env.OPENCODEX_API_AUTH_TOKEN = "synthetic-service-acl-regression-token";
-  try {
-    const token = writeServiceApiTokenFile();
-    expect(token?.origin).toBe("env");
-    expect(commands.filter(args => args[0] === root)).toEqual([]);
-    expect(commands.filter(args => args[0] === token?.path).map(args => args[1]))
-      .toEqual(["/grant:r", "/inheritance:r", "/remove:g"]);
-  } finally {
-    if (savedHome === undefined) delete process.env.OPENCODEX_HOME; else process.env.OPENCODEX_HOME = savedHome;
-    if (savedToken === undefined) delete process.env.OPENCODEX_API_AUTH_TOKEN; else process.env.OPENCODEX_API_AUTH_TOKEN = savedToken;
-  }
-});
-
-for (const [reason, output, timedOut] of [
-  ["sandbox group ACE", descriptor(SID, 4100, "A|0|0|3|2032127|S-1-5-21-9-9-9-9999|False"), false],
-  ["unreadable ACL", "", false],
-  ["verification timeout", descriptor(), true],
-] as const) {
-  test(`service mutation refuses ${reason} and never runs the operation when hardening times out`, async () => {
-    verification(output, timedOut);
-    setIcaclsRunnerForTests(args => {
-      commands.push(args);
-      return { ...OK, success: false, timedOut: true, exitCode: null };
-    });
-    let ran = false;
-    await expect(withWindowsServiceMutationLock(async () => { ran = true; }, {
-      lockPath: join(root, "windows-service-mutation.sqlite"),
-    })).rejects.toThrow();
-    expect(ran).toBe(false);
-    expect(commands[0]?.[1]).toBe("/grant:r");
-  });
-}

@@ -6,7 +6,6 @@ import * as paths from "../../src/config/paths";
 import { settleConfigRootForCli } from "../../src/cli/config-root-startup";
 import { resetHardenedStateForTests, setAsyncIcaclsBeltSchedulerForTests, setAsyncIcaclsRunnerForTests,
   setIcaclsRunnerForTests, setNowForTests, setPlatformForTests, type IcaclsResult } from "../../src/lib/windows-secret-acl";
-import { setWindowsOwnerAclAsyncRunnerForTests } from "../../src/lib/windows-owner-acl";
 import { setSyntheticWindowsPrincipalForTests } from "../../src/lib/windows-user-principal";
 import { removeTreeWithRetry } from "../helpers/remove-tree";
 import { repoPath } from "../helpers/repo-root";
@@ -30,13 +29,10 @@ beforeEach(() => {
   delete process.env.OPENCODEX_ACL_VERIFY_EXISTING;
   resetHardenedStateForTests(); setPlatformForTests("win32");
   setSyntheticWindowsPrincipalForTests("*S-1-5-21-1-2-3-1001"); setIcaclsRunnerForTests(() => success);
-  // The strict compliance read runs before any icacls child. Pin it to a non-compliant answer so no real
-  // PowerShell runs and the flight these cases hold always reaches the injected icacls runner.
-  setWindowsOwnerAclAsyncRunnerForTests(async () => ({ success: false, timedOut: false, stdout: "" }));
 });
 afterEach(async () => {
   await paths.flushConfigDirHardeningAndReaps(root);
-  setAsyncIcaclsRunnerForTests(null); setAsyncIcaclsBeltSchedulerForTests(null); setWindowsOwnerAclAsyncRunnerForTests(null);
+  setAsyncIcaclsRunnerForTests(null); setAsyncIcaclsBeltSchedulerForTests(null);
   setNowForTests(null); setIcaclsRunnerForTests(null); setPlatformForTests(null);
   setSyntheticWindowsPrincipalForTests(null); resetHardenedStateForTests();
   keys.forEach((key, index) => {

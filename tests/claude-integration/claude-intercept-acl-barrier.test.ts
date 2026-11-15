@@ -22,7 +22,7 @@ import { setLocalCaWindowsAclRunnerForTests } from "../../src/claude/intercept/l
 import { readClaudeInterceptProxyToken } from "../../src/claude/intercept/proxy-auth";
 import { WindowsSecretAclSettleTimeoutError, hardenSecretDirAsync, resetHardenedStateForTests, setAsyncIcaclsBeltSchedulerForTests, setAsyncIcaclsRunnerForTests, setIcaclsRunnerForTests, setNowForTests, setPlatformForTests, windowsSecretAclReapPendingForPath, type IcaclsResult } from "../../src/lib/windows-secret-acl";
 import { setSyntheticWindowsPrincipalForTests } from "../../src/lib/windows-user-principal";
-import { setWindowsOwnerAclAsyncRunnerForTests, setWindowsOwnerAclRunnerForTests } from "../../src/lib/windows-owner-acl";
+import { setWindowsOwnerAclRunnerForTests } from "../../src/lib/windows-owner-acl";
 import { handleManagementAPI } from "../../src/server/management-api";
 import { previewClaudeModelDefaults } from "../../src/claude/model-default-settings";
 import type { OcxConfig } from "../../src/types";
@@ -60,8 +60,6 @@ beforeEach(() => {
   // icacls is mocked, so the real PowerShell owner check must not decide hardening: lifecycle-lock
   // verification shares the 1 s ACL budget, and a cold probe can exhaust it before the mocked icacls runs.
   setWindowsOwnerAclRunnerForTests(() => ({ success: false, timedOut: false, stdout: "" }));
-  // The strict directory read of an optional config flight is async; pin it too, or real PowerShell runs first.
-  setWindowsOwnerAclAsyncRunnerForTests(async () => ({ success: false, timedOut: false, stdout: "" }));
   setLocalCaWindowsAclRunnerForTests(() => ({ ...success, stdout: JSON.stringify({
     owner: sid, protected: true, rules: [{ sid, type: 0, rights: 2032127 }],
   }) }));
@@ -92,7 +90,6 @@ afterEach(async () => {
   setNowForTests(null);
   setIcaclsRunnerForTests(null);
   setWindowsOwnerAclRunnerForTests(null);
-  setWindowsOwnerAclAsyncRunnerForTests(null);
   setLocalCaWindowsAclRunnerForTests(null);
   setPlatformForTests(null);
   setSyntheticWindowsPrincipalForTests(null);

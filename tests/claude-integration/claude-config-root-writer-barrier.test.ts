@@ -14,7 +14,7 @@ import { inspectDesktop3pConfigLibrary, removeDesktop3pStandardPivot, writeDeskt
 import { resolveDesktop3pConfigLibraryPath } from "../../src/claude/desktop-3p-library";
 import { resetHardenedStateForTests, setAsyncIcaclsBeltSchedulerForTests, setAsyncIcaclsRunnerForTests, setIcaclsRunnerForTests, setNowForTests, setPlatformForTests, windowsSecretAclReapPendingForPath, type IcaclsResult } from "../../src/lib/windows-secret-acl";
 import { setSyntheticWindowsPrincipalForTests } from "../../src/lib/windows-user-principal";
-import { setWindowsOwnerAclAsyncRunnerForTests, setWindowsOwnerAclRunnerForTests } from "../../src/lib/windows-owner-acl";
+import { setWindowsOwnerAclRunnerForTests } from "../../src/lib/windows-owner-acl";
 import { writeServiceApiTokenFile } from "../../src/lib/service-secrets";
 import type { OcxConfig } from "../../src/types";
 import { removeTreeWithRetry } from "../helpers/remove-tree";
@@ -49,8 +49,6 @@ beforeEach(() => {
   // icacls is mocked, so the real PowerShell owner check must not decide hardening:
   // a cold probe can exhaust the 1s ACL budget and refuse before the mocked icacls runs.
   setWindowsOwnerAclRunnerForTests(() => ({ success: false, timedOut: false, stdout: "" }));
-  // The strict directory read of an optional config flight is async; pin it too, or real PowerShell runs first.
-  setWindowsOwnerAclAsyncRunnerForTests(async () => ({ success: false, timedOut: false, stdout: "" }));
 });
 afterEach(async () => {
   await paths.flushConfigDirHardeningAndReaps(root);
@@ -61,7 +59,6 @@ afterEach(async () => {
   setNowForTests(null);
   setIcaclsRunnerForTests(null);
   setWindowsOwnerAclRunnerForTests(null);
-  setWindowsOwnerAclAsyncRunnerForTests(null);
   setLocalCaWindowsAclRunnerForTests(null);
   setPlatformForTests(null);
   setSyntheticWindowsPrincipalForTests(null);

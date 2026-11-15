@@ -3345,8 +3345,7 @@ describe("config.ts – Windows ACL hardening integration", () => {
       hardenConfigDir();
       try {
         expect(spy).toHaveBeenCalledTimes(1);
-        // The flight is the optional, strict-verify-first shape: a fresh compliant directory skips the tree-wide propagation.
-        expect(spy).toHaveBeenCalledWith(testDir, { required: false, verifyExistingRuntimeDirectory: true });
+        expect(spy).toHaveBeenCalledWith(testDir, { required: false });
       } finally {
         release();
         await flushConfigDirHardeningForTests();
@@ -3409,10 +3408,8 @@ describe("config.ts – Windows ACL hardening integration", () => {
     try {
       const spy = spyOn(windowsAcl, "hardenSecretDir").mockReturnValue({ ok: true });
       saveConfig(getDefaultConfig());
-      // Required and fail-closed as before; the strict owner-ACL read only decides whether propagation is still needed.
       expect(spy).toHaveBeenCalledWith(testDir, {
         required: true,
-        verifyExistingRuntimeDirectory: true,
         timeoutMemoKey: `${testDir}::config-mutation`,
       });
       expect(existsSync(getConfigPath())).toBe(true);

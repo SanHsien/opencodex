@@ -4,6 +4,33 @@ import { readFileSync } from "node:fs";
 import { repoPath } from "../helpers/repo-root";
 
 const config = JSON.parse(readFileSync(repoPath("desktop/src-tauri/tauri.conf.json"), "utf8"));
+const fragment = readFileSync(repoPath("desktop/src-tauri/wix/service-recovery.wxs"), "utf8");
+const maintenance = '(Installed OR WIX_UPGRADE_DETECTED) AND NOT (REMOVE~="ALL")';
+function action(id: string): string {
+  return new RegExp(`<CustomAction Id="${id}"[\\s\\S]*?/>`).exec(fragment)?.[0] ?? "";
+}
+
+test("MSI stops the installed checked-stop CLI before Restart Manager, without elevation or aborting on stop failure", () => {
+  const stop = action("OcxStopProxyService");
+  expect(stop).toContain('Directory="TARGETDIR"');
+  expect(stop).toContain('Execute="immediate"');
+  expect(stop).toContain('Impersonate="yes"');
+  expect(stop).toContain('Return="ignore"');
+  expect(stop).toContain('ExeCommand="&quot;[INSTALLDIR]ocx.exe&quot; service stop"');
+  expect(stop).not.toMatch(/taskkill|Stop-Process|schtasks|RunAs/);
+  expect(fragment).toContain(`<Custom Action="OcxStopProxyService" Before="InstallValidate">${maintenance}</Custom>`);
+});
+
+test("MSI repair and reinstall resume the task after replacement, while uninstall never stops or resumes it through these actions", () => {
+  expect(fragment).toContain(`<Custom Action="OcxResumeProxyTask" After="InstallFinalize">${maintenance}</Custom>`);
+  // Installed covers same-product REINSTALL=ALL; WIX_UPGRADE_DETECTED covers major upgrades.
+  expect(fragment.match(/\(Installed OR WIX_UPGRADE_DETECTED\)/g)).toHaveLength(2);
+});
+
+test("MSI defaults to suppressing automatic reboots even when checked stop fails and files remain in use", () => {
+  expect(fragment).toContain('<Property Id="REBOOT" Value="ReallySuppress" />');
+  expect(fragment).not.toMatch(/MSIRESTARTMANAGERCONTROL|ForceReboot|ScheduleReboot/);
+});
 test("fork MSI links the service recovery fragment instead of disabling Restart Manager", () => {
   expect(config.bundle.windows.wix.fragmentPaths).toContain("wix/service-recovery.wxs");
   expect(config.bundle.windows.wix.componentGroupRefs).toContain("OcxServiceRecovery");
@@ -16,7 +43,7 @@ test("quiet MSI upgrades resume only an existing enabled root task after success
   const fragment = readFileSync(repoPath("desktop/src-tauri/wix/service-recovery.wxs"), "utf8");
   expect(fragment).toContain('<ComponentGroup Id="OcxServiceRecovery"');
   expect(fragment).toContain('After="InstallFinalize"');
-  expect(fragment).toContain('WIX_UPGRADE_DETECTED AND NOT (REMOVE~="ALL")');
+  expect(fragment).toContain(maintenance);
   expect(fragment).toContain('Execute="immediate"');
   expect(fragment).toContain('Impersonate="yes"');
   expect(fragment).toContain('Return="ignore"');
@@ -34,13 +61,14 @@ test("the recovery action only references directories Tauri's WiX template defin
   // property and needs no Directory row; it is also what Tauri's own template uses.
   const fragment = readFileSync(repoPath("desktop/src-tauri/wix/service-recovery.wxs"), "utf8");
   const dirs = [...fragment.matchAll(/\bDirectory="([^"]+)"/g)].map(m => m[1]);
-  expect(dirs).toEqual(["TARGETDIR"]);
+  expect(dirs.length).toBeGreaterThan(0);
+  expect(dirs.every(dir => dir === "TARGETDIR")).toBe(true);
   expect(fragment).toContain("[System64Folder]WindowsPowerShell\\v1.0\\powershell.exe");
 });
 
 test.skipIf(process.platform !== "win32")("MSI recovery does not start missing, disabled, or already running tasks", () => {
   const fragment = readFileSync(repoPath("desktop/src-tauri/wix/service-recovery.wxs"), "utf8");
-  const command = /ExeCommand="([^"]+)"/.exec(fragment)![1]!.replace(/&quot;/g, '"');
+  const command = /ExeCommand="([^"]+)"/.exec(action("OcxResumeProxyTask"))![1]!.replace(/&quot;/g, '"');
   const script = command.slice(command.indexOf('-Command "') + 10, -1);
   for (const state of ["missing", "Disabled", "Running", "Ready"]) {
     // Overrides both cmdlets: no query or mutation reaches the real Task Scheduler.

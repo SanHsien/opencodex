@@ -976,6 +976,8 @@ for eligibility, restore behavior and transport preservation.
 
 #### Windows 服務停止
 
+Windows MSI 升級與修復會在 Restart Manager 檢查檔案占用前，呼叫已安裝舊版 CLI 的 checked `service stop`；停止失敗仍繼續安裝。安裝成功後只恢復既有且啟用的根排程 `opencodex-proxy`，解除安裝不執行這兩個動作。MSI 預設 `REBOOT=ReallySuppress`；回傳 3010 時需自行安排重新開機，被占用的檔案在此之前可能仍是舊版，重新開機後應確認執行版本。若停止後安裝失敗，先排除安裝錯誤，再手動啟動既有服務。
+
 Windows 的 `ocx stop` 透過 checked stop 停止 Task Scheduler 或原生 WinSW：先結束工作，再只終止能以本 home 的 launcher／script 完整路徑、祖先關係與建立時間綁定的 wrapper，確認退出後才優雅停止代理。之後約六秒確認 port 未被重新占用且 wrapper 未重啟，避免迴圈在成功停止後重新啟動代理。
 
 服務無法證明已停時，不向代理傳送停止請求、不還原用戶端設定，並回報失敗。JSON 保留 `outcome: "failed"`、`proxy: "unknown"`，另帶 `serviceStopReason`：
@@ -996,7 +998,9 @@ Windows 的 `ocx stop` 透過 checked stop 停止 Task Scheduler 或原生 WinSW
 `ocx service stop` 與服務移除失敗時，輸出包含清除祕密與控制字元後的 `partA.reason` 與 `detail`，可用來辨識哪一步證據讀取失敗。
 已知的本地化排程狀態（包含繁中「就緒」）會直接解析；未知狀態仍須在原預算內透過 PowerShell 備援確認，讀不到就拒絕確認停止。
 
-完整移除的 wrapper 殘留清理只刪檔，不終止行程。有可讀 wrapper、不可讀候選行程或讀不到行程表時，保留三個檔案並回 failed；先執行 `ocx stop` 或 `ocx service stop` 的 checked stop 再重試。
+`ocx service uninstall` 與完整移除都先執行 checked stop，再移除服務與 wrapper 檔案。即使排程已手動刪除，WMI 啟動的 wrapper 若是已驗明代理的祖先，且映像、完整腳本路徑與建立時間符合，仍屬 bound，可以被停止。缺少血緣證據的 unbound wrapper 不被終止，移除會拒絕。後面的 wrapper 殘留清理只刪檔，不終止行程；到了這個階段仍有可讀 wrapper、不可讀候選行程或讀不到行程表時，保留三個檔案並回 failed。
+
+Windows 服務操作、設定 mutation 協調與服務 token 發布會先嚴格驗證既有 runtime／設定目錄 ACL；新鮮、受保護且具必要 owner 與可繼承完整控制的私有 DACL，可跳過目錄 ACL 重寫與子項目傳播。未知或不合規仍須 harden，服務 lock／token 的失敗仍拒絕操作；token 與 lock 檔案各自 harden，逾時預算不變。
 
 ### 儲存狀態與同步分別讀取
 

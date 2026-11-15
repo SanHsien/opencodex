@@ -11,6 +11,7 @@ import { persistCommittedDesktopGateway } from "../../src/claude/desktop-gateway
 import { emptyDesktopProfile, reconcileDesktopProfile } from "../../src/claude/desktop-profile";
 import type { ManagementContext } from "../../src/server/management/context";
 import { resetHardenedStateForTests, setAsyncIcaclsBeltSchedulerForTests, setAsyncIcaclsRunnerForTests, setIcaclsRunnerForTests, setNowForTests, setPlatformForTests, windowsSecretAclReapPendingForPath, type IcaclsResult } from "../../src/lib/windows-secret-acl";
+import { setWindowsOwnerAclAsyncRunnerForTests, setWindowsOwnerAclRunnerForTests } from "../../src/lib/windows-owner-acl";
 import { setSyntheticWindowsPrincipalForTests } from "../../src/lib/windows-user-principal";
 import type { OcxConfig } from "../../src/types";
 import { removeTreeWithRetry } from "../helpers/remove-tree";
@@ -42,6 +43,9 @@ beforeEach(() => {
   setPlatformForTests("win32");
   setSyntheticWindowsPrincipalForTests("*S-1-5-21-1-2-3-1001");
   setIcaclsRunnerForTests(() => success);
+  // icacls is mocked, so the real PowerShell owner checks must not decide hardening or delay the held flight.
+  setWindowsOwnerAclRunnerForTests(() => ({ success: false, timedOut: false, stdout: "" }));
+  setWindowsOwnerAclAsyncRunnerForTests(async () => ({ success: false, timedOut: false, stdout: "" }));
 });
 
 test.each([
@@ -162,6 +166,8 @@ afterEach(async () => {
   setAsyncIcaclsBeltSchedulerForTests(null);
   setNowForTests(null);
   setIcaclsRunnerForTests(null);
+  setWindowsOwnerAclRunnerForTests(null);
+  setWindowsOwnerAclAsyncRunnerForTests(null);
   setPlatformForTests(null);
   setSyntheticWindowsPrincipalForTests(null);
   resetHardenedStateForTests();

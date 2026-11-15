@@ -3,6 +3,17 @@
   <Fragment>
     <!-- Referenced by Tauri so this whole fragment is linked, without installing extra assets. -->
     <ComponentGroup Id="OcxServiceRecovery" />
+    <!-- Last resort: defer a required reboot to the operator, including silent installs.
+         Locked files can remain pending until reboot; callers must handle MSI exit 3010. -->
+    <Property Id="REBOOT" Value="ReallySuppress" />
+    <!-- INSTALLDIR is populated by Tauri's AppSearch/CostFinalize before InstallValidate.
+         Run the OLD installed CLI's checked stop before Restart Manager sees files in use,
+         so the wrapper cannot respawn ocx while InstallFiles replaces it.
+         Missing binaries and stop failures are nonfatal; never fall back to force-killing.
+         TARGETDIR is a Directory row; INSTALLDIR here is only a formatted property. -->
+    <CustomAction Id="OcxStopProxyService" Directory="TARGETDIR"
+                  Execute="immediate" Impersonate="yes" Return="ignore"
+                  ExeCommand="&quot;[INSTALLDIR]ocx.exe&quot; service stop" />
     <!-- Restart Manager can close both the proxy and its wrapper during /qn upgrades.
          Keep file replacement enabled; resume only an existing enabled root task afterwards.
          Immediate impersonation uses the installing user's rights and never requests elevation.
@@ -11,7 +22,8 @@
                   Execute="immediate" Impersonate="yes" Return="ignore"
                   ExeCommand="&quot;[System64Folder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -Command &quot;$ErrorActionPreference='Stop'; $task=Get-ScheduledTask -TaskName 'opencodex-proxy' -TaskPath '\' -ErrorAction SilentlyContinue; if ($null -ne $task -and $task.State -ne 'Disabled' -and $task.State -ne 'Running') { $task | Start-ScheduledTask -ErrorAction Stop }&quot;" />
     <InstallExecuteSequence>
-      <Custom Action="OcxResumeProxyTask" After="InstallFinalize">WIX_UPGRADE_DETECTED AND NOT (REMOVE~="ALL")</Custom>
+      <Custom Action="OcxStopProxyService" Before="InstallValidate">(Installed OR WIX_UPGRADE_DETECTED) AND NOT (REMOVE~="ALL")</Custom>
+      <Custom Action="OcxResumeProxyTask" After="InstallFinalize">(Installed OR WIX_UPGRADE_DETECTED) AND NOT (REMOVE~="ALL")</Custom>
     </InstallExecuteSequence>
   </Fragment>
 </Wix>

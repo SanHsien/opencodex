@@ -6,6 +6,7 @@ import { saveConfig } from "../../src/config";
 import { flushConfigDirHardening, flushConfigDirHardeningForTests, hardenConfigDir } from "../../src/config/paths";
 import * as windowsAcl from "../../src/lib/windows-secret-acl";
 import * as windowsPrincipal from "../../src/lib/windows-user-principal";
+import { setWindowsOwnerAclAsyncRunnerForTests } from "../../src/lib/windows-owner-acl";
 import * as nativeStartup from "../../src/codex/native-profile-startup";
 import { startServer } from "../../src/server";
 import type { OcxConfig } from "../../src/types";
@@ -99,6 +100,9 @@ test("server.stop(true) waits for a timed-out ACL child to exit before home remo
   await flushConfigDirHardening(testDir);
   windowsAcl.resetHardenedStateForTests();
   windowsAcl.setPlatformForTests("win32");
+  // The real startup flight above already left the directory compliant, so the strict read would skip the
+  // icacls child this case needs to hold. Pin it to a non-compliant answer (and keep real PowerShell out).
+  setWindowsOwnerAclAsyncRunnerForTests(async () => ({ success: false, timedOut: false, stdout: "" }));
   windowsPrincipal.setAsyncWindowsPrincipalRunnerForTests(async () => ({
     success: true, exitCode: 0, timedOut: false, stdout: "S-1-5-21-1-2-3-1001\nTEST\\user\n",
   }));
@@ -148,6 +152,7 @@ test("server.stop(true) waits for a timed-out ACL child to exit before home remo
     await windowsAcl.flushWindowsSecretAclReapsBeforeRemoval(testDir);
     windowsAcl.setAsyncIcaclsRunnerForTests(null);
     windowsAcl.setAsyncIcaclsBeltSchedulerForTests(null);
+    setWindowsOwnerAclAsyncRunnerForTests(null);
     windowsAcl.setNowForTests(null);
     windowsAcl.setPlatformForTests(null);
     windowsPrincipal.setAsyncWindowsPrincipalRunnerForTests(null);

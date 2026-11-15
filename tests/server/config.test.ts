@@ -3345,7 +3345,8 @@ describe("config.ts – Windows ACL hardening integration", () => {
       hardenConfigDir();
       try {
         expect(spy).toHaveBeenCalledTimes(1);
-        expect(spy).toHaveBeenCalledWith(testDir, { required: false });
+        // The flight is the optional, strict-verify-first shape: a fresh compliant directory skips the tree-wide propagation.
+        expect(spy).toHaveBeenCalledWith(testDir, { required: false, verifyExistingRuntimeDirectory: true });
       } finally {
         release();
         await flushConfigDirHardeningForTests();

@@ -62,6 +62,12 @@ without a creation time or image name, and a wrapper image with no readable comm
 bound wrapper or, while a manager is registered, above the child. Bound wrappers are ordered
 deepest first and carry pid, creation time, image and a SHA-256 digest of the command line.
 
+Task absence does not disable the verified-child ancestry clause. A WMI-launched wrapper
+above that child can still bind and be stopped; without that child or another permitted
+lineage it remains unbound. `ocx service uninstall` performs this checked stop before removal.
+The fork's later residue helper only deletes files and refuses any surviving wrapper; that
+helper's refusal is not a prohibition on stopping bound wrappers earlier in uninstall.
+
 ## Part A and Part B
 
 `parseTaskCsvState` in `src/service/windows-checked-stop-live.ts` matches known English,

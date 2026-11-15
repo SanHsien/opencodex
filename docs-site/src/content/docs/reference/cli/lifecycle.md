@@ -188,6 +188,19 @@ service cannot be proven stopped, and install also stops when another program ho
 Windows on Arm the wrappers cannot be ended yet, so a stop that would need to end one reports
 `evidence-unreadable`; end the wrapper by hand, then retry.
 
+Deleting the task by hand does not prevent uninstall from stopping a wrapper above the
+identity-checked proxy. Even a WMI-launched wrapper can qualify when its image, exact script
+path, ancestry and creation time are verified. An unbound wrapper is left running and uninstall
+refuses. Only after checked stop succeeds does removal clean up the wrapper files. That residue
+cleanup never stops processes: any remaining wrapper, unreadable candidate or unreadable process
+table makes it fail and retain the files.
+
+Windows service mutations, config mutation coordination and service-token publication first
+verify existing runtime/config directory ACLs. A fresh protected private DACL with the required
+owner and inheritable Full Control avoids rewriting the directory ACL and propagating it through
+an existing tree. Unknown or noncompliant ACLs still require hardening; service lock/token failures
+remain fatal. Tokens and lock files are hardened separately, within the existing timeout budgets.
+
 For a desktop-approved takeover, `ocx stop --json` also accepts the complete set of
 `--expect-*` values supplied by `ocx resolve --json`. On Windows, this guarded stop can
 stop a Task Scheduler task only when its registered definition, running state, and wrapper
@@ -1627,6 +1640,8 @@ On a Remote Link Child, `ocx connect status` also prints a `Link tunnel:` line (
 `ocx init` accepts TCP ports 1–65535 as decimal whole numbers. Press Enter to use 10100. Invalid input such as `0`, `10100oops` or `1.5` is never silently replaced or truncated; setup reports it and asks for the port again.
 
 ## Login registration diagnostics
+
+Windows MSI upgrades and repairs call the installed CLI's checked `service stop` before Restart Manager checks files in use. Stop failures do not abort installation. After a successful install, the installer resumes only an existing enabled root `opencodex-proxy` task. Uninstall does not use these recovery actions. The MSI defaults to `REBOOT=ReallySuppress`: exit 3010 requires an operator-scheduled reboot, and locked files may still contain the old version until then. Confirm the runtime version after reboot. If installation fails after stopping the service, resolve the installation error and start the existing service manually.
 
 On Linux, `ocx service install` checks `loginctl show-user <current-user> -p Linger` before printing boot advice. Enabled linger is reported as already enabled. Disabled linger gets the `loginctl enable-linger $USER` hint; missing or unreadable diagnostics state the uncertainty and do not fail installation.
 

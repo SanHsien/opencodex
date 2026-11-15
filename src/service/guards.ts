@@ -136,7 +136,7 @@ function persistServiceApiToken(token: string): string {
   const dir = getConfigDir();
   recordOwnedConfigPath(dir, path);
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true, mode: 0o700 });
-  if (process.platform === "win32") hardenSecretDir(dir, { required: true });
+  if (process.platform === "win32") hardenSecretDir(dir, { required: true, verifyExistingRuntimeDirectory: true });
   writeFileSync(path, `${token}\n`, { encoding: "utf8", mode: 0o600 });
   try { chmodSync(path, 0o600); } catch { /* best-effort */ }
   if (process.platform === "win32") hardenSecretPath(path, { required: true });

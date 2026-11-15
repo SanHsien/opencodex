@@ -70,10 +70,20 @@ installation asking to take over remains a real question. Older blocked reasons 
 precedence, and the way to let the app own a service-supervised runtime is `ocx service uninstall`
 first, which also deletes the wrapper files. If the Task Scheduler state cannot be read at all (the query and its CSV fallback both fail), the full uninstall deletes nothing and throws "Could not determine Task Scheduler state", telling you to run the uninstall from an elevated terminal (Run as administrator). The full-uninstall path `uninstallServiceDetailed`
 removes that residue when the task is already gone, via `removeWindowsServiceWrapperResidue`.
-It never terminates a process: a readable live wrapper requires `ocx stop` or `ocx service stop`
-(checked stop) before retry. An unreadable process table or wrapper candidate keeps every file.
+The residue helper never terminates a process: a readable live wrapper at this stage requires
+checked stop before retry. An unreadable process table or wrapper candidate keeps every file.
 Only confirmed wrapper absence allows file removal; deletion failures name the file and return
-`failed`. Full uninstall runs checked stop before service removal.
+`failed`. Full uninstall and `ocx service uninstall` run checked stop before service removal.
+A wrapper above the identity-checked proxy can be bound even after its task was deleted,
+including a WMI-launched wrapper; checked stop may end it before residue cleanup sees the files.
+An unbound wrapper is left running and refuses the removal before cleanup.
+
+`desktop/src-tauri/wix/service-recovery.wxs` runs the installed `[INSTALLDIR]ocx.exe service stop`
+before `InstallValidate`, using immediate impersonation and ignoring failure. Both major upgrades
+and installed-product repairs/reinstalls resume the existing enabled root task after `InstallFinalize`;
+uninstall is excluded. Both actions reference only `TARGETDIR` as a Directory row. The MSI defaults
+to `REBOOT=ReallySuppress`; locked files can require a manual reboot (exit 3010) before the new
+runtime is effective. An installation failure after stop does not automatically resume the service.
 `ocx service claim` is not blocked by this rule and does not need to be: a claim carries the
 compatibility token `ocx resolve` issues, a blocked answer issues none, and the assessment the claim
 revalidates internally (`assessServiceTakeoverCompatibility`) does not apply the `service-managed`

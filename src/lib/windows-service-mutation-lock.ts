@@ -88,7 +88,7 @@ export async function withWindowsServiceMutationLock<T>(
     mkdirSync(lockDir, { recursive: true, mode: 0o700 });
     assertRegularPath(lockDir, "directory");
     try { chmodSync(lockDir, 0o700); } catch { /* Windows ACL below is authoritative. */ }
-    (deps.hardenDirectory ?? (path => { hardenSecretDir(path, { required: true }); }))(lockDir);
+    (deps.hardenDirectory ?? (path => { hardenSecretDir(path, { required: true, verifyExistingRuntimeDirectory: true }); }))(lockDir);
 
     try {
       database = (deps.openDatabase ?? (path => new Database(path, { create: true })))(lockPath);

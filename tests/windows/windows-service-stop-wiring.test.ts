@@ -85,6 +85,33 @@ describe("Part A through the caller wiring", () => {
     expect(fake.terminated).toEqual([30, 20]);
   });
 
+  test("deleted task does not protect a WMI-launched wrapper that is the verified proxy's ancestor", async () => {
+    const wmi = entry(500, 4, "WmiPrvSE.exe", "WmiPrvSE.exe", 2_000);
+    const fake = machine({
+      probeScheduler: () => ({ status: "absent" }),
+      enumerate: () => [wmi, loop(30, 500), entry(42, 30, "bun.exe", "bun.exe start", 5_200)],
+    });
+    setWindowsServiceStopHooksForTests({ liveDeps: () => fake.deps });
+    const result = await runWindowsServiceStopPartA();
+    expect(result.outcome).toBe("stopped");
+    expect(fake.terminated).toEqual([30]);
+    expect(fake.calls).not.toContain("end");
+  });
+
+  test("deleted task and no verified child leave a WMI-launched wrapper unbound and untouched", async () => {
+    const fake = machine({
+      childPid: null,
+      probeScheduler: () => ({ status: "absent" }),
+      enumerate: () => [entry(500, 4, "WmiPrvSE.exe", "WmiPrvSE.exe", 2_000), loop(30, 500)],
+    });
+    setWindowsServiceStopHooksForTests({ liveDeps: () => fake.deps });
+    const result = await runWindowsServiceStopPartA();
+    expect(result.outcome).toBe("survived");
+    expect(result.reason).toBe("unbound-wrapper");
+    expect(fake.terminated).toEqual([]);
+    expect(fake.calls).not.toContain("end");
+  });
+
   test("ARM64 strict: nothing is terminated and the stop is unknown / evidence-unreadable", async () => {
     let fallback = 0;
     const fake = machine({

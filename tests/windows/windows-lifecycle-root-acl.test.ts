@@ -10,6 +10,9 @@ import {
 import { setWindowsOwnerAclRunnerForTests, setWindowsOwnerAclAsyncRunnerForTests, windowsEntriesAclMatches, windowsPrivateEntriesAclMatches } from "../../src/lib/windows-owner-acl";
 import { setWindowsPrincipalRunnerForTests, setAsyncWindowsPrincipalRunnerForTests, resetWindowsPrincipalForTests, resolveCurrentWindowsPrincipal } from "../../src/lib/windows-user-principal";
 import { withClientLifecycleSync } from "../../src/client/lifecycle-lock";
+import { withWindowsServiceMutationLock } from "../../src/lib/windows-service-mutation-lock";
+import { withConfigMutationLockSync } from "../../src/config/mutation-lock";
+import { writeServiceApiTokenFile } from "../../src/service/guards";
 import { removeTreeWithRetry } from "../helpers/remove-tree";
 
 const SID = "S-1-5-21-9-9-9-1001";
@@ -211,3 +214,53 @@ test("lifecycle acquisition opts in for its parent and still hardens its databas
   expect(commands.filter(args => args[0] === join(root, "lock.sqlite")).map(args => args[1]))
     .toEqual(["/grant:r", "/inheritance:r", "/remove:g"]);
 });
+
+test("service install, stop and uninstall lock skips compliant root propagation but hardens its database", async () => {
+  const lockPath = join(root, "windows-service-mutation.sqlite");
+  expect(await withWindowsServiceMutationLock(async () => 42, { lockPath })).toBe(42);
+  expect(commands.filter(args => args[0] === root)).toEqual([]);
+  expect(commands.filter(args => args[0] === lockPath).map(args => args[1]))
+    .toEqual(["/grant:r", "/inheritance:r", "/remove:g"]);
+});
+
+test("config mutation lock skips compliant home propagation", () => {
+  expect(withConfigMutationLockSync(() => 42, root)).toBe(42);
+  expect(commands.filter(args => args[0] === root)).toEqual([]);
+});
+
+test("service token publication skips compliant home propagation but still hardens the token", () => {
+  const savedHome = process.env.OPENCODEX_HOME;
+  const savedToken = process.env.OPENCODEX_API_AUTH_TOKEN;
+  process.env.OPENCODEX_HOME = root;
+  process.env.OPENCODEX_API_AUTH_TOKEN = "synthetic-service-acl-regression-token";
+  try {
+    const token = writeServiceApiTokenFile();
+    expect(token?.origin).toBe("env");
+    expect(commands.filter(args => args[0] === root)).toEqual([]);
+    expect(commands.filter(args => args[0] === token?.path).map(args => args[1]))
+      .toEqual(["/grant:r", "/inheritance:r", "/remove:g"]);
+  } finally {
+    if (savedHome === undefined) delete process.env.OPENCODEX_HOME; else process.env.OPENCODEX_HOME = savedHome;
+    if (savedToken === undefined) delete process.env.OPENCODEX_API_AUTH_TOKEN; else process.env.OPENCODEX_API_AUTH_TOKEN = savedToken;
+  }
+});
+
+for (const [reason, output, timedOut] of [
+  ["sandbox group ACE", descriptor(SID, 4100, "A|0|0|3|2032127|S-1-5-21-9-9-9-9999|False"), false],
+  ["unreadable ACL", "", false],
+  ["verification timeout", descriptor(), true],
+] as const) {
+  test(`service mutation refuses ${reason} and never runs the operation when hardening times out`, async () => {
+    verification(output, timedOut);
+    setIcaclsRunnerForTests(args => {
+      commands.push(args);
+      return { ...OK, success: false, timedOut: true, exitCode: null };
+    });
+    let ran = false;
+    await expect(withWindowsServiceMutationLock(async () => { ran = true; }, {
+      lockPath: join(root, "windows-service-mutation.sqlite"),
+    })).rejects.toThrow();
+    expect(ran).toBe(false);
+    expect(commands[0]?.[1]).toBe("/grant:r");
+  });
+}

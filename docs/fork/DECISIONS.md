@@ -1,5 +1,25 @@
 # 維護決策
 
+## 2026-11-15：MSI 升級先停止服務，預設禁止自動重新開機
+
+**決定**：`service-recovery.wxs` 在 `InstallValidate` 前，以 immediate、impersonate 的 custom action 呼叫舊版已安裝的 `"[INSTALLDIR]ocx.exe" service stop`，沿用 checked stop 的身分、血緣及時間限制，先停 wrapper 再讓 Restart Manager 處理檔案占用。停止失敗或舊執行檔不存在時以 `Return="ignore"` 繼續，不另加強制終止。`Installed OR WIX_UPGRADE_DETECTED` 涵蓋同產品 repair／reinstall 與 major upgrade；解除安裝排除。成功完成替換後，由原有 `OcxResumeProxyTask` 在 `InstallFinalize` 後恢復既有、啟用且未執行的根排程，不建立新排程。
+
+**目錄與權限**：Tauri CLI 2.11.1 的 `crates/tauri-bundler/src/bundle/windows/msi/main.wxs` 使用 `INSTALLDIR`，由 AppSearch 的前次安裝目錄及 CostFinalize 決定。停止動作直接使用格式化的 `[INSTALLDIR]`，不搜尋 PATH，也不執行新套件內的 CLI；兩個 custom action 的 Directory 參照均限 `TARGETDIR`，不新增 SystemFolder 參照、不要求額外提權。以其他帳號或 SYSTEM 安裝時，只能處理該執行身分可驗明的服務。
+
+**最後防線**：套件預設 `REBOOT=ReallySuppress`，保留 Restart Manager。這會抑制 Windows Installer 的重新開機與提示；無法即時替換的檔案仍可能排到重開機後處理，安裝回傳 3010 時由操作者安排重開機。重新開機前可能仍使用舊執行檔，不能把排程已啟動視為新版本已生效。命令列仍可明確覆寫 REBOOT；此預設不約束外部部署工具自行安排重開機。停止後若安裝失敗，沒有到達 InstallFinalize 就不自動恢復，需排除安裝錯誤後手動啟動既有服務。
+
+## 2026-11-15：釐清 D2 移除語意並補齊服務目錄 ACL 檢查
+
+**D2 預期更正**：`ocx service uninstall` 是先 checked stop，再移除服務與 wrapper 檔案，不是看到執行中的 wrapper 就一律拒絕。`src/service/cli.ts` 先呼叫 `windowsServiceRemovalStop`；其 Part A 綁定 wrapper、停止後再停止代理及確認 port，成功才進入 `uninstallServiceDetailed`。`cli-windows-stop.ts` 與 `windows-stop-binding.ts` 的此項行為和 `refs/upstream-tags/v2.100.3` 相同。排程不存在不會取消「已驗明代理的祖先」這條 binding：WMI 啟動的 cmd wrapper 若是該代理的祖先，且映像、完整路徑 token 與建立時間符合，仍可停止。只有缺少血緣證據的 unbound wrapper 不被終止，Part A 回 survived／unbound-wrapper，CLI 拒絕後續移除。
+
+原 D2「wrapper 還在跑就 failed、留檔、不終止行程」只約束 `removeWindowsServiceWrapperResidue`，不是整個 uninstall。該函式位於 scheduler 已不存在、沒有移除其他 manager 的殘留分支；它不執行 checked stop，也不終止行程。到了這個階段仍有可讀 wrapper、不可讀候選或行程表不可讀，就回 failed 並留檔；確認沒有 wrapper 才刪三個具名檔案。checked stop 已成功停止 bound wrapper 後，這裡可以正常清檔。保留上游停止語意及 fork 的殘留拒絕條件，不新增「所有執行中 wrapper 都禁止停止」規則。
+
+**ACL 原因與修法**：`windows-secret-acl.ts` 的參數沒有 `/T`。目錄 owner grant 帶 `(OI)(CI)(F)`，修改目錄 ACL 仍可能讓 Windows 傳播繼承權限；不能以沒有 `/T` 推論成本與子項目無關。shim 遞迴停止後，`windows-service-mutation-lock.ts` 每個非 status 的服務指令仍直接 harden 共用 runtime 目錄；`config/mutation-lock.ts` 與 `service/guards.ts` 的 token 發布也仍直接 harden 設定根目錄，未使用設定讀取已有的合規檢查。大量子項目下這些重複修改仍會消耗預算。檔案占用是否造成特定一次子程序停滯，現有證據不足以確認。
+
+三處改用既有 `verifyExistingRuntimeDirectory`：僅新鮮、嚴格的 owner／受保護 DACL／完整控制與子項目繼承旗標證據，且前後 device／inode／ctime 不變時跳過目錄修改。額外 ACE（含 sandbox 群組）、不可讀、逾時或物件變動仍走原 hardening。service lock 與 token 發布保持 required、失敗即拒絕；config mutation 保留原本警告後繼續的既有行為。token 與 lock database 仍各自 harden，目錄證據不代表子項目合規。新 staging 目錄的處理不變。
+
+**預算不變**：每次 hardening 共用一個 deadline，預設 30000 ms，環境覆寫限制在 1000–60000 ms；最多一次 timeout 重試，只用剩餘預算，診斷亦共用該 deadline。`child_result` 表示子程序回報逾時，`budgetMs` 是該步收到的剩餘預算，`elapsedMs` 是該次 runner 的實測時間；退出與回收延遲可能使實測超過預算，不能因此把 timeout 當成功。不依項目數放大預算、不新增跨行程鎖、不放寬 fail-closed。
+
 ## 2026-11-15：阻斷 Codex shim 遞迴與避免重複 ACL 傳播
 
 **根因與證據**：維護者實機觀察到自訂 `codex.cmd` 缺少原版 `src/codex/shim-templates.ts` 的版本／說明／`OCX_SHIM_BYPASS` 分流，造成 `ensure → codex --version → ensure`，約每五秒增加一層。每個新行程又對約 939 個項目的設定目錄執行 ACL hardening；服務安裝在 4–10 秒預算內出現 `ETIMEDOUT`。Codex 啟動加入的 `CodexSandboxUsers:(OI)(CI)(RX)` 與 hardening 相互干擾。自訂 shim 的遺漏屬本機整合問題；原版 shim 已有分流。
@@ -1591,7 +1611,7 @@ Windows 適用性：只用 `node:crypto` 與環境變數，不碰檔案系統、
 | 保留殘留清理並沿用舊 wrapper 掃除 | 不採：繞過 checked stop 的 PID／建立時間與血緣證據。 |
 | 採 checked stop，殘留清理只確認退出後刪檔 | 採用：停止責任集中，保留 fork 的殘留清理能力。 |
 
-Windows 服務停止路徑需在維護者機器實機驗收，尚未進行；`ocx service stop`／`uninstall`、wrapper 在跑時拒絕而不殺行程、無 wrapper 時清檔的條件列入 `ROADMAP.md`。
+Windows 服務停止路徑的實機條件列入 `ROADMAP.md`：`ocx service stop`／`uninstall` 先以 checked stop 停止 bound wrapper；unbound wrapper 留存並拒絕移除。殘留清理本身不終止行程，確認無 wrapper 才清檔。原「wrapper 在跑時拒絕」不能套用到 checked stop 已證明可停止的 bound wrapper。
 
 **D3（Windows 12 → 14 片，依 fork log 更新權重）**：新增 235 個測試檔與 ocx-child 冷編譯，前版最長片已達 28.1 分鐘，因此採上游 14 片，30 分鐘上限不變。以 run `43638705529` 的 14 份 job log 執行 `scripts/ci/test-durations.ts refresh --table scripts/ci/test-durations.windows.tsv`，3258 個檔案均有量測值。各片 job 起訖耗時（分鐘）：1:20.5、2:25.9、3:26.5、4:28.8、5:24.1、6:25.1、7:20.4、8:26.3、9:22.0、10:15.4、11:20.6、12:21.7、13:26.1、14:18.5。最長 4/14 為 28.8 分鐘，距 30 分鐘約 1.2 分鐘，餘裕仍薄；這是刷新權重前的耗時，不推定刷新後必然縮短。後續由下一次正常全量 CI 觀察，不為此額外 dispatch。
 

@@ -928,6 +928,8 @@ No new `platform` issues since that number.
 
 ## 2026-11-15：D2 行程證據編碼與 MSI 靜默升級問題回註
 
+**MSI 自動重新開機問題回註**：升級流程已改為在 InstallValidate 前，以安裝者身分呼叫已安裝舊版 `[INSTALLDIR]ocx.exe service stop`，先走 checked stop 阻止 wrapper 再次啟動代理；失敗不阻斷安裝、不改用強制終止。停止與原有 InstallFinalize 後恢復動作同時涵蓋 major upgrade 及同產品 repair／reinstall，排除解除安裝。兩者 Directory 均為 TARGETDIR。新增 `REBOOT=ReallySuppress` 預設；若檔案仍占用而回 3010，須人工安排重新開機，再確認 `/healthz` 新版本。停止後安裝失敗時不自動恢復服務。這補齊前次只有恢復動作、無法阻止 wrapper 在替換期間重啟的缺口；D2 保留此順序、無自動重新開機及新版本的實機驗收。
+
 D2 前一筆狀態解析修正之外，實機再次出現 exit 1，這次原因為 `evidence-unreadable`／`the process list could not be read`。兩個含非 ASCII 命令列的行程讓 PowerShell 5.1 產出的 CP950 JSON 被當成 UTF-8；snapshot 已固定 UTF-8，無法讀取仍拒絕停止。上游 v2.100.3 有同一段未指定編碼的查詢，屬上游缺陷。
 
 MSI 的 `/qn` 紀錄確認 Restart Manager 關閉 wrapper；排程「就緒」、上次結果 267014、150 秒無 listener。2026-11-14 `/qb` 的 wrapper 存活紀錄不能代表這條路徑。已補上升級完成後恢復既有啟用根排程的 WiX 動作，排除一般安裝與解除安裝，保持安裝者權限與 Restart Manager 的檔案替換。上游 WiX 也沒有此恢復動作，屬上游安裝流程缺口；不處理未受排程管理的 runtime。原 #8246 列要求的方案判斷與實作已完成，實機升級驗收併入保留的 ROADMAP D2 列。
@@ -958,3 +960,11 @@ CP950 固件含「功」（尾位元組 0x5c），防止把損壞 JSON 當成空
 內部 Codex 呼叫補上 `OCX_SHIM_BYPASS=1`；設定目錄讀取改以新鮮的嚴格 ACL 證據跳過合規目錄傳播，非合規與檢查失敗仍走 hardening。原版 shim 的分流原本存在，自訂 shim 遺漏與上游內部呼叫缺少防線是兩個不同原因。
 
 服務安裝仍採 required hardening；跨行程無同樹工作所有權證據，不能把 timeout 當成可安全等待或成功。spill 已有啟動及定期清理，751 個項目的實體分類仍需釐清，保留 ROADMAP 的 D2 驗收列並加入分類項目。根因、程式碼依據與未增加跨行程鎖的理由見 `docs/fork/DECISIONS.md` 同日「阻斷 Codex shim 遞迴與避免重複 ACL 傳播」。
+
+## 2026-11-15：D2 uninstall 預期與服務 ACL 逾時問題回註
+
+**第 4 項預期更正**：`service uninstall` 先 `windowsServiceRemovalStop`，才進入 `uninstallServiceDetailed`。前者與上游 `refs/upstream-tags/v2.100.3` 相同；WMI 建立的 wrapper 若是已驗明代理的祖先，符合映像、路徑及建立時間證據，沒有排程仍是 bound。停止 wrapper、正常關閉代理、確認 port 後清掉三檔，是符合設計的結果。原 D2 的「執行中就 failed、留檔、不終止」只適用後段 `removeWindowsServiceWrapperResidue`；不適用已經 checked stop 的整個命令。無已驗明代理或其他合法血緣時，wrapper 是 unbound，仍不終止並拒絕移除。先前 wrapper 殘留處理與 D2 回註依此限定解讀；中英生命週期文件及結構文件已明列兩階段。
+
+**ACL 問題回註**：前節只修設定讀取，未涵蓋每次非 status service 指令的 mutation lock、config mutation lock 與服務 token 發布。三處現在先用相同嚴格 ACL 證據檢查既有目錄，避免合規目錄重複修改與繼承傳播；無 `/T` 不代表修改可繼承 ACE 沒有子項目成本。服務 lock／token 的 required hardening 與獨立檔案保護保留，config mutation 原警告後繼續的政策不變；不增加預算或重試。檔案占用不是已確認根因。ROADMAP 刪去已釐清的錯誤預期，保留 ACL、unbound wrapper 與 MSI 恢復的實機條件；spill 分類另列。
+
+**完整 Windows CI 紅燈回註**：`10c8bfa79` 讓設定目錄的 optional 旗標先做嚴格 ACL 證據檢查再決定是否呼叫 icacls；該檢查走 `setWindowsOwnerAclAsyncRunnerForTests` 才能注入的 PowerShell 讀取，不是測試已注入的 icacls runner。依賴「旗標一定會啟動 icacls 子行程」的七個 fixture 因此失敗：目錄已被先前真實旗標硬化而判為合規（server-stop 的逾時 ACL child 案例，其餘兩案為其殘留 server 的連帶失敗），或真實 PowerShell 讀取讓 icacls 在兩個 tick 內沒啟動（config-root 啟動等待、picker 清理）。生產行為不變；各 fixture（含同型的 claude-config-root 三檔與 intercept-acl-barrier，本機實測在 `10c8bfa79` 前綠、後各有 7-17 個 5 s 逾時）改為注入非合規的嚴格讀取結果，`hardenConfigDir` 的呼叫選項斷言補上 `verifyExistingRuntimeDirectory: true`，沒有放寬斷言、逾時或加 skip。

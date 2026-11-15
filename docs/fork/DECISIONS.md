@@ -57,6 +57,10 @@
 
 **主版號**：fork 不自行升主版號；上游發 `3.x` 時，下一輪整合跟著升。
 
+## 2026-11-16：發 fork release v2.100.7 後把版本來源前推到 2.100.8
+
+tag `v2.100.7` 指向 `8242077f5`（撤回 ACL 合規跳過的 `c644fa1fc`，加 SSH capture 測試等檔案出現的修正；lane=all 綠），觸發 `fork-release-windows.yml` 建 MSI；發版後 main 以 `release-version-sources.ts sync 2.100.8` 前推。此版含 MSI 升級前先停服務與 `REBOOT=ReallySuppress`，D2 實機驗收從第 4 項接著做。
+
 ## 2026-11-15：發 fork release v2.100.6 後把版本來源前推到 2.100.7
 
 tag `v2.100.6` 指向 `a2367448b`（v2.100.5 內容加 WiX TARGETDIR 修正；lane=all 綠），觸發 `fork-release-windows.yml` 建 MSI；發版後 main 以 `release-version-sources.ts sync 2.100.7` 前推。D2 實機驗收用這個 release 從第 3 項接著做。

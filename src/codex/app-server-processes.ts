@@ -515,7 +515,7 @@ function windowsSnapshotPowerShellCommand(): string {
   const basenameMatch = powerShellSingleQuotedIgnoreCaseMatch(WINDOWS_CODEX_BASENAME_CANDIDATE_RE.source);
   const codeModeMatch = powerShellSingleQuotedIgnoreCaseMatch(WINDOWS_CODEX_CODE_MODE_HOST_CANDIDATE_RE.source);
   return [
-    "$ErrorActionPreference='SilentlyContinue'",
+    "[Console]::OutputEncoding = [Text.Encoding]::UTF8; $ErrorActionPreference='SilentlyContinue'",
     "$me=[System.Security.Principal.WindowsIdentity]::GetCurrent().Name",
     // -ErrorAction Stop plus the outer try is what makes a TOP-LEVEL query failure
     // observable. Under SilentlyContinue alone, a failing Get-CimInstance emits nothing

@@ -535,7 +535,7 @@ export function readProcessCommandLine(pid: number): string | undefined {
             "-NoLogo",
             "-NonInteractive",
             "-Command",
-            `(Get-CimInstance Win32_Process -Filter "ProcessId = ${pid}").CommandLine`,
+            `[Console]::OutputEncoding = [Text.Encoding]::UTF8; (Get-CimInstance Win32_Process -Filter "ProcessId = ${pid}").CommandLine`,
           ], { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"], timeout: 3000, windowsHide: true });
           return output.trim() || undefined;
         } catch {

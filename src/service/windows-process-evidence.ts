@@ -100,7 +100,7 @@ function powershellArgs(script: string): string[] {
 }
 
 /** The snapshot query. CreationDate is emitted as an ISO UTC string, never as a JSON date. */
-export const WINDOWS_PROCESS_SNAPSHOT_SCRIPT = "Get-CimInstance Win32_Process | Select-Object "
+export const WINDOWS_PROCESS_SNAPSHOT_SCRIPT = "[Console]::OutputEncoding = [Text.Encoding]::UTF8; Get-CimInstance Win32_Process | Select-Object "
   + "ProcessId,ParentProcessId,Name,CommandLine,"
   + "@{Name='CreationDate';Expression={ if ($_.CreationDate) { $_.CreationDate.ToUniversalTime().ToString('o') } else { $null } }} "
   + "| ConvertTo-Json -Compress";

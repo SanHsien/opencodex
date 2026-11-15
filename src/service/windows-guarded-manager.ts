@@ -98,7 +98,7 @@ const ANCESTOR_DEPTH_LIMIT = 32;
 
 function runPowerShell(command: string): string {
   return execFileSync(resolveTrustedWindowsPowerShellExe(), [
-    "-NoProfile", "-NoLogo", "-NonInteractive", "-Command", command,
+    "-NoProfile", "-NoLogo", "-NonInteractive", "-Command", "[Console]::OutputEncoding = [Text.Encoding]::UTF8; " + command,
   ], {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],

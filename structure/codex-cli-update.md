@@ -1,7 +1,8 @@
 # Codex CLI Update
 
 `src/codex/cli-update-plan.ts` constructs the read-only update plan;
-`src/codex/app-server-processes.ts` supplies its process observation.
+`src/codex/app-server-processes.ts` supplies its process observation. Its Windows PowerShell snapshot fixes stdout to UTF-8
+before emitting command lines and owner names, matching the reader regardless of the OEM code page.
 Installation inspection follows the [runtime inspection contract](runtime.md#lifecycle),
 and explicit Windows observation follows its [separate read-only contract](runtime.md#explicit-codex-cli-installation-observation).
 

@@ -36,6 +36,8 @@ brew install --cask opencodex
 
 ### Windows
 
+In this fork, MSI upgrades (including `/qn`) resume an existing enabled `opencodex-proxy` task after installation completes. A Ready task is started; an already running or disabled task is left alone. First installs and uninstalls do not start it, and the installer does not create a task or request extra elevation for recovery. If startup fails, installation remains complete; run `ocx service start` as the account that owns the task.
+
 Download `OpenCodex-<version>-windows-x64.msi` and run the installer. Code signing through
 SignPath Foundation is rolling out ([Windows Code Signing](/reference/code-signing/)). Until a
 release carries the signature, Windows SmartScreen may warn about an unsigned installer; choose

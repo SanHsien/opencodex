@@ -53,7 +53,7 @@ function isMemberExecutable(executable: string, root: string): boolean {
  * then either do nothing or — worse — match a package we did not mean.
  */
 export const WINDOWS_PACKAGE_DISCOVERY_SCRIPT = [
-    "$ErrorActionPreference='SilentlyContinue'",
+    "[Console]::OutputEncoding = [Text.Encoding]::UTF8; $ErrorActionPreference='SilentlyContinue'",
     "Import-Module Appx -ErrorAction SilentlyContinue",
     "$p = Get-AppxPackage -Name OpenAI.Codex",
     "if (-not $p) { $p = Get-AppxPackage -Name OpenAI.CodexBeta }",
@@ -96,7 +96,7 @@ function discoverPackage(exec: DesktopExec): DesktopAppInstall | null {
  */
 function listPackageProcesses(exec: DesktopExec, install: DesktopAppInstall): DesktopProcess[] | null {
   const script = [
-    "$ErrorActionPreference='SilentlyContinue'",
+    "[Console]::OutputEncoding = [Text.Encoding]::UTF8; $ErrorActionPreference='SilentlyContinue'",
     `$root = ${powerShellSingleQuoted(install.root)}.Replace('/', '\\')`,
     "$me = ([Security.Principal.WindowsIdentity]::GetCurrent()).Name",
     "Get-CimInstance Win32_Process -Filter \"Name='ChatGPT.exe'\" |",

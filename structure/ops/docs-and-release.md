@@ -1,5 +1,11 @@
 # Docs And Release
 
+The fork Windows MSI links `desktop/src-tauri/wix/service-recovery.wxs` through its Tauri
+component-group reference. After successful InstallFinalize on a major upgrade, an immediate,
+impersonated action starts the existing enabled root opencodex-proxy task unless already running.
+It creates no task, excludes uninstall and first install, retains Restart Manager file replacement,
+and does not roll back completed installation if task startup fails.
+
 The activation scheduling contract is covered by `tests/codex-integration/codex-quota-auto-refresh.test.ts`, including restart recovery and bounded retries. See the [quota activation contract](../providers/openai-tiers.md#public-provider-contract). `.github/workflows/catalog-async-contracts.yml` runs portable Rust-owned Bun catalog contracts on Linux, macOS and Windows for runtime, fixture or dependency changes on pull requests or manual dispatch. It has read-only permissions and no release effect.
 
 Automatic package-tree restart holds a releasable data-plane drain until its scheduled

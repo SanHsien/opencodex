@@ -1,5 +1,15 @@
 # 維護決策
 
+## 2026-11-15：固定 Windows 查詢輸出編碼，並在 MSI 升級後恢復既有排程
+
+**行程證據編碼是上游缺陷。** 上游 v2.100.3 的 `windowsProcessSnapshot` 以 Windows PowerShell 5.1 輸出 JSON，卻未指定輸出編碼；呼叫端固定用 UTF-8 解碼。繁中 Windows 11 在 main `b9f81c460`（2.100.5；已發布 MSI 為 v2.100.4）的實機診斷中，兩個行程命令列含非 ASCII 字，stdout 為 CP950，`JSON.parse` 因 Unexpected token 失敗，最後 `ocx service stop` 回 exit 1、`partA.reason=evidence-unreadable`、`detail=the process list could not be read`。在查詢前設定 `[Console]::OutputEncoding = [Text.Encoding]::UTF8;` 後，同一份行程清單可解析。
+
+修正 snapshot、guarded-manager 的行程／WinSW JSON、Get-ScheduledTask 備援，以及會回傳命令列或路徑的 Codex／桌面安裝查詢，在 PowerShell 生產端明定 UTF-8。WinSW 的 `sc.exe qc` 改讀位元組並沿用 Windows 語系解碼器；Schedule PID 備援只解析固定 ASCII 欄位與整數，不依賴本地化狀態字。無法讀取或解析時仍回 null／unknown，不改停止授權、身分綁定與時間預算。
+
+**MSI 未恢復排程也是上游安裝流程的缺口，fork 同樣受影響。** 上游 v2.100.3 與 fork 的 WiX 設定均沒有升級後恢復服務排程的動作。實機以 `msiexec /i <msi> /qn` 升級時，記錄顯示 `RESTART MANAGER: Successfully shut down all applications ... that held files in use`；wrapper cmd 也結束，排程停在「就緒」、上次結果 267014，150 秒內 10100 沒有 listener。這與 2026-11-14 `/qb` 升級時 wrapper 存活、可自行重啟子行程的紀錄不同，stdin 防護無法讓已被關閉的 wrapper 自行復活。
+
+保留 Restart Manager 以完成執行檔替換，不設定 `MSIRESTARTMANAGERCONTROL=DisableShutdown`。新增 `wix/service-recovery.wxs`，由 Tauri 的 fragmentPaths 與 componentGroupRefs 明確連結。只有偵測到升級且不是解除安裝，才在 `InstallFinalize` 後以安裝者權限查詢根目錄的 `opencodex-proxy`；存在、未停用且未執行時才啟動。既有 Ready 排程也會啟動；不建立排程、不要求額外提權，啟動失敗不回滾已完成的安裝。一般安裝、解除安裝、沒有排程及停用的排程都不啟動服務。此動作只處理既有排程，不接管未受排程管理的 runtime。移除該 fragment 及兩筆設定即可撤回。
+
 ## 2026-11-15：發 fork release v2.100.4 後把版本來源前推到 2.100.5
 
 tag `v2.100.4` 指向 `3525f67c9`（繁中 schtasks 狀態解析修正；lane=all run 43678247739 綠），觸發 `fork-release-windows.yml` 建 MSI；發版後 main 以 `release-version-sources.ts sync 2.100.5` 前推。D2 服務停止路徑的實機驗收用這個 release 從第 3 項接著做（見 ROADMAP）。

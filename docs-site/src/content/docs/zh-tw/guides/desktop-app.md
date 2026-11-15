@@ -30,6 +30,8 @@ brew install --cask opencodex
 
 ### Windows
 
+本 fork 的 MSI 升級（含 `/qn`）會在安裝完成後恢復既有且啟用的 `opencodex-proxy` 排程。「就緒」會啟動，執行中或停用的排程不變。首次安裝與解除安裝不啟動服務，也不建立排程或為恢復動作要求額外提權。啟動失敗不影響已完成的安裝；可由排程擁有者執行 `ocx service start`。
+
 下載 `OpenCodex-<version>-windows-x64.msi` 並執行安裝程式。由於安裝程式尚未經過程式碼簽署，Windows SmartScreen 可能顯示警告；確認檔案來自版本發布頁面後，選擇 **More info → Run anyway**。
 
 > **本 fork 的 MSI 沒有遙測頁。** 下列說明描述的是上游安裝程式；fork 建置不送出遙測，也不連結該安裝頁

@@ -924,3 +924,29 @@ No new `platform` issues since that number.
 **D2 根因與修正回註（2026-11-15）**：只讀診斷確認 registration=present、winsw=nonexistent、行程清單可讀。taskState 的 1000 ms 預算中，schtasks 於 50 ms 回傳繁中「就緒」，英文解析器未辨識而轉入 PowerShell；冷啟動 982 ms 超過剩餘 949 ms，產生 unknown。已修正 `parseTaskCsvState` 的已知語系完整字串比對，保留未知文字的備援、fail-closed 與原預算。這是與上游 v2.100.3 相同的缺陷，已列入 `docs/fork/UPSTREAM.md`；D2 實機驗收列繼續保留。
 
 `Fork maintenance`、`Catalog async contracts` 的本輪結果未查；水位推進後的 `bun tools/check-upstream-updates.ts --strict` 結果亦未取得，不宣稱 exit 0。
+
+
+## 2026-11-15：D2 行程證據編碼與 MSI 靜默升級問題回註
+
+D2 前一筆狀態解析修正之外，實機再次出現 exit 1，這次原因為 `evidence-unreadable`／`the process list could not be read`。兩個含非 ASCII 命令列的行程讓 PowerShell 5.1 產出的 CP950 JSON 被當成 UTF-8；snapshot 已固定 UTF-8，無法讀取仍拒絕停止。上游 v2.100.3 有同一段未指定編碼的查詢，屬上游缺陷。
+
+MSI 的 `/qn` 紀錄確認 Restart Manager 關閉 wrapper；排程「就緒」、上次結果 267014、150 秒無 listener。2026-11-14 `/qb` 的 wrapper 存活紀錄不能代表這條路徑。已補上升級完成後恢復既有啟用根排程的 WiX 動作，排除一般安裝與解除安裝，保持安裝者權限與 Restart Manager 的檔案替換。上游 WiX 也沒有此恢復動作，屬上游安裝流程缺口；不處理未受排程管理的 runtime。原 #8246 列要求的方案判斷與實作已完成，實機升級驗收併入保留的 ROADMAP D2 列。
+
+### src/ stdout 編碼盤點
+
+| 讀取點 | 處理 |
+|---|---|
+| `service/windows-process-evidence.ts`、`service/windows-guarded-manager.ts` | 行程命令列、名稱、WinSW 路徑 JSON 明定 UTF-8；讀取與解析失敗維持 null。 |
+| `service/windows-checked-stop-live.ts` | schtasks／sc 既有位元組語系解碼保留；Get-ScheduledTask 備援明定 UTF-8，仍解析固定 enum。 |
+| `config/process-state.ts`、`codex/app-server-processes.ts` | 命令列／擁有者字串查詢明定 UTF-8；原生 UTF-16 讀法不變。 |
+| `codex/desktop-app/windows.ts`、`codex/desktop-compatibility/installed-build.ts` | 安裝路徑、行程路徑與套件證明明定 UTF-8；原有命令列 Base64 保留。 |
+| `lib/winsw.ts` | sc qc 的非 ASCII 帳號名稱改讀 buffer，再用 decodeWindowsTextBytes（輸出中的路徑也保留原字）；status 固定識別字與 SCM 數字狀態不變。 |
+| Schedule PID 備援、`service/windows-ops.ts`、`codex/prompt-lock-owner.ts`、`codex/native-profile-processes.ts` | 分別只解析 sc 固定欄位與數字、PrincipalSource enum、ticks、行程數；不以本地化文字判斷身分。 |
+| `service/windows-scheduler.ts`、`tray/windows.ts`、`lib/windows-user-principal.ts` | 既有 buffer／UTF-16／語系解碼；SID 為 ASCII。 |
+| `codex/user-identity.ts`、`service/desktop-recovery-process.ts`、`link/remote-windows.ts` | 已使用 Base64 或明定 UTF-8。 |
+| `claude/intercept/local-ca-windows.ts`、`claude/intercept/picker-trust-windows.ts`、`lib/windows-owner-acl.ts`、`codex/desktop-compatibility/windows-{certificate-trust,key-protection,package-command}.ts` | 機器可讀輸出只有 SID、整數、布林、Base64、固定標記或受限 ASCII 套件識別字；非 ASCII 輸入不直接作為輸出識別依據。 |
+| `lib/win-exec.ts`、`service/managing-cli.ts`、CLI 版本探測、`server/port-reclaim.ts`、`server/windows-tcp-drop.ts` | cmd 版本探測只取版本數字；netstat 只取通訊協定、位址與 PID，既有固定字碼頁或位元組解碼保留。其他 shell 啟動點不解析 stdout，或從獨立結果檔讀取。 |
+
+CP950 固件含「功」（尾位元組 0x5c），防止把損壞 JSON 當成空行程表，也防止 UTF-8 生產端設定被移除。PowerShell 測試以固件函式取代 CIM，MSI 分支測試以函式取代排程 cmdlet，均不接觸真實行程或排程。
+
+既有安裝測試改為直接禁止遙測 fragment 與 component group，不再禁止所有 WiX 擴充；新增的服務恢復 fragment 不會連回遙測頁。

@@ -337,13 +337,13 @@ describe("Windows installer telemetry choice", () => {
     expect(tauri.bundle.windows?.wix?.license).toBeUndefined();
   });
 
-  test("the fork Tauri config does not link the fragment, and the app reads the same registry values", () => {
+  test("the fork Tauri config does not link the telemetry fragment, and the app reads the same registry values", () => {
     // Fork decision D1 (docs/fork/DECISIONS.md, 2026-11-14): the fork MSI shows no telemetry page
     // because a fork build never sends. The fragment and installer_telemetry.rs stay adopted
     // (no registry value means a no-op); only the link in tauri.conf.json is left out.
     const config = JSON.parse(readFileSync(repoPath("desktop", "src-tauri", "tauri.conf.json"), "utf8"));
-    expect(config.bundle.windows.wix.fragmentPaths).toBeUndefined();
-    expect(config.bundle.windows.wix.componentGroupRefs).toBeUndefined();
+    expect(config.bundle.windows.wix.fragmentPaths ?? []).not.toContain("wix/telemetry-choice.wxs");
+    expect(config.bundle.windows.wix.componentGroupRefs ?? []).not.toContain(TELEMETRY_INSTALLER_COMPONENT_GROUP);
     expect(wxs).toContain(`<ComponentGroup Id="${TELEMETRY_INSTALLER_COMPONENT_GROUP}">`);
     expect(rustConst("REGISTRY_KEY")).toBe(TELEMETRY_INSTALLER_REGISTRY_KEY);
     expect(rustConst("REGISTRY_VALUE")).toBe(TELEMETRY_INSTALLER_REGISTRY_VALUE);

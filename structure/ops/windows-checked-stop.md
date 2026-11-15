@@ -29,7 +29,10 @@ lazily, caches a failed load as unavailable, and closes every handle in a `final
 
 Windows ARM64, other platforms and any test that simulates a platform get no native API.
 `src/service/windows-process-evidence.ts` is the facade the operations use. Its process snapshot is
-one capped `Get-CimInstance Win32_Process` query that emits `CreationDate` as an ISO UTC string. On
+one capped `Get-CimInstance Win32_Process` query that emits `CreationDate` as an ISO UTC string.
+The PowerShell producer sets Console.OutputEncoding to UTF-8 before emitting JSON; OEM bytes
+are never reinterpreted as an empty process table. Guarded-manager process/service queries use
+the same encoding contract, and unreadable evidence remains null/unknown. On
 x64 each creation time is re-read natively and kept only when it agrees with CIM to the
 millisecond; a disagreement (a PID reused between the two reads) is unreadable. Elsewhere the
 CIM time is the bound value. The Schedule PID falls back to `sc.exe queryex Schedule` from the

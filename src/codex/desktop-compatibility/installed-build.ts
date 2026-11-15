@@ -31,7 +31,7 @@ export const DESKTOP_PACKAGE_PATH_GUARD_SCRIPT = [
 
 // Compatibility-only read: do not alter general discovery or execute/activate the application.
 export const DESKTOP_PACKAGE_PROOF_SCRIPT = [
-  "$ErrorActionPreference='Stop'; Import-Module Appx -ErrorAction Stop",
+  "[Console]::OutputEncoding = [Text.Encoding]::UTF8; $ErrorActionPreference='Stop'; Import-Module Appx -ErrorAction Stop",
   DESKTOP_PACKAGE_PATH_GUARD_SCRIPT,
   "$packages=@(Get-AppxPackage -Name OpenAI.Codex)",
   "if($packages.Count -ne 1){throw 'Package not unique'}; $p=$packages[0]",

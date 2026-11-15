@@ -52,7 +52,9 @@
         "type": "downloadBootstrapper"
       },
       "wix": {
-        "language": "en-US"
+        "language": "en-US",
+        "fragmentPaths": ["wix/service-recovery.wxs"],
+        "componentGroupRefs": ["OcxServiceRecovery"]
       }
     },
     "linux": {

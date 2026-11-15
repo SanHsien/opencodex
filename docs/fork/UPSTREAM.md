@@ -1,5 +1,9 @@
 # 上游維護
 
+## Fork 差異與可回報上游：Windows 輸出編碼與 MSI 排程恢復
+
+上游 v2.100.3 的 PowerShell 行程證據沒有固定 stdout 編碼，繁中 Windows 的 CP950 輸出會破壞 UTF-8 JSON 解析；相關命令列、安裝路徑與服務路徑查詢一併固定 UTF-8，`sc.exe qc` 沿用語系位元組解碼。另一個安裝流程缺口是 Restart Manager 關閉 wrapper 後，MSI 沒有重新啟動既有服務排程。fork 在 `InstallFinalize` 後以安裝者權限恢復存在且啟用的根排程，排除一般安裝與解除安裝，不建立排程、不停用 Restart Manager。兩項均可回報上游；同步時保留，直到上游有等價處理。根因、實機紀錄與範圍見 [DECISIONS.md](DECISIONS.md) 2026-11-15「固定 Windows 查詢輸出編碼，並在 MSI 升級後恢復既有排程」。
+
 ## Fork 差異與可回報上游：非英文 Windows 排程狀態解析
 
 上游 v2.100.3 的 `src/service/windows-checked-stop-live.ts` 只解析英文 schtasks 狀態，繁中「就緒」被判成 unknown，導致 PowerShell 冷啟動耗盡最後 taskState 的 1 秒預算。這是上游缺陷，可回報上游；fork 直接辨識繁中的 Ready／Running／Disabled／Queued，以及已確認的簡中、日文狀態字串。未知或無法使用的狀態仍保留 PowerShell 備援與 fail-closed，預算不變。同步新版時保留此差異，直到上游提供等價修正。根因與診斷數據見 [DECISIONS.md](DECISIONS.md) 2026-11-15「修正非英文 Windows 排程狀態解析」。

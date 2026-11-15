@@ -15,6 +15,7 @@
  */
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
+import { decodeWindowsTextBytes } from "./windows-text";
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { join, resolve, win32 } from "node:path";
 import { expandUserPath, getConfigDir, loadConfig } from "../config";
@@ -207,9 +208,9 @@ function runWinswInteractive(args: string[]): void {
 
 function scQc(): string {
   const sc = join(process.env.SystemRoot ?? "C:\\Windows", "System32", "sc.exe");
-  return execFileSync(existsSync(sc) ? sc : "sc.exe", ["qc", WINSW_SERVICE_ID], {
-    encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], windowsHide: true, timeout: SERVICE_COMMAND_TIMEOUT_MS,
-  });
+  return decodeWindowsTextBytes(execFileSync(existsSync(sc) ? sc : "sc.exe", ["qc", WINSW_SERVICE_ID], {
+    encoding: "buffer", stdio: ["ignore", "pipe", "pipe"], windowsHide: true, timeout: SERVICE_COMMAND_TIMEOUT_MS,
+  }));
 }
 
 export type WinswStatus = "started" | "stopped" | "nonexistent" | "unknown";

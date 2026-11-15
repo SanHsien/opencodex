@@ -302,7 +302,7 @@ export function windowsCheckedStopLiveDeps(options: WindowsCheckedStopLiveOption
       const left = timeoutMs - (Date.now() - started);
       if (left <= 0) return "unknown";
       const ps = await run("powershell", ["-NoProfile", "-NoLogo", "-NonInteractive", "-Command",
-        "(Get-ScheduledTask -TaskName '" + TASK + "' -TaskPath '\\' -ErrorAction Stop).State"], left);
+        "[Console]::OutputEncoding = [Text.Encoding]::UTF8; (Get-ScheduledTask -TaskName '" + TASK + "' -TaskPath '\\' -ErrorAction Stop).State"], left);
       const state = ps.stdout.trim();
       if (/^running$/i.test(state)) return "running";
       if (/^(ready|disabled|queued)$/i.test(state)) return "not-running";

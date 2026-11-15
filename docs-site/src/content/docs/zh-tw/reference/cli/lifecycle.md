@@ -991,6 +991,9 @@ Windows 的 `ocx stop` 透過 checked stop 停止 Task Scheduler 或原生 WinSW
 
 停止只結束現用執行個體，登入／解鎖觸發器保留；永久移除請用 `ocx service uninstall`。service stop／uninstall、完整 uninstall 與 install 都採同一停止契約；無法證明已停時，不刪除／取代工作，install 也拒絕被其他程式占用的 port。Windows Arm 尚不能終止 wrapper，需終止時回 evidence-unreadable，請手動處理後重試。
 
+`ocx service stop` 與服務移除失敗時，輸出包含清除祕密與控制字元後的 `partA.reason` 與 `detail`，可用來辨識哪一步證據讀取失敗。
+已知的本地化排程狀態（包含繁中「就緒」）會直接解析；未知狀態仍須在原預算內透過 PowerShell 備援確認，讀不到就拒絕確認停止。
+
 完整移除的 wrapper 殘留清理只刪檔，不終止行程。有可讀 wrapper、不可讀候選行程或讀不到行程表時，保留三個檔案並回 failed；先執行 `ocx stop` 或 `ocx service stop` 的 checked stop 再重試。
 
 ### 儲存狀態與同步分別讀取

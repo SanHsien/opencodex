@@ -61,6 +61,16 @@ deepest first and carry pid, creation time, image and a SHA-256 digest of the co
 
 ## Part A and Part B
 
+`parseTaskCsvState` in `src/service/windows-checked-stop-live.ts` matches known English,
+Traditional Chinese, Simplified Chinese and Japanese status labels exactly. Ready, Disabled
+and Queued map to not-running; Running maps to running. Unsupported or unavailable labels
+still use the PowerShell enum fallback within the original shared budget and remain unknown
+when that read fails; localization never supplies proof that an unknown task has stopped.
+
+CLI refusals include `partA.reason` and `detail` through `describeWindowsPartA` in
+`src/service/windows-service-stop.ts`, including service stop and uninstall. Both fields
+are bounded, secret-redacted and stripped of control characters before terminal output.
+
 `src/service/windows-checked-stop.ts` is Part A, `stopWindowsServiceChecked(deps, options)`. Every
 external effect is injected. It probes registration (2 s each). An unreadable answer is `unknown`
 with nothing changed. With nothing registered it enumerates once for a stray wrapper of a deleted

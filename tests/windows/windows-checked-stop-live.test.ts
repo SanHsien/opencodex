@@ -76,11 +76,59 @@ describe("capped command answers", () => {
     expect(classifyTaskEnd(result(null, "", "", true))).toBe("failed");
   });
 
-  test("schtasks CSV state reads English values and leaves a localized word unknown", () => {
+  test("schtasks CSV state reads English values and leaves unsupported locales unknown", () => {
     expect(parseTaskCsvState('"\\opencodex-proxy","N/A","Running"')).toBe("running");
     expect(parseTaskCsvState('"\\opencodex-proxy","N/A","Ready"')).toBe("not-running");
     expect(parseTaskCsvState('"\\opencodex-proxy","N/A","Wird ausgeführt"')).toBe("unknown");
     expect(parseTaskCsvState('"\\Tools\\opencodex-proxy","N/A","Running"')).toBe("unknown");
+  });
+
+  test("Traditional Chinese Ready avoids a cold PowerShell fallback exhausting the task-state budget", async () => {
+    const calls: string[] = [];
+    const deps = windowsCheckedStopLiveDeps({ run: async (program) => {
+      calls.push(program);
+      return program === "schtasks"
+        ? result(0, '"\\opencodex-proxy","N/A","就緒"')
+        : result(null, "", "", true);
+    } });
+    expect(parseTaskCsvState('"\\opencodex-proxy","N/A","就緒"')).toBe("not-running");
+    expect(await deps.taskState(1_000)).toBe("not-running");
+    expect(calls).toEqual(["schtasks"]);
+  });
+
+  test.each([
+    ["執行中", "running"], ["已停用", "not-running"], ["已排入佇列", "not-running"],
+    ["就绪", "not-running"], ["正在运行", "running"],
+    ["準備完了", "not-running"], ["実行中", "running"],
+  ])("localized schtasks status %s maps to %s without invoking PowerShell", async (status, expected) => {
+    const calls: string[] = [];
+    const deps = windowsCheckedStopLiveDeps({ run: async program => {
+      calls.push(program);
+      return result(0, `"\\opencodex-proxy","N/A"," ${status} "`);
+    } });
+    expect(await deps.taskState(1_000)).toBe(expected);
+    expect(calls).toEqual(["schtasks"]);
+  });
+
+  test.each(["無法使用", "Unknown", "就緒（未確認）", "", "Wird ausgeführt"])(
+    "unrecognized schtasks status %s retains PowerShell fallback and fails closed on timeout",
+    async status => {
+      const calls: string[] = [];
+      const deps = windowsCheckedStopLiveDeps({ run: async program => {
+        calls.push(program);
+        return program === "schtasks"
+          ? result(0, `"\\opencodex-proxy","N/A","${status}"`)
+          : result(null, "", "", true);
+      } });
+      expect(await deps.taskState(1_000)).toBe("unknown");
+      expect(calls).toEqual(["schtasks", "powershell"]);
+    },
+  );
+
+  test("unrecognized schtasks status still accepts the PowerShell enum fallback", async () => {
+    const deps = windowsCheckedStopLiveDeps({ run: async program => result(0,
+      program === "schtasks" ? '"\\opencodex-proxy","N/A","unrecognized"' : "Ready\r\n") });
+    expect(await deps.taskState(1_000)).toBe("not-running");
   });
 
   test("sc.exe query and stop", () => {

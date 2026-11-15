@@ -919,4 +919,8 @@ No new `platform` issues since that number.
 
 水位推進到 `refs/upstream-tags/v2.100.3`（`873ec9b3b8ddf63f06738748d9132d779abefb42`），日期 2026-11-15。PR 清單維持 26 筆，issue 水位維持 8545；依據為 `70e0ee262` 判定、170 筆 commit 審查、逐檔清冊及本節綠燈 run。
 
-**未驗證**：D2 維護者機器的服務停止路徑（`ocx service stop`／`uninstall` 走 checked stop、wrapper 在跑時拒絕而不殺行程、無 wrapper 時清檔）；CI 不代替此項。`Fork maintenance`、`Catalog async contracts` 的本輪結果未查；水位推進後的 `bun tools/check-upstream-updates.ts --strict` 結果亦未取得，不宣稱 exit 0。
+**D2 實機問題回註（2026-11-15）**：維護者回報一般權限 Windows 11 連續兩次 `ocx service stop` 回 unknown、exit 1；排程 Ready，但 wrapper 與 port 10100 代理仍在執行。CLI 現在列出清理後的 `partA.reason` 與 `detail`，適用 stop 與服務移除。回報中的 `the stop could not be verified` 對應 Part A 最後的驗證分支，根因已由下方只讀診斷確定為 1 秒 task 狀態讀取。上游 tag `v2.100.3` 的 checked-stop 核心、live deps、行程證據與 CLI 接線均與整合基底相同；D2 原有差異在殘留清理及刪除前探測，本次另修正非英文狀態解析。服務停止與移除的完整驗收仍由 `ROADMAP.md` D2 列追蹤。
+
+**D2 根因與修正回註（2026-11-15）**：只讀診斷確認 registration=present、winsw=nonexistent、行程清單可讀。taskState 的 1000 ms 預算中，schtasks 於 50 ms 回傳繁中「就緒」，英文解析器未辨識而轉入 PowerShell；冷啟動 982 ms 超過剩餘 949 ms，產生 unknown。已修正 `parseTaskCsvState` 的已知語系完整字串比對，保留未知文字的備援、fail-closed 與原預算。這是與上游 v2.100.3 相同的缺陷，已列入 `docs/fork/UPSTREAM.md`；D2 實機驗收列繼續保留。
+
+`Fork maintenance`、`Catalog async contracts` 的本輪結果未查；水位推進後的 `bun tools/check-upstream-updates.ts --strict` 結果亦未取得，不宣稱 exit 0。

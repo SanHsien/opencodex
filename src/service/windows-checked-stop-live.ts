@@ -121,14 +121,14 @@ export function classifyTaskEnd(result: WindowsStopCommandResult): WindowsTaskEn
   return toWindowsSchtasksError(error, ["/end", "/tn", TASK]).reason === "access-denied" ? "denied" : "failed";
 }
 
-/** schtasks /query /fo CSV /nh status column. Localized values fall back to PowerShell. */
+/** schtasks CSV status: exact known labels; unsupported/unavailable values stay unknown. */
 export function parseTaskCsvState(csv: string): "running" | "not-running" | "unknown" {
   for (const line of csv.split(/\r?\n/)) {
     if (!windowsSchedulerCsvIncludesTask(line, TASK)) continue;
     const fields = [...line.matchAll(/"([^"]*)"/g)].map(match => match[1]!.trim());
     const status = fields[fields.length - 1] ?? "";
-    if (/^running$/i.test(status)) return "running";
-    if (/^(ready|disabled|queued)$/i.test(status)) return "not-running";
+    if (/^(running|執行中|正在运行|実行中)$/i.test(status)) return "running";
+    if (/^(ready|disabled|queued|就緒|已停用|已排入佇列|就绪|準備完了)$/i.test(status)) return "not-running";
     return "unknown";
   }
   return "unknown";
@@ -298,7 +298,7 @@ export function windowsCheckedStopLiveDeps(options: WindowsCheckedStopLiveOption
       const csv = await run("schtasks", ["/query", "/tn", TASK, "/fo", "CSV", "/nh"], timeoutMs);
       const parsed = csv.status === 0 ? parseTaskCsvState(csv.stdout) : "unknown";
       if (parsed !== "unknown") return parsed;
-      // A localized status word: ask Get-ScheduledTask, whose State is an enum name.
+      // An unrecognized status word: ask Get-ScheduledTask, whose State is an enum name.
       const left = timeoutMs - (Date.now() - started);
       if (left <= 0) return "unknown";
       const ps = await run("powershell", ["-NoProfile", "-NoLogo", "-NonInteractive", "-Command",

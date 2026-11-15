@@ -173,6 +173,11 @@ a registered Task Scheduler service with default settings) and otherwise refuses
 `unverified-budget`. Without the flag the stop reads `OCX_STOP_DEADLINE_MS` (the desktop app sets
 it) and otherwise uses 60 seconds. macOS and Linux ignore both.
 
+Failure output includes `partA.reason` and `detail`, with secrets and control characters removed,
+for `ocx service stop` and service uninstall. Use these fields to identify the failed evidence read.
+Known localized Task Scheduler states, including Traditional Chinese Ready (`就緒`), are read
+directly; unrecognized states still require the bounded PowerShell fallback and refuse confirmation if unreadable.
+
 The stop ends the running instance only. The task's logon and unlock triggers stay enabled, so the
 proxy comes back at the next logon or unlock; use `ocx service uninstall` to remove the service.
 `ocx service stop`, `ocx service uninstall`, `ocx uninstall` and `ocx service install` use the

@@ -1,5 +1,13 @@
 # 維護決策
 
+## 2026-11-15：修正非英文 Windows 排程狀態解析
+
+根因是上游 v2.100.3 的 `parseTaskCsvState` 只辨識英文狀態。繁中 Windows 的「就緒」等同 Ready，卻被判成 unknown，轉入 PowerShell 備援；這是上游缺陷。
+
+只讀診斷確認 registration=present、winsw=nonexistent，行程清單可讀。最後 taskState 的 `schtasks /query` 在 1000 ms 預算內於 50 ms 回傳「就緒」；解析失敗後，PowerShell `(Get-ScheduledTask ...).State` 僅剩 949 ms，冷啟動耗時 982 ms 而逾時，最後 unknown 使 checked stop 拒絕確認停止。
+
+直接辨識繁中的「就緒／執行中／已停用／已排入佇列」，並補入已確認的簡中「就绪／正在运行」與日文「準備完了／実行中」。Ready、Disabled、Queued 沿用 not-running，Running 沿用 running；「無法使用」及其他未知文字仍走原本的 PowerShell 備援，無法取得狀態時維持 unknown 與 fail-closed，不調整預算常數。繁中用字以 Windows `zh-TW/schtasks.exe.mui` 為準。此修正列入 [UPSTREAM.md](UPSTREAM.md) 的 fork 差異與可回報上游清單。
+
 ## 2026-11-15：發 fork release v2.100.3 後把版本來源前推到 2.100.4
 
 tag `v2.100.3` 指向 `d44ec1d84`（整合上游 v2.100.3 的 main，lane=all 綠），觸發 `fork-release-windows.yml` 建 MSI；發版後 main 以 `release-version-sources.ts sync 2.100.4` 前推，避免 `release version line` 把後續 commit 當成重複發佈。下一輪整合上游時照舊改成上游版本號。D2 服務停止路徑的實機驗收用這個 release 的 MSI 做（見 ROADMAP）。

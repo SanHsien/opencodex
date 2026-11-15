@@ -90,6 +90,34 @@ describe("/api/stop service stop on Windows", () => {
 });
 
 describe("ocx service stop on Windows", () => {
+  test("stop and uninstall expose Part A reason and sanitized detail before refusing child teardown", async () => {
+    const original = console.error;
+    const lines: string[] = [];
+    console.error = (...args) => { lines.push(args.join(" ")); };
+    try {
+      for (const command of [windowsServiceStopBeforeRestore, windowsServiceRemovalStop]) {
+        for (const outcome of ALL_PART_A_FAILURES) {
+          lines.length = 0;
+          const partA = partAResult(outcome, {
+            detail: "the task state could not be read; Authorization: Bearer diagnostic-secret\r\n\u001b[31m",
+          });
+          setWindowsServiceStopHooksForTests({ partA: async () => partA });
+          const result = await command({
+            resolveTarget: async () => { throw new Error("must refuse before resolving the child"); },
+          });
+          expect(result.ok).toBe(false);
+          const output = lines.join("\n");
+          expect(output).toContain("partA.reason=" + (partA.reason ?? "none"));
+          expect(output).toContain("detail=the task state could not be read");
+          expect(output).not.toContain("diagnostic-secret");
+          expect(output).not.toMatch(/[\r\u001b]/);
+        }
+      }
+    } finally {
+      console.error = original;
+    }
+  });
+
   test("a discovered orphan's endpoint is used for both receipt and stop", async () => {
     setWindowsServiceStopHooksForTests({ partA: async () => partAResult("stopped"), partB: async () => partBResult("freed") });
     const endpoint = { hostname: "127.0.0.1", port: 12001 };

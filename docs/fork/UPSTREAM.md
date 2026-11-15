@@ -1,5 +1,9 @@
 # 上游維護
 
+## Fork 差異與可回報上游：非英文 Windows 排程狀態解析
+
+上游 v2.100.3 的 `src/service/windows-checked-stop-live.ts` 只解析英文 schtasks 狀態，繁中「就緒」被判成 unknown，導致 PowerShell 冷啟動耗盡最後 taskState 的 1 秒預算。這是上游缺陷，可回報上游；fork 直接辨識繁中的 Ready／Running／Disabled／Queued，以及已確認的簡中、日文狀態字串。未知或無法使用的狀態仍保留 PowerShell 備援與 fail-closed，預算不變。同步新版時保留此差異，直到上游提供等價修正。根因與診斷數據見 [DECISIONS.md](DECISIONS.md) 2026-11-15「修正非英文 Windows 排程狀態解析」。
+
 ## Remote
 
 - Fork：`origin` → `https://github.com/SanHsien/opencodex.git`

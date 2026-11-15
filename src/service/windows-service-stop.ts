@@ -15,6 +15,7 @@
  * - a hook seam so caller tests run hermetically (no schtasks, PowerShell or FFI).
  */
 import { loadConfig } from "../config";
+import { sanitizeLogMetadataString } from "../lib/redact";
 import { endpointsToProve, type ProbeEndpoint } from "../cli/uninstall-plan";
 import { probeEndpointLiveness, type EndpointLiveness } from "../server/proxy-liveness";
 import type { PendingTeardownPartA } from "../config/pending-teardown";
@@ -206,6 +207,12 @@ export function windowsStopReason(result: WindowsCheckedStopResult | null | unde
 
 /** One operator-facing line for a Part A result that was not stopped/absent. */
 export function describeWindowsPartA(result: WindowsCheckedStopResult): string {
+  const detail = sanitizeLogMetadataString(result.detail, 512) ?? "unavailable";
+  const reason = sanitizeLogMetadataString(result.reason, 64) ?? "none";
+  return `partA.reason=${reason}; detail=${detail}. ` + describeWindowsPartACause({ ...result, detail });
+}
+
+function describeWindowsPartACause(result: WindowsCheckedStopResult): string {
   switch (result.reason) {
     case "access-denied":
       return "The Windows service stop was denied for this account; run the stop from an elevated terminal.";

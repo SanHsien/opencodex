@@ -14,6 +14,7 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { watchdogMs } from "../helpers/ci-watchdog";
+import { removeTreeAfterBackgroundWork } from "../helpers/remove-tree";
 
 import { saveConfig } from "../../src/config";
 import { saveCodexAccountCredential } from "../../src/codex/account-store";
@@ -67,11 +68,13 @@ function restoreEnv(name: "CODEX_HOME" | "OPENCODEX_HOME", value: string | undef
   else process.env[name] = value;
 }
 
-afterEach(() => {
+afterEach(async () => {
   restoreEnv("CODEX_HOME", previousCodexHome);
   restoreEnv("OPENCODEX_HOME", previousOpenCodexHome);
   for (const root of roots.splice(0)) {
-    rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
+    // The fixture's saveConfig starts a config-directory ACL flight nobody here awaits. Its strict
+    // PowerShell read plus icacls child outlive a 500 ms removal retry and hold the tree (EBUSY).
+    await removeTreeAfterBackgroundWork(root);
   }
 });
 

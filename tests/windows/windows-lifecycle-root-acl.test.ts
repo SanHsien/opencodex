@@ -179,18 +179,35 @@ for (const async of [false, true]) {
     expect(result.ok).toBe(true);
     expect(budgets).toEqual([60, 60, 60]);
   });
-  test(`verified ${async ? "async" : "sync"} calls create no mutation or timeout memo`, async () => {
-    let probes = 0;
+  test(`a verified ${async ? "async" : "sync"} proof is reused only while the observation is unchanged, and never mutates`, async () => {
+    let probes = 0, freshness = 1n;
+    setStatForTests(() => ({ dev: 1n, ino: 1n, ctimeNs: freshness }));
     const verify = () => { probes++; return { ...OK, stdout: descriptor() }; };
     setWindowsOwnerAclRunnerForTests(verify);
     setWindowsOwnerAclAsyncRunnerForTests(async () => verify());
-    for (let i = 0; i < 2; i++) {
-      if (async) await hardenSecretDirAsync(root, options); else hardenSecretDir(root, options);
-    }
+    const harden = async () => { if (async) await hardenSecretDirAsync(root, options); else hardenSecretDir(root, options); };
+    // Repeating the PowerShell read for a directory this process just proved cost over a second per config save.
+    for (let i = 0; i < 3; i++) await harden();
+    expect(probes).toBe(1);
+    expect(hardenedSecretDirCountForTests()).toBe(1);
+    // An ACL edit moves ctime: the remembered proof must not outlive the observation it was read at.
+    freshness++;
+    await harden();
     expect(probes).toBe(2);
-    expect(hardenedSecretDirCountForTests()).toBe(0);
     expect(timedOutSecretPathCountForTests()).toBe(0);
     expect(commands).toEqual([]);
+  });
+  test(`a ${async ? "async" : "sync"} proof read while the directory changed is not remembered`, async () => {
+    let probes = 0, freshness = 1n;
+    setStatForTests(() => ({ dev: 1n, ino: 1n, ctimeNs: freshness }));
+    const verify = () => { probes++; if (probes === 1) freshness++; return { ...OK, stdout: descriptor() }; };
+    setWindowsOwnerAclRunnerForTests(verify);
+    setWindowsOwnerAclAsyncRunnerForTests(async () => verify());
+    const result = async ? await hardenSecretDirAsync(root, options) : hardenSecretDir(root, options);
+    expect(result.ok).toBe(true);
+    // The unstable proof was refused, so the directory went through the real hardening instead.
+    expect(commands.length).toBeGreaterThan(0);
+    expect(commands.every(args => args[0] === root)).toBe(true);
   });
 }
 

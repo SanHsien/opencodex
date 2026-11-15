@@ -1005,13 +1005,33 @@ function shouldVerifyExistingAcl(): boolean {
   return env["OPENCODEX_ACL_VERIFY_EXISTING"] === "1";
 }
 
-function existingAclAlreadyCompliant(targetPath: string, directory: boolean, deadline: number, strictDirectory = false): boolean {
+/**
+ * Remember a strict proof for exactly the observation it was read at.
+ *
+ * The entry is the same object-and-ctime record a successful harden leaves, so it is retired by
+ * the first ACL or object change (`memoSatisfied`). Without it every later call in this process
+ * started another PowerShell reader for a directory it had just proven: a config save went from
+ * a few milliseconds to more than a second, and blocked the event loop for that long.
+ */
+function strictProofHolds(
+  cache: Map<string, HardenedIdentity>,
+  targetPath: string,
+  verified: boolean,
+  before: PathObservation | null,
+  deadline: number,
+): boolean {
+  const after = observe(targetPath);
+  // No name-only fallback: the proof belongs to this observation only.
+  if (!(verified && before !== null && after !== null && sameObservation(before, after) && nowFn() < deadline)) return false;
+  cache.set(targetPath, after);
+  return true;
+}
+
+function existingAclAlreadyCompliant(targetPath: string, directory: boolean, deadline: number, cache: Map<string, HardenedIdentity>, strictDirectory = false): boolean {
   if (strictDirectory) {
     const before = observe(targetPath);
     const verified = verifyWindowsEntriesAcl([{ path: targetPath, directory: true, policy: "private-runtime-directory" }], deadline - nowFn());
-    const after = observe(targetPath);
-    // No name-only fallback or success memo: this proof belongs to this observation only.
-    return verified && before !== null && after !== null && sameObservation(before, after) && nowFn() < deadline;
+    return strictProofHolds(cache, targetPath, verified, before, deadline);
   }
   if (!shouldVerifyExistingAcl()) return false;
   const identity = cachedCurrentWindowsIdentity();
@@ -1037,13 +1057,13 @@ async function existingAclAlreadyCompliantAsync(
   targetPath: string,
   directory: boolean,
   deadline: number,
+  cache: Map<string, HardenedIdentity>,
   strictDirectory = false,
 ): Promise<boolean> {
   if (strictDirectory) {
     const before = observe(targetPath);
     const verified = await verifyWindowsEntriesAclAsync([{ path: targetPath, directory: true, policy: "private-runtime-directory" }], deadline - nowFn());
-    const after = observe(targetPath);
-    return verified && before !== null && after !== null && sameObservation(before, after) && nowFn() < deadline;
+    return strictProofHolds(cache, targetPath, verified, before, deadline);
   }
   if (!shouldVerifyExistingAcl()) return false;
   const identity = cachedCurrentWindowsIdentity();
@@ -1393,7 +1413,7 @@ function hardenEntry(
   if (memoSatisfied(cache, targetPath)) return { ok: true };
   const deadline = nowFn() + resolveHardenDeadlineMs(opts.deadlineMs);
   // Secret compliance does not prove the extra read grants required by a staged payload.
-  if (extraReadAces.length === 0 && existingAclAlreadyCompliant(targetPath, directory, deadline, directory && opts.verifyExistingRuntimeDirectory === true)) return { ok: true };
+  if (extraReadAces.length === 0 && existingAclAlreadyCompliant(targetPath, directory, deadline, cache, directory && opts.verifyExistingRuntimeDirectory === true)) return { ok: true };
   const memoKey = timeoutMemoKey(targetPath, opts);
   const timeoutMemoError = timeoutMemoErrorIfBlocked(memoKey, opts);
   if (timeoutMemoError) {
@@ -1458,7 +1478,7 @@ async function runHardenEntryAsync(
   extraReadAces: readonly string[],
 ): Promise<HardenResult> {
   const deadline = nowFn() + resolveHardenDeadlineMs(opts.deadlineMs);
-  if (extraReadAces.length === 0 && await existingAclAlreadyCompliantAsync(targetPath, directory, deadline, directory && opts.verifyExistingRuntimeDirectory === true)) return { ok: true };
+  if (extraReadAces.length === 0 && await existingAclAlreadyCompliantAsync(targetPath, directory, deadline, cache, directory && opts.verifyExistingRuntimeDirectory === true)) return { ok: true };
   const memoKey = timeoutMemoKey(targetPath, opts);
   const timeoutMemoError = timeoutMemoErrorIfBlocked(memoKey, opts);
   if (timeoutMemoError) {

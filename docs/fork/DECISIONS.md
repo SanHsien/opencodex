@@ -1,5 +1,13 @@
 # 維護決策
 
+## 2026-11-15：嚴格 ACL 證據留本行程 memo，綁定讀取當下的 observation
+
+**問題**：`verifyExistingRuntimeDirectory` 的合規結果原本不留任何 memo。合規目錄在同一行程內每次 `hardenSecretDir` 都重跑一次 PowerShell 讀取；接到 config mutation lock 之後，每次 `saveConfig` 由約 3 ms 變成 1.2–2 s 的同步阻塞（本機量測，見 `REVIEW.md` 同日回註），完整 Windows CI 有六個 shard 超過 30 分鐘。
+
+**決定**：證據成立且讀取前後 observation（device／inode／ctime）相同時，寫入既有的 `hardenedDirectories` memo。這與成功 harden 留下的紀錄同型、同一失效條件：ACL 或物件變動會移動 ctime 或身分，`memoSatisfied` 即退役該筆並重新驗證。檢查期間變動、逾時、不可讀、非合規都不寫 memo，仍走原 hardening；elevated stage 用獨立 cache，不受影響。新行程沒有 memo，仍須重新取得證據，跨行程不重複傳播的原目的不變。不採時間節流、不放寬 required 的 fail-closed、不改預算。
+
+**取捨**：memo 的效力以 ctime 為界，與既有成功 harden memo 的證明邊界相同；不比原設計多信任任何名稱或時間。全新目錄的第一次呼叫仍付一次讀取（非合規）再傳播，這部分未處理。
+
 ## 2026-11-15：MSI 升級先停止服務，預設禁止自動重新開機
 
 **決定**：`service-recovery.wxs` 在 `InstallValidate` 前，以 immediate、impersonate 的 custom action 呼叫舊版已安裝的 `"[INSTALLDIR]ocx.exe" service stop`，沿用 checked stop 的身分、血緣及時間限制，先停 wrapper 再讓 Restart Manager 處理檔案占用。停止失敗或舊執行檔不存在時以 `Return="ignore"` 繼續，不另加強制終止。`Installed OR WIX_UPGRADE_DETECTED` 涵蓋同產品 repair／reinstall 與 major upgrade；解除安裝排除。成功完成替換後，由原有 `OcxResumeProxyTask` 在 `InstallFinalize` 後恢復既有、啟用且未執行的根排程，不建立新排程。

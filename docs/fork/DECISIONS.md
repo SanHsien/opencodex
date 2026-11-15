@@ -1,5 +1,9 @@
 # 維護決策
 
+## 2026-11-15：發 fork release v2.100.5 後把版本來源前推到 2.100.6
+
+tag `v2.100.5` 指向 `06abbb70a`（PowerShell 輸出改 UTF-8、MSI 升級後恢復排程、遙測測試修正；lane=all run 43690506364 綠），觸發 `fork-release-windows.yml` 建 MSI；發版後 main 以 `release-version-sources.ts sync 2.100.6` 前推。D2 實機驗收用這個 release 從第 3 項接著做（見 ROADMAP）。
+
 ## 2026-11-15：固定 Windows 查詢輸出編碼，並在 MSI 升級後恢復既有排程
 
 **行程證據編碼是上游缺陷。** 上游 v2.100.3 的 `windowsProcessSnapshot` 以 Windows PowerShell 5.1 輸出 JSON，卻未指定輸出編碼；呼叫端固定用 UTF-8 解碼。繁中 Windows 11 在 main `b9f81c460`（2.100.5；已發布 MSI 為 v2.100.4）的實機診斷中，兩個行程命令列含非 ASCII 字，stdout 為 CP950，`JSON.parse` 因 Unexpected token 失敗，最後 `ocx service stop` 回 exit 1、`partA.reason=evidence-unreadable`、`detail=the process list could not be read`。在查詢前設定 `[Console]::OutputEncoding = [Text.Encoding]::UTF8;` 後，同一份行程清單可解析。

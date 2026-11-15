@@ -1,5 +1,9 @@
 # 維護決策
 
+## 2026-11-15：發 fork release v2.100.4 後把版本來源前推到 2.100.5
+
+tag `v2.100.4` 指向 `3525f67c9`（繁中 schtasks 狀態解析修正；lane=all run 43678247739 綠），觸發 `fork-release-windows.yml` 建 MSI；發版後 main 以 `release-version-sources.ts sync 2.100.5` 前推。D2 服務停止路徑的實機驗收用這個 release 從第 3 項接著做（見 ROADMAP）。
+
 ## 2026-11-15：修正非英文 Windows 排程狀態解析
 
 根因是上游 v2.100.3 的 `parseTaskCsvState` 只辨識英文狀態。繁中 Windows 的「就緒」等同 Ready，卻被判成 unknown，轉入 PowerShell 備援；這是上游缺陷。

@@ -1,5 +1,9 @@
 # 維護決策
 
+## 2026-11-15：發 fork release v2.100.3 後把版本來源前推到 2.100.4
+
+tag `v2.100.3` 指向 `d44ec1d84`（整合上游 v2.100.3 的 main，lane=all 綠），觸發 `fork-release-windows.yml` 建 MSI；發版後 main 以 `release-version-sources.ts sync 2.100.4` 前推，避免 `release version line` 把後續 commit 當成重複發佈。下一輪整合上游時照舊改成上游版本號。D2 服務停止路徑的實機驗收用這個 release 的 MSI 做（見 ROADMAP）。
+
 ## 2026-11-14：telemetry status 不再把 fork 預設關閉說成環境變數覆寫
 
 **起因**：v2.100.2 真機驗收時，沒設 `OCX_TELEMETRY` 卻看到 `disabled (env-ocx-telemetry)` 與 `Environment override: OCX_TELEMETRY`。行為（不送、不問）正確，只有文字誤導；原因是 `isTelemetryEnvOptOut()` 借用 `OCX_TELEMETRY` 值實作 D1 閘門。

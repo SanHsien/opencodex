@@ -7,9 +7,9 @@
          Keep file replacement enabled; resume only an existing enabled root task afterwards.
          Immediate impersonation uses the installing user's rights and never requests elevation.
          Failure is recorded by MSI but must not undo a completed installation. -->
-    <CustomAction Id="OcxResumeProxyTask" Directory="SystemFolder"
+    <CustomAction Id="OcxResumeProxyTask" Directory="TARGETDIR"
                   Execute="immediate" Impersonate="yes" Return="ignore"
-                  ExeCommand="&quot;[SystemFolder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -Command &quot;$ErrorActionPreference='Stop'; $task=Get-ScheduledTask -TaskName 'opencodex-proxy' -TaskPath '\' -ErrorAction SilentlyContinue; if ($null -ne $task -and $task.State -ne 'Disabled' -and $task.State -ne 'Running') { $task | Start-ScheduledTask -ErrorAction Stop }&quot;" />
+                  ExeCommand="&quot;[System64Folder]WindowsPowerShell\v1.0\powershell.exe&quot; -NoLogo -NoProfile -NonInteractive -WindowStyle Hidden -Command &quot;$ErrorActionPreference='Stop'; $task=Get-ScheduledTask -TaskName 'opencodex-proxy' -TaskPath '\' -ErrorAction SilentlyContinue; if ($null -ne $task -and $task.State -ne 'Disabled' -and $task.State -ne 'Running') { $task | Start-ScheduledTask -ErrorAction Stop }&quot;" />
     <InstallExecuteSequence>
       <Custom Action="OcxResumeProxyTask" After="InstallFinalize">WIX_UPGRADE_DETECTED AND NOT (REMOVE~="ALL")</Custom>
     </InstallExecuteSequence>

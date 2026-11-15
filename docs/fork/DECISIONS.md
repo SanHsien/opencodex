@@ -1,5 +1,15 @@
 # 維護決策
 
+## 2026-11-15：v2.100.5 的 MSI 建置失敗（WiX light 找不到 SystemFolder），修正後改發 v2.100.6
+
+**症狀**：tag `v2.100.5`（`06abbb70a`）觸發的 `fork-release-windows.yml`（run 43703262966）在 `light.exe` 連結時失敗，沒有產生 release。
+
+**根因**：新的 `wix/service-recovery.wxs` 把 custom action 掛在 `Directory="SystemFolder"`，但 Tauri 產生的 `main.wxs` 只定義 `TARGETDIR`，沒有 `SystemFolder` 的 Directory 列，light 無法解析參照。CI 不建 MSI，所以只有發版時才會暴露。
+
+**修法**：改成 `Directory="TARGETDIR"`，PowerShell 路徑改用格式化屬性 `[System64Folder]`（標準屬性，不需要 Directory 列；Tauri 自己的範本也用它）。`tests/ci-workflows/release-windows-msi-service-recovery.test.ts` 新增一筆：fragment 只能參照 `TARGETDIR`；舊寫法下這筆會紅。
+
+**版本**：`v2.100.5` 這個 tag 留著，但沒有 release（建置失敗），不重用；main 已是 2.100.6，修正以 `v2.100.6` 發佈。
+
 ## 2026-11-15：發 fork release v2.100.5 後把版本來源前推到 2.100.6
 
 tag `v2.100.5` 指向 `06abbb70a`（PowerShell 輸出改 UTF-8、MSI 升級後恢復排程、遙測測試修正；lane=all run 43690506364 綠），觸發 `fork-release-windows.yml` 建 MSI；發版後 main 以 `release-version-sources.ts sync 2.100.6` 前推。D2 實機驗收用這個 release 從第 3 項接著做（見 ROADMAP）。

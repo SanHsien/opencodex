@@ -28,6 +28,16 @@ test("quiet MSI upgrades resume only an existing enabled root task after success
   expect(fragment).not.toMatch(/Register-ScheduledTask|RunLevel|RunAs|MSIRESTARTMANAGERCONTROL|UILevel/);
 });
 
+test("the recovery action only references directories Tauri's WiX template defines (light fails on an unresolved Directory)", () => {
+  // v2.100.5's release build failed in light.exe: Directory="SystemFolder" has no entry in
+  // Tauri's main.wxs, which only defines TARGETDIR. Formatted [System64Folder] is a standard
+  // property and needs no Directory row; it is also what Tauri's own template uses.
+  const fragment = readFileSync(repoPath("desktop/src-tauri/wix/service-recovery.wxs"), "utf8");
+  const dirs = [...fragment.matchAll(/\bDirectory="([^"]+)"/g)].map(m => m[1]);
+  expect(dirs).toEqual(["TARGETDIR"]);
+  expect(fragment).toContain("[System64Folder]WindowsPowerShell\\v1.0\\powershell.exe");
+});
+
 test.skipIf(process.platform !== "win32")("MSI recovery does not start missing, disabled, or already running tasks", () => {
   const fragment = readFileSync(repoPath("desktop/src-tauri/wix/service-recovery.wxs"), "utf8");
   const command = /ExeCommand="([^"]+)"/.exec(fragment)![1]!.replace(/&quot;/g, '"');

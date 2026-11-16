@@ -1654,3 +1654,9 @@ Windows 停止採 checked stop，殘留 wrapper 清理只確認行程已退出�
 ### 水位
 
 `tools/upstream_baseline.json`：`integrated_tag = v2.100.3`、`reviewed_through`／`integrated_through = 873ec9b3b8ddf63f06738748d9132d779abefb42`、`reviewed_date = 2026-11-15`。依據為 170 筆 commit 審查、1684 檔逐檔清冊，以及分支 `ci/tagdiff-v2.100.3` 在 `9a3cc8dbb` 的 Windows 全量 CI run `43638705529`。PR／issue 欄位沿用 `70e0ee262` 的判定：26 筆 `reviewed_pr_numbers`、`reviewed_pr_through = 8086`、`reviewed_pr_closed_before = 2026-10-28`、`reviewed_issue_through = 8545`。#8246、#8318、#8545 仍延後；D2 維護者機器的服務停止路徑實機驗收尚未進行，列入 `ROADMAP.md`，不以 CI 代替。
+
+## 2026-11-16：platform issue 分類（#8697）
+
+`#8697`（Windows：未監聽的 IPv4 loopback 連接埠逾時而不是立即拒絕，`observeProxyLiveness` 回 `unknown`、`findCrossHomeOwnerDetailed` 回 `indeterminate`，服務啟動被拒並反覆重啟；回報機器有 TUN 虛擬網卡，逾時原因未證實）。判定：**適用但延後**。fork 有同一份程式（`src/cli/cross-home-owner.ts` 與 tag `v2.100.3` 相同，`src/server/proxy-liveness.ts` 的 unknown 拒絕路徑相同）；維護者機器的 loopback 未監聽連接埠會立即拒絕，目前沒有觸發。上游維護者回覆的修正方向是：探測結果為 unknown 時，在同一個位址與連接埠做有時限的獨佔 bind，成功才判定沒有擁有者，且不得蓋過正面的擁有者證據，最後的擁有權檢查仍為準。等上游合入修正或本機出現同症狀再處理，延後項登記在 `ROADMAP.md` 中期表。
+
+`reviewed_issue_through` 8545 到 8697。

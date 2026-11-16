@@ -38,6 +38,7 @@ import { attestCodexRuntime, codexCredentialDestinationIsTrusted, resolveCodexLa
 import { codexCommandCanBypass, CODEX_UNVERIFIED_SHIM } from "./codex-launch-command";
 import { codexTokenArgsAreSafe, codexTokenEnvironmentIsSafe } from "./codex-launch-policy";
 import { codexTokenWithheldDiagnostic, type CodexTokenRefusal, type CodexTokenRefusalReporter } from "./codex-launch-diagnostics";
+import { autostartMaySpawnProxy } from "./autostart-service-gate";
 import { withoutSupervisorMarkers } from "../lib/supervisor-markers";
 
 export interface CodexLaunchEnv {
@@ -122,6 +123,10 @@ export function codexProxyStartEnv(base: CodexLaunchEnv = process.env): CodexLau
 
 export type CodexProxyEnsureDeps = {
   findLiveProxy?: typeof findLiveProxy;
+  /** Test seam: whether no `ocx service` operation is in progress (see autostart-service-gate). */
+  maySpawnProxy?: () => Promise<boolean>;
+  /** Test seam: spawn the detached `ocx start` child on the given port. */
+  spawnProxy?: (port: number) => void;
 };
 
 /**
@@ -129,12 +134,7 @@ export type CodexProxyEnsureDeps = {
  * retry budget (#764), detached `ocx start` on the configured port, 8 s health
  * poll — so all `ocx`-launched clients share one autostart contract.
  */
-export async function ensureProxyForCodex(deps: CodexProxyEnsureDeps = {}): Promise<LiveProxy | null> {
-  const probe = deps.findLiveProxy ?? findLiveProxy;
-  const live = await probe({ attempts: 3 });
-  if (live) return live;
-  const cfgPort = loadConfig().port;
-  const pinPort = typeof cfgPort === "number" && cfgPort > 0 ? cfgPort : 10100;
+function spawnCodexProxyStart(pinPort: number): void {
   const child = spawn(process.execPath, selfLaunchArgv(["start", "--port", String(pinPort)]), {
     detached: true,
     stdio: "ignore",
@@ -146,6 +146,19 @@ export async function ensureProxyForCodex(deps: CodexProxyEnsureDeps = {}): Prom
   // and kills this process; the health poll below already reports the failure properly.
   child.on("error", () => { /* handled by the deadline loop returning null */ });
   child.unref();
+}
+
+export async function ensureProxyForCodex(deps: CodexProxyEnsureDeps = {}): Promise<LiveProxy | null> {
+  const probe = deps.findLiveProxy ?? findLiveProxy;
+  const live = await probe({ attempts: 3 });
+  if (live) return live;
+  // Never spawn behind a running `ocx service` operation; an install starts its own proxy.
+  if (!(await (deps.maySpawnProxy ?? autostartMaySpawnProxy)())) return null;
+  const afterService = await probe();
+  if (afterService) return afterService;
+  const cfgPort = loadConfig().port;
+  const pinPort = typeof cfgPort === "number" && cfgPort > 0 ? cfgPort : 10100;
+  (deps.spawnProxy ?? spawnCodexProxyStart)(pinPort);
   const deadline = Date.now() + 8_000;
   while (Date.now() < deadline) {
     const started = await probe();

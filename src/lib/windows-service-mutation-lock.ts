@@ -1,5 +1,5 @@
 import { Database } from "bun:sqlite";
-import { chmodSync, lstatSync, mkdirSync } from "node:fs";
+import { chmodSync, existsSync, lstatSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 import { resolveEffectiveUserIdentity, resolveEffectiveUserRuntimeRoot } from "../codex/user-identity";
@@ -61,6 +61,74 @@ export function windowsServiceMutationLockPath(): string {
   return join(resolveEffectiveUserRuntimeRoot(identity), "windows-service-mutation.sqlite");
 }
 
+/** How long a service command waits for the lock before reporting another operation in progress. */
+export const SERVICE_MUTATION_ACQUIRE_WAIT_MS = 500;
+
+export type WindowsServiceMutationState = "idle" | "busy" | "unknown";
+
+export interface WindowsServiceMutationProbeDeps {
+  lockPath?: string;
+  platform?: string;
+  openDatabase?: (path: string) => LockDatabase;
+}
+
+/**
+ * Whether a Windows service mutation (`ocx service install/stop/uninstall/...`) holds the lock
+ * right now. Proxy autostart (ensure) consults this so it does not respawn the proxy in the
+ * middle of a stop or install. The probe never creates the lock file and never hardens it;
+ * it takes the write lock with no wait and releases it immediately.
+ */
+export function probeWindowsServiceMutation(deps: WindowsServiceMutationProbeDeps = {}): WindowsServiceMutationState {
+  if ((deps.platform ?? process.platform) !== "win32") return "idle";
+  let lockPath: string;
+  try {
+    lockPath = deps.lockPath ?? windowsServiceMutationLockPath();
+  } catch {
+    return "unknown";
+  }
+  // No service mutation has ever run for this user, so none can be running.
+  if (!existsSync(lockPath)) return "idle";
+  let database: LockDatabase | undefined;
+  try {
+    database = (deps.openDatabase ?? (path => new Database(path, { readwrite: true, create: false })))(lockPath);
+    database.exec("PRAGMA busy_timeout = 0; BEGIN IMMEDIATE");
+    database.exec("ROLLBACK");
+    return "idle";
+  } catch (error) {
+    return isBusy(error) ? "busy" : "unknown";
+  } finally {
+    try { database?.close(); } catch { /* the probe result stands */ }
+  }
+}
+
+export interface WaitForServiceMutationIdleOptions {
+  maxWaitMs?: number;
+  pollMs?: number;
+  probe?: () => WindowsServiceMutationState;
+  now?: () => number;
+  sleep?: (ms: number) => Promise<void>;
+  /** Called once, the first time the lock is seen busy, before any wait starts. */
+  onBusy?: () => void;
+}
+
+/** Poll until no service mutation holds the lock, or the bound runs out (then "busy"). */
+export async function waitForWindowsServiceMutationIdle(
+  options: WaitForServiceMutationIdleOptions = {},
+): Promise<WindowsServiceMutationState> {
+  const probe = options.probe ?? (() => probeWindowsServiceMutation());
+  const now = options.now ?? Date.now;
+  const sleep = options.sleep ?? (ms => Bun.sleep(ms));
+  const pollMs = Math.max(1, options.pollMs ?? 500);
+  const deadline = now() + Math.max(0, options.maxWaitMs ?? 0);
+  let state = probe();
+  if (state === "busy") options.onBusy?.();
+  while (state === "busy" && now() < deadline) {
+    await sleep(Math.min(pollMs, Math.max(1, deadline - now())));
+    state = probe();
+  }
+  return state;
+}
+
 function assertRegularPath(path: string, kind: "directory" | "file"): void {
   const entry = lstatSync(path);
   const valid = kind === "directory" ? entry.isDirectory() : entry.isFile();
@@ -95,7 +163,10 @@ export async function withWindowsServiceMutationLock<T>(
       assertRegularPath(lockPath, "file");
       try { chmodSync(lockPath, 0o600); } catch { /* Windows ACL below is authoritative. */ }
       (deps.hardenFile ?? (path => { hardenSecretPath(path, { required: true }); }))(lockPath);
-      database.exec("PRAGMA locking_mode = NORMAL; PRAGMA busy_timeout = 0; BEGIN IMMEDIATE");
+      // A short wait, not zero: an autostart probe (below) holds the lock for an instant, and a
+      // service command arriving in that instant must not be refused as "already in progress".
+      // A genuine concurrent service operation still holds it far longer and is refused.
+      database.exec(`PRAGMA locking_mode = NORMAL; PRAGMA busy_timeout = ${SERVICE_MUTATION_ACQUIRE_WAIT_MS}; BEGIN IMMEDIATE`);
       acquired = true;
     } catch (error) {
       try { database?.close(); } catch { /* acquisition already failed */ }

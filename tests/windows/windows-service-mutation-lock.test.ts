@@ -4,6 +4,8 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
   WindowsServiceMutationBusyError,
+  probeWindowsServiceMutation,
+  waitForWindowsServiceMutationIdle,
   withWindowsServiceMutationLock,
 } from "../../src/lib/windows-service-mutation-lock";
 import { removeTreeWithRetry } from "../helpers/remove-tree";
@@ -109,6 +111,93 @@ test("a second service mutation is refused while another process holds the lock"
   let planned = 0;
   await withWindowsServiceMutationLock(async () => { planned += 1; }, { lockPath, ...noHardening });
   expect(planned).toBe(1);
+});
+
+test("an autostart probe reports a held service mutation as busy and a released one as idle", async () => {
+  // Field case (2026-11-16): ensure respawned the proxy while `ocx service install/stop` held
+  // this lock, so the stop's port check failed. The probe is what ensure consults first.
+  const readyPath = join(testRoot, "probe-holder-ready");
+  const releasePath = join(testRoot, "probe-holder-release");
+  const lockModuleUrl = pathToFileURL(repoPath("src/lib/windows-service-mutation-lock.ts")).href;
+  expect(probeWindowsServiceMutation({ lockPath, platform: "win32" })).toBe("idle"); // never created
+  const child = spawnHolder(`
+    import { existsSync, writeFileSync } from "node:fs";
+    import { withWindowsServiceMutationLock } from ${JSON.stringify(lockModuleUrl)};
+    await withWindowsServiceMutationLock(async () => {
+      writeFileSync(${JSON.stringify(readyPath)}, "ready");
+      while (!existsSync(${JSON.stringify(releasePath)})) Bun.sleepSync(10);
+    }, { lockPath: ${JSON.stringify(lockPath)}, hardenDirectory: () => {}, hardenFile: () => {} });
+  `);
+  try {
+    await waitForPath(readyPath);
+    expect(probeWindowsServiceMutation({ lockPath, platform: "win32" })).toBe("busy");
+  } finally {
+    writeFileSync(releasePath, "release");
+    expect(await waitForOwnedChild(child)).toBe(0);
+  }
+  expect(probeWindowsServiceMutation({ lockPath, platform: "win32" })).toBe("idle");
+});
+
+test("a service mutation that starts while an autostart probe holds the lock still runs", async () => {
+  // The probe takes the lock for an instant; a service command arriving in that instant must
+  // wait it out instead of reporting "another operation is in progress".
+  const lockModuleUrl = pathToFileURL(repoPath("src/lib/windows-service-mutation-lock.ts")).href;
+  const readyPath = join(testRoot, "brief-holder-ready");
+  const child = spawnHolder(`
+    import { writeFileSync } from "node:fs";
+    import { Database } from "bun:sqlite";
+    const db = new Database(${JSON.stringify(lockPath)}, { create: true });
+    db.exec("PRAGMA busy_timeout = 0; BEGIN IMMEDIATE");
+    writeFileSync(${JSON.stringify(readyPath)}, "ready");
+    Bun.sleepSync(150);
+    db.exec("ROLLBACK"); db.close();
+  `);
+  await waitForPath(readyPath);
+  let ran = false;
+  await withWindowsServiceMutationLock(async () => { ran = true; }, { lockPath, ...noHardening });
+  expect(ran).toBe(true);
+  expect(await waitForOwnedChild(child)).toBe(0);
+});
+
+test("waiting for an idle service mutation is bounded and reports busy when it never ends", async () => {
+  let now = 0;
+  const state = await waitForWindowsServiceMutationIdle({
+    maxWaitMs: 2_000,
+    pollMs: 500,
+    probe: () => "busy",
+    now: () => now,
+    sleep: async ms => { now += ms; },
+  });
+  expect(state).toBe("busy");
+  expect(now).toBe(2_000);
+
+  let announced = 0;
+  await waitForWindowsServiceMutationIdle({
+    maxWaitMs: 1_000, pollMs: 250, probe: () => "busy", now: () => now, sleep: async ms => { now += ms; },
+    onBusy: () => { announced++; },
+  });
+  expect(announced).toBe(1);
+
+  let probes = 0;
+  const released = await waitForWindowsServiceMutationIdle({
+    maxWaitMs: 2_000,
+    pollMs: 500,
+    probe: () => (++probes < 3 ? "busy" : "idle"),
+    now: () => 0,
+    sleep: async () => {},
+  });
+  expect(released).toBe("idle");
+  expect(probes).toBe(3);
+});
+
+test("the probe is idle off Windows and never opens a database there", () => {
+  let opened = false;
+  expect(probeWindowsServiceMutation({
+    lockPath,
+    platform: "linux",
+    openDatabase: () => { opened = true; throw new Error("must not open"); },
+  })).toBe("idle");
+  expect(opened).toBe(false);
 });
 
 test("an abruptly exited holder releases the OS-backed transaction without stale recovery", async () => {

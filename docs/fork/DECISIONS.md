@@ -1,5 +1,13 @@
 # 維護決策
 
+## 2026-11-16：服務操作期間自動啟動不再拉起代理
+
+**根因**：`ocx service install／stop／uninstall` 整段持有 Windows 服務變更鎖，但 `ocx codex`、`ocx claude`、minimax、opencode 的自動啟動（ensure）不看這把鎖，代理不在就直接起 `ocx start`。服務停掉代理後幾秒內被 ensure 拉回來，stop 的 port 檢查因此失敗；2026-11-16 在 `v2.100.8`、Codex 執行中的 26 次 install／stop 裡出現 2 次。
+
+**決定**：四個自動啟動在 spawn 前先檢查服務變更鎖，有服務操作進行中就等（最多 90 秒，實測服務操作 28–52 秒），結束後再探一次代理，install 已經起好的就直接用，不另起；等滿仍在進行就不起代理並印一行說明。檢查是無等待地取鎖後立刻放開，不建立、不 harden 鎖檔；服務端取鎖改為最多等 500 ms，避免剛好撞上檢查的那一瞬間被誤判為「已有操作進行中」，兩個真正並行的服務操作仍會在 2 秒內被拒。`ocx start` 本身不加這道檢查，因為服務自己的啟動也走 `ocx start`，加了會讓 install 卡死。等待開始時立刻印一行說明，服務操作卡在 UAC 時用戶端不會無聲等滿 90 秒。
+
+**已知限制**：時間窗是縮小，不是關閉。服務端在取鎖前先 harden 鎖目錄與鎖檔（ACL 慢時可能數秒），檢查結果為 idle 到實際 spawn 之間也還有一次代理探測；在這兩段時間內起的代理仍可能在 stop 檢查 port 之後才綁上。實機看到的情況（stop 已停掉代理、仍在鎖內時 ensure 拉回代理）已涵蓋。
+
 ## 2026-11-16：發 fork release v2.100.8 後把版本來源前推到 2.100.9
 
 tag `v2.100.8` 指向 `495dbe9c6`（ACL 失敗診斷加上整條時間線；lane=all run `43860780433` 綠，最長 Windows 分片 28 分），觸發 `fork-release-windows.yml` 建 MSI；發版後 main 以 `release-version-sources.ts sync 2.100.9` 前推。此版供 ACL 逾時在「Codex 執行中」條件下重現並取得時間線。

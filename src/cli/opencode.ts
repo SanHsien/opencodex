@@ -55,6 +55,7 @@ import { selfLaunchArgv } from "../lib/self-launch-argv";
 import { withoutSiblingMarker } from "../codex/sibling-start";
 import { parseJsonc } from "../lib/jsonc";
 import { withoutSupervisorMarkers } from "../lib/supervisor-markers";
+import { autostartMaySpawnProxy } from "./autostart-service-gate";
 export { parseJsonc };
 
 /**
@@ -615,6 +616,10 @@ export function opencodeApiKey(config: OcxConfig, env: OpencodeLaunchEnv = proce
 async function ensureProxyForOpencode(config: OcxConfig): Promise<LiveProxy | null> {
   const live = await findLiveProxy();
   if (live) return live;
+  // Never spawn behind a running `ocx service` operation; an install starts its own proxy.
+  if (!(await autostartMaySpawnProxy())) return null;
+  const afterService = await findLiveProxy();
+  if (afterService) return afterService;
   const cfgPort = config.port;
   const pinPort = typeof cfgPort === "number" && cfgPort > 0 ? cfgPort : 10100;
   const child = spawn(process.execPath, selfLaunchArgv(["start", "--port", String(pinPort)]), {

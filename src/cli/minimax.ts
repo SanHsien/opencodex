@@ -21,6 +21,7 @@ import { isLoopbackHostname } from "../server/auth-cors";
 import { findLiveProxy, probeHostname, type LiveProxy } from "../server/proxy-liveness";
 import type { OcxConfig } from "../types";
 import { opencodeProxyStartEnv } from "./opencode";
+import { autostartMaySpawnProxy } from "./autostart-service-gate";
 import { withoutSiblingMarker } from "../codex/sibling-start";
 
 export interface MinimaxLaunchEnv {
@@ -265,6 +266,10 @@ export function usableMinimaxLiveProxy(live: LiveProxy | null): LiveProxy | null
 async function ensureProxy(config: OcxConfig): Promise<LiveProxy | null> {
   const live = usableMinimaxLiveProxy(await findLiveProxy());
   if (live) return live;
+  // Never spawn behind a running `ocx service` operation; an install starts its own proxy.
+  if (!(await autostartMaySpawnProxy())) return null;
+  const afterService = usableMinimaxLiveProxy(await findLiveProxy());
+  if (afterService) return afterService;
   const pinPort = typeof config.port === "number" && config.port > 0 ? config.port : 10100;
   const child = spawn(process.execPath, selfLaunchArgv(["start", "--port", String(pinPort)]), {
     detached: true,

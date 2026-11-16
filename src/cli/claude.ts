@@ -25,6 +25,7 @@ import { resolveClaudeAuthMode } from "../claude/auth-mode";
 import { withProcessRuntimeProvenance } from "../lib/bun-runtime";
 import { selfLaunchArgv } from "../lib/self-launch-argv";
 import { ANTHROPIC_PARENT_ENV_SLOTS, trustedNodeLauncherContext, type AnthropicParentEnvSlot } from "./launcher-context";
+import { autostartMaySpawnProxy } from "./autostart-service-gate";
 import { readClientConnectionState, type ClientConnectionState } from "../client/state";
 import { resolveHubState } from "../client/hub-state";
 import { readServiceApiTokenState, type ServiceApiTokenState } from "../lib/service-secrets";
@@ -525,6 +526,8 @@ export function readConnectedClaudeContextWindows(path = DEFAULT_CATALOG_PATH): 
 
 export type ClaudeProxyEnsureDeps = {
   findLiveProxy?: typeof findLiveProxy;
+  /** Test seam: whether no `ocx service` operation is in progress (see autostart-service-gate). */
+  maySpawnProxy?: () => Promise<boolean>;
 };
 
 export async function ensureProxyForClaude(deps: ClaudeProxyEnsureDeps = {}): Promise<number | null> {
@@ -536,6 +539,10 @@ export async function ensureProxyForClaude(deps: ClaudeProxyEnsureDeps = {}): Pr
   // Without this, `ocx claude` can spawn a second proxy while the first is serving.
   const live = await (deps.findLiveProxy ?? findLiveProxy)({ attempts: 3 });
   if (live) return live.port;
+  // Never spawn behind a running `ocx service` operation; an install starts its own proxy.
+  if (!(await (deps.maySpawnProxy ?? autostartMaySpawnProxy)())) return null;
+  const afterService = await (deps.findLiveProxy ?? findLiveProxy)();
+  if (afterService) return afterService.port;
   const cfgPort = loadConfig().port;
   const pinPort = typeof cfgPort === "number" && cfgPort > 0 ? cfgPort : 10100;
   const child = spawn(process.execPath, selfLaunchArgv(["start", "--port", String(pinPort)]), {

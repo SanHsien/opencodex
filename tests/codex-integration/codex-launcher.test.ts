@@ -29,6 +29,13 @@ import {
 import { CODEX_GLOBAL_OPTIONS_WITH_VALUE, CODEX_INTERNAL_COMMANDS } from "../../src/codex/shim-templates";
 import { SIBLING_HANDOFF_NONCE_ENV, SIBLING_OF_PORT_ENV } from "../../src/codex/sibling-start";
 import type { LiveProxy } from "../../src/server/proxy-liveness";
+import {
+  AUTOSTART_SERVICE_MUTATION_BUSY_NOTICE,
+  AUTOSTART_SERVICE_MUTATION_WAITING_NOTICE,
+  AUTOSTART_SERVICE_MUTATION_WAIT_MS,
+  autostartMaySpawnProxy,
+} from "../../src/cli/autostart-service-gate";
+import { ensureProxyForClaude } from "../../src/cli/claude";
 import { maybeAutoRestoreCodexShim } from "../../src/cli/codex-shim-autorestore";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -271,6 +278,64 @@ describe("codex launcher proxy ensure", () => {
     });
     expect(result).toEqual(live);
     expect(attempts).toEqual([3]);
+  });
+
+  // Field case (2026-11-16): a codex launch during `ocx service install/stop` respawned the
+  // proxy, and the stop's port check failed ("being respawned"), 2 of 26 runs.
+  test("does not spawn a proxy while an ocx service operation is in progress", async () => {
+    const spawned: number[] = [];
+    const result = await ensureProxyForCodex({
+      findLiveProxy: async () => null,
+      maySpawnProxy: async () => false,
+      spawnProxy: port => { spawned.push(port); },
+    });
+    expect(result).toBeNull();
+    expect(spawned).toEqual([]);
+  });
+
+  test("after a service operation finishes, uses the proxy it started instead of spawning a second", async () => {
+    const live: LiveProxy = { pid: 5150, port: 10100, source: "runtime" };
+    const spawned: number[] = [];
+    let gateChecked = false;
+    let probes = 0;
+    const result = await ensureProxyForCodex({
+      findLiveProxy: async () => (++probes === 1 ? null : live),
+      maySpawnProxy: async () => { gateChecked = true; return true; },
+      spawnProxy: port => { spawned.push(port); },
+    });
+    expect(gateChecked).toBe(true);
+    expect(result).toEqual(live);
+    expect(spawned).toEqual([]);
+  });
+});
+
+describe("autostart service gate", () => {
+  test("refuses and explains when the service operation outlasts the wait", async () => {
+    const warnings: string[] = [];
+    const waits: number[] = [];
+    const allowed = await autostartMaySpawnProxy({
+      wait: async ({ maxWaitMs, onBusy }) => { waits.push(maxWaitMs!); onBusy?.(); return "busy"; },
+      warn: message => { warnings.push(message); },
+    });
+    expect(allowed).toBe(false);
+    expect(waits).toEqual([AUTOSTART_SERVICE_MUTATION_WAIT_MS]);
+    // The wait is announced when it starts, not only after up to 90 s of silence.
+    expect(warnings).toEqual([AUTOSTART_SERVICE_MUTATION_WAITING_NOTICE, AUTOSTART_SERVICE_MUTATION_BUSY_NOTICE]);
+  });
+
+  test("ocx claude does not spawn a proxy while an ocx service operation is in progress", async () => {
+    let probes = 0;
+    const port = await ensureProxyForClaude({
+      findLiveProxy: async () => { probes++; return null; },
+      maySpawnProxy: async () => false,
+    });
+    expect(port).toBeNull();
+    expect(probes).toBe(1);
+  });
+
+  test("keeps the previous behaviour when the lock state cannot be read", async () => {
+    expect(await autostartMaySpawnProxy({ wait: async () => "unknown", warn: () => {} })).toBe(true);
+    expect(await autostartMaySpawnProxy({ wait: async () => "idle", warn: () => {} })).toBe(true);
   });
 });
 

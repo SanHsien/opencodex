@@ -1,5 +1,9 @@
 # 維護決策
 
+## 2026-11-17：發 fork release v2.100.9 後把版本來源前推到 2.100.10
+
+tag `v2.100.9` 指向 `6ec30d463`（服務操作期間自動啟動不再拉起代理；lane=all run `43881234885` 綠，最長 Windows 分片 28 分），觸發 `fork-release-windows.yml` 建 MSI；發版後 main 以 `release-version-sources.ts sync 2.100.10` 前推。此版供 ROADMAP「實機驗收：服務操作期間 ensure 不再拉起代理」驗收。
+
 ## 2026-11-16：服務操作期間自動啟動不再拉起代理
 
 **根因**：`ocx service install／stop／uninstall` 整段持有 Windows 服務變更鎖，但 `ocx codex`、`ocx claude`、minimax、opencode 的自動啟動（ensure）不看這把鎖，代理不在就直接起 `ocx start`。服務停掉代理後幾秒內被 ensure 拉回來，stop 的 port 檢查因此失敗；2026-11-16 在 `v2.100.8`、Codex 執行中的 26 次 install／stop 裡出現 2 次。

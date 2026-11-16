@@ -276,6 +276,82 @@ describe("aclFailure diagnostics on required harden errors", () => {
     });
   });
 
+  test("a last-step timeout carries a timeline showing which earlier step ate the shared budget", () => {
+    // Field case (2026-11-16): /remove:g failed with budgetMs 424 of a 30 s budget, and
+    // the record could not say where the other ~29.5 s went.
+    const filePath = secretFile();
+    let now = 0;
+    setNowForTests(() => now);
+    setIcaclsRunnerForTests(args => {
+      if (args.includes("/grant:r")) { now += 20_000; return ok; }
+      if (args.includes("/inheritance:r")) { now += 9_000; return ok; }
+      if (args.includes("/remove:g")) { now += 1_500; return timedOut; }
+      return ok;
+    });
+
+    const error = thrownAclError(() => hardenSecretPath(filePath, { required: true }));
+
+    expect(error.code).toBe("ETIMEDOUT");
+    expect(error.aclFailure).toMatchObject({ step: "/remove:g", stage: "child_result", timedOut: true });
+    const timeline = error.aclFailure!.timeline!;
+    expect(timeline.map(e => [e.phase, e.attempt])).toEqual([
+      ["principal", 0], ["/grant:r", 0], ["/inheritance:r", 0], ["/remove:g", 0],
+    ]);
+    expect(timeline.map(e => e.elapsedMs)).toEqual([0, 20_000, 9_000, 1_500]);
+    expect(timeline.map(e => e.budgetMs)).toEqual([30_000, 30_000, 10_000, 1_000]);
+    expect(timeline.map(e => e.timedOut)).toEqual([false, false, false, true]);
+    expect(error.aclFailure!.totalElapsedMs).toBe(30_500);
+  });
+
+  test("a retry after a timed-out first attempt is recorded under attempt 1", () => {
+    const filePath = secretFile();
+    let now = 0;
+    setNowForTests(() => now);
+    let grants = 0;
+    setIcaclsRunnerForTests(args => {
+      if (args.includes("/grant:r")) { grants++; now += 1_000; return grants === 1 ? timedOut : ok; }
+      if (args.includes("/remove:g")) { now += 1_000; return denied(5); }
+      if (args.includes("/findsid")) return { ...ok, stdout: `SID Found: ${filePath}\n` };
+      return ok;
+    });
+
+    const error = thrownAclError(() => hardenSecretPath(filePath, { required: true }));
+
+    expect(error.code).toBe("EICACLS");
+    expect(error.aclFailure!.timeline!.map(e => `${e.attempt}:${e.phase}`)).toEqual([
+      "0:principal", "0:/grant:r",
+      "1:principal", "1:/grant:r", "1:/inheritance:r", "1:/remove:g", "1:/findsid",
+    ]);
+  });
+
+  test("the timeline carries no path, argv or SID", () => {
+    const filePath = secretFile();
+    setIcaclsRunnerForTests(args => (args.includes("/remove:g") ? { ...timedOut, stdout: `${filePath} ${ownerSid}` } : ok));
+
+    const error = thrownAclError(() => hardenSecretPath(filePath, { required: true }));
+
+    const serialized = JSON.stringify(error.aclFailure);
+    expect(error.aclFailure!.timeline!.length).toBeGreaterThan(0);
+    for (const forbidden of [filePath, testDir, ownerSid, ownerName, "*S-1-1-0"]) {
+      expect(serialized).not.toContain(forbidden);
+    }
+  });
+
+  test("the async path records the same timeline phases as the sync path", async () => {
+    const filePath = secretFile();
+    setAsyncIcaclsRunnerForTests(async args => (args.includes("/remove:g") ? timedOut : ok));
+
+    const error = await hardenSecretPathAsync(filePath, { required: true }).then(
+      () => { throw new Error("expected the async harden to reject"); },
+      cause => cause as ThrownAclError,
+    );
+
+    expect(error.code).toBe("ETIMEDOUT");
+    expect(error.aclFailure!.timeline!.filter(e => e.attempt === 0).map(e => e.phase)).toEqual([
+      "principal", "/grant:r", "/inheritance:r", "/remove:g",
+    ]);
+  });
+
   test("the async runner path reports the same bounded record", async () => {
     const filePath = secretFile();
     setAsyncIcaclsRunnerForTests(async args => (args.includes("/grant:r") ? denied(9) : ok));
@@ -449,7 +525,9 @@ describe("aclFailure boundary against an untrusted runner-thrown cause", () => {
     const error = thrownAclError(() => hardenSecretPath(filePath, { required: true }));
 
     expect(error.code).toBe("EICACLS");
-    expect(error.aclFailure).toEqual({
+    // timeline/totalElapsedMs are built by the harden call itself, never copied from the cause.
+    const { timeline: _timeline, totalElapsedMs: _total, ...copied } = error.aclFailure!;
+    expect(copied).toEqual({
       step: "/grant:r",
       stage: "child_result",
       elapsedMs: -1,
@@ -587,6 +665,29 @@ describe("aclFailure boundary against an untrusted runner-thrown cause", () => {
     const error = thrownAclError(() => hardenSecretPath(filePath, { required: true }));
 
     expect(error.code).toBe("EICACLS");
-    expect(error.aclFailure).toEqual({ ...clean });
+    const { timeline: _timeline, totalElapsedMs: _total, ...copied } = error.aclFailure!;
+    expect(copied).toEqual({ ...clean });
+  });
+
+  test("a timeline smuggled on the untrusted cause is ignored, not copied", () => {
+    const filePath = secretFile();
+    const hostile = {
+      step: "/grant:r",
+      stage: "child_result",
+      elapsedMs: 1,
+      budgetMs: 10,
+      success: false,
+      exitCode: 5,
+      timedOut: false,
+      timeline: [{ phase: filePath, attempt: 0, elapsedMs: 1, budgetMs: 1, timedOut: false, exitCode: 0 }],
+      totalElapsedMs: 999_999,
+    };
+    setIcaclsRunnerForTests(() => { throw throwingRunnerCause(hostile); });
+
+    const error = thrownAclError(() => hardenSecretPath(filePath, { required: true }));
+
+    expect(JSON.stringify(error.aclFailure)).not.toContain(filePath);
+    expect(error.aclFailure!.totalElapsedMs).not.toBe(999_999);
+    expect(error.aclFailure!.timeline!.every(e => e.phase === "principal")).toBe(true);
   });
 });

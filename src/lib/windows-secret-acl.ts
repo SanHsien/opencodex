@@ -394,6 +394,87 @@ export interface AclFailureDiagnostics {
   readonly exitCode: number | null;
   readonly timedOut: boolean;
   readonly spawnErrorCode?: string;
+  /**
+   * Every measured phase of the same harden call, in order, across both attempts.
+   * The top-level fields describe only the step that failed; when a late step runs
+   * out of a shared budget, this is the only record of which earlier phase spent it.
+   */
+  readonly timeline?: readonly AclTimelineEntry[];
+  /** Time from the start of the harden call to the failure, including both attempts. */
+  readonly totalElapsedMs?: number;
+}
+
+/** Phases recorded in `AclFailureDiagnostics.timeline`: the identity lookup or an icacls step. */
+export type AclTimelinePhase = IcaclsStep | "principal";
+
+/** One measured phase. Fixed literals and finite numbers only, like the parent record. */
+export interface AclTimelineEntry {
+  readonly phase: AclTimelinePhase;
+  /** 0 for the first attempt, 1 for the single timeout retry. */
+  readonly attempt: number;
+  readonly elapsedMs: number;
+  /** Remaining shared budget when the phase started. */
+  readonly budgetMs: number;
+  readonly timedOut: boolean;
+  readonly exitCode: number | null;
+}
+
+/** Upper bound on recorded phases: two attempts of principal + four steps + three /findsid. */
+const ACL_TIMELINE_MAX = 16;
+
+/** Mutable collector owned by one harden call; never shared across calls. */
+interface AclTrace {
+  readonly entries: AclTimelineEntry[];
+  readonly startedAt: number;
+  attempt: number;
+}
+
+function newAclTrace(): AclTrace {
+  return { entries: [], startedAt: nowFn(), attempt: 0 };
+}
+
+function traceAclPhase(
+  trace: AclTrace | undefined,
+  phase: AclTimelinePhase,
+  startedAt: number,
+  budgetMs: number,
+  timedOut: boolean,
+  exitCode: number | null,
+): void {
+  if (!trace || trace.entries.length >= ACL_TIMELINE_MAX) return;
+  trace.entries.push({
+    phase,
+    attempt: trace.attempt,
+    elapsedMs: finiteOrZero(Math.max(0, nowFn() - startedAt)),
+    budgetMs: finiteOrZero(budgetMs),
+    timedOut,
+    exitCode: typeof exitCode === "number" && Number.isFinite(exitCode) ? exitCode : null,
+  });
+}
+
+/** Resolve the principal while recording how long the lookup took. */
+function tracedPrincipal<T>(trace: AclTrace | undefined, deadline: number, lookup: () => T): T {
+  const startedAt = nowFn();
+  try {
+    const principal = lookup();
+    traceAclPhase(trace, "principal", startedAt, deadline - startedAt, false, null);
+    return principal;
+  } catch (error) {
+    traceAclPhase(trace, "principal", startedAt, deadline - startedAt, isTimeoutError(error), null);
+    throw error;
+  }
+}
+
+async function tracedPrincipalAsync(trace: AclTrace | undefined, deadline: number, lookup: () => Promise<string>): Promise<string> {
+  const startedAt = nowFn();
+  try {
+    const principal = await lookup();
+    traceAclPhase(trace, "principal", startedAt, deadline - startedAt, false, null);
+    return principal;
+  } catch (error) {
+    traceAclPhase(trace, "principal", startedAt, deadline - startedAt, isTimeoutError(error), null);
+    throw error;
+  }
 }
 
 function resolveIcaclsExecutable(): string {
@@ -1059,14 +1140,15 @@ async function existingAclAlreadyCompliantAsync(
   }
 }
 
-function runIcacls(targetPath: string, directory: boolean, deadline: number, extraReadAces: readonly string[]): void {
-  const principal = currentWindowsPrincipal(deadline);
+function runIcacls(targetPath: string, directory: boolean, deadline: number, extraReadAces: readonly string[], trace?: AclTrace): void {
+  const principal = tracedPrincipal(trace, deadline, () => currentWindowsPrincipal(deadline));
   const sequenceStartedAt = nowFn();
 
   // The deadline is owned by hardenEntry (total budget incl. retry + verification).
   const run = (step: IcaclsStep, args: string[]): { result: IcaclsResult; meta: IcaclsRunMeta } => {
     const remaining = deadline - nowFn();
     if (remaining <= 0) {
+      traceAclPhase(trace, step, nowFn(), remaining, true, null);
       throw icaclsError(
         step,
         { success: false, exitCode: null, timedOut: true, stdout: "" },
@@ -1079,6 +1161,7 @@ function runIcacls(targetPath: string, directory: boolean, deadline: number, ext
     }
     const started = nowFn();
     const result = icaclsRunner(args, remaining);
+    traceAclPhase(trace, step, started, remaining, Boolean(result.timedOut), result.exitCode);
     return {
       result,
       meta: {
@@ -1123,13 +1206,14 @@ function runIcacls(targetPath: string, directory: boolean, deadline: number, ext
 }
 
 /** Async counterpart of runIcacls — same step order and timeout/error classification (#612). */
-async function runIcaclsAsync(targetPath: string, directory: boolean, deadline: number, extraReadAces: readonly string[]): Promise<void> {
-  const principal = await currentWindowsPrincipalAsync(deadline);
+async function runIcaclsAsync(targetPath: string, directory: boolean, deadline: number, extraReadAces: readonly string[], trace?: AclTrace): Promise<void> {
+  const principal = await tracedPrincipalAsync(trace, deadline, () => currentWindowsPrincipalAsync(deadline));
   const sequenceStartedAt = nowFn();
 
   const run = async (step: IcaclsStep, args: string[]): Promise<{ result: IcaclsResult; meta: IcaclsRunMeta }> => {
     const remaining = deadline - nowFn();
     if (remaining <= 0) {
+      traceAclPhase(trace, step, nowFn(), remaining, true, null);
       throw icaclsError(
         step,
         { success: false, exitCode: null, timedOut: true, stdout: "" },
@@ -1142,6 +1226,7 @@ async function runIcaclsAsync(targetPath: string, directory: boolean, deadline: 
     }
     const started = nowFn();
     const result = await awaitAsyncIcaclsRunner(args, remaining);
+    traceAclPhase(trace, step, started, remaining, Boolean(result.timedOut), result.exitCode);
     return {
       result,
       meta: {
@@ -1260,7 +1345,7 @@ function sanitizeAclFailure(cause: unknown): AclFailureDiagnostics | undefined {
 }
 
 /** Preserve only the bounded machine-readable cause on a sanitized public error. */
-function sanitizedAclError(diagnostics: string, cause: unknown): NodeJS.ErrnoException {
+function sanitizedAclError(diagnostics: string, cause: unknown, trace?: AclTrace): NodeJS.ErrnoException {
   const error = new Error(diagnostics) as NodeJS.ErrnoException & { aclFailure?: AclFailureDiagnostics };
   const code = cause && typeof cause === "object" && "code" in cause
     ? String((cause as { code?: unknown }).code)
@@ -1279,7 +1364,17 @@ function sanitizedAclError(diagnostics: string, cause: unknown): NodeJS.ErrnoExc
     error.code = code;
   }
   const aclFailure = sanitizeAclFailure(cause);
-  if (aclFailure) error.aclFailure = aclFailure;
+  if (aclFailure) {
+    // The trace is built here from fixed literals and finite numbers only; it is
+    // never read back from the untrusted cause.
+    error.aclFailure = trace
+      ? {
+          ...aclFailure,
+          timeline: trace.entries.map(entry => ({ ...entry })),
+          totalElapsedMs: finiteOrZero(Math.max(0, nowFn() - trace.startedAt)),
+        }
+      : aclFailure;
+  }
   return error;
 }
 
@@ -1391,7 +1486,8 @@ function hardenEntry(
   if (!existsSync(targetPath)) { cache.delete(targetPath); return { ok: true }; }
   if (effectivePlatform() !== "win32") return { ok: true };
   if (memoSatisfied(cache, targetPath)) return { ok: true };
-  const deadline = nowFn() + resolveHardenDeadlineMs(opts.deadlineMs);
+  const trace = newAclTrace();
+  const deadline = trace.startedAt + resolveHardenDeadlineMs(opts.deadlineMs);
   // Secret compliance does not prove the extra read grants required by a staged payload.
   if (extraReadAces.length === 0 && existingAclAlreadyCompliant(targetPath, directory, deadline, directory && opts.verifyExistingRuntimeDirectory === true)) return { ok: true };
   const memoKey = timeoutMemoKey(targetPath, opts);
@@ -1404,10 +1500,11 @@ function hardenEntry(
   let lastErr: unknown;
   for (let attempt = 0; attempt < 2; attempt++) {
     if (attempt > 0 && deadline - nowFn() <= 0) break; // retry only while budget remains
+    trace.attempt = attempt;
     try {
       // Captured BEFORE the sequence: this is the file we are about to harden.
       const before = observe(targetPath);
-      runIcacls(targetPath, directory, deadline, extraReadAces);
+      runIcacls(targetPath, directory, deadline, extraReadAces, trace);
       if (!recordHarden(cache, targetPath, before)) {
         if (opts.required) throw new Error(SUBSTITUTED_DIAGNOSTIC);
         return { ok: false, diagnostics: SUBSTITUTED_DIAGNOSTIC };
@@ -1427,11 +1524,11 @@ function hardenEntry(
     recordTimeout(memoKey);
     const state = describeAclStateAfterTimeout(targetPath, deadline);
     const annotated = `${diagnostics}; ${state}`;
-    if (opts.required) throw sanitizedAclError(annotated, lastErr);
+    if (opts.required) throw sanitizedAclError(annotated, lastErr, trace);
     console.warn(`[opencodex] ${annotated} — continuing without NTFS ACL harden`);
     return { ok: false, diagnostics: annotated };
   }
-  if (opts.required) throw sanitizedAclError(diagnostics, lastErr);
+  if (opts.required) throw sanitizedAclError(diagnostics, lastErr, trace);
   return { ok: false, diagnostics };
 }
 
@@ -1457,7 +1554,8 @@ async function runHardenEntryAsync(
   cache: Map<string, HardenedIdentity>,
   extraReadAces: readonly string[],
 ): Promise<HardenResult> {
-  const deadline = nowFn() + resolveHardenDeadlineMs(opts.deadlineMs);
+  const trace = newAclTrace();
+  const deadline = trace.startedAt + resolveHardenDeadlineMs(opts.deadlineMs);
   if (extraReadAces.length === 0 && await existingAclAlreadyCompliantAsync(targetPath, directory, deadline, directory && opts.verifyExistingRuntimeDirectory === true)) return { ok: true };
   const memoKey = timeoutMemoKey(targetPath, opts);
   const timeoutMemoError = timeoutMemoErrorIfBlocked(memoKey, opts);
@@ -1469,9 +1567,10 @@ async function runHardenEntryAsync(
   let lastErr: unknown;
   for (let attempt = 0; attempt < 2; attempt++) {
     if (attempt > 0 && deadline - nowFn() <= 0) break;
+    trace.attempt = attempt;
     try {
       const before = observe(targetPath);
-      await runIcaclsAsync(targetPath, directory, deadline, extraReadAces);
+      await runIcaclsAsync(targetPath, directory, deadline, extraReadAces, trace);
       if (!recordHarden(cache, targetPath, before)) {
         if (opts.required) throw new Error(SUBSTITUTED_DIAGNOSTIC);
         return { ok: false, diagnostics: SUBSTITUTED_DIAGNOSTIC };
@@ -1490,11 +1589,11 @@ async function runHardenEntryAsync(
     recordTimeout(memoKey);
     const state = await describeAclStateAfterTimeoutAsync(targetPath, deadline);
     const annotated = `${diagnostics}; ${state}`;
-    if (opts.required) throw sanitizedAclError(annotated, lastErr);
+    if (opts.required) throw sanitizedAclError(annotated, lastErr, trace);
     console.warn(`[opencodex] ${annotated} — continuing without NTFS ACL harden`);
     return { ok: false, diagnostics: annotated };
   }
-  if (opts.required) throw sanitizedAclError(diagnostics, lastErr);
+  if (opts.required) throw sanitizedAclError(diagnostics, lastErr, trace);
   return { ok: false, diagnostics };
 }
 

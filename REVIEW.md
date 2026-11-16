@@ -983,3 +983,9 @@ run `43720865406` 與 `43726376154` 各有六片約 30 分鐘後取消；每個�
 | 第 5 項 install → stop → uninstall | stop exit 0（28.7 秒，wrapper 與代理停止、排程 Ready、三檔保留）；uninstall exit 0（31.8 秒，排程與三檔清除）。 |
 
 **仍未解決**：Codex 執行中時兩次 ACL hardening 逾時（`service install`：`/remove:g`、`elapsedMs` 8083、`budgetMs` 8072；`service stop`：`/remove:g`、`elapsedMs` 581、`budgetMs` 424），以及一次 ensure 在 stop 後搶先拉起代理造成的 `Port 10100 could not be confirmed free after the stop`。兩者分別列入 `ROADMAP.md` 中期表；MSI 例外路徑（停止失敗、3010、無排程）仍待實機條件。
+
+## 2026-11-17：v2.100.9 服務操作期間自動啟動閘門實機驗收未通過回註
+
+一般權限繁中 Windows 11，`v2.100.9`（tag `6ec30d463`）。install→stop→uninstall 輪流 7 輪共 21 次，背景每 20 秒新起一個 `codex exec`，每次服務操作開始 3 秒後另跑一次 `ocx.exe ensure`（模擬 Codex shim）。install 7/7、stop 7/7、uninstall 5/7；兩次 uninstall 回 `The proxy answers on port 10100 again after the stop; it is being respawned.`，另有兩次 `ocx ensure` 因 `another process owns the runtime mutation lease` 直接 exit 1。21 次都沒有出現閘門的等待訊息。
+
+**根因**：`6ec30d463` 只在 `ocx codex`／`ocx claude`／minimax／opencode 的自動啟動加了閘門，Windows Codex shim 每次執行的 `ocx ensure`（`dispatch.ts` 的 ensure → `handleEnsure`）沒有。修正見 `docs/fork/DECISIONS.md` 2026-11-17「`ocx ensure` 也走服務操作閘門」；`Port … could not be confirmed free` 與 ACL 逾時本輪 0 次。

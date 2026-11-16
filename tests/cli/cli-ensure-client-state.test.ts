@@ -35,9 +35,9 @@ afterEach(() => {
   process.exitCode = savedExitCode ?? 0;
 });
 
-async function ensure(failLocal = false): Promise<number> {
+async function ensure(failLocal = false, gate: () => Promise<boolean> = async () => true): Promise<number> {
   const args = ["ensure"];
-  const deps = { args, handleEnsure: async () => {
+  const deps = { args, autostartGate: async () => { events.push("gate"); return gate(); }, handleEnsure: async () => {
     events.push("local-ensure");
     if (failLocal) process.exitCode = 1;
     return !failLocal;
@@ -62,12 +62,20 @@ test.each(["invalid", "mismatched"] as const)("%s ensure still refuses local sta
 
 test("disconnected ensure retains the local startup path", async () => {
   expect(await ensure()).toBe(0);
-  expect(events).toEqual(["local-ensure"]);
+  expect(events).toEqual(["gate", "local-ensure"]);
 });
 
 test("a failed disconnected local ensure still reports failure", async () => {
   expect(await ensure(true)).toBe(1);
-  expect(events).toEqual(["local-ensure"]);
+  expect(events).toEqual(["gate", "local-ensure"]);
+});
+
+// Field case (2026-11-17, v2.100.9): the Windows Codex shim's `ocx ensure` respawned the
+// proxy during `ocx service uninstall` (2 of 21 refused) because only the client launchers
+// were gated. ensure is the path the shim actually runs.
+test("ensure starts nothing while an ocx service operation holds the lock", async () => {
+  expect(await ensure(false, async () => false)).toBe(1);
+  expect(events).toEqual(["gate"]);
 });
 
 test("connected ensure cannot bypass a failed journal reconciliation", async () => {

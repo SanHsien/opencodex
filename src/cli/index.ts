@@ -158,6 +158,7 @@ import {
   reconcileEnsureDesiredIntegrations,
 } from "./ensure-desired-integrations";
 import { ENSURE_READY_TIMEOUT_MS, ensureKeepWaiting, waitForLiveProxy } from "./ensure-readiness";
+import { autostartMaySpawnProxy } from "./autostart-service-gate";
 import { productionDesktopColdStartDeps, runDesktopColdStart } from "./ensure-desktop-cold-start";
 import { refreshOwnedCatalogIntegrations } from "../integrations/catalog-refresh";
 import { loadExportModels } from "../server/management/model-rows";
@@ -1003,6 +1004,8 @@ async function handleRestartStartWhenStopped(recoveringLiveRestart = false): Pro
     console.log("Codex autostart is disabled; no proxy was started.");
     return { status: "skipped" };
   }
+  // Same gate as `ocx ensure`: never start a proxy inside an `ocx service` operation.
+  if (!(await autostartMaySpawnProxy())) return { status: "failed", launch: "never" };
   let child: ReturnType<typeof spawn> | null = null;
   try {
     const started = await handleEnsure({ existingIsSuccess: false, forceStart: recoveringLiveRestart, onSpawn: spawned => { child = spawned; } });

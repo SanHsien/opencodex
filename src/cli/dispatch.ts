@@ -41,6 +41,7 @@ import type { ClientConnectionState } from "../client/state";
 import { OCX_NATIVE_REPLAY_RECOVERY_NOTE } from "../responses/compaction";
 import { inspectDesktopSupervision } from "../service/desktop-supervision.mjs";
 import { desktopStopNotice } from "./desktop-runtime-guidance";
+import { autostartMaySpawnProxy } from "./autostart-service-gate";
 
 export interface CliDispatchDeps {
   args: string[];
@@ -57,6 +58,8 @@ export interface CliDispatchDeps {
   handleStop: (approval?: StopApproval) => Promise<StopOutcome>;
   inspectDesktopSupervision?: typeof inspectDesktopSupervision;
   handleEnsure: (options?: { existingIsSuccess?: boolean }) => Promise<boolean>;
+  /** Test seam: false while an `ocx service` operation holds the lock (see autostart-service-gate). */
+  autostartGate?: () => Promise<boolean>;
   handleResolve: (args: ResolveArgs) => Promise<number>;
   handleTrayProxyStart: (existingIsSuccess?: boolean) => Promise<boolean>;
   handleTrayProxyRestart: () => Promise<void>;
@@ -377,6 +380,10 @@ const commandRunners: Record<string, CommandRunner> = {
       // A validated client delegates inference to its hub; no local startup is needed.
       return clientState.kind === "connected" ? 0 : 1;
     }
+    // The Windows Codex shim runs `ocx ensure` before every Codex launch. Inside an
+    // `ocx service install/stop/uninstall` it must neither respawn the proxy nor race the
+    // service for the runtime mutation lease (2 of 21 uninstalls refused on 2026-11-17).
+    if (!(await (deps.autostartGate ?? autostartMaySpawnProxy)())) return 1;
     await deps.handleEnsure();
     return Number(process.exitCode ?? 0);
   },

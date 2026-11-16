@@ -1,5 +1,11 @@
 # 維護決策
 
+## 2026-11-17：`ocx ensure` 也走服務操作閘門
+
+**原因**：`v2.100.9` 實機驗收 21 次裡 2 次 uninstall 仍被拉起的代理擋下。`6ec30d463` 只閘了用戶端啟動器，但真正反覆拉起代理的是 Windows Codex shim 每次都跑的 `ocx ensure`；它還會在服務操作中搶 runtime mutation lease，直接以錯誤結束。
+
+**決定**：`ocx ensure`（client 未連線時，進 `handleEnsure` 之前）與 `ocx restart` 在代理已停時的啟動，都先過同一個閘門：服務操作進行中就印等待訊息並等候（最多 90 秒），結束後才進原本流程，此時 install 起好的代理會被當成既有代理使用；等滿仍在進行就 exit 1。服務流程本身不會呼叫這兩者，不會自己等自己。
+
 ## 2026-11-17：發 fork release v2.100.9 後把版本來源前推到 2.100.10
 
 tag `v2.100.9` 指向 `6ec30d463`（服務操作期間自動啟動不再拉起代理；lane=all run `43881234885` 綠，最長 Windows 分片 28 分），觸發 `fork-release-windows.yml` 建 MSI；發版後 main 以 `release-version-sources.ts sync 2.100.10` 前推。此版供 ROADMAP「實機驗收：服務操作期間 ensure 不再拉起代理」驗收。

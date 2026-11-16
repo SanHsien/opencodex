@@ -1,5 +1,9 @@
 # 維護決策
 
+## 2026-11-16：發 fork release v2.100.8 後把版本來源前推到 2.100.9
+
+tag `v2.100.8` 指向 `495dbe9c6`（ACL 失敗診斷加上整條時間線；lane=all run `43860780433` 綠，最長 Windows 分片 28 分），觸發 `fork-release-windows.yml` 建 MSI；發版後 main 以 `release-version-sources.ts sync 2.100.9` 前推。此版供 ACL 逾時在「Codex 執行中」條件下重現並取得時間線。
+
 ## 2026-11-16：ACL 失敗診斷加上整條時間線
 
 **決定**：required hardening 失敗時，`aclFailure` 除了失敗那一步，另帶 `timeline`（同一次呼叫裡身分查詢與每個 icacls 步驟的嘗試序號、耗時、開始時剩餘預算、是否逾時、結束碼）與 `totalElapsedMs`。只放固定字面值與有限數字，最多 16 筆，由 harden 呼叫自己記錄，不從不受信任的 cause 複製。

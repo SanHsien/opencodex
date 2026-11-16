@@ -1,5 +1,11 @@
 # 維護決策
 
+## 2026-11-16：D2 服務停止路徑在 v2.100.7 通過實機驗收
+
+**決定**：D2 第 3–5 項與一般 `/qn` major upgrade 結案；路線圖只留 MSI 例外路徑（停止失敗、舊執行檔缺失、3010、無排程或停用），等實機條件出現再驗。結果見 `REVIEW.md` 同日回註。
+
+**未結案**：Codex 執行中、ensure 剛拉起代理時，服務 ACL hardening 仍會逾時；同一次呼叫的 30 秒預算在最後一步前已用掉 22–29.5 秒。假樹（含並行、邊寫邊 harden、模擬沙箱寫 ACE）、真實設定目錄根與真實 Codex 沙箱啟動的量測都重現不出來，所以不改 hardening 本身，先讓失敗診斷帶出整條時間線再查。ensure 在 stop 後搶 port 另列一項。
+
 ## 2026-11-16：撤回 ACL 合規跳過與合規結果 memo
 
 **決定與原因**：撤回 `10c8bfa79`、`785856d93` 擴展到設定讀取、config mutation lock、Windows service mutation lock 與服務 token 發布的 ACL 合規跳過路徑，以及 `5f5b69f53` 的合規結果 memo、測試與文件。每個全新目錄仍先啟動一次 PowerShell 嚴格 ACL 讀取，約 1.3 秒；memo 只能減少同一行程同一目錄的後續讀取，未消除大量新目錄的成本。兩輪 Windows CI 各有六片超過 30 分鐘而取消，也沒有證據證明此方案能解決維護者機器的 ACL 逾時。因此恢復這四條路徑與相關測試至 `10c8bfa79^` 的行為，不延長預算、不放寬 required hardening。更早已有的 lifecycle lock 嚴格目錄驗證及 `OPENCODEX_ACL_VERIFY_EXISTING` 選用行為保留。

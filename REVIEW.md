@@ -970,3 +970,16 @@ CP950 固件含「功」（尾位元組 0x5c），防止把損壞 JSON 當成空
 前節服務 ACL 問題改回原有 hardening：設定目錄讀取、config mutation lock、Windows service mutation lock 與服務 token 發布不再先做合規讀取。`5f5b69f53` 的合規 memo 同時撤回；原有 lifecycle lock 驗證保留。先前為合規讀取新增的 async owner-ACL fixture 注入、選項斷言與 native-main teardown 調整，均恢復至 `10c8bfa79^`；shim bypass、MSI 與 D2 bound／unbound wrapper 測試保留。
 
 run `43720865406` 與 `43726376154` 各有六片約 30 分鐘後取消；每個新目錄約 1.3 秒的 PowerShell 嚴格讀取成本仍在，合規 memo 未使方案成立。兩輪全部分片耗時與撤回理由見 `docs/fork/DECISIONS.md` 2026-11-16 條目。這次撤回不代表實機 ACL 逾時已解決：維護者機器約一半 `ocx service stop`／`uninstall`／`install` 因 `ACL hardening timed out` 失敗，根因未定，ROADMAP 記錄量測 icacls、檔案占用與目錄項目數的調查方向。D2 第 4 項的更正與 MSI 停止服務、防止自動重開機及目錄修正保持有效。
+
+## 2026-11-16：v2.100.7 D2 實機驗收回註
+
+一般權限繁中 Windows 11，`v2.100.7`（tag 指向 `8242077f5`，MSI sha256 與 release 相符）。
+
+| 項目 | 結果 |
+| --- | --- |
+| `/qn` major upgrade | `msiexec /i … /qn REBOOT=ReallySuppress /l*v` exit 0，24 秒，未重新開機；升級前服務在跑，升級後自動恢復為 2.100.7，排程 Running。 |
+| 第 3 項 `ocx service stop` | exit 0（39 秒）。 |
+| 第 4 項 unbound／bound wrapper | 刪除排程、`ocx stop` 後以 WMI `Win32_Process Create` 啟動 wrapper，代理為其子行程；`ocx service uninstall` exit 0，wrapper 與代理在 33–36 秒內結束，三個 wrapper 檔刪除。符合 2026-11-15「釐清 D2 移除語意」更正後的預期。 |
+| 第 5 項 install → stop → uninstall | stop exit 0（28.7 秒，wrapper 與代理停止、排程 Ready、三檔保留）；uninstall exit 0（31.8 秒，排程與三檔清除）。 |
+
+**仍未解決**：Codex 執行中時兩次 ACL hardening 逾時（`service install`：`/remove:g`、`elapsedMs` 8083、`budgetMs` 8072；`service stop`：`/remove:g`、`elapsedMs` 581、`budgetMs` 424），以及一次 ensure 在 stop 後搶先拉起代理造成的 `Port 10100 could not be confirmed free after the stop`。兩者分別列入 `ROADMAP.md` 中期表；MSI 例外路徑（停止失敗、3010、無排程）仍待實機條件。

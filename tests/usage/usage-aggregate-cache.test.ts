@@ -772,18 +772,28 @@ describe("retained usage aggregate cache", () => {
 // re-propagates ACEs onto usage.jsonl and moves only its ctime. The caches rebuilt the whole
 // unchanged ledger each time, and the pricing-cache test failed about 3 of 4 local runs.
 describe("ctime-only ledger changes", () => {
-  function touchMetadataOnly(path: string): { before: Stats; after: Stats } {
+  /**
+   * Flip the read-only attribute until ctime visibly moves. Two back-to-back flips left ctime
+   * unchanged on a GitHub Windows runner (run 44063911578), so retry with a short pause rather
+   * than assume one flip always lands on a new tick.
+   */
+  async function touchMetadataOnly(path: string): Promise<{ before: Stats; after: Stats }> {
     const before = statSync(path);
-    chmodSync(path, 0o444);
-    chmodSync(path, 0o666);
-    return { before, after: statSync(path) };
+    for (let attempt = 0; attempt < 20; attempt++) {
+      chmodSync(path, 0o444);
+      chmodSync(path, 0o666);
+      const after = statSync(path);
+      if (after.ctimeMs !== before.ctimeMs) return { before, after };
+      await Bun.sleep(25);
+    }
+    throw new Error("ctime never moved after attribute flips; the ctime-only scenario was not produced");
   }
 
   test("an ACL or attribute change that moves only ctime keeps the base aggregate unchanged", async () => {
     const path = join(testDir, "usage.jsonl");
     writeFileSync(path, line("one") + line("two"));
     const base = await getUsageAggregate();
-    const { before, after } = touchMetadataOnly(path);
+    const { before, after } = await touchMetadataOnly(path);
     expect(after.mtimeMs).toBe(before.mtimeMs);
     expect(after.ctimeMs).not.toBe(before.ctimeMs);
 
@@ -869,7 +879,7 @@ describe("ctime-only ledger changes", () => {
     writeFileSync(path, line("one") + line("two"));
     const window = { since: NOW - 2_000, until: NOW };
     const base = await getFilteredUsageAggregate({}, window);
-    touchMetadataOnly(path);
+    await touchMetadataOnly(path);
     const next = await getFilteredUsageAggregate({}, window);
     expect(next.update).toBe("unchanged");
     expect(next.accumulator).toBe(base.accumulator);
@@ -879,7 +889,7 @@ describe("ctime-only ledger changes", () => {
     const path = join(testDir, "usage.jsonl");
     writeFileSync(path, line("one"));
     const base = await getJevStatsAggregate({ comboId: "jev-auto" });
-    touchMetadataOnly(path);
+    await touchMetadataOnly(path);
     const next = await getJevStatsAggregate({ comboId: "jev-auto" });
     expect(next.update).toBe("unchanged");
     expect(next.accumulator).toBe(base.accumulator);
@@ -891,7 +901,7 @@ describe("ctime-only ledger changes", () => {
     resetFailureProjectionCacheForTests();
     try {
       await getFailureProjection();
-      touchMetadataOnly(path);
+      await touchMetadataOnly(path);
       expect((await getFailureProjection()).update).toBe("unchanged");
     } finally {
       resetFailureProjectionCacheForTests();

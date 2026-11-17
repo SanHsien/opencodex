@@ -69,6 +69,55 @@ export class UsageLedgerRebuildRequiredError extends Error {
   }
 }
 
+/**
+ * Same file, same length and same mtime; only ctime moved. That is a metadata change (an ACL
+ * re-propagated by icacls on the parent directory, an attribute flip), not a write, so a
+ * retained aggregate need not rebuild — but only after usageLedgerUnchangedSince confirms it.
+ *
+ * Accepted limit: that confirmation reads only the trailing 64 KiB digest (the same evidence an
+ * append trusts). A same-size edit earlier than that window whose writer also restores mtime to
+ * the exact 100 ns is not detected. Ordinary writes always move mtime; restoring it exactly takes
+ * a deliberate SetFileTime, and the ledger is this process's own append-only log, not a security
+ * boundary. Any other same-size movement still rebuilds.
+ */
+export function usageRevisionMetadataOnlyChange(
+  previous: UsageLogRevision | null,
+  observed: UsageLogRevision | null,
+): boolean {
+  if (!previous || !observed) return false;
+  return previous.path === observed.path
+    && previous.dev === observed.dev
+    && previous.ino === observed.ino
+    && previous.birthtimeMs === observed.birthtimeMs
+    && previous.size === observed.size
+    && previous.mtimeMs === observed.mtimeMs
+    && previous.ctimeMs !== observed.ctimeMs;
+}
+
+/**
+ * Whether the ledger still matches a retained checkpoint: the trailing digest at
+ * processedThroughBytes verifies (the same check an append relies on) and no complete row
+ * follows it. A rebuild-required verdict or any new row answers false.
+ */
+export async function usageLedgerUnchangedSince(checkpoint: {
+  identityKey: string;
+  processedThroughBytes: number;
+  processedThroughDigest: string;
+}): Promise<boolean> {
+  try {
+    const scan = await scanUsageLedgerCooperatively({
+      startAtBytes: checkpoint.processedThroughBytes,
+      expectedIdentityKey: checkpoint.identityKey,
+      expectedProcessedThroughDigest: checkpoint.processedThroughDigest,
+      onEntry: () => {},
+    });
+    return scan.parsedRows === 0 && scan.processedThroughBytes === checkpoint.processedThroughBytes;
+  } catch (error) {
+    if (error instanceof UsageLedgerRebuildRequiredError) return false;
+    throw error;
+  }
+}
+
 function revisionFromStat(
   path: string,
   fd: number,
@@ -577,7 +626,8 @@ export async function readUsageLedgerRowsAtOffsets(
       // Growth is measured against the snapshot's physical size, not the processed boundary: a
       // torn suffix leaves the file larger than the boundary without being new content. A file
       // that did not grow cannot be an append, so a moved revision is an in-place rewrite and
-      // the trailing digest cannot see one earlier than its 64 KiB window.
+      // the trailing digest cannot see one earlier than its 64 KiB window. A ctime-only move is
+      // adopted by the filter index refresh (usageRevisionMetadataOnlyChange) before reads here.
       if (physical === undefined || size <= physical) throw rebuildRequired("content_changed");
       const digest = digestRangeSync(
         fd,

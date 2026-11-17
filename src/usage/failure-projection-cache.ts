@@ -20,6 +20,8 @@ import {
 import {
   scanUsageLedgerCooperatively,
   UsageLedgerRebuildRequiredError,
+  usageLedgerUnchangedSince,
+  usageRevisionMetadataOnlyChange,
 } from "./ledger-scanner";
 import {
   createFailureProjectionAccumulator,
@@ -99,7 +101,9 @@ function requiresRebuild(state: RetainedProjection, observed: UsageLogRevision |
   if (state.identityKey !== usageLogIdentityKey(observed)) return true;
   if (!state.revision || !observed) return state.revision !== observed;
   if (observed.size < state.revision.size) return true;
-  return observed.size === state.revision.size && usageLogRevisionKey(observed) !== state.revisionKey;
+  if (observed.size !== state.revision.size || usageLogRevisionKey(observed) === state.revisionKey) return false;
+  // A ctime-only move (icacls on the config directory) is verified against the content in refresh.
+  return !usageRevisionMetadataOnlyChange(state.revision, observed);
 }
 
 async function append(
@@ -132,6 +136,10 @@ async function refresh(signal: AbortSignal | undefined): Promise<FailureProjecti
   const observed = currentUsageLogRevision();
   if (requiresRebuild(state, observed)) return rebuild(signal);
   if (observed && state.revision && observed.size === state.revision.size) {
+    if (usageLogRevisionKey(observed) === state.revisionKey) return resultFrom(state, "unchanged");
+    if (!(await usageLedgerUnchangedSince(state))) return rebuild(signal);
+    state.revision = observed;
+    state.revisionKey = usageLogRevisionKey(observed);
     return resultFrom(state, "unchanged");
   }
   return append(state, signal);

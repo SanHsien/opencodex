@@ -1,5 +1,15 @@
 # 維護決策
 
+## 2026-11-17：只有 ctime 變動時不重建用量快取
+
+**根因**：每次存設定都對設定目錄跑 icacls，目錄 ACL 重新套到子項目，`usage.jsonl` 只有 `ctimeMs` 變（dev／ino／birthtime／size／mtime 都相同）。revision key 含 ctime，四個快取（用量總計、JEV、篩選索引、失敗分類）因此把沒變的整份紀錄重建；篩選索引是重建整個 SQLite 索引。`tests/server/model-costs-pricing-cache.test.ts`「policy-only API writes」也因此在本機約 8／20 次失敗、CI 偶發。
+
+**決定**：只差 `ctimeMs` 時，用既有的 64 KiB 尾段摘要（append 本來就信任的同一份證據）重掃已處理位置之後，確認沒有新的完整列、位置沒動，才採用新 revision 並回 `unchanged`；驗證不過照舊重建。篩選索引透過原有的 fenced publish 寫入新 revision。不採「目錄 ACL 已合規就跳過 icacls」（2026-11-16 已撤回，會拖慢 CI）。
+
+**接受的限制**：尾段摘要看不到 64 KiB 之前的同大小改寫；若改寫者還把 mtime 精確還原到 100 ns，就不會被發現。一般寫入一定會動 mtime，精確還原需要刻意呼叫 SetFileTime，而這份紀錄是程式自己的 append-only 檔，不是安全邊界。
+
+**驗證**：pricing 測試修前本機 8／20 失敗、修後 20／20 通過；新測試涵蓋四個快取的 ctime-only 情境，以及「同大小改寫並精確還原 mtime 仍重建」，並以強制驗證永遠通過的反證確認這兩個守門測試會轉紅。
+
 ## 2026-11-17：發 fork release v2.100.10 後把版本來源前推到 2.100.11
 
 tag `v2.100.10` 指向 `f9c574aba`（`ocx ensure` 與 restart 也走服務操作閘門）；lane=all run `43978946227` 首輪 5/14（pricing 快取測試，`ctimeMs` 造成的既有不穩，見 `ROADMAP.md`）與 14/14（`/api/storage` 兩次讀取非同一快照，既有暫時性）失敗，只重跑失敗分片後全綠。發版後 main 以 `release-version-sources.ts sync 2.100.11` 前推。此版供「實機驗收：服務操作期間 ensure 不再拉起代理」重驗。

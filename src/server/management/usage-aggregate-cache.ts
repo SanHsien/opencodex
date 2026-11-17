@@ -9,6 +9,8 @@ import {
   readUsageLedgerRowsAtOffsets,
   scanUsageLedgerCooperatively,
   UsageLedgerRebuildRequiredError,
+  usageLedgerUnchangedSince,
+  usageRevisionMetadataOnlyChange,
 } from "../../usage/ledger-scanner";
 import {
   readUsageFilterCandidates,
@@ -232,7 +234,26 @@ function requiresRebuild(
   if (observed.size < state.revision.size) return true;
   // At the same size, metadata movement cannot be an append. Rebuild so a
   // detectable same-inode replacement/edit never extends stale counters.
-  return observed.size === state.revision.size && usageLogRevisionKey(observed) !== state.revisionKey;
+  // A ctime-only move is checked by the caller against the content instead.
+  return observed.size === state.revision.size && usageLogRevisionKey(observed) !== state.revisionKey
+    && !usageRevisionMetadataOnlyChange(state.revision, observed);
+}
+
+/**
+ * A ctime-only change (icacls on the config directory re-propagating ACEs, an attribute flip)
+ * keeps the retained state when the content still verifies; the state adopts the new revision.
+ * Anything else, including a failed verification, is left to the append/rebuild path.
+ */
+async function adoptMetadataOnlyChange(
+  state: RetainedAggregateState,
+  observed: UsageLogRevision | null,
+): Promise<boolean> {
+  if (!usageRevisionMetadataOnlyChange(state.revision, observed)) return false;
+  if (!(await usageLedgerUnchangedSince(state))) return false;
+  state.revision = observed;
+  state.revisionKey = usageLogRevisionKey(observed);
+  state.retainedAt = Date.now();
+  return true;
 }
 
 async function appendAggregate(
@@ -297,6 +318,19 @@ async function refreshAggregate(options: UsageAggregateOptions): Promise<UsageAg
     return rebuildAggregate(options);
   }
   if (usageLogRevisionKey(observed) === state.revisionKey) return resultFrom(state, "unchanged");
+  if (await adoptMetadataOnlyChange(state, observed)) {
+    // The verification awaited: prices or the time zone may have moved meanwhile.
+    if (userCostOverlayVersion() === state.overlayVersion && currentTimeZone() === state.timeZone) {
+      return resultFrom(state, "unchanged");
+    }
+    retainedAggregate = null;
+    return rebuildAggregate(options);
+  }
+  if (observed && state.revision && observed.size === state.revision.size) {
+    // A same-size ctime-only move whose content did not verify: rebuild, never append.
+    retainedAggregate = null;
+    return rebuildAggregate(options);
+  }
   return appendAggregate(state, options);
 }
 
@@ -796,7 +830,8 @@ function jevStatsRequiresRebuild(
   if (state.identityKey !== usageLogIdentityKey(observed)) return true;
   if (!state.revision || !observed) return state.revision !== observed;
   if (observed.size < state.revision.size) return true;
-  return observed.size === state.revision.size && usageLogRevisionKey(observed) !== state.revisionKey;
+  return observed.size === state.revision.size && usageLogRevisionKey(observed) !== state.revisionKey
+    && !usageRevisionMetadataOnlyChange(state.revision, observed);
 }
 
 async function appendJevStatsAggregate(
@@ -844,6 +879,11 @@ async function refreshJevStatsAggregate(
   if (state.revisionKey === usageLogRevisionKey(observed)) {
     state.retainedAt = Date.now();
     return jevStatsResultFrom(state, "unchanged");
+  }
+  if (await adoptMetadataOnlyChange(state, observed)) return jevStatsResultFrom(state, "unchanged");
+  if (observed && state.revision && observed.size === state.revision.size) {
+    retainedJevStatsAggregates.delete(key);
+    return rebuildJevStatsAggregate(key, comboId, since);
   }
   return appendJevStatsAggregate(key, state, comboId, since);
 }

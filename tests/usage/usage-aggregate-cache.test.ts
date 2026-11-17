@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
-import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, chmodSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync, type Stats } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -24,6 +24,7 @@ import { resetUsageReadCacheForTests, type PersistedUsageEntry } from "../../src
 import * as usageLedgerScannerModule from "../../src/usage/ledger-scanner";
 import { getUsageSourceFacets, SourceFacetsBusyError } from "../../src/server/management/usage-source-facets";
 import { refreshUserCostOverlays } from "../../src/usage/user-cost-overlays";
+import { getFailureProjection, resetFailureProjectionCacheForTests } from "../../src/usage/failure-projection-cache";
 import { buildRouteDecisionTrace } from "../../src/routing/trace";
 import { createAnthropicAdapter } from "../../src/adapters/anthropic";
 import { buildResponseJSON } from "../../src/bridge";
@@ -763,6 +764,137 @@ describe("retained usage aggregate cache", () => {
       expect(scanStarts[2]).toBe(0);
     } finally {
       scanSpy.mockRestore();
+    }
+  });
+});
+
+// Field case (2026-11-17): every config save runs icacls on the config directory, which
+// re-propagates ACEs onto usage.jsonl and moves only its ctime. The caches rebuilt the whole
+// unchanged ledger each time, and the pricing-cache test failed about 3 of 4 local runs.
+describe("ctime-only ledger changes", () => {
+  function touchMetadataOnly(path: string): { before: Stats; after: Stats } {
+    const before = statSync(path);
+    chmodSync(path, 0o444);
+    chmodSync(path, 0o666);
+    return { before, after: statSync(path) };
+  }
+
+  test("an ACL or attribute change that moves only ctime keeps the base aggregate unchanged", async () => {
+    const path = join(testDir, "usage.jsonl");
+    writeFileSync(path, line("one") + line("two"));
+    const base = await getUsageAggregate();
+    const { before, after } = touchMetadataOnly(path);
+    expect(after.mtimeMs).toBe(before.mtimeMs);
+    expect(after.ctimeMs).not.toBe(before.ctimeMs);
+
+    const next = await getUsageAggregate();
+    expect(next.update).toBe("unchanged");
+    expect(next.accumulator).toBe(base.accumulator);
+    expect((await getUsageAggregate()).update).toBe("unchanged");
+  });
+
+  /**
+   * Rewrite the ledger at the same length and put mtime back exactly, so only ctime and the
+   * content differ. A whole-second mtime is used because NTFS keeps 100 ns and a Date restore
+   * would round, leaving mtime different and never reaching the ctime-only verification.
+   */
+  const PINNED_MTIME_SECONDS = 1_790_000_000;
+
+  function pinMtime(path: string): void {
+    utimesSync(path, PINNED_MTIME_SECONDS, PINNED_MTIME_SECONDS);
+  }
+
+  function rewriteKeepingMtime(path: string, content: string): void {
+    const before = statSync(path);
+    writeFileSync(path, content);
+    utimesSync(path, PINNED_MTIME_SECONDS, PINNED_MTIME_SECONDS);
+    const after = statSync(path);
+    expect(after.size).toBe(before.size);
+    expect(after.mtimeMs).toBe(before.mtimeMs); // precondition: only ctime + content moved
+  }
+
+  async function withVerificationSpy<T>(run: (verdicts: boolean[]) => Promise<T>): Promise<T> {
+    const verdicts: boolean[] = [];
+    const original = usageLedgerScannerModule.usageLedgerUnchangedSince;
+    const spy = spyOn(usageLedgerScannerModule, "usageLedgerUnchangedSince").mockImplementation(async checkpoint => {
+      const verdict = await original(checkpoint);
+      verdicts.push(verdict);
+      return verdict;
+    });
+    try {
+      return await run(verdicts);
+    } finally {
+      spy.mockRestore();
+    }
+  }
+
+  test("a same-size rewrite with mtime put back still rebuilds: ctime-only is verified, not trusted", async () => {
+    const path = join(testDir, "usage.jsonl");
+    writeFileSync(path, line("aaa") + line("bbb"));
+    pinMtime(path);
+    const base = await getUsageAggregate();
+    await withVerificationSpy(async verdicts => {
+      rewriteKeepingMtime(path, line("aaa") + line("ccc"));
+      const next = await getUsageAggregate();
+      expect(verdicts).toEqual([false]); // the new path ran and refused
+      expect(next.update).toBe("rebuild");
+      expect(next.accumulator).not.toBe(base.accumulator);
+      expect(requests(next)).toBe(2);
+    });
+  });
+
+  test("JEV and failure-projection caches also rebuild a same-size rewrite with mtime put back", async () => {
+    const path = join(testDir, "usage.jsonl");
+    writeFileSync(path, line("aaa") + line("bbb"));
+    pinMtime(path);
+    const jev = await getJevStatsAggregate({ comboId: "jev-auto" });
+    resetFailureProjectionCacheForTests();
+    try {
+      await getFailureProjection();
+      await withVerificationSpy(async verdicts => {
+        rewriteKeepingMtime(path, line("aaa") + line("ccc"));
+        const nextJev = await getJevStatsAggregate({ comboId: "jev-auto" });
+        expect(nextJev.update).toBe("rebuild");
+        expect(nextJev.accumulator).not.toBe(jev.accumulator);
+        expect((await getFailureProjection()).update).toBe("rebuild");
+        expect(verdicts).toEqual([false, false]);
+      });
+    } finally {
+      resetFailureProjectionCacheForTests();
+    }
+  });
+
+  test("a filtered aggregate keeps its filter-index generation across a ctime-only change", async () => {
+    const path = join(testDir, "usage.jsonl");
+    writeFileSync(path, line("one") + line("two"));
+    const window = { since: NOW - 2_000, until: NOW };
+    const base = await getFilteredUsageAggregate({}, window);
+    touchMetadataOnly(path);
+    const next = await getFilteredUsageAggregate({}, window);
+    expect(next.update).toBe("unchanged");
+    expect(next.accumulator).toBe(base.accumulator);
+  });
+
+  test("the JEV aggregate also stays unchanged across a ctime-only change", async () => {
+    const path = join(testDir, "usage.jsonl");
+    writeFileSync(path, line("one"));
+    const base = await getJevStatsAggregate({ comboId: "jev-auto" });
+    touchMetadataOnly(path);
+    const next = await getJevStatsAggregate({ comboId: "jev-auto" });
+    expect(next.update).toBe("unchanged");
+    expect(next.accumulator).toBe(base.accumulator);
+  });
+
+  test("the failure projection also stays unchanged across a ctime-only change", async () => {
+    const path = join(testDir, "usage.jsonl");
+    writeFileSync(path, line("one"));
+    resetFailureProjectionCacheForTests();
+    try {
+      await getFailureProjection();
+      touchMetadataOnly(path);
+      expect((await getFailureProjection()).update).toBe("unchanged");
+    } finally {
+      resetFailureProjectionCacheForTests();
     }
   });
 });

@@ -71,6 +71,8 @@ import {
   readUsageLedgerRowsAtOffsets,
   scanUsageLedgerCooperatively,
   UsageLedgerRebuildRequiredError,
+  usageLedgerUnchangedSince,
+  usageRevisionMetadataOnlyChange,
   type UsageLedgerScanResult,
 } from "./ledger-scanner";
 import { USAGE_CODEX_CLIENT_LABELS, type UsageSourceFilter } from "./source-filter";
@@ -1080,7 +1082,8 @@ async function append(
  * Bring the projection up to the ledger's current EOF, appending only new complete rows.
  *
  * A same-size file whose revision metadata moved is a rewrite or replacement, not an append,
- * so it rebuilds. An append is verified by the scanner's boundary digest before any of its
+ * so it rebuilds — except a ctime-only move whose boundary digest still verifies, which adopts
+ * the new revision (see usageRevisionMetadataOnlyChange for the accepted limit). An append is verified by the scanner's boundary digest before any of its
  * rows are retained. Returns null when another writer won the publish race.
  */
 async function refreshOnce(
@@ -1106,6 +1109,19 @@ async function refreshOnce(
   if (revision.size === recordedSize) {
     if (meta.revision && usageLogRevisionKey(meta.revision) === usageLogRevisionKey(revision)) {
       return snapshotFrom(meta, 0, ingestPassesFor(path));
+    }
+    // A ctime-only move (icacls on the config directory re-propagating ACEs) is not a rewrite
+    // once the boundary digest still verifies and nothing follows it: adopt the new revision
+    // through the same fenced publish instead of re-indexing the whole ledger.
+    if (usageRevisionMetadataOnlyChange(meta.revision, revision)
+      && await usageLedgerUnchangedSince({
+        identityKey: usageLogIdentityKey(meta.revision),
+        processedThroughBytes: meta.indexedOffset,
+        processedThroughDigest: meta.digest,
+      })) {
+      const next: IndexMeta = { ...meta, revision };
+      if (!publish(db, { generation: meta.generation, indexedOffset: meta.indexedOffset }, next)) return null;
+      return snapshotFrom(next, 0, ingestPassesFor(path));
     }
     return rebuildOrRetry(db, dir, path, meta);
   }

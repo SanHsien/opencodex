@@ -1,5 +1,16 @@
 # 維護決策
 
+## 2026-11-17：服務指令一開始就取鎖；ensure 遇 lease 改為等候
+
+**原因**：`v2.100.10` 重驗實測，服務指令開頭約 11 秒還沒拿服務鎖（Desktop 監管檢查的 PowerShell、鎖目錄與鎖檔的 ACL hardening 都排在 `BEGIN IMMEDIATE` 之前），閘門看到 idle 就放行；同一段時間 install／uninstall 已握著 runtime ownership lease，shim 的 `ocx ensure` 撞上就直接以錯誤結束。
+
+**決定**：
+- `withWindowsServiceMutationLock` 先 `BEGIN IMMEDIATE` 再 harden 鎖目錄與鎖檔；hardening 失敗照樣釋放鎖並報錯。
+- Windows 服務變更指令先取鎖，再做 Desktop 監管檢查；檢查仍在 `execute` 之前，被拒的指令不會改動服務。取鎖只是在使用者自己的 runtime 目錄建立與 harden 鎖檔，不算服務變更。
+- `ocx ensure` 遇到 `OWNERSHIP_MUTATION_LEASE_BUSY` 視為服務操作進行中：每秒重新過閘門再試，總長同為 90 秒，其他錯誤照舊拋出。
+
+**仍存在的時間窗**：從 `ocx service` 行程啟動到取鎖之間（CLI 啟動，本機量測約 0.5 秒）仍看不到服務操作；這段期間已開始的 ensure 起的代理，若晚於 stop 的 port 檢查才綁上，仍可能被判為 respawned。
+
 ## 2026-11-17：只有 ctime 變動時不重建用量快取
 
 **根因**：每次存設定都對設定目錄跑 icacls，目錄 ACL 重新套到子項目，`usage.jsonl` 只有 `ctimeMs` 變（dev／ino／birthtime／size／mtime 都相同）。revision key 含 ctime，四個快取（用量總計、JEV、篩選索引、失敗分類）因此把沒變的整份紀錄重建；篩選索引是重建整個 SQLite 索引。`tests/server/model-costs-pricing-cache.test.ts`「policy-only API writes」也因此在本機約 8／20 次失敗、CI 偶發。

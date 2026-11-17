@@ -73,6 +73,39 @@ test("a failed disconnected local ensure still reports failure", async () => {
 // Field case (2026-11-17, v2.100.9): the Windows Codex shim's `ocx ensure` respawned the
 // proxy during `ocx service uninstall` (2 of 21 refused) because only the client launchers
 // were gated. ensure is the path the shim actually runs.
+// Field case (2026-11-17, v2.100.10): 7 of 21 shim ensures exited 1 on "another process owns
+// the runtime mutation lease" while a service command held it before its service lock showed.
+test("ensure treats runtime-lease contention as a service operation: re-gates and retries", async () => {
+  const args = ["ensure"];
+  let attempts = 0;
+  const sleeps: number[] = [];
+  const deps = {
+    args,
+    autostartGate: async () => { events.push("gate"); return true; },
+    ensureRetrySleep: async (ms: number) => { sleeps.push(ms); },
+    handleEnsure: async () => {
+      attempts++;
+      if (attempts === 1) throw Object.assign(new Error("another process owns the runtime mutation lease"), { code: "OWNERSHIP_MUTATION_LEASE_BUSY" });
+      events.push("local-ensure");
+      return true;
+    },
+  } as unknown as CliDispatchDeps;
+  expect(await dispatchCommand({ kind: "command", command: "ensure", args }, deps)).toBe(0);
+  expect(events).toEqual(["gate", "gate", "local-ensure"]);
+  expect(sleeps).toHaveLength(1);
+});
+
+test("ensure still surfaces errors other than runtime-lease contention", async () => {
+  const args = ["ensure"];
+  const deps = {
+    args,
+    autostartGate: async () => true,
+    ensureRetrySleep: async () => { throw new Error("must not retry"); },
+    handleEnsure: async () => { throw Object.assign(new Error("boom"), { code: "EOTHER" }); },
+  } as unknown as CliDispatchDeps;
+  await expect(dispatchCommand({ kind: "command", command: "ensure", args }, deps)).rejects.toThrow("boom");
+});
+
 test("ensure starts nothing while an ocx service operation holds the lock", async () => {
   expect(await ensure(false, async () => false)).toBe(1);
   expect(events).toEqual(["gate"]);

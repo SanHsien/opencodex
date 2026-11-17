@@ -166,15 +166,24 @@ describe("live Desktop service command guards", () => {
     const cli = readFileSync(repoPath("src", "service", "cli.ts"), "utf8");
     const preflight = cli.indexOf("desktopServiceCommandRefusal(preliminary.sub");
     expect(preflight).toBeGreaterThan(0);
-    expect(preflight).toBeLessThan(cli.indexOf("await withWindowsServiceMutationLock(execute)"));
+    // 2026-11-17: the Windows mutation lock is taken BEFORE the Desktop preflight (its
+    // PowerShell scans took seconds during which proxy autostarts saw no service operation).
+    // Taking the lock is lock housekeeping in the per-user runtime root, not a service
+    // mutation: the refusal still runs before execute(), so a refused verb touches nothing.
+    const locked = cli.indexOf("await withWindowsServiceMutationLock(async () => {");
+    expect(locked).toBeGreaterThan(0);
+    const lockedBody = cli.slice(locked, cli.indexOf("});", locked));
+    expect(lockedBody.indexOf("if (refuseUnderDesktop()) return;")).toBeGreaterThan(0);
+    expect(lockedBody.indexOf("if (refuseUnderDesktop()) return;")).toBeLessThan(lockedBody.indexOf("await execute();"));
+    const preflightBlock = cli.slice(preflight, cli.indexOf("\n  };", preflight));
+    expect(preflightBlock).toContain("process.exitCode = 1;");
+    expect(preflightBlock).toContain("return true;");
     const dispatch = cli.indexOf("desktopServiceCommandRefusal(command");
     expect(dispatch).toBeGreaterThan(cli.indexOf("const { parsed, command } = plan;"));
     expect(dispatch).toBeLessThan(cli.indexOf("assertServiceEnvironmentMatchesInstall();"));
-    for (const from of [preflight, dispatch]) {
-      const block = cli.slice(from, cli.indexOf("\n    }", from) + 6);
-      expect(block).toContain("process.exitCode = 1;");
-      expect(block).toContain("return;");
-    }
+    const dispatchBlock = cli.slice(dispatch, cli.indexOf("\n    }", dispatch) + 6);
+    expect(dispatchBlock).toContain("process.exitCode = 1;");
+    expect(dispatchBlock).toContain("return;");
     expect(cli.match(/const supervisionLatch = createSupervisionLatch\(\)/g)).toHaveLength(1);
     expect(cli).toContain("repairService({ verb, supervisionLatch })");
     expect(cli).toContain("installFreshWindowsSchedulerSafely({ supervisionLatch })");

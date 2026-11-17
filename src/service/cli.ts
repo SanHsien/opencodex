@@ -540,20 +540,26 @@ export async function serviceCommand(...args: (string | undefined)[]): Promise<v
     process.exitCode = 1;
     return;
   }
-  if (preliminary.invalid.length === 0) {
+  const refuseUnderDesktop = (): boolean => {
+    if (preliminary.invalid.length !== 0) return false;
     const refusal = desktopServiceCommandRefusal(preliminary.sub, undefined, supervisionLatch);
-    if (refusal) {
-      console.error(refusal);
-      process.exitCode = 1;
-      return;
-    }
-  }
+    if (!refusal) return false;
+    console.error(refusal);
+    process.exitCode = 1;
+    return true;
+  };
   const windowsMutation = process.platform === "win32"
     && preliminary.invalid.length === 0
     && preliminary.sub !== "status";
   if (windowsMutation) {
-    await withWindowsServiceMutationLock(execute);
+    // Take the lock before the Desktop check: that check runs PowerShell process scans (about
+    // 2.5 s here), and proxy autostarts treat an unlocked moment as "no service operation".
+    await withWindowsServiceMutationLock(async () => {
+      if (refuseUnderDesktop()) return;
+      await execute();
+    });
     return;
   }
+  if (refuseUnderDesktop()) return;
   await execute();
 }

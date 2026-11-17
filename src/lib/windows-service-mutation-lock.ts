@@ -156,19 +156,26 @@ export async function withWindowsServiceMutationLock<T>(
     mkdirSync(lockDir, { recursive: true, mode: 0o700 });
     assertRegularPath(lockDir, "directory");
     try { chmodSync(lockDir, 0o700); } catch { /* Windows ACL below is authoritative. */ }
-    (deps.hardenDirectory ?? (path => { hardenSecretDir(path, { required: true }); }))(lockDir);
 
     try {
       database = (deps.openDatabase ?? (path => new Database(path, { create: true })))(lockPath);
       assertRegularPath(lockPath, "file");
-      try { chmodSync(lockPath, 0o600); } catch { /* Windows ACL below is authoritative. */ }
-      (deps.hardenFile ?? (path => { hardenSecretPath(path, { required: true }); }))(lockPath);
       // A short wait, not zero: an autostart probe (below) holds the lock for an instant, and a
       // service command arriving in that instant must not be refused as "already in progress".
       // A genuine concurrent service operation still holds it far longer and is refused.
       database.exec(`PRAGMA locking_mode = NORMAL; PRAGMA busy_timeout = ${SERVICE_MUTATION_ACQUIRE_WAIT_MS}; BEGIN IMMEDIATE`);
       acquired = true;
+      // Harden while holding the lock, not before taking it: proxy autostarts consult this lock,
+      // and the icacls/identity work here took seconds under load (2026-11-17), during which a
+      // starting service command was invisible to them. A hardening failure still releases it.
+      (deps.hardenDirectory ?? (path => { hardenSecretDir(path, { required: true }); }))(lockDir);
+      try { chmodSync(lockPath, 0o600); } catch { /* Windows ACL below is authoritative. */ }
+      (deps.hardenFile ?? (path => { hardenSecretPath(path, { required: true }); }))(lockPath);
     } catch (error) {
+      if (acquired) {
+        try { database?.exec("ROLLBACK"); } catch { /* close below still releases the OS lock */ }
+        acquired = false;
+      }
       try { database?.close(); } catch { /* acquisition already failed */ }
       database = undefined;
       if (isBusy(error)) throw new WindowsServiceMutationBusyError();

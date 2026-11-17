@@ -41,7 +41,13 @@ import type { ClientConnectionState } from "../client/state";
 import { OCX_NATIVE_REPLAY_RECOVERY_NOTE } from "../responses/compaction";
 import { inspectDesktopSupervision } from "../service/desktop-supervision.mjs";
 import { desktopStopNotice } from "./desktop-runtime-guidance";
-import { autostartMaySpawnProxy } from "./autostart-service-gate";
+import { AUTOSTART_SERVICE_MUTATION_WAIT_MS, autostartMaySpawnProxy } from "./autostart-service-gate";
+
+const ENSURE_LEASE_RETRY_MS = 1_000;
+
+function isOwnershipLeaseBusy(error: unknown): boolean {
+  return Boolean(error && typeof error === "object" && (error as { code?: unknown }).code === "OWNERSHIP_MUTATION_LEASE_BUSY");
+}
 
 export interface CliDispatchDeps {
   args: string[];
@@ -60,6 +66,8 @@ export interface CliDispatchDeps {
   handleEnsure: (options?: { existingIsSuccess?: boolean }) => Promise<boolean>;
   /** Test seam: false while an `ocx service` operation holds the lock (see autostart-service-gate). */
   autostartGate?: () => Promise<boolean>;
+  /** Test seam: the pause between ensure retries after runtime-lease contention. */
+  ensureRetrySleep?: (ms: number) => Promise<void>;
   handleResolve: (args: ResolveArgs) => Promise<number>;
   handleTrayProxyStart: (existingIsSuccess?: boolean) => Promise<boolean>;
   handleTrayProxyRestart: () => Promise<void>;
@@ -383,8 +391,22 @@ const commandRunners: Record<string, CommandRunner> = {
     // The Windows Codex shim runs `ocx ensure` before every Codex launch. Inside an
     // `ocx service install/stop/uninstall` it must neither respawn the proxy nor race the
     // service for the runtime mutation lease (2 of 21 uninstalls refused on 2026-11-17).
-    if (!(await (deps.autostartGate ?? autostartMaySpawnProxy)())) return 1;
-    await deps.handleEnsure();
+    // A service command holds the runtime ownership lease for part of its run, sometimes before
+    // its service lock is visible. Lease contention is therefore "a service operation is in
+    // progress": go back through the gate and retry instead of failing the Codex launch.
+    const gate = deps.autostartGate ?? autostartMaySpawnProxy;
+    const sleep = deps.ensureRetrySleep ?? (ms => new Promise<void>(resolve => setTimeout(resolve, ms)));
+    const deadline = Date.now() + AUTOSTART_SERVICE_MUTATION_WAIT_MS;
+    for (;;) {
+      if (!(await gate())) return 1;
+      try {
+        await deps.handleEnsure();
+        break;
+      } catch (error) {
+        if (!isOwnershipLeaseBusy(error) || Date.now() >= deadline) throw error;
+        await sleep(ENSURE_LEASE_RETRY_MS);
+      }
+    }
     return Number(process.exitCode ?? 0);
   },
   login: async deps => {

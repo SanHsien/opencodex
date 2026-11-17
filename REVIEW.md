@@ -989,3 +989,9 @@ run `43720865406` 與 `43726376154` 各有六片約 30 分鐘後取消；每個�
 一般權限繁中 Windows 11，`v2.100.9`（tag `6ec30d463`）。install→stop→uninstall 輪流 7 輪共 21 次，背景每 20 秒新起一個 `codex exec`，每次服務操作開始 3 秒後另跑一次 `ocx.exe ensure`（模擬 Codex shim）。install 7/7、stop 7/7、uninstall 5/7；兩次 uninstall 回 `The proxy answers on port 10100 again after the stop; it is being respawned.`，另有兩次 `ocx ensure` 因 `another process owns the runtime mutation lease` 直接 exit 1。21 次都沒有出現閘門的等待訊息。
 
 **根因**：`6ec30d463` 只在 `ocx codex`／`ocx claude`／minimax／opencode 的自動啟動加了閘門，Windows Codex shim 每次執行的 `ocx ensure`（`dispatch.ts` 的 ensure → `handleEnsure`）沒有。修正見 `docs/fork/DECISIONS.md` 2026-11-17「`ocx ensure` 也走服務操作閘門」；`Port … could not be confirmed free` 與 ACL 逾時本輪 0 次。
+
+## 2026-11-17：v2.100.10 服務操作期間自動啟動閘門實機重驗未通過回註
+
+`v2.100.10`（tag `f9c574aba`），同一支腳本 21 次：install 7/7、stop 7/7、uninstall 6/7（一次 `… it is being respawned.`）；7 次 shim `ocx ensure` 以 `another process owns the runtime mutation lease` exit 1；等待訊息 0 次。
+
+**根因（實測）**：以同樣的無等待 `BEGIN IMMEDIATE` 每 0.2 秒取樣服務鎖，`ocx service stop／uninstall／install` 開頭 11.0–12.4 秒都是 idle，之後才 busy。服務指令在取鎖前先做 Desktop 監管檢查（兩次 PowerShell 各約 1.2 秒）與鎖目錄、鎖檔的 ACL hardening（icacls＋身分查詢），負載下合計約 11 秒；閘門在這段時間看到 idle 就放行，而 install／uninstall 這段已經握著 runtime ownership lease。修正見 `docs/fork/DECISIONS.md` 2026-11-17「服務指令一開始就取鎖；ensure 遇 lease 改為等候」。

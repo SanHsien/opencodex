@@ -159,6 +159,33 @@ test("a service mutation that starts while an autostart probe holds the lock sti
   expect(await waitForOwnedChild(child)).toBe(0);
 });
 
+// Field case (2026-11-17, v2.100.10): the lock became visible only ~11 s into each service
+// command because hardening (icacls + identity lookup) ran before BEGIN IMMEDIATE.
+test("the service lock is already visible to autostarts while its directory and file are hardened", async () => {
+  const seen: string[] = [];
+  const probeDuring = (step: string) => () => {
+    // The probe opens the lock read-write; the holder's own process must see it held too.
+    seen.push(`${step}:${probeWindowsServiceMutation({ lockPath, platform: "win32" })}`);
+  };
+  await withWindowsServiceMutationLock(async () => {}, {
+    lockPath,
+    hardenDirectory: probeDuring("dir"),
+    hardenFile: probeDuring("file"),
+  });
+  expect(seen).toEqual(["dir:busy", "file:busy"]);
+});
+
+test("a hardening failure after the lock is taken still releases it", async () => {
+  await expect(withWindowsServiceMutationLock(async () => {}, {
+    lockPath,
+    hardenDirectory: () => { throw new Error("icacls failed"); },
+    hardenFile: () => {},
+  })).rejects.toThrow();
+  let ran = false;
+  await withWindowsServiceMutationLock(async () => { ran = true; }, { lockPath, ...noHardening });
+  expect(ran).toBe(true);
+});
+
 test("waiting for an idle service mutation is bounded and reports busy when it never ends", async () => {
   let now = 0;
   const state = await waitForWindowsServiceMutationIdle({

@@ -1,5 +1,9 @@
 # 維護決策
 
+## 2026-11-17：發 fork release v2.100.10 後把版本來源前推到 2.100.11
+
+tag `v2.100.10` 指向 `f9c574aba`（`ocx ensure` 與 restart 也走服務操作閘門）；lane=all run `43978946227` 首輪 5/14（pricing 快取測試，`ctimeMs` 造成的既有不穩，見 `ROADMAP.md`）與 14/14（`/api/storage` 兩次讀取非同一快照，既有暫時性）失敗，只重跑失敗分片後全綠。發版後 main 以 `release-version-sources.ts sync 2.100.11` 前推。此版供「實機驗收：服務操作期間 ensure 不再拉起代理」重驗。
+
 ## 2026-11-17：`ocx ensure` 也走服務操作閘門
 
 **原因**：`v2.100.9` 實機驗收 21 次裡 2 次 uninstall 仍被拉起的代理擋下。`6ec30d463` 只閘了用戶端啟動器，但真正反覆拉起代理的是 Windows Codex shim 每次都跑的 `ocx ensure`；它還會在服務操作中搶 runtime mutation lease，直接以錯誤結束。

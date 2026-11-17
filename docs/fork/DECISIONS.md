@@ -1,5 +1,9 @@
 # 維護決策
 
+## 2026-11-17：發 fork release v2.100.11 後把版本來源前推到 2.100.12
+
+tag `v2.100.11` 指向 `f01dee005`（只差 ctime 時不重建用量快取；服務指令一開始就取鎖、ensure 遇 lease 等候；lane=all run `44068529700` 綠，最長 Windows 分片 27 分），觸發 `fork-release-windows.yml` 建 MSI；發版後 main 以 `release-version-sources.ts sync 2.100.12` 前推。此版供「實機驗收：服務操作期間 ensure 不再拉起代理」再次重驗。
+
 ## 2026-11-17：服務指令一開始就取鎖；ensure 遇 lease 改為等候
 
 **原因**：`v2.100.10` 重驗實測，服務指令開頭約 11 秒還沒拿服務鎖（Desktop 監管檢查的 PowerShell、鎖目錄與鎖檔的 ACL hardening 都排在 `BEGIN IMMEDIATE` 之前），閘門看到 idle 就放行；同一段時間 install／uninstall 已握著 runtime ownership lease，shim 的 `ocx ensure` 撞上就直接以錯誤結束。

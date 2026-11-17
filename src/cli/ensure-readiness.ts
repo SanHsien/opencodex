@@ -38,11 +38,23 @@ export async function waitForLiveProxy<T>(options: LiveProxyWaitOptions<T>): Pro
   return null;
 }
 
-/** Keep waiting while the spawned child lives; once it exits, only inside the old 8 s bound. */
+/**
+ * Keep waiting while the spawned child lives; once it exits, only inside the old 8 s bound —
+ * unless another start was seen holding the runtime ownership lease during the wait. That is the
+ * concurrent-ensure case (2026-11-17): the losing child exits on OWNERSHIP_MUTATION_LEASE_BUSY
+ * while the winner is still becoming healthy, so the wait runs on to the readiness ceiling that
+ * waitForLiveProxy already enforces. Contention is sticky because the winner releases the lease
+ * once it has published, well before it answers.
+ */
 export function ensureKeepWaiting(
   spawnedAt: number,
   childExited: () => boolean,
   now: () => number = Date.now,
+  anotherStartHoldsLease: () => boolean = () => false,
 ): () => boolean {
-  return () => !childExited() || now() - spawnedAt < ENSURE_EXITED_CHILD_TIMEOUT_MS;
+  let contended = false;
+  return () => {
+    if (!contended && anotherStartHoldsLease()) contended = true;
+    return !childExited() || contended || now() - spawnedAt < ENSURE_EXITED_CHILD_TIMEOUT_MS;
+  };
 }

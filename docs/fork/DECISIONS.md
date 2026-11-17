@@ -1,5 +1,13 @@
 # 維護決策
 
+## 2026-11-17：另一個啟動持有 lease 時 ensure 等到上限
+
+**原因**：`v2.100.12` 的診斷確認，服務操作結束時多個等候中的 ensure 同時起 `ocx start`；輸的子行程撞 `OWNERSHIP_MUTATION_LEASE_BUSY` 結束，它的 ensure 依原規則在 spawn 後 8 秒放棄，此時贏的代理還在啟動。代理其實會起來，失敗是誤報。
+
+**決定**：ensure 等候期間每次輪詢唯讀檢查 runtime ownership lease（`inspectOwnershipMutationLease`，不取用、不回收）；只要看過一次由「自己的子行程以外的存活行程」持有，就視為另一個啟動正在進行，子行程結束後也繼續等到既有的 40 秒上限，而不是 8 秒。紀錄是黏著的，因為贏的一方發布後就會放開 lease，但要再一段時間才回應 healthz。失敗報告加註曾看到競爭。不改 `ocx start` 搶 lease 的行為與結束碼，只改 ensure 等多久。
+
+**附註**：`ensure-start.log` 為附加寫入，多個 ensure 會寫進同一檔；每段以 `ensure spawning ocx start (parent pid N)` 開頭，可依父行程區分。
+
 ## 2026-11-17：發 fork release v2.100.12 後把版本來源前推到 2.100.13
 
 tag `v2.100.12` 指向 `640eb720f`（ensure 保留所起 `ocx start` 的輸出並在失敗時回報）；lane=all run `44078522506` 首輪 14/14 `cli-start-auxiliary-bind` 在 CI 上逾時（走 `ocx start`，未經這次改動），只重跑失敗分片後全綠。發版後 main 以 `release-version-sources.ts sync 2.100.13` 前推。此版供「服務操作後 ensure 起的代理沒變 healthy」取得失敗時的子行程輸出。

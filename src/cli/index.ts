@@ -132,7 +132,7 @@ import { isProcessAlive, ProxyOwnershipRefusedError, refusalNextStep, stopProxy 
 import { startupDataPlaneToken } from "../lib/service-secrets";
 import { assertNotAdminToken, diagnoseService, isServiceOwnershipError, serviceCommand, serviceEnvironmentOwnedHere, serviceStartableFromTray, serviceStatePaths, serviceStatusSummary, uninstallServiceIfInstalled, uninstallServiceDetailed } from "../service";
 import { completeWindowsServiceStopReceipt } from "../service/cli-windows-stop";
-import { acquireOwnershipMutationLease } from "../service/ownership-mutation-lease.mjs";
+import { acquireOwnershipMutationLease, inspectOwnershipMutationLease } from "../service/ownership-mutation-lease.mjs";
 import { formatStartupRoutingDetail, startupHealthSummary } from "../codex/autostart-health";
 import { injectSystemEnv, reconcileShellHook, revertSystemEnv, uninstallShellHook } from "../server/system-env";
 import { startTokenGuardian } from "../oauth/token-guardian";
@@ -887,11 +887,11 @@ async function handleEnsure(options: { existingIsSuccess?: boolean; forceStart?:
   startLog.closeParentHandle();
   options.onSpawn?.(child);
   const spawnedAt = Date.now();
-  const watch = watchEnsureStartChild(child, startLog.path, spawnedAt);
+  const watch = watchEnsureStartChild(child, startLog.path, spawnedAt, () => inspectOwnershipMutationLease(serviceStatePaths()));
   child.unref();
 
   // A cold start can outlast 8 s on a busy Windows host; see ensure-readiness.ts.
-  const port = (await waitForProxy(ENSURE_READY_TIMEOUT_MS, ensureKeepWaiting(spawnedAt, watch.exited)))?.port;
+  const port = (await waitForProxy(ENSURE_READY_TIMEOUT_MS, ensureKeepWaiting(spawnedAt, watch.exited, Date.now, watch.anotherStartHoldsLease)))?.port;
   if (!port) {
     console.error(`❌ Proxy did not become healthy after starting.\n${watch.report()}`);
     process.exitCode = 1;

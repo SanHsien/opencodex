@@ -59,23 +59,44 @@ export interface EnsureStartOutcome {
   readonly waitedMs: number;
 }
 
-type ExitEmitter = { once(event: "exit", listener: (code: number | null, signal: NodeJS.Signals | null) => void): unknown };
+type ExitEmitter = {
+  readonly pid?: number | undefined;
+  once(event: "exit", listener: (code: number | null, signal: NodeJS.Signals | null) => void): unknown;
+};
+
+/** The recorded runtime ownership lease holder, or null when the lease is free. */
+export type LeaseHolderReader = () => { pid: number | null; alive: boolean | null } | null;
 
 /** Track when and how the spawned child exits, for the readiness wait and the failure report. */
-export function watchEnsureStartChild(child: ExitEmitter, logPath: string, spawnedAt: number = Date.now()) {
+export function watchEnsureStartChild(
+  child: ExitEmitter,
+  logPath: string,
+  spawnedAt: number = Date.now(),
+  leaseHolder: LeaseHolderReader = () => null,
+) {
   let exit: { code: number | null; signal: string | null; at: number } | null = null;
+  let contentionSeen = false;
   child.once("exit", (code, signal) => { exit = { code, signal: signal ?? null, at: Date.now() }; });
   return {
     exited: (): boolean => exit !== null,
+    /** True when a live process other than our own child holds the runtime ownership lease. */
+    anotherStartHoldsLease: (): boolean => {
+      let holder: ReturnType<LeaseHolderReader> = null;
+      try { holder = leaseHolder(); } catch { return false; }
+      const other = holder !== null && holder.alive === true && holder.pid !== null && holder.pid !== child.pid;
+      if (other) contentionSeen = true;
+      return other;
+    },
     report: (): string => {
       const seen = exit as { code: number | null; signal: string | null; at: number } | null;
+      const contention = contentionSeen ? "\n   another ocx start held the runtime ownership lease during the wait" : "";
       return describeEnsureStartFailure({
         childExited: seen !== null,
         exitCode: seen?.code ?? null,
         signal: seen?.signal ?? null,
         livedMs: seen ? seen.at - spawnedAt : null,
         waitedMs: Date.now() - spawnedAt,
-      }, logPath, tailEnsureStartLog(logPath));
+      }, logPath, tailEnsureStartLog(logPath)) + contention;
     },
   };
 }

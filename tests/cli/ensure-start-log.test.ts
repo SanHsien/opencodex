@@ -9,6 +9,7 @@ import {
   ENSURE_START_LOG_NAME,
   openEnsureStartLog,
   tailEnsureStartLog,
+  watchEnsureStartChild,
 } from "../../src/cli/ensure-start-log";
 
 let dir = "";
@@ -35,6 +36,21 @@ test("an early-exiting start child leaves its output and exit code for the failu
   expect(report).toContain("exited (code 3)");
   expect(report).toContain("after 120 ms");
   expect(report).toContain("port 10100 already owned");
+});
+
+test("lease contention counts only another live holder, never our own child, and is reported", () => {
+  let listener: ((code: number | null, signal: NodeJS.Signals | null) => void) | undefined;
+  const child = { pid: 4242, once: (_: "exit", l: typeof listener) => { listener = l; } };
+  let holder: { pid: number | null; alive: boolean | null } | null = { pid: 4242, alive: true };
+  const watch = watchEnsureStartChild(child, join(dir, "absent.log"), Date.now(), () => holder);
+  expect(watch.anotherStartHoldsLease()).toBe(false); // our own child holding it is not contention
+  holder = { pid: 5150, alive: false };
+  expect(watch.anotherStartHoldsLease()).toBe(false); // a dead recorded holder is a stale lease
+  holder = { pid: 5150, alive: true };
+  expect(watch.anotherStartHoldsLease()).toBe(true);
+  listener?.(1, null);
+  expect(watch.exited()).toBe(true);
+  expect(watch.report()).toContain("another ocx start held the runtime ownership lease");
 });
 
 test("the log is truncated once it exceeds its cap instead of growing forever", () => {

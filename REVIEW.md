@@ -1001,3 +1001,9 @@ run `43720865406` 與 `43726376154` 各有六片約 30 分鐘後取消；每個�
 `v2.100.11`（tag `f01dee005`），同一支腳本在負載下 21 次（每 20 秒新起一個 `codex exec`，共 40 次全部回 OK）：服務指令 21/21 exit 0；respawned 0、port 未釋放 0、ACL 逾時 0；ensure 撞 runtime lease 0。lockprobe：服務鎖在指令開始後 0.6–1.0 秒轉為 busy（`v2.100.10` 為 11–12 秒）。21 次 ensure 都印出等候訊息，耗時 25–62 秒。
 
 **新症狀**：4 次 ensure（2 次 stop、2 次 uninstall 之後）等完後起的 `ocx start` 沒在時限內變 healthy，印 `❌ Proxy did not become healthy after starting.`，exit 1（耗時 29.0–40.3 秒）。被起的子行程輸出原本被丟棄，查不出原因；`ocx ensure` 改為把子行程輸出寫到設定目錄的 `ensure-start.log`，失敗時印出子行程結束碼、存活時間與最後幾行，見 `ROADMAP.md`。
+
+## 2026-11-17：v2.100.12 ensure 失敗取證回註
+
+`v2.100.12`（tag `640eb720f`），同條件 21 次：服務指令 21/21 exit 0，respawned、port 未釋放、ACL 逾時皆 0；ensure 4 次 exit 1（08-stop、09-uninstall、11-stop、12-uninstall）。新加的診斷顯示：ensure 所起的 `ocx start` 在 3.8–6.8 秒後以 `OWNERSHIP_MUTATION_LEASE_BUSY` exit 1（`handleStart → bindAndPublishStartOwnership` 或 `recoverStartStateUnderOwnershipLease`），持有者是另一個同時被起、後來成功的代理；`ensure-start.log` 同時有兩筆不同父行程的 spawn。
+
+**根因**：服務操作結束時，多個等候中的 ensure 同時醒來各起一個 `ocx start`；輸掉 lease 的子行程結束後，它的 ensure 依「子行程已結束只再等 8 秒」放棄，而贏的代理尚未 healthy。修正見 `docs/fork/DECISIONS.md` 2026-11-17「另一個啟動持有 lease 時 ensure 等到上限」。

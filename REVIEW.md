@@ -995,3 +995,9 @@ run `43720865406` 與 `43726376154` 各有六片約 30 分鐘後取消；每個�
 `v2.100.10`（tag `f9c574aba`），同一支腳本 21 次：install 7/7、stop 7/7、uninstall 6/7（一次 `… it is being respawned.`）；7 次 shim `ocx ensure` 以 `another process owns the runtime mutation lease` exit 1；等待訊息 0 次。
 
 **根因（實測）**：以同樣的無等待 `BEGIN IMMEDIATE` 每 0.2 秒取樣服務鎖，`ocx service stop／uninstall／install` 開頭 11.0–12.4 秒都是 idle，之後才 busy。服務指令在取鎖前先做 Desktop 監管檢查（兩次 PowerShell 各約 1.2 秒）與鎖目錄、鎖檔的 ACL hardening（icacls＋身分查詢），負載下合計約 11 秒；閘門在這段時間看到 idle 就放行，而 install／uninstall 這段已經握著 runtime ownership lease。修正見 `docs/fork/DECISIONS.md` 2026-11-17「服務指令一開始就取鎖；ensure 遇 lease 改為等候」。
+
+## 2026-11-17：v2.100.11 服務操作期間自動啟動閘門實機重驗回註
+
+`v2.100.11`（tag `f01dee005`），同一支腳本在負載下 21 次（每 20 秒新起一個 `codex exec`，共 40 次全部回 OK）：服務指令 21/21 exit 0；respawned 0、port 未釋放 0、ACL 逾時 0；ensure 撞 runtime lease 0。lockprobe：服務鎖在指令開始後 0.6–1.0 秒轉為 busy（`v2.100.10` 為 11–12 秒）。21 次 ensure 都印出等候訊息，耗時 25–62 秒。
+
+**新症狀**：4 次 ensure（2 次 stop、2 次 uninstall 之後）等完後起的 `ocx start` 沒在時限內變 healthy，印 `❌ Proxy did not become healthy after starting.`，exit 1（耗時 29.0–40.3 秒）。被起的子行程輸出原本被丟棄，查不出原因；`ocx ensure` 改為把子行程輸出寫到設定目錄的 `ensure-start.log`，失敗時印出子行程結束碼、存活時間與最後幾行，見 `ROADMAP.md`。

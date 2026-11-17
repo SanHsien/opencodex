@@ -1,5 +1,11 @@
 # 維護決策
 
+## 2026-11-17：ensure 保留所起 `ocx start` 的輸出
+
+**原因**：`v2.100.11` 重驗確認服務操作期間不再拉起代理（respawned 0/21、服務鎖 1 秒內可見），但 4 次 ensure 等完後起的代理沒變 healthy。子行程以 stdio ignore 啟動，失敗只剩一行訊息，無從判斷原因。
+
+**決定**：先量測再修。ensure 把子行程的 stdout／stderr 寫到設定目錄的 `ensure-start.log`（超過 256 KiB 先清空；開不了檔就退回 ignore，不影響啟動），失敗時印出子行程是否已結束、結束碼、存活時間、ensure 等了多久與 log 最後 8 行。不改等候時限與啟動流程。
+
 ## 2026-11-17：發 fork release v2.100.11 後把版本來源前推到 2.100.12
 
 tag `v2.100.11` 指向 `f01dee005`（只差 ctime 時不重建用量快取；服務指令一開始就取鎖、ensure 遇 lease 等候；lane=all run `44068529700` 綠，最長 Windows 分片 27 分），觸發 `fork-release-windows.yml` 建 MSI；發版後 main 以 `release-version-sources.ts sync 2.100.12` 前推。此版供「實機驗收：服務操作期間 ensure 不再拉起代理」再次重驗。

@@ -159,6 +159,7 @@ import {
 } from "./ensure-desired-integrations";
 import { ENSURE_READY_TIMEOUT_MS, ensureKeepWaiting, waitForLiveProxy } from "./ensure-readiness";
 import { autostartMaySpawnProxy } from "./autostart-service-gate";
+import { openEnsureStartLog, watchEnsureStartChild } from "./ensure-start-log";
 import { productionDesktopColdStartDeps, runDesktopColdStart } from "./ensure-desktop-cold-start";
 import { refreshOwnedCatalogIntegrations } from "../integrations/catalog-refresh";
 import { loadExportModels } from "../server/management/model-rows";
@@ -875,22 +876,24 @@ async function handleEnsure(options: { existingIsSuccess?: boolean; forceStart?:
     }
 
   const pinPort = config.port ?? 10100;
+  // Keep the child's output: an early exit used to leave no trace at all (ensure-start-log.ts).
+  const startLog = openEnsureStartLog(getConfigDir());
   const child = spawn(process.execPath, startArgv(pinPort > 0 ? pinPort : undefined), {
     detached: true,
-    stdio: "ignore",
+    stdio: ["ignore", startLog.stdio, startLog.stdio],
     windowsHide: true,
     env: detachedStartEnvironment(),
   });
+  startLog.closeParentHandle();
   options.onSpawn?.(child);
   const spawnedAt = Date.now();
-  let childExited = false;
-  child.once("exit", () => { childExited = true; });
+  const watch = watchEnsureStartChild(child, startLog.path, spawnedAt);
   child.unref();
 
   // A cold start can outlast 8 s on a busy Windows host; see ensure-readiness.ts.
-  const port = (await waitForProxy(ENSURE_READY_TIMEOUT_MS, ensureKeepWaiting(spawnedAt, () => childExited)))?.port;
+  const port = (await waitForProxy(ENSURE_READY_TIMEOUT_MS, ensureKeepWaiting(spawnedAt, watch.exited)))?.port;
   if (!port) {
-    console.error("❌ Proxy did not become healthy after starting.");
+    console.error(`❌ Proxy did not become healthy after starting.\n${watch.report()}`);
     process.exitCode = 1;
     return false;
   }

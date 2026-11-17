@@ -1,5 +1,9 @@
 # 維護決策
 
+## 2026-11-18：發 fork release v2.100.13 後把版本來源前推到 2.100.14
+
+tag `v2.100.13` 指向 `9b2bde58d`（另一個啟動持有 lease 時 ensure 等到上限）；lane=all run `44096773429` 首輪 14/14 `GET /api/storage`（兩次讀取非同一快照，既有暫時性，第三次出現）失敗，只重跑失敗分片後全綠。發版後 main 以 `release-version-sources.ts sync 2.100.14` 前推。此版供「實機驗收：並行 ensure 不再誤報代理沒變 healthy」。
+
 ## 2026-11-17：另一個啟動持有 lease 時 ensure 等到上限
 
 **原因**：`v2.100.12` 的診斷確認，服務操作結束時多個等候中的 ensure 同時起 `ocx start`；輸的子行程撞 `OWNERSHIP_MUTATION_LEASE_BUSY` 結束，它的 ensure 依原規則在 spawn 後 8 秒放棄，此時贏的代理還在啟動。代理其實會起來，失敗是誤報。

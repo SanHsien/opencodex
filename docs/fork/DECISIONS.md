@@ -1,5 +1,9 @@
 # 維護決策
 
+## 2026-11-17：發 fork release v2.100.12 後把版本來源前推到 2.100.13
+
+tag `v2.100.12` 指向 `640eb720f`（ensure 保留所起 `ocx start` 的輸出並在失敗時回報）；lane=all run `44078522506` 首輪 14/14 `cli-start-auxiliary-bind` 在 CI 上逾時（走 `ocx start`，未經這次改動），只重跑失敗分片後全綠。發版後 main 以 `release-version-sources.ts sync 2.100.13` 前推。此版供「服務操作後 ensure 起的代理沒變 healthy」取得失敗時的子行程輸出。
+
 ## 2026-11-17：ensure 保留所起 `ocx start` 的輸出
 
 **原因**：`v2.100.11` 重驗確認服務操作期間不再拉起代理（respawned 0/21、服務鎖 1 秒內可見），但 4 次 ensure 等完後起的代理沒變 healthy。子行程以 stdio ignore 啟動，失敗只剩一行訊息，無從判斷原因。

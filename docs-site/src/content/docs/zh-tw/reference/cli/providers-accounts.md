@@ -633,9 +633,9 @@ v1 復原矩陣涵蓋交易檔已透過 rename 發布後 OpenCodex 程序退出�
 
 加密 vault、切換 journal、復原標記與 journal quarantine 位於 canonical `<real CODEX_HOME>/.opencodex-native-main-profiles` 目錄，因此共享該 Codex home 的每個 OpenCodex 實例只看到一個 owner 與一個復原狀態。明文登入暫存保持隔離在各個 `<OPENCODEX_HOME>/native-main-profile-staging` 目錄下。
 
-在原生 main 流量或 journal 復原被受理前，lifetime owner 取得獨佔的憑證請求，且只清除精確的 `auth.json.ocx.<pid>.<sequence>.tmp` crash 殘留。每個候選都必須是未變更 canonical `CODEX_HOME` 下的單一連結 regular file；它會被截斷、flush 再 unlink。link/reparse 替換、身分變更與其他歧義會讓原生 main 流量保持關閉，而近似名稱的檔案絕不會被自動移除。這保護的是合作的 OpenCodex 崩潰，不是已經以相同 OS 使用者身分執行的惡意程序。該使用者與含有 `CODEX_HOME` 的檔案系統仍被視為可信，且截斷不保證從 copy-on-write 儲存、快照或 SSD 殘留中實體抹除。
+在原生 main 流量或 journal 復原被受理前，lifetime owner 取得獨佔的憑證請求，且只清除精確的 `auth.json.ocx.<pid>.<sequence>.tmp` crash 殘留。每個候選都必須是未變更 canonical `CODEX_HOME` 下的單一連結 regular file；它會被截斷、flush 再 unlink。link/reparse 替換、身分變更與其他歧義會讓原生 main 流量保持關閉，而近似名稱的檔案絕不會被自動移除。這保護的是合作的 OpenCodex 崩潰，不是已經以相同 OS 使用者身分執行的惡意程式。該使用者與含有 `CODEX_HOME` 的檔案系統仍被視為可信，且截斷不保證從 copy-on-write 儲存、快照或 SSD 殘留中實體抹除。
 
-Preview 建置使用 `<OPENCODEX_HOME>/native-main-profiles`。該配置絕不會被靜默匯入。如果 `doctor` 回報舊版設定檔狀態，請停止共享相同 `CODEX_HOME` 的每個 OpenCodex proxy。然後把相符的 `*.vault.json`、`*.journal.json`、復原標記與任何被引用的 journal-quarantine 檔案一起備份並移動到 canonical 目錄，同時保留 owner-only 權限；或移除舊 preview 組合並重新執行 `ocx account main register`。在多個舊 root 之間選擇，或在任何共享 proxy 作用中時同時執行兩種配置，都不被允許。在 Windows 上，以舊的大小寫摺疊 home 身分為鍵的 preview 狀態必須重設而不是移動，因為其加密 AAD 與 OS keyring 身分刻意不重複使用。
+Preview 建置使用 `<OPENCODEX_HOME>/native-main-profiles`。該設定絕不會被靜默匯入。如果 `doctor` 回報舊版設定檔狀態，請停止共享相同 `CODEX_HOME` 的每個 OpenCodex proxy。然後把相符的 `*.vault.json`、`*.journal.json`、復原標記與任何被引用的 journal-quarantine 檔案一起備份並移動到 canonical 目錄，同時保留 owner-only 權限；或移除舊 preview 組合並重新執行 `ocx account main register`。在多個舊 root 之間選擇，或在任何共享 proxy 作用中時同時執行兩種配置，都不被允許。在 Windows 上，以舊的大小寫摺疊 home 身分為鍵的 preview 狀態必須重設而不是移動，因為其加密 AAD 與 OS keyring 身分刻意不重複使用。
 
 ## 模型
 

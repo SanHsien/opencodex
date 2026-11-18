@@ -275,7 +275,7 @@ Base URL 與 API Key，並回報 Cursor 最近一次對 proxy 發出的請求。
 
 對原生 OpenAI 模型，產生的 OMP 區塊會選用其模型層級的 Responses API，保留圖片輸入與 reasoning-effort 控制。路由模型則維持 provider 的 Chat Completions 方言，讓它們既有的 adapters 保持相容。
 
-OpenClaw 有數個環境變數，各自負責不同的工作。`OPENCLAW_CONFIG_PATH` 選擇檔案；`OPENCLAW_STATE_DIR`、`OPENCLAW_PROFILE` 與 `OPENCLAW_HOME` 選擇狀態目錄，而偵測看的也是狀態目錄——所以 profile 或搬移過的家目錄仍會被視為已安裝，而 config 路徑覆寫只移動檔案。如果你還在用舊的 `.clawdbot` 配置，那也會被找到：現代目錄存在時勝出，只有舊目錄存在時才使用舊的。
+OpenClaw 有數個環境變數，各自負責不同的工作。`OPENCLAW_CONFIG_PATH` 選擇檔案；`OPENCLAW_STATE_DIR`、`OPENCLAW_PROFILE` 與 `OPENCLAW_HOME` 選擇狀態目錄，而偵測看的也是狀態目錄——所以 profile 或搬移過的家目錄仍會被視為已安裝，而 config 路徑覆寫只移動檔案。如果你還在用舊的 `.clawdbot` 設定，那也會被找到：現代目錄存在時勝出，只有舊目錄存在時才使用舊的。
 
 在 Windows 上，要求絕對路徑的覆寫值必須包含磁碟機代號（`C:\Users\me\client`）或 UNC 共用（`\\server\share\client`）。沒有磁碟機的根目錄形式，例如 `\Users\me\client` 和 `/client/config`，依賴目前的磁碟機，因此會被拒絕。文件中標明支援 `~` 的選擇器仍依有效家目錄展開；Gentle Shell 不展開 `~`。
 

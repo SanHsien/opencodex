@@ -159,28 +159,79 @@ proxy 預設監聽 `10100` 埠，提供 `POST /v1/responses`、`POST /v1/respons
 
 ### 實驗性 context 管理（Codex 0.153+）
 
-`model_auto_compact_token_limit` 在某些版本不會出現在官方的 Codex 基準設定參考中。若在你的測試中
-`config.toml` 的該設定未生效，可以將其交給 `ocx` 代理接手管理。
+對合格的 ChatGPT 帳號，請在 Codex 自己的 `config.toml` 中啟用這項實驗性功能（合併進既有的
+`[features]` table）：
 
-這個功能預設為**關閉**。在設定中啟用後（例如在 `config.json` 中設定 `"codexContext": { "enabled": true }`，
-或於儀表板與 CLI 開啟），代理會在每次收到 `/v1/responses` 請求時計算對話中最近的 context 佔用，
-並與設定的閾值（預設為 `0.9` 等比例或指定的 token 數）比較。達到閾值時，OpenCodex 會主動在回應前
-或適當時機透過選定的輔助模型發出壓縮請求，產出結構化的壓縮摘要並替換歷史紀錄，然後將較精簡的
-context 送回主模型繼續執行。
+```toml
+[features]
+context_management.experimental_mode = true
+```
 
-預設的實驗性 context 管理目標模型為 `openai/gpt-5.6-luna`，並會在發生失敗或無權限時沿用其他可用的
-候選模型。
+在預設的內建 loopback 整合下，下一次 `ocx sync` 或 proxy 啟動會把受管的根層級 `openai_base_url`
+改成 `http://127.0.0.1:10100/backend-api/codex`。Codex 會在啟用它的 `new_context`、歷史與筆記
+工具之前檢查這個 backend 路徑。同步後請開始一個新的 Codex session。這項功能仍是選擇加入；使用者
+自有的 base URL 與遠端自訂供應商注入不會被重寫。不需要也不會新增任何 context-window 或壓縮上限
+覆寫。
+
+這個 backend 前綴是既有資料平面路由的別名，包括 Responses WebSocket 升級。原本的 `/v1` 路由與
+即時旁帶覆寫仍然可用。proxy 也會透過內建的 `openai` 供應商，以 `openai-responses` adapter 與規範
+ChatGPT forward 目的地，轉送十個原生的 `alpha/history/v2/*` 與 `alpha/notes/v2/*` POST 端點。
+Direct 使用目前呼叫者／main 登入；Pool 選擇一個 Codex 帳號。`openai-apikey` 使用它設定的 API
+金鑰，自訂或非規範的 Responses 供應商不是這個 context relay 的候選者，也不會從它那裡取得任何
+Codex 帳號憑證。其他模型供應商或 OpenAI API-key 路由都沒有實作這些私有端點。
+
+呼叫端標頭限制在共用的 Codex forward 允許清單內：`authorization`、`chatgpt-account-id`，以及核准
+的 OpenAI beta、originator、session 與 Codex 協定中繼資料。context relay 另外會轉送
+`x-openai-encrypted-tool-arguments` 與 `x-openai-tool-output-truncation-policy`；任意的呼叫端
+標頭（例如 cookie）不會被轉送。以 bearer 呈現的 proxy 資料平面金鑰會被替換成選定的 Codex 憑證
+（Direct 模式下是已儲存的 main 登入）；缺少憑證會在轉送前就失敗。proxy 准入憑證絕不會送到上游。
+加密的引數、回應主體與上游錯誤狀態都會被保留。
+
+一次成功的 ChatGPT 模型回應，會把根 session 實際服務的帳號記錄在一個有界、行程本地的所有權登錄檔
+中。歷史與筆記使用那個記錄下來的擁有者，包括一個明確選擇的帳號，即使目前的現用帳號改變也一樣。
+儲存帳號的 token 重新整理可以繼續套用在同一個實體帳號上；被替換的帳號身分會被拒絕。Direct 模式下
+呼叫端擁有的 session 會保留呼叫端憑證，不能被 proxy 的 bearer 接管。這不會在帳號之間遷移伺服器端
+歷史。
+
+所有權以核准該請求的 opencodex API 金鑰劃分，所以即使兩把金鑰都解析到同一個 ChatGPT 工作區，也絕
+不會互相碰到對方的 session。工作區 id 代表一個組織而非一個人，所以登錄檔也會綁定上游憑證所帶的
+穩定使用者：同一個使用者的一般 token 重新整理會延續 session，而同一工作區內的不同使用者則不會。
+當被接受的憑證證明不了一個穩定使用者時，就只有那個精確的憑證能延續 session。那個主體就是請求呈現
+的 opencodex API 金鑰。遠端繫結本來就需要一把金鑰，所以所有權機制在那裡可以運作。在預設的
+loopback 繫結上，opencodex 接受請求時不會讀取金鑰，而內建的 loopback 注入也無法攜帶
+`x-opencodex-api-key` 標頭，所以 Codex 不會出示任何 opencodex 金鑰，context 歷史會回傳 HTTP
+403。**因此這個 relay 只在搭配已設定金鑰的遠端繫結上可用，或給自行送出 `x-opencodex-api-key` 的
+客戶端使用，在預設的內建 loopback 整合上則不可用。** 一個 loopback 繫結的 proxy 究竟該不該能指名
+呼叫端，目前仍是維護者尚未定案的問題，所以目前的行為是拒絕，而不是用猜的。
+
+未知、過期、被驅逐、衝突，或因重啟而遺失的所有權，會在帳號選擇或上游 I/O 之前回傳 HTTP 409。
+relay 不會從目前的現用帳號去猜測。既有 session 在啟用這項功能或重置 context 之前，應該先儲存一個
+checkpoint 或其他持久摘要。啟用它不會回填更早的歷史或筆記，一次新的所有權觀測也不能證明較舊的
+backend 內容確實存在。重新啟動後，請先以一次成功的模型請求建立所有權，才能使用 context 工具；當
+所有權衝突時，請開始一個新 session。
 
 既有的模型親和性、冷卻與重試規則不變。context 請求不會被自動重試，筆記寫入也一樣；ChatGPT forward
-路由保留它既有的壓縮生命週期與封套。詳情與調整參數請見[設定參考](/zh-tw/reference/configuration/server/)。
+請求不使用同金鑰 429 重播。歷史流量不會消耗或結清一次模型配額復原探測。
+
+整個 relay 操作只有一個 35 秒的期限，從讀取請求主體之前就開始計時，並涵蓋憑證選擇，所以一個卡住的
+客戶端無法把一個已核准的回合插槽一直占著。客戶端斷線會回傳 499，逾期則回傳 504；無論哪一種，之後
+都不會有任何東西被派送到上游。
+
+要停用這項功能，請移除實驗性的 key（或設為 `false`）、執行 `ocx sync`，並開始一個新的 Codex
+session。受管的根層級 base 會回到 `/v1`。
+
+當這個 key 缺席或為 `false` 時，relay 就不存在：這十個端點對任何呼叫端都回答 404，包括直接對它們
+發送請求的呼叫端，一次模型回合也不會記錄任何歷史所有權。opencodex 是靠讀取 Codex 自己的設定來
+判定的，所以這個開關不取決於注入的 URL，也不取決於客戶端送出了什麼，關閉它不需要重新啟動就會生效。
 
 ### Codex App 中的託管圖像結果
 
-當模型回傳內嵌的圖像生成結果（例如來自 `image_gen` 或 `image_generation` 工具的 `base64` 資料）時，
-Codex App 預設會在訊息氣泡中直接渲染預覽，並在內部對話資料庫保留檔案參照。
+當路由的 Responses 供應商回傳帶有 base64 圖像資料、已完成的託管 `image_generation_call` 時，opencodex 會把驗證過的圖像儲存在它本機的 `artifacts/` 目錄下，並把最終的 assistant 圖像訊息送給本機連線的 Codex 用戶端。圖像會留在可收合的進度區段之外。這適用於串流與非串流的 Responses，不需要另一次生成請求，也不會改變所選的供應商。
 
-OpenCodex 會保留原生 Responses 回應格式中的圖像結構與中繼資料，並透過本機代理端點安全地提供大型
-圖像資料的載入，確保與原生行為一致。
+當用戶端把這些已生成的圖像訊息當作 assistant 歷史重播時，opencodex 會在轉送該歷史之前，把它所生成的本機圖像連結換成不透明的 artifact 參照。這保護了顯示路徑，同時不會改變 app 中已顯示的圖像訊息。它不會遮蔽不相關的、使用者提供的路徑。
+
+這個顯示相容性需要 loopback 准入與可辨識的 Codex 用戶端。遠端與一般的 API 用戶端會保留供應商的託管回應格式。這個相容層不會繪製部分預覽與僅有 URL 的結果。Artifact 使用既有的保留上限，所以請在較舊的檔案被清除之前，儲存你想保留的圖像。無效的圖像或失敗的本機寫入，會產生可見的失敗訊息，而不是損壞的圖像連結。
+
 
 ### 內建圖像生成（`image_gen`）
 

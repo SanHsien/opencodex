@@ -22,9 +22,10 @@
  * told apart from the writer, and that field is restored. The Child's local opt-out list is the
  * person's own choice and is not part of this record.
  */
-import { chmodSync, lstatSync, mkdirSync, readFileSync, unlinkSync } from "node:fs";
+import { chmodSync, mkdirSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { atomicWriteFile, isMissingPathError } from "../config/atomic-write";
+import { readBoundedRegularFile } from "../lib/bounded-file-read";
 import { withConfigMutationLockSync } from "../config/mutation-lock";
 import { mutatePersistedConfig, readConfigForAdmittedMutation } from "../config/persisted-mutation";
 import { deleteConfigObjectChildKey } from "../config/rebase-provenance";
@@ -96,11 +97,12 @@ function parse(value: unknown): NativeIntentOriginals {
 /** Missing reads as null. A present but unsafe or malformed record refuses rather than losing originals. */
 export function readNativeIntentOriginals(): NativeIntentOriginals | null {
   const path = nativeIntentOriginalsPath();
-  let stat;
-  try { stat = lstatSync(path); } catch (error) { if (isMissingPathError(error)) return null; throw error; }
-  if (!stat.isFile() || stat.size > RECORD_MAX_BYTES) return unsafe();
+  // One descriptor decides the type, the size and the bytes; the name is not resolved twice.
+  const read = readBoundedRegularFile(path, RECORD_MAX_BYTES);
+  if (read.kind === "absent") return null;
+  if (read.kind === "refused") return unsafe();
   let value: unknown;
-  try { value = JSON.parse(readFileSync(path, "utf8")); } catch { return unsafe(); }
+  try { value = JSON.parse(read.content); } catch { return unsafe(); }
   return parse(value);
 }
 

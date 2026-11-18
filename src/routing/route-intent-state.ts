@@ -1,9 +1,10 @@
 /** Home-owned desired policy. Reads never create or repair a file. */
-import { chmodSync, lstatSync, mkdirSync, readFileSync } from "node:fs";
+import { chmodSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { atomicWriteFile, isMissingPathError } from "../config/atomic-write";
 import { withConfigMutationLockSync } from "../config/mutation-lock";
 import { getConfigDir } from "../config/paths";
+import { readBoundedRegularFile } from "../lib/bounded-file-read";
 import { assertNotRealHomeUnderTest } from "../lib/test-home-guard";
 import { hardenSecretDir } from "../lib/windows-secret-acl";
 import { emptyRouteIntentState, HOME_NATIVE_ROUTE_CLIENTS, isHomeNativeRouteClient, isRouteClientId, parseRouteClientIntent,
@@ -67,9 +68,11 @@ export function parseRouteIntentState(value: unknown): RouteIntentState {
 }
 export function readRouteIntentState(path = routeIntentStatePath()): RouteIntentState {
   try {
-    const stat = lstatSync(path);
-    if (!stat.isFile() || stat.size > MAX_STATE_BYTES) throw new Error("invalid route intent state file");
-    return parseRouteIntentState(JSON.parse(readFileSync(path, "utf8")));
+    // One descriptor decides the type, the size and the bytes; the name is not resolved twice.
+    const read = readBoundedRegularFile(path, MAX_STATE_BYTES);
+    if (read.kind === "absent") return emptyRouteIntentState();
+    if (read.kind === "refused") throw new Error(`invalid route intent state file (${read.reason})`);
+    return parseRouteIntentState(JSON.parse(read.content));
   } catch (error) {
     if (isMissingPathError(error)) return emptyRouteIntentState();
     throw new RouteIntentStateUnreadableError(path, error);

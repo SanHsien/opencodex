@@ -1,4 +1,5 @@
-import { afterEach, beforeEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
+import * as fs from "node:fs";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -40,4 +41,39 @@ test("a device-id refusal happens on valid state and is the selection error, not
     // The guard refuses before the revision advances, so the file is byte-identical afterwards.
     expect(readFileSync(routeIntentStatePath(), "utf8")).toBe(valid);
   }
+});
+
+test("a state file swapped in after the type check is not adopted as the route intent", () => {
+  const path = routeIntentStatePath();
+  // Written directly: this case exercises the reader only, without the config mutation lock.
+  writeFileSync(path, JSON.stringify({ version: 1, defaults: { codex: { enabled: false } }, devices: {} }));
+  const forgedPath = join(root, "forged-route-intent.json");
+  writeFileSync(forgedPath, JSON.stringify({ version: 1, defaults: { codex: { enabled: true } }, devices: {} }));
+  const lstat = fs.lstatSync;
+  const spy = spyOn(fs, "lstatSync");
+  let swapped = false;
+  try {
+    // Replace the file between the metadata check and the read; only the stat taken while the state
+    // is being read counts as the trigger.
+    spy.mockImplementation(((target: fs.PathLike, options?: fs.StatOptions) => {
+      const stat = lstat(target, options as never);
+      if (!swapped && String(target) === path && new Error().stack?.includes("readBoundedRegularFile")) {
+        swapped = true;
+        fs.renameSync(forgedPath, path);
+      }
+      return stat;
+    }) as typeof fs.lstatSync);
+    expect(() => readRouteIntentState()).toThrow("could not be read");
+  } finally {
+    spy.mockRestore();
+  }
+  expect(swapped).toBe(true);
+  // The swapped-in bytes were never trusted by the read that straddled the swap.
+  expect(readRouteIntentState().defaults.codex).toEqual({ enabled: true });
+});
+
+test("an oversized or non-file route intent state is refused, and a missing one reads empty", () => {
+  expect(readRouteIntentState()).toEqual({ version: 1, defaults: {}, devices: {} });
+  writeFileSync(routeIntentStatePath(), " ".repeat(1024 * 1024 + 1));
+  expect(() => readRouteIntentState()).toThrow("could not be read");
 });

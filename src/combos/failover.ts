@@ -1058,7 +1058,11 @@ const MODERATION_REFUSAL_PROSE = new RegExp("^(?:"
   + "|the response was filtered due to the prompt triggering azure openai'?s content management policy\\.?"
   + "|(?:your )?(?:input|request|prompt|content) violated (?:the )?content (?:safety|management|filtering) polic(?:y|ies)\\.?"
   + ")(?:"
-  + " categor(?:y|ies): [a-z][a-z/_-]*(?:(?:,? and |, )[a-z][a-z/_-]*)*\\.?"
+  // The separators are mutually exclusive: ", and X" is only ever "sep(, and ) item(X)". A bare ", " may not
+  // be followed by the word "and " (as the item "and"), or ", and retry" splits two ways per repetition
+  // (item "and" then the " retry" alternative, or separator ", and " then item "retry") and backtracks
+  // exponentially on a long non-matching string.
+  + " categor(?:y|ies): [a-z][a-z/_-]*(?:(?: and |, and |, (?!and ))[a-z][a-z/_-]*)*\\.?"
   + "| please (?:modify|revise|rephrase|change|adjust|edit) (?:your|the) (?:prompt|input|request|message)(?: and (?:retry|try again))?\\.?"
   + "| (?:please )?(?:retry|try again)(?: later)?\\.?"
   + "| to learn more about our content filtering policies please read our documentation: https://[^ ]+"

@@ -1,5 +1,35 @@
 # 維護決策
 
+## 2026-11-19：CodeQL 29 筆 open 警示逐筆判讀：修 5 筆（2 筆 ReDoS、3 筆檔案競爭）、dismiss 24 筆
+
+**範圍**：`code-scanning/alerts?state=open` 有 29 筆，全部建立於 2026-11-14 整合上游 v2.100.3 時（規則分布：`js/file-system-race` 15、`js/insufficient-password-hash` 11、`js/redos` 2、`js/file-access-to-http` 1）。逐筆讀過資料流。判準沿用 2026-11-04、2026-11-09 條目：CodeQL 看到「檢查再使用」就標，先看使用端是否在同一個 descriptor 上做了身分比對；沒有、而且讀的是憑證或會驅動寫入／還原的狀態才改；其餘寫明為何換檔無法被利用。
+
+**修正 5 筆**：
+
+| 告警 | 位置 | 問題 | 修法與釘住測試 |
+| --- | --- | --- | --- |
+| #647 #648 `js/redos` | `src/combos/failover.ts` `MODERATION_REFUSAL_PROSE`（類別清單段） | 真的 ReDoS。分隔符 `,? and ` 與 `, ` 對 `, and retry` 有兩種切法（分隔符「, and 」加項目 `retry`；或分隔符「, 」加項目 `and`，再由外層的「 retry」收尾），每重複一次路徑數加倍。實測 `refused category: a` 接 n 次 `, and retry category: a` 再補 `!`：n=10 約 0.7 ms、n=14 11 ms、n=18 178 ms，每加 4 次約 16 倍；輸入上限 2000 字元約可重複 85 次，等於永遠跑不完。該字串來自供應商的錯誤本文，會在 combo 判斷「是否換下一個目標」時執行，一個惡意或出錯的上游即可卡住事件迴圈 | 分隔符改成互斥的 ` and `、`, and `、`, (?!and )`（逗號後不得再把 `and ` 當項目）。接受的語言只縮小一種怪形：`category: a, and category: b`（舊式把 `and` 當項目）；縮小只會讓該本文維持 dev 的原決定，不會多放行。`tests/routing/router-combo-moderation-prose-redos.test.ts`「a long near-miss repetition of the category list is rejected in linear time」：約 1990 字元的病態輸入必須回 false 且在 250 ms 內；舊正規式下該測試紅（超過 250 ms，輸入再長就是不收斂），新正規式約 0.05 ms。同檔另兩條釘住「去掉毒尾巴後仍是已知拒絕格式」與四種合法清單寫法不變 |
+| #645 `js/file-system-race` | `src/telemetry/profile/state.ts` `readTelemetryProfileFile` | `lstat` 後以路徑 `readFileSync`，使用端沒有身分比對，而這個檔案存放 profile 的 bearer secret | 改走 `readBoundedRegularFile`（同一個 descriptor 決定型別、大小與位元組）。`tests/cli/cli-telemetry-profile-state-read.test.ts`「a profile file swapped in after the type check is never adopted for its bearer secret」：讀取那次 `lstat` 之後換成帶另一個 secret 的檔案，必須回 `{ state: null, unreadable: true }`；原碼下該測試紅（回傳換進來的 secret），修正後綠 |
+| #662 `js/file-system-race` | `src/routing/route-intent-state.ts` `readRouteIntentState` | 同型；這個檔案決定每個客戶端的路由意圖，換進來的內容會被當成要套用的狀態並寫回 | 同上。`tests/clients/route-intent-state.test.ts`「a state file swapped in after the type check is not adopted as the route intent」：換檔後必須拋 `RouteIntentStateUnreadableError`；原碼下紅（`Received function did not throw`） |
+| #656 `js/file-system-race` | `src/client/route-intent-native-originals.ts` `readNativeIntentOriginals` | 同型；這份紀錄是「還原時要寫回客戶端設定的原值」 | 同上。`tests/clients/route-intent-native-originals-read.test.ts`「an originals record swapped in after the type check is not adopted」；原碼下紅，修正後綠。新增獨立檔案而不放進既有的 `route-intent-native-originals.test.ts`，因為那一檔每個案例都經過設定寫入的 mutation lock，與只測讀取無關 |
+
+**行為改變（#645、#662、#656 的副作用）**：與 2026-11-09 的 #633、#477 相同，讀不出可信檔案編號（ino 為 0）、超過上限、或被換檔時一律拒絕：profile 讀成 `unreadable`（不傳送、仍可 disconnect）、route intent 拋 `RouteIntentStateUnreadableError`、originals 拋「unreadable」。profile 另有一點：原本任何 `lstat` 錯誤都讀成「未連線」，現在只有 ENOENT 是未連線，其他（例如 EACCES）讀成 `unreadable`，與該函式文件「存在但不可信就回報 unreadable」一致。
+
+**dismiss 24 筆**（理由逐筆寫在 GitHub 的 dismiss 說明，上限 280 字元）：
+
+| 規則 | 告警 | 判定 | 依據 |
+| --- | --- | --- | --- |
+| `js/insufficient-password-hash` | #635 #636 #637 #638 #639 #649 #650 #651 #652 #653 #654 | false positive | 逐筆確認雜湊的是高熵的 API key／OAuth token／provider 設定，不是人選的密碼，而且**雜湊值不離開行程、也不拿來驗證使用者輸入**：#636 #637 #652 #653 #654（`quota/report-cache.ts`）是存在 `WeakMap` 的「這份額度報告仍屬於目前憑證」比對值；#638 #639（`vertex-environment-authority.ts`）與 #635（`gcp-adc.ts` `requestDigest`）是以每個行程隨機的 32 位元組金鑰做的 HMAC，只在行程內比對環境金鑰或已建請求是否換過；#650（`cache-affinity-identity.ts`）同為隨機金鑰 HMAC；#651（`muse-key-quota.ts`）是行程內 in-flight 去重的標籤；#649（`link/relay-auth.ts`）是以 256 位元 link fingerprint 為金鑰的 HMAC 訊息認證碼（協定證明），不是密碼儲存。換成慢速 KDF 只增加每次請求的延遲。與 2026-11-04 #604、2026-11-09 #607–#612 #630 #631 同判 |
+| `js/file-access-to-http` | #655 | false positive | `cli/sync-link-status.ts:31` 送出的管理 token 只送往 `runtimeBaseUrl()`：先由 `findLiveProxy` 以身分檢查過的 live proxy 自己記錄的 host／port（萬用位址改成 `127.0.0.1`），與其他 `ocx` 管理指令同一條路徑；與 2026-11-09 #615 #616 同判 |
+| `js/file-system-race`（fd 上已綁身分） | #642 #657 #661 | false positive | #661 `link/diagnostics-read.ts`：`open` 之後 `handle.stat` 的 bigint dev／ino 必須等於先前 `lstat`（`sameObject`），不符回 `refused`。#642 `lab/public/file-safety.ts`：`O_NOFOLLOW` 開檔後 `fstat` 要求 `nlink === 1` 且 `sameFileIdentity`。#657 `codex/native-main-auth-file.ts` `readNativeMainAuthBytesStable`：讀取前後各一次 bigint stat，dev／ino／size／mtime／ctime 任一不同就拋 `Native credentials changed during read` |
+| `js/file-system-race`（不改） | #640 #641 #643 #644 #646 #658 #659 #660 #663 | won't fix | 缺口存在但無法被利用或沒有權限可換：#640 是 release workflow 讀自己工作區的 `verification/receipt.json`（`release.yml:1359`，同一個 job 稍早取得的產物），換檔需要已能在該 runner 執行程式。#663 在自我更新路徑（`forkUpdatePolicy.selfUpdateAllowed` 在 fork 只於測試為真），唯讀驗證 pnpm store。#643 #659 讀回的位元組之後以 `sha256Hex` 對照 manifest／套件內的 digest，內容被換成別的就驗不過；#658 讀套件自己的 digest 檔與 `package.json`；#660 是建議性的 fill lock，註解明寫「優化，不是保證」，鎖丟了會被 `assertFillLockHeld` 發現。#641 #644 #646 是遙測的延後紀錄、安裝 id、送出日紀錄：不含秘密、不驅動寫入，讀不出或被換成壞內容時一律退回「空狀態」或「unreadable」（opt-out 日期不會因此被忘掉）。上述路徑皆在使用者自己的設定／安裝目錄，換檔者必須已有該使用者的寫入權限 |
+
+**不改產品碼的理由**：dismiss 的 24 筆，若缺口存在，換檔者都必須先取得使用者自己目錄的寫入權限，換進來的內容要嘛被內容雜湊擋下、要嘛只會讓功能退回空狀態；改寫成 CodeQL 看得懂的形狀只會讓每次上游整合在這些檔案上衝突。#645、#656、#662 與 #633、#477 同類（使用端沒有身分比對，而檔案是憑證或會驅動寫回），所以改。
+
+**附帶發現**：任務描述寫 `js/file-system-race` 16 筆，實際 open 的是 15 筆（15 + 11 + 2 + 1 = 29）。
+
+**處置**：#647 #648 #645 #656 #662 隨修正推送後由下一次 CodeQL 掃描關閉；其餘 24 筆已依上表 dismiss。
+
 ## 2026-11-18：發 fork release v2.100.14 後把版本來源前推到 2.100.15
 
 tag `v2.100.14` 指向 `2df974513`，內容是 Codex 獨立覆核 v2.100.12–13 後確認的 5 項修正，見 `REVIEW.md` 2026-11-18（`06fc263c5`）：

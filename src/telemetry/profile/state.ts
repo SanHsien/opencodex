@@ -1,6 +1,7 @@
-import { lstatSync, mkdirSync, readFileSync, unlinkSync } from "node:fs";
+import { lstatSync, mkdirSync, unlinkSync } from "node:fs";
 import { atomicWriteFileNoFollow } from "../../config/atomic-write";
 import { getConfigDir } from "../../config/paths";
+import { readBoundedRegularFile } from "../../lib/bounded-file-read";
 import { recordOwnedConfigPath } from "../../lib/config-ownership";
 import { parseCalendarUtcDayMs } from "../contract";
 import {
@@ -66,15 +67,13 @@ export function readTelemetryProfileFile(
   configDir = getConfigDir(),
 ): { state: TelemetryProfileState | null; unreadable: boolean } {
   const path = telemetryProfilePath(configDir);
-  let stat;
+  // The file holds the bearer secret: one descriptor decides the type, the size and the bytes, so a
+  // name swapped for another file between a check and the read is refused, not adopted.
+  const read = readBoundedRegularFile(path, MAX_PROFILE_FILE_BYTES);
+  if (read.kind === "absent") return { state: null, unreadable: false };
+  if (read.kind === "refused") return { state: null, unreadable: true };
   try {
-    stat = lstatSync(path);
-  } catch {
-    return { state: null, unreadable: false };
-  }
-  try {
-    if (!stat.isFile() || stat.isSymbolicLink() || stat.size > MAX_PROFILE_FILE_BYTES) return { state: null, unreadable: true };
-    const raw = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
+    const raw = JSON.parse(read.content) as Record<string, unknown>;
     const handle = validateProfileHandle(raw?.handle);
     const displayName = validateProfileDisplayName(raw?.displayName);
     const connectedAt = validIso(raw?.connectedAt);

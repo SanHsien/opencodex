@@ -61,5 +61,6 @@
   "service-scheduler-restart-respawn-refusal.test.ts": "service",
   "client-restart-sync-fence.test.ts": "clients",
   "route-intent-connect-post-commit.test.ts": "clients",
-  "route-to-home-sync-review.test.ts": "routing"
+  "route-to-home-sync-review.test.ts": "routing",
+  "route-intent-native-originals-read.test.ts": "clients"
 }

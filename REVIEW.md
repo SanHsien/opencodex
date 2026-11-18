@@ -1011,3 +1011,18 @@ run `43720865406` 與 `43726376154` 各有六片約 30 分鐘後取消；每個�
 ## 2026-11-18：v2.100.13 並行 ensure 驗收回註
 
 `v2.100.13`（tag `9b2bde58d`，MSI 以 `/qn REBOOT=ReallySuppress` 安裝，exit 0、未重開機），以 `v2.100.12` 的 gate-test 在負載下跑 21 次（同時 40 次 `codex exec`，全部回 OK）：服務指令 21/21 exit 0；respawned、port 未釋放、ACL 逾時皆 0；ensure 21/21 exit 0，耗時 28.8–57.0 秒，21 次都印出等候訊息。升級後 `ensure-start.log` 有 27 次 spawn，其中 13 次子行程撞 `OWNERSHIP_MUTATION_LEASE_BUSY`，沒有一次讓 ensure 誤報失敗；`another ocx start held the runtime ownership lease` 0 次。第 17–20 次負載迴圈已結束，後段的並行壓力比前段低。結論：`v2.100.12` 的 4/21 誤報已修正，`ROADMAP.md` 對應列已刪。
+
+## 2026-11-18: Codex independent review of v2.100.12–13 (ensure, ctime-only usage cache)
+
+Codex (gpt-6.1-sol, read-only) reviewed the ensure concurrency fix and the "a ctime-only change does not rebuild the usage cache" change. Each finding was checked against the code before it was fixed.
+
+- **Fixed in `06fc263c5` (2026-11-18)**:
+  1. The lease-contention check only sampled the lease file. A winner that held the lease for less than one poll interval was missed, and the losing ensure would fail after 8 s. Ensure now also checks this spawn's log window: the busy code counts as contention.
+  2. The log fd was not closed when the header write failed. The fd also leaked when spawn threw synchronously. The failure report could show another ensure's error.
+  3. The ensure retry loop gave the gate a fresh 90 s on every attempt. Now each attempt gets only what is left of the budget. The real upper bound is the gate wait (≤90 s) plus readiness (40 s).
+  4. In the filtered aggregate's unchanged branch, prices and time zone were not rechecked after the await.
+  5. A same-size change to an unterminated tail kept the old "no invalid rows" diagnostic. The verification now rebuilds when it sees invalid or oversized rows.
+- **Accepted limits, not fixed**:
+  - A same-size rewrite before the 64 KiB digest window is not detected.
+  - A stale lease plus PID reuse can be mistaken for another start. The effect is a longer wait and a misleading diagnostic.
+  - Two ensures that truncate the log at the same time can lose one header. That ensure then falls back to lease polling only.

@@ -168,7 +168,7 @@ Aside 設定檔的變更在這種情況下仍會儲存一件事：確認之後�
 
 舊版的 `GET, PUT /api/client-integrations/aside` 別名仍然可用。新用戶端應使用上方的專屬
 路徑，這樣較舊的 proxy 就不會忽略設定檔選擇器。CLI 指令與 proxy 升級、重新啟動、重試序列
-請見 [Aside profile controls](/zh-tw/guides/integrations/#aside-profile-controls)。
+請見 [Aside 設定檔控制](/zh-tw/guides/integrations/#aside-設定檔控制)。
 
 ### Remote Workspace
 

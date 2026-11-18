@@ -32,4 +32,4 @@ Google 因違反服務條款停用帳戶，或降為沒有點數的免費方案�
 `ocx account list <provider>` 顯示暫停原因。儀表板的 Paused 標記會顯示原因與時間。
 使用 `ocx account resume <provider> <account-id-or-alias>` 清除原因並允許再次選取；
 在 API 金鑰列按 Resume 也會啟用該金鑰。此政策不會自動恢復帳戶；明確登入會清除它記錄的暫停，
-而 [`resume --if-healthy`](/zh-tw/reference/cli/providers-accounts/#resume-if-healthy) 會先讀取健康狀態再恢復。
+而 [`resume --if-healthy`](/zh-tw/reference/cli/providers-accounts/#健康時恢復) 會先讀取健康狀態再恢復。

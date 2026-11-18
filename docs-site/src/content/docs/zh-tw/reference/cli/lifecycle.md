@@ -871,7 +871,7 @@ ocx remote-workspace hub sessions --json
 `ocx codex-provider allow <id>` 在允許於 start／sync 時僅以 URL 管理之前會先詢問；`--yes` 是對該指名供應商的明確非互動同意。
 `ocx codex-provider revoke <id>` 會還原未變更的受管 URL 並撤銷權限。
 這些指令是本機的，不需要執行中的 proxy。資格、還原行為與傳輸保留，請見
-[自訂供應商路由](/zh-tw/guides/codex-integration/#opt-in-a-custom-provider-to-managed-local-routing)。
+[自訂供應商路由](/zh-tw/guides/codex-integration/#將自訂供應商選擇加入受管本機路由)。
 
 #### Windows 服務停止
 

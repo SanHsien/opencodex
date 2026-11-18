@@ -613,7 +613,7 @@ ocx integration client restore --op op-example --preview --json
 `op-example` 是虛構的；請使用歷程中的 ID。預覽操作為 apply、overwrite 與 disable；restore 在其既有指令上使用 `--preview`。
 請檢視結構性變更與 `canApply`／`willChange`；有效的拒絕／無操作以 0 結束且不套用。Enable／disable／restore 接受選用的 `--plan-fingerprint` 以做明確的綁定提交。
 直接的舊式寫入仍然可用。Aside 的預覽或綁定寫入需要 `--client aside --profile N`。漂移確認與覆寫絕不自動進行；過期的綁定以 5 結束，stdout 為空，並在 stderr 給出重新預覽的指示。
-請依循[完整的預覽／提交與漂移範例](/zh-tw/guides/integrations/#preview-and-bind-a-terminal-write)。
+請依循[完整的預覽／提交與漂移範例](/zh-tw/guides/integrations/#預覽並繫結終端機寫入)。
 
 Droid 的 apply／overwrite 支援重複的 `--reasoning-default MODEL=EFFORT` 以完整取代對應表，或獨占的 `--clear-reasoning-defaults` 以得到 `{}`。省略則保留對應表。
 請在預覽與提交中重複相同的完整對應表；請見 [Droid 預設值](/zh-tw/guides/integrations/#factory-droid)。
@@ -623,7 +623,7 @@ Droid 的 apply／overwrite 支援重複的 `--reasoning-default MODEL=EFFORT` �
 
 `ocx integration client sync --client aside --json` 透過已驗證的擁有者重新整理符合資格的 profile，沒有 profile 選擇器或本機備援。
 空的 `results` 表示成功觀察到沒有符合資格的 profile；有失敗的列會讓彙總為非零，同時保留其他成功項目。重試之前請先讀取 status 與復原事實；
-[Aside 控制](/zh-tw/guides/integrations/#aside-profile-controls)說明 profile 意圖與檔案狀態的差異。
+[Aside 控制](/zh-tw/guides/integrations/#aside-設定檔控制)說明 profile 意圖與檔案狀態的差異。
 
 ### 檢視 Cursor 而不安裝
 

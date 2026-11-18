@@ -6,11 +6,10 @@ description: opencodex 如何將自身注入 Codex、同步模型目錄、安裝
 opencodex 透過修改 Codex 會讀取的兩項內容，讓 Codex 經由 proxy 路由：其設定
 （`$CODEX_HOME/config.toml`，預設為 `~/.codex/config.toml`）與模型目錄。每項修改都是冪等且可逆的。
 
-**Integrations** 總覽頁有一個 Codex 開關，對應這項原生整合。開關顯示的是 OpenCodex 設定中的期望
-狀態，徽章則回報目前觀察到 Codex 是否確實在使用 proxy；在清理過程中，兩者可能短暫不一致，徽章會
-持續回報觀察到的狀態。停用時會指名生效中的 Codex 設定檔、移除 OpenCodex 產生的路由產物，並讓
-proxy 繼續為其他用戶端執行。重新啟用會依當下可用的模型重建目錄，因此不會逐位元組還原 Codex
-檔案。
+**Connect** 總覽頁有一個 Codex 開關，對應這項原生整合。開關顯示的是 OpenCodex 設定中最近儲存的期望狀態（包含切換後立即的狀態），徽章則回報目前觀察到 Codex 是否確實在使用 proxy；在清理過程中，兩者可能短暫不一致，徽章會持續回報觀察到的狀態。停用時會指名生效中的 Codex 設定檔、移除 OpenCodex 產生的路由產物，並讓 proxy 繼續為其他用戶端執行。重新啟用會依當下可用的模型重建目錄，因此不會逐位元組還原 Codex 檔案。
+
+對於裸原生 Codex 模型與 OpenCodex 產生的帳號選擇器列，目錄會攜帶已驗證的存取方案中繼資料。裸模型使用主 Codex 帳號；帳號限定的模型則使用其選定的帳號。當上游變更帳號的存取方案時，重新整理整合會更新這些列。
+OpenCodex 會把已登入主帳號的即時模型可用性提示帶到裸原生模型列上。
 
 proxy 提供一條裸 `openai` Codex 登入路徑，可使用 Pool（預設）與 Direct 帳號模式，另提供
 `openai-apikey/<model>` 給已設定的 API 金鑰。Pool 包含主帳號與新增帳號；Direct 只使用 caller／主登入
@@ -28,9 +27,32 @@ WebSocket 幀則關閉連線）；Direct 與原生主帳號的值維持不變。
 在 Pool 模式下，當已選定的儲存帳號正在冷卻、且沒有合格的儲存替代帳號或復原探測可用時，帶有已驗證
 原生 Codex 登入的請求可以使用那個登入。這也涵蓋在送出前就被擋下的新請求，遵循與上游拒絕之後相同
 的呼叫端驗證。既有的模型權限與主帳號政策檢查仍然適用。這個後備會保留儲存帳號的冷卻狀態，且不會
-把呼叫端憑證持久化為 Pool 選擇。一個精確的帳號綁定仍會保持綁定在那個帳號上。
+把呼叫端憑證持久化為 Pool 選擇。一個精確的帳號綁定仍會保持綁定在那個帳號上。手動 Pool 釘選只是偏好，
+而不是精確的帳號綁定：它仍可使用這條後備路徑。當請求必須留在單一帳號上時，請使用帳號限定模型。
+暫停已觀測到的原生主帳號會封鎖與其相符之呼叫端憑證的後備；它不會識別或暫停無關的呼叫端自有登入。
+
+若要讓自動 Pool 路由完全不使用原生主登入，請設定 `"codexPool": {"poolOnly": true}`。
+此時 Pool 只會服務已註冊且符合資格的新增帳號：它絕不會排列或保留主帳號作為選取對象，絕不會使用上述的呼叫端主帳號後備，
+並會將主帳號上的手動釘選視為無釘選。當所有允許的帳號都在冷卻中或不可用時，請求會被拒絕，而不是消耗主帳號。
+帳號限定模型（包含以 `__main__` 限定的模型）與 Direct 模式屬於明確選擇，仍可抵達主帳號。此設定預設關閉。
+
+新增或重新認證池帳號時，會拒絕與原生主登入重複的帳號，並回報 `Account is already configured as the native Codex main account.`。
+該檢查會比對 ChatGPT 帳號 ID、個人／工作區訂閱桶與電子郵件；缺少電子郵件並不代表是不同身分。
+不同的工作區、不同的工作區成員，以及分開的個人與工作區訂閱仍受支援。失敗的用量查詢不會丟棄登入 token 所帶的訂閱方案。
+
+既有的重複帳號仍會保留儲存，但無法被選為第二個 Pool 帳號。帳號清單會公開
+`selectionExcludedReason: "duplicate_main"` 與一個可執行的 `selectionExcludedAction`。請明確使用原生主帳號，
+或先將原生 Codex 登入到另一個帳號再重用已儲存的項目。偵測依循最新擁有的原生登入觀測，包含之後的原生重新登入；
+被動帳號清單查詢與呼叫端自有的請求不會開啟原生憑證來重新整理該觀測。
 
 ## 設定注入
+
+`ocx sync` 會從目錄中移除所選 Codex 執行期不支援的推理強度。當其執行期身分、被移除的強度或受影響的模型改變時，
+它會回報一次夾限；未變更的同步會保留診斷時間戳記且不會重複該通知。這項相容性投影不需要執行 `ocx doctor`。
+若夾限曾經清除而之後又回來，它會再次回報。
+
+OpenCodex 會序列化對 Codex 設定的寫入。在 Windows 上，暫時被另一個程序開啟鎖住的檔案會進行短暫、有界的重試。
+若存取持續忙碌，請稍後重試該操作；OpenCodex 會保留既有的鎖定證據，不會利用該存取失敗去搶接另一個寫入者的鎖。
 
 `ocx init`、`ocx start` 與 `ocx sync` 都會呼叫注入器。在預設 loopback 繫結下，它會保留 Codex
 內建的 `openai` provider id，並將該 provider 指向 opencodex：
@@ -40,7 +62,7 @@ WebSocket 幀則關閉連線）；Direct 與原生主帳號的值維持不變。
 model_catalog_json = "/absolute/path/to/opencodex-catalog.json"
 # Auto-injected by opencodex (undo: ocx restore)
 openai_base_url = "http://127.0.0.1:10100/v1"
-# Auto-injected by opencodex
+# Auto-injected by opencodex (undo: ocx restore)
 experimental_realtime_ws_base_url = "http://127.0.0.1:10100/v1"
 
 # only when fastMode is set; unset adds no [features] table
@@ -53,7 +75,9 @@ fast_mode = true
 `api.openai.com` 加入該通話的旁帶 WebSocket。在 Pool 模式下，通話是在 opencodex 選定的帳號底下
 建立的，所以直接以 app 自己的登入加入會失敗，回傳 `realtime websocket handshake failed`（404）。
 被注入的 key 會把加入請求送回 opencodex（`GET /v1/live/{callId}`），由 Pool 重用它為那個
-session／執行緒組合所綁定的帳號（一個行程本地的綁定）。在 Direct 模式下，兩端本來就已經使用呼叫端
+session／執行緒組合所綁定的帳號（一個行程本地的綁定）。由用戶端自行建立的通話則是例外：當 ChatGPT 語音將通話交接給
+Codex 執行緒，或 Codex Desktop 自行建立通話時，該通話屬於你的 ChatGPT 登入且只有其旁帶加入請求會抵達 opencodex，
+因此 opencodex 會以呼叫端自己的 ChatGPT 憑證而非 Pool 帳號來轉發該加入請求。在 Direct 模式下，兩端本來就已經使用呼叫端
 目前的 bearer，所以這個 key 只是讓加入動作維持走 proxy 路徑。它只會寫在 loopback 形式的
 `openai_base_url` 上，並隨它一起被移除，且絕不會覆寫使用者自有的 `experimental_realtime_ws_base_url`。
 
@@ -95,6 +119,18 @@ proxy 與網路路徑都健康，上游仍可能在產生第一個輸出前花�
 SSE，而一個合格的回合在請求無法準備、`response.create` 幀超過大小限制，或 proxy 路由無法承載該
 socket 時，仍會退回 SSE。
 
+若要讓內建的 ChatGPT 供應商保持在 HTTP/SSE 上，請在 `~/.opencodex/config.json` 中將 `providers.openai.upstreamWebsocket`
+設為 `false` 並重新啟動代理。請將此欄位合併到既有的 `openai` 供應商中；保留其帳號模式與其他設定。
+省略該欄位即可恢復預設的上游 WebSocket 選取。此設定不會改變面對用戶端的 `websockets` 開關，也不會改變請求所使用的 ChatGPT 帳號。
+原生對話中途 steering 與注入需要上游 WebSocket，當它關閉時將無法使用。
+
+**推理用量中繼資料（2.90.0 及以上）。** 對於標準 ChatGPT 路由上的 HTTP/SSE 用戶端，當 Bun 執行期公開實際的
+`x-reasoning-included` 連線回應標頭時（包括在重用的連線上），上游 WebSocket 中繼會保留該標頭。
+這會告訴 Codex 伺服器回報的用量已經包含較早的推理。第一個 Responses 事件之前送出的中繼資料優先；
+較晚的中繼資料仍留在串流中，但無法改變已提交的標頭。中繼不會捏造此訊號或更動用量數字。
+缺失的上游訊號與 Codex 自己的帳務生命週期仍是分開的問題，因此單靠這項變更並不能證明早期壓縮已修復。
+面對用戶端的 WebSocket 連線在上游回應之前就已經完成升級，無法事後以升級標頭形式接收此訊號。
+
 本機供應商節流也可能在請求根本尚未派送之前就先卡住它。所以第一個輸出慢，可能有好幾個因素，上游
 排隊只是其中之一。`ocx doctor` 只分類設定，不會量測這些因素：下結論前請先比較實際的傳輸、節流、
 網路與供應商觀測值。
@@ -112,84 +148,39 @@ socket 時，仍會退回 SSE。
 一個確認狀態為 `assumed` 的觀測值。對延遲敏感的工作，請比較你實際使用的各供應商所觀測到的第一個
 輸出時間，而不要假設某個特定通道比較快。
 
+對於轉發到具有相同中繼資料限制的後端的閘道，請在該供應商上明確宣告
+[`responseTierAuthoritative: false`](/zh-tw/reference/configuration/providers/#回應-service-tier-權威性)。
+請求仍會送出 priority 並記錄原始回聲，同時實際的 Fast 排程保持未確認。未宣告的閘道與官方 API 保留既有的以回應為基礎的解讀。
+只更新 OpenCodex 不會把這項宣告加到既有的閘道項目中：少了它，符合資格的 priority 請求之後收到 `default` 回聲時仍會記錄為 `response-declined`。
+
 proxy 預設監聽 `10100` 埠，提供 `POST /v1/responses`、`POST /v1/responses/compact`、
 `POST /v1/images/generations`、`POST /v1/images/edits`、`GET /v1/models`、`GET /healthz`
 以及 `/api/*` 管理介面。
 
 ### 實驗性 context 管理（Codex 0.153+）
 
-對合格的 ChatGPT 帳號，請在 Codex 自己的 `config.toml` 中啟用這項實驗性功能（合併進既有的
-`[features]` table）：
+`model_auto_compact_token_limit` 在某些版本不會出現在官方的 Codex 基準設定參考中。若在你的測試中
+`config.toml` 的該設定未生效，可以將其交給 `ocx` 代理接手管理。
 
-```toml
-[features]
-context_management.experimental_mode = true
-```
+這個功能預設為**關閉**。在設定中啟用後（例如在 `config.json` 中設定 `"codexContext": { "enabled": true }`，
+或於儀表板與 CLI 開啟），代理會在每次收到 `/v1/responses` 請求時計算對話中最近的 context 佔用，
+並與設定的閾值（預設為 `0.9` 等比例或指定的 token 數）比較。達到閾值時，OpenCodex 會主動在回應前
+或適當時機透過選定的輔助模型發出壓縮請求，產出結構化的壓縮摘要並替換歷史紀錄，然後將較精簡的
+context 送回主模型繼續執行。
 
-在預設的內建 loopback 整合下，下一次 `ocx sync` 或 proxy 啟動會把受管的根層級 `openai_base_url`
-改成 `http://127.0.0.1:10100/backend-api/codex`。Codex 會在啟用它的 `new_context`、歷史與筆記
-工具之前檢查這個 backend 路徑。同步後請開始一個新的 Codex session。這項功能仍是選擇加入；使用者
-自有的 base URL 與遠端自訂供應商注入不會被重寫。不需要也不會新增任何 context-window 或壓縮上限
-覆寫。
-
-這個 backend 前綴是既有資料平面路由的別名，包括 Responses WebSocket 升級。原本的 `/v1` 路由與
-即時旁帶覆寫仍然可用。proxy 也會透過內建的 `openai` 供應商，以 `openai-responses` adapter 與規範
-ChatGPT forward 目的地，轉送十個原生的 `alpha/history/v2/*` 與 `alpha/notes/v2/*` POST 端點。
-Direct 使用目前呼叫者／main 登入；Pool 選擇一個 Codex 帳號。`openai-apikey` 使用它設定的 API
-金鑰，自訂或非規範的 Responses 供應商不是這個 context relay 的候選者，也不會從它那裡取得任何
-Codex 帳號憑證。其他模型供應商或 OpenAI API-key 路由都沒有實作這些私有端點。
-
-呼叫端標頭限制在共用的 Codex forward 允許清單內：`authorization`、`chatgpt-account-id`，以及核准
-的 OpenAI beta、originator、session 與 Codex 協定中繼資料。context relay 另外會轉送
-`x-openai-encrypted-tool-arguments` 與 `x-openai-tool-output-truncation-policy`；任意的呼叫端
-標頭（例如 cookie）不會被轉送。以 bearer 呈現的 proxy 資料平面金鑰會被替換成選定的 Codex 憑證
-（Direct 模式下是已儲存的 main 登入）；缺少憑證會在轉送前就失敗。proxy 准入憑證絕不會送到上游。
-加密的引數、回應主體與上游錯誤狀態都會被保留。
-
-一次成功的 ChatGPT 模型回應，會把根 session 實際服務的帳號記錄在一個有界、行程本地的所有權登錄檔
-中。歷史與筆記使用那個記錄下來的擁有者，包括一個明確選擇的帳號，即使目前的現用帳號改變也一樣。
-儲存帳號的 token 重新整理可以繼續套用在同一個實體帳號上；被替換的帳號身分會被拒絕。Direct 模式下
-呼叫端擁有的 session 會保留呼叫端憑證，不能被 proxy 的 bearer 接管。這不會在帳號之間遷移伺服器端
-歷史。
-
-所有權以核准該請求的 opencodex API 金鑰劃分，所以即使兩把金鑰都解析到同一個 ChatGPT 工作區，也絕
-不會互相碰到對方的 session。工作區 id 代表一個組織而非一個人，所以登錄檔也會綁定上游憑證所帶的
-穩定使用者：同一個使用者的一般 token 重新整理會延續 session，而同一工作區內的不同使用者則不會。
-當被接受的憑證證明不了一個穩定使用者時，就只有那個精確的憑證能延續 session。那個主體就是請求呈現
-的 opencodex API 金鑰。遠端繫結本來就需要一把金鑰，所以所有權機制在那裡可以運作。在預設的
-loopback 繫結上，opencodex 接受請求時不會讀取金鑰，而內建的 loopback 注入也無法攜帶
-`x-opencodex-api-key` 標頭，所以 Codex 不會出示任何 opencodex 金鑰，context 歷史會回傳 HTTP
-403。**因此這個 relay 只在搭配已設定金鑰的遠端繫結上可用，或給自行送出 `x-opencodex-api-key` 的
-客戶端使用，在預設的內建 loopback 整合上則不可用。** 一個 loopback 繫結的 proxy 究竟該不該能指名
-呼叫端，目前仍是維護者尚未定案的問題，所以目前的行為是拒絕，而不是用猜的。
-
-未知、過期、被驅逐、衝突，或因重啟而遺失的所有權，會在帳號選擇或上游 I/O 之前回傳 HTTP 409。
-relay 不會從目前的現用帳號去猜測。既有 session 在啟用這項功能或重置 context 之前，應該先儲存一個
-checkpoint 或其他持久摘要。啟用它不會回填更早的歷史或筆記，一次新的所有權觀測也不能證明較舊的
-backend 內容確實存在。重新啟動後，請先以一次成功的模型請求建立所有權，才能使用 context 工具；當
-所有權衝突時，請開始一個新 session。
+預設的實驗性 context 管理目標模型為 `openai/gpt-5.6-luna`，並會在發生失敗或無權限時沿用其他可用的
+候選模型。
 
 既有的模型親和性、冷卻與重試規則不變。context 請求不會被自動重試，筆記寫入也一樣；ChatGPT forward
-請求不使用同金鑰 429 重播。歷史流量不會消耗或結清一次模型配額復原探測。
-
-整個 relay 操作只有一個 35 秒的期限，從讀取請求主體之前就開始計時，並涵蓋憑證選擇，所以一個卡住的
-客戶端無法把一個已核准的回合插槽一直占著。客戶端斷線會回傳 499，逾期則回傳 504；無論哪一種，之後
-都不會有任何東西被派送到上游。
-
-要停用這項功能，請移除實驗性的 key（或設為 `false`）、執行 `ocx sync`，並開始一個新的 Codex
-session。受管的根層級 base 會回到 `/v1`。
-
-當這個 key 缺席或為 `false` 時，relay 就不存在：這十個端點對任何呼叫端都回答 404，包括直接對它們
-發送請求的呼叫端，一次模型回合也不會記錄任何歷史所有權。opencodex 是靠讀取 Codex 自己的設定來
-判定的，所以這個開關不取決於注入的 URL，也不取決於客戶端送出了什麼，關閉它不需要重新啟動就會生效。
+路由保留它既有的壓縮生命週期與封套。詳情與調整參數請見[設定參考](/zh-tw/reference/configuration/server/)。
 
 ### Codex App 中的託管圖像結果
 
-當路由的 Responses 供應商回傳帶有 base64 圖像資料、已完成的託管 `image_generation_call` 時，opencodex 會把驗證過的圖像儲存在它本機的 `artifacts/` 目錄下，並把最終的 assistant 圖像訊息送給本機連線的 Codex 用戶端。圖像會留在可收合的進度區段之外。這適用於串流與非串流的 Responses，不需要另一次生成請求，也不會改變所選的供應商。
+當模型回傳內嵌的圖像生成結果（例如來自 `image_gen` 或 `image_generation` 工具的 `base64` 資料）時，
+Codex App 預設會在訊息氣泡中直接渲染預覽，並在內部對話資料庫保留檔案參照。
 
-當用戶端把這些已生成的圖像訊息當作 assistant 歷史重播時，opencodex 會在轉送該歷史之前，把它所生成的本機圖像連結換成不透明的 artifact 參照。這保護了顯示路徑，同時不會改變 app 中已顯示的圖像訊息。它不會遮蔽不相關的、使用者提供的路徑。
-
-這個顯示相容性需要 loopback 准入與可辨識的 Codex 用戶端。遠端與一般的 API 用戶端會保留供應商的託管回應格式。這個相容層不會繪製部分預覽與僅有 URL 的結果。Artifact 使用既有的保留上限，所以請在較舊的檔案被清除之前，儲存你想保留的圖像。無效的圖像或失敗的本機寫入，會產生可見的失敗訊息，而不是損壞的圖像連結。
+OpenCodex 會保留原生 Responses 回應格式中的圖像結構與中繼資料，並透過本機代理端點安全地提供大型
+圖像資料的載入，確保與原生行為一致。
 
 ### 內建圖像生成（`image_gen`）
 
@@ -201,8 +192,9 @@ Codex 的內建 `image_gen` 工具不會經過 `/v1/responses`。codex-rs 擴充
 列出 hosted `image_generation` 工具、且目前選的是非 OpenAI 模型時才會啟動。獨立的
 `/images/generations` 呼叫不會進入該 bridge。
 
-- **單一、感知模式的 forward 候選：** Pool 會選擇合格的主帳號或新增帳號；Direct 使用 caller OAuth
-  bearer。圖像請求會一致遵循目前設定的模式。
+- **單一、感知模式的 forward 候選：** Pool 會選擇合格的主帳號或新增帳號，並使用其已儲存的 ChatGPT 憑證，
+  即使客戶端是以代理准入 bearer 向 opencodex 認證亦同；Direct 使用 caller OAuth bearer，且無法轉發代理准入 token。
+  圖像請求會一致遵循目前設定的模式。
 - **OpenAI API-key provider：** 只有在沒有 forward 候選擁有認證失敗時才會使用。損壞或過期的 Pool
   憑證不會被另一條額外計費的 API 路徑掩蓋。
 - **明確指定的自訂 provider：** 將 `images.provider` 設為某個自訂 API-key `openai-responses`
@@ -302,6 +294,9 @@ env_key = "OPENCODEX_API_AUTH_TOKEN"
 `openai_base_url`、`model_provider`、`model_catalog_json` 等根級鍵**必須**位於第一個 `[table]`
 標頭之前。注入器會保證此位置、移除自己留下的舊值或重複項，而且絕不覆寫使用者自有的根級
 `openai_base_url`；若該值存在，同步仍會更新模型目錄，但會回報路由未注入。
+
+同步與還原也會保留根層級的 `model_context_window`，因為 OpenCodex 絕不會寫入該鍵。
+Codex 會用它來取代各模型的目錄視窗（上限為該模型的最大視窗），因此若希望每個模型各自回報自己的視窗，請自行將它刪除。
 :::
 
 ## 共享模型目錄
@@ -316,19 +311,24 @@ $CODEX_HOME/opencodex-catalog.json
 $CODEX_HOME/models_cache.json
 ```
 
-在 macOS 上，opencodex 在明確選擇、shim、PATH、既有安裝路徑和可執行的裸 `codex` 後備命令之後，依序檢查 `/Applications/ChatGPT.app` 和 `~/Applications/ChatGPT.app` 中的 Codex 應用程式內建 CLI，要求其 XML `Info.plist` 識別碼為 `com.openai.codex`，且不會用應用程式候選項自動取代仍可執行的已儲存選擇。 若完全找不到 Codex CLI，`ocx connect status` 就緒狀態背後的目錄探測也會嘗試這些內建位置，因此僅有應用程式內建 CLI 的 Child 會回報其支援的推理等級，而不是 `unverified`；執行時仍會套用下列檢查。
+在 macOS 上，opencodex 在明確選擇、shim、PATH、既有安裝路徑和可執行的裸 `codex` 後備命令之後，依序檢查 `/Applications/ChatGPT.app` 和 `~/Applications/ChatGPT.app` 中的 Codex 應用程式內建 CLI，要求其 XML `Info.plist` 識別碼為 `com.openai.codex`，且不會用應用程式候選項自動取代仍可執行的已儲存選擇。若完全找不到 Codex CLI，`ocx connect status` 就緒狀態背後的目錄探測也會嘗試這些內建位置，因此僅有應用程式內建 CLI 的 Child 會回報其支援的推理等級，而不是 `unverified`；執行時仍會套用下列檢查。
 
 執行檢查也會辨識任意位置的 `Codex.app` 和 `ChatGPT.app`，包括移動後的應用程式套件、明確的
 `CODEX_CLI_PATH` 或設定的執行階段命令，以及符號連結別名。名稱只觸發驗證，不代表可信。
 每次執行前，正規化的套件和確切二進位檔都必須通過嚴格簽章驗證、OpenAI Team ID 及擁有權、
-權限和祖先目錄政策。二進位檔必須位於套件的 `Contents/` 內（包含 Codex.app 的
+權限和祖先目錄政策。二進位檔必須位於套件的 `Contents/` 內（包含 `Codex.app` 的
 `Contents/Resources/codex-aarch64-apple-darwin`）；無法正規化套件或二進位檔時拒絕執行。
 一般非應用程式 CLI 和第三方套件保留原有執行政策。
 
 在 WSL 中，如果未設定 `CODEX_HOME`，且 Linux 的 `~/.codex` 目錄不存在或不含任何 Codex 狀態（`config.toml`, `auth.json`, `sessions`, `history.jsonl`），opencodex 也會檢查
 `/mnt/c/Users/*/.codex/config.toml` 下是否只有一個 Windows Codex Desktop home。候選項恰好只有一個時，
 會使用該目錄，讓 WSL app-server mode 與 Windows Codex Desktop 共用相同的 config 與 auth 檔案。
-若要覆蓋此偵測，請明確設定 `CODEX_HOME`。
+若要覆蓋此偵測，請明確設定 `CODEX_HOME`。當 Windows Codex Desktop 在 WSL 內執行其 app-server 時，
+它會將 Linux Codex 執行檔以 `bin/wsl/<hash>/codex` 的形式放在該 home 底下；當服務 PATH 中沒有 `codex` 時，
+opencodex 會在檢查任何明確設定的執行期與 PATH 之後到那裡尋找它。
+
+若 Codex 家目錄存在但 Codex 尚未寫入 `config.toml`（例如從未登入 OpenAI 的全新 Desktop 安裝），
+opencodex 會在該處建立一個空的 `config.toml` 並繼續。若家目錄本身不存在，請啟動 Codex 一次讓它建立，或設定 `CODEX_HOME`。
 
 Codex 可將 SQLite 支援的 thread state 放在另一個目錄。OpenCodex 的歷史操作採用與 Codex 相同的
 優先順序：先讀 `config.toml` 根級的 `sqlite_home`，再讀 `CODEX_SQLITE_HOME`，最後使用實際的
@@ -348,20 +348,28 @@ Codex 保持一致。opencodex 也透過 WebSocket 提供 `/v1/responses`。專�
 `"websockets": true` 時宣告 `supports_websockets = true`；loopback 模式下，Codex 的內建 provider
 可能先嘗試 WebSocket，若 proxy 未啟用此功能則回傳 `426`，讓 Codex fallback 到 HTTP/SSE。
 
-啟用 `v2-plaintext` 模式或 `plaintextV2AgentMessages` 旗標時，本機重放要求同一個獲准的 OpenCodex 呼叫方，以及請求自身非空白的 `thread-id`。父執行緒、loopback 位址、上游憑證或預留位置金鑰都不是該身分。沒有獲准呼叫方主體身分的用戶端，以及沒有自身執行緒的請求，必須省略 `previous_response_id`，重新傳送完整對話。預設的 loopback Codex 與 DSH 設定不會建立該呼叫方身分。任一設定啟用期間保留的狀態在停用後仍維持綁定。預設 `v1` 對未綁定的狀態保留既有的父執行緒範圍續接行為，包括預設 loopback 呼叫方。這與上游原生擁有的 Responses ID 各自獨立。
+proxy 最多接受 128 條面對用戶端的 Responses WebSocket 連線。當新連線發現 128 個插槽皆已佔用時，
+會關閉最久未使用的閒置連線以騰出空間。有進行中回應、待處理用戶端工具或核准結果、原生 steering／注入工作階段，
+或緩衝輸出的連線會受到保護。若沒有任何閒置連線可釋放，新連線會收到既有的 `503` 容量回應。
+被回收的用戶端可在後續請求使用既有的延續處理機制重新連線。這只會在連線壓力下發生，不需要設定，
+也不會改變語音連線或上游連線重用。
 
 若規範的 ChatGPT forward 延續參照的本機重播狀態已過期或缺失，opencodex 會在送出任何內容到上游
 之前，回傳 `previous_response_not_found`。Codex 的 WebSocket 客戶端能辨識這個錯誤，並可以在它正常
 的串流重試預算內，帶著完整保留的 context（包括已完成的工具呼叫與其結果）重新連線。因此一個閒置的
-任務不會只因為 proxy 一小時的快取過期就需要開新任務。這個快取仍是有界的；這不會延長保留期限，也
-不能復原客戶端自己已經沒有的歷史。HTTP 客戶端必須明確處理這個錯誤，並在不使用
+任務不會只因為 proxy 一小時的快取過期就需要開新任務。重播延續狀態保留 24 小時，並受既有的記憶體、磁碟與項目上限限制；
+這不能復原客戶端自己已經沒有的歷史。HTTP 客戶端必須明確處理這個錯誤，並在不使用
 `previous_response_id` 的情況下重送完整的 context。只重試相同的 ID 無法復原遺失的狀態。
 
-同樣的復原訊號也適用於設定了 `statelessResponses: true` 的路由 Responses 供應商，以及一個自訂
-工具被降級成 function、但差異結果沒有本機呼叫可以確立其原始型別的路由請求。完整重播會把呼叫、
-結果與推理一起保留；opencodex 不會猜測結果型別或把它丟掉。有狀態的供應商仍會自行解析原生 function
-與只支援原生的自訂延續。這些檢查依循選定的 wire 協定與工具宣告，而不是模型名稱。對於無法解析已
-儲存 response ID 的閘道，請在該供應商上啟用 `statelessResponses`；其他供應商維持各自的預設值。
+當參照的狀態屬於不同的用戶端任務範圍（包括新請求看起來帶有完整輸入的情況）時，也會適用相同的拒絕。
+代理無法證明輸入是完整的，因此不會靜默移除 `previous_response_id`，也不會揭露相符的狀態是否存在。
+啟用 `v2-plaintext` 模式或 `plaintextV2AgentMessages` 旗標時，本機重放要求同一個獲准的 OpenCodex 呼叫方，以及請求自身非空白的 `thread-id`。父執行緒、loopback 位址、上游憑證或預留位置金鑰都不是該身分。沒有獲准呼叫方主體身分的用戶端，以及沒有自身執行緒的請求，必須省略 `previous_response_id`，重新傳送完整對話。預設的 loopback Codex 與 DSH 設定不會建立該呼叫方身分。任一設定啟用期間保留的狀態在停用後仍維持綁定。預設 `v1` 對未綁定的狀態保留既有的父執行緒範圍續接行為，包括預設 loopback 呼叫方。這與上游原生擁有的 Responses ID 各自獨立。
+
+相同的復原訊號適用於每個路由目的地，因為只有原生 Responses passthrough 能回答本代理遺失了歷史的回合——
+它會把 `previous_response_id` 轉發到儲存了該鏈結的後端。其他所有線路都是從每個請求自己的輸入重建對話，
+因此該處漏掉展開原本只會送出當前回合並靜默遺失對話。這包括三個看起來像有狀態的供應商：Devin 每一輪都會重送整段對話、
+Cursor 的檢查點參照存於同一份過期儲存區中並會在沒有它時退回完整重播，而 Kiro 會從交給它的回合重建對話歷史。
+它也適用於設定了 `statelessResponses: true` 的路由 Responses 供應商，以及一個自訂工具被降級成 function、但差異結果沒有本機呼叫可以確立其原始型別的路由請求。完整重播會把呼叫、結果與推理一起保留；opencodex 不會猜測結果型別或把它丟掉。有狀態的供應商仍會自行解析原生 function 與只支援原生的自訂延續。這些檢查依循選定的 wire 協定與工具宣告，而不是模型名稱。對於無法解析已儲存 response ID 的閘道，請在該供應商上啟用 `statelessResponses`；其他供應商維持各自的預設值。
 
 ### 用戶端側壓縮（選擇加入）
 
@@ -553,6 +561,27 @@ Codex 之前，把它轉換成巢狀的 `tools.apply_patch` 呼叫。原生自�
 相同的完成規則；補丁預覽會在其可執行形式尚未解析完成前被保留。只包含補丁文字的 JavaScript，以及
 不相關的原生自訂 payload，都維持不變。
 
+當路由模型雙重包裝一個可執行的自由格式主體時，opencodex 會移除一層只包含單一輸入字串的額外 JSON 物件。
+這項修復適用於本機 exec 與 apply_patch 主體，讓其他工具文法與有歧義的物件維持不變，且不會遞迴解碼。
+只有當主體仍有可能是一個這樣的包裝器時，才會暫扣其串流預覽；單純以物件或區塊開頭的 JavaScript 會隨著抵達持續串流。
+
+路由模型也可能誤將諸如 `{"cmd":"git status --short"}` 的 shell 引數物件送到 code-mode `exec`。
+對於已驗證的 code-mode 目錄，opencodex 會把無歧義的 shell 物件轉換成 `tools.exec_command(...)` JavaScript，
+並透過 `text(...)` 轉發其輸出。shell 選項會被保留，而 Codex 仍會執行並授權該指令。有效的 JavaScript 後備欄位、
+有歧義的物件與無關的工具命名空間不會被轉換。這項相容性修復不會繞過供應商速率限制或改變已設定的重試政策。
+
+相同的修復也涵蓋 goal 輔助函式。當目錄只宣告 code-mode `exec` 時，若路由模型直接將 `create_goal`、`get_goal`
+或 `update_goal`（或其 `default.` 前綴拼法）作為工具呼叫，該呼叫會被轉換成 `exec` 內對應的 `tools.<helper>(...)` 呼叫。
+真正宣告裸 goal 工具的目錄會保留它；兩者皆未宣告的目錄仍會將該呼叫視為未宣告而拒絕。
+
+在帶有已驗證自由格式 code-mode `exec` 目錄的路由轉換上，直接送到 `mcp__<server>__<tool>`（包含供應商加上的
+`default.` 前綴）的結構化呼叫，也會被包裝成巢狀的主機工具呼叫。這可避免純粹因模型省略 `exec` 包裝而造成的重試。
+明確宣告的 MCP 工具維持正常行為；名為 `exec` 的一般 JSON 函式不會啟用此修復。未知工具在主機端仍會失敗。
+作為一般回答文字印出的工具呼叫紀錄不會被這項相容性規則執行。
+
+對於路由的 Responses 回合，若請求的已宣告工具目錄不可用，明確的工具強制執行政策也會拒絕用戶端工具呼叫。
+空的已宣告目錄會拒絕每一個用戶端工具呼叫；Chat 與 Anthropic 用戶端保留各自的工具驗證責任。
+
 路由的 code-mode 回合也會在首次呼叫前收到主機對巢狀輔助工具的規則：`tools.apply_patch`
 接收一個字串，開頭與結尾必須是沒有額外包裝的獨立補丁標記行；isolate 中沒有 `import`，長時間執行的
 命令透過 `write_stdin` 輪詢。如果原生路由 Responses、Kiro 或 Cursor 路徑上的 code-mode exec
@@ -630,6 +659,16 @@ profile 寫入、目錄／cache refresh，以及立即與背景的 Codex 歷史�
 既有 session 標上該 provider id；直接替換 active id 可能讓這些完好的 session 從 Codex 歷史檢視消失。
 由舊版根級 profile 選到的外部 provider 也有同樣保護。
 
+當外部供應商擁有 `config.toml` 時，`GET /api/settings` 與 `ocx system settings --json` 回傳的設定報告，
+會把 Desktop authless 與用戶端側壓縮開關——以及 Codex 登入要求——描述為由該供應商控制，而非顯示 OpenCodex
+本應產生的有效狀態。切換任一開關仍會儲存偏好，但不會改寫 `config.toml`；若你把 Codex 切回 OpenCodex
+管理的供應商並重新執行 `ocx start`，已儲存的值就會生效。
+
+若 `config.toml` 存在但無法讀取（權限問題，或讀取時恰好發生刪除競爭），同一份報告會將有效值與登入答案保留為未確定，
+而非顯示 OpenCodex 在本機計算出的狀態。套用紀錄會保留這項說明——包含在因整合停用或代理停止而關閉注入閘門時的儲存——
+並將其標記為可重試，使檔案再度可讀之後的 `ocx system settings --json` 讀取能回報已確定的答案。
+在 Codex 整合停用期間，`ocx sync` 僅處理目錄，無法套用它。
+
 請讓單一工具負責 Codex provider 設定。若要在既有 provider manager 後方使用 OpenCodex，請把該
 provider 指向 `http://127.0.0.1:10100/v1`，並使用 Responses passthrough（Codex TOML 中
 `wire_api = "responses"`），不要做 Chat Completions translation。啟用 proxy API auth 時，也需從
@@ -685,10 +724,29 @@ OpenCodex 直接注入路由，請先將 Codex 切回內建 `openai` provider，
 
 每筆 JSONL 紀錄包含協定、路由過的供應商／模型、快取計數器的存在與來源，帳號、prompt-cache
 key 與允許清單中的 session 標頭的行程內相等性標籤，以及 instructions、tools 與
-message/input block 的有序指紋。前綴區段最多保留 128 個標籤，只標示第一個分歧的區段／
-索引。此診斷絕不儲存 prompt 或訊息文字、工具名稱、原始標頭、原始快取／session／帳號識別碼，
+message/input block 的有序指紋。此診斷絕不儲存 prompt 或訊息文字、工具名稱、原始標頭、原始快取／session／帳號識別碼，
 或由它們衍生的持久標籤。它的隨機 HMAC 金鑰在行程啟動時建立，與其他除錯金鑰分開，且永不
 持久化；因此標籤只在同一個代理行程內比對值。
+
+- `session.inboundHeaders` 與 `outboundHeaders` 分別記錄 `session_id`、`session-id`、`thread-id` 與
+  `x-session-id`。跨越這些名稱與方向的相同值會有相同的標籤。未觀測到的一側會被省略，與觀測到缺席的標頭不同。
+  這些標頭是診斷關聯輸入，並非帳號親和性的證明。
+- `accountAffinity` 為每組觀測到的標頭集合記錄一個來自共用 Codex 對話身分推導的獨立標籤鍵。
+  `derived-key-not-binding` 的字面意義就是如此：一個鍵並不是綁定已儲存、已選取或已重用的證據。回報的路由標籤是分開的。
+- `prefix.comparison` 比較觀測到的傳入與傳出投影。`continuation` 則將每一側與上一個具有相同完整非空傳入
+  session 標頭身分、已認證呼叫端範圍、協定、模型與設定目錄的已完成請求比較。呼叫端範圍來自於 Chat/Messages 橋接之前
+  擷取到的已認證准入，而非來自改寫後的上游標頭。它只用於私有的記憶體內查詢鍵，絕不序列化。
+  相同的已准入金鑰在受支援的認證標頭之間具有相同的範圍；不同的金鑰保持隔離。沒有已認證准入身分時（包含未認證 loopback），
+  延續比較為 `uncomparable`；逐請求的傳入／傳出比較仍可使用。供應商變更不會重設此比較；提示鍵與明確的帳號標籤變更會分開回報。
+  僅出現在傳出的工作階段識別碼與 prompt-cache key 絕不會補上缺失的關聯身分。
+- 比較結果回報 `first`、`equal`、`append-only`、`different`、`truncated` 或 `uncomparable`。
+  只有訊息尾端成長才算 `append-only`。頂層指令與系統內容位於工具之前；輸入／訊息列（含 system/developer 更新）
+  維持原本順序。缺失的觀測與不支援的形狀皆為 `uncomparable`，絕不會假定等於空前綴。
+- 每個區段最多保留 128 個標籤。未觀測到的共同尾端會回報 `truncated`，而非相等或精確的第一個分歧點。
+  記憶體中最多保留 512 筆近期關聯歷史；被逐出的歷史在下一次觀測時會變成 `first`。
+
+這些是在既有請求掛鉤處對已剖析主體的觀測，而非擷取的網路位元組或上游快取重用的證明。並行請求依完成順序而非送出順序比較。
+此開關只改變診斷，不改變親和性選取或快取行為；原本符合資格的直接 Chat/Messages 通道在除錯模式下既有的橋接需求依然適用。
 
 ### 目錄疑難排解
 
@@ -738,31 +796,25 @@ ocx service install    # persistent: auto-starts on login and respawns on crash
 `ocx status` 可檢視 proxy 是否執行，未執行時也會給出相同的重啟提示；`ocx doctor` 會回報重啟安全性
 （service／shim 覆蓋情況）。
 
-### Upstream overload before any output
+### 任何輸出前的上游過載
 
-When the ChatGPT backend declines a pooled native Codex turn with `server_is_overloaded` or
-another server error before it has produced any output, opencodex retries the same account
-with a short, capped backoff and then moves the turn to one other eligible Pool account.
-A pinned account (an account-qualified model) is retried but never moved. Once any output
-has reached Codex the turn is never sent again. If every attempt is declined, Codex receives
-the same error it would have received without the retries. Native compact requests move to
-another Pool account on a server error in the same way.
+當 ChatGPT 後端在產生任何輸出前，以 `server_is_overloaded` 或其他伺服器錯誤拒絕池化的原生 Codex 回合時，
+opencodex 會以短暫、有上限的退避重試同一個帳號，然後將該回合移往另一個符合資格的 Pool 帳號。
+已釘選的帳號（帳號限定模型）會重試但絕不會移轉。一旦有任何輸出抵達 Codex，該回合就絕不會再次送出。
+若每次嘗試皆遭拒絕，Codex 會收到與未重試時相同的錯誤。原生 compact 請求在遇到伺服器錯誤時也會以相同方式移往另一個 Pool 帳號。
 
-### Runtime agent instances (Codex 0.164+)
+### 執行期代理實例（Codex 0.164+）
 
-Codex 0.164 can sign each request with a runtime agent assertion when
-`features.runtime_agent_instances` is enabled (it is off by default). opencodex supports one of
-its two modes:
+當 `features.runtime_agent_instances` 啟用時（預設關閉），Codex 0.164 會以執行期代理斷言（runtime agent assertion）簽署每個請求。
+opencodex 支援其兩種模式之一：
 
-- `mode = "dual_header"` keeps the normal `Authorization: Bearer` credential and adds an
-  `x-openai-agent-assertion` header. opencodex treats the request exactly as before. The assertion
-  is forwarded only when the turn goes to ChatGPT Direct with your own credential. It is removed
-  when a Pool account, a stored main credential, a routed provider, or a sidecar serves the request,
-  because it belongs to the credential Codex sent.
-- `mode = "assertion_only"` replaces the bearer with `Authorization: AgentAssertion <jwt>`.
-  opencodex refuses these requests with HTTP 400 and error code `agent_assertion_unsupported`.
-  It never substitutes a Pool or provider credential for the assertion, and it never forwards or
-  logs the assertion. Use `dual_header`, or turn the feature off, when Codex runs through opencodex.
+- `mode = "dual_header"` 會保留一般的 `Authorization: Bearer` 憑證，並加上 `x-openai-agent-assertion` 標頭。
+  opencodex 會照常處理該請求。此斷言只會在該回合使用你自己的憑證前往 ChatGPT Direct 時轉發。
+  當請求由 Pool 帳號、已儲存的主憑證、路由供應商或 sidecar 服務時，該標頭會被移除，因為它屬於 Codex 送出的憑證。
+- `mode = "assertion_only"` 會以 `Authorization: AgentAssertion <jwt>` 取代 bearer。
+  opencodex 會以 HTTP 400 與錯誤碼 `agent_assertion_unsupported` 拒絕這類請求。
+  它絕不會以 Pool 或供應商憑證替換該斷言，也絕不會轉發或記錄該斷言。當 Codex 透過 opencodex 執行時，
+  請使用 `dual_header` 或關閉此功能。
 
 ### 以 `ocx codex` 啟動
 
@@ -772,168 +824,140 @@ its two modes:
 
 ### Codex 自動啟動 shim
 
-Run `ocx codex-shim install` to install the optional launcher wrapper. It runs
-`ocx ensure` before ordinary Codex launches and then forwards the original arguments
-and exit status. The command also works with the standalone `ocx` shipped in desktop
-packages: both the installation probe and the installed wrapper use that executable,
-without requiring a separate Bun installation or a source checkout.
+執行 `ocx codex-shim install` 可安裝選用的啟動器包裝器。它會在一般 Codex 啟動前先執行 `ocx ensure`，
+再轉發原始引數與離開狀態。此指令也適用於桌面套件中隨附的獨立版 `ocx`：安裝探測與已安裝的包裝器都會使用該執行檔，
+不需要額外安裝 Bun 或原始碼 checkout。
 
-On macOS and Linux, activate the private wrapper in your current shell after other PATH setup.
-With the default OpenCodex home, run:
+在 macOS 與 Linux 上，請在完成其他 PATH 設定後，於目前的 shell 中啟用私有包裝器。
+使用預設 OpenCodex 家目錄時，請執行：
 
 ```sh
 . "$HOME/.opencodex/codex-shell-env.sh"
 ```
 
-With a custom `OPENCODEX_HOME`, use the quoted path printed by `ocx codex-shim install`.
-Add that source line after other PATH setup in your shell startup file to activate future shells.
-OpenCodex does not edit that file or change the parent shell. Legacy in-place Unix shims are not
-auto-migrated; run `ocx codex-shim install` explicitly to migrate them.
+使用自訂 `OPENCODEX_HOME` 時，請使用 `ocx codex-shim install` 印出的帶引號路徑。
+在 shell 啟動檔的其他 PATH 設定之後加入該 source 行，即可在未來開啟的 shell 中啟用。
+OpenCodex 不會編輯該檔案或變更父 shell。就地式的舊版 Unix shim 不會自動遷移；
+請明確執行 `ocx codex-shim install` 來遷移它們。
 
 中斷中的舊式 Unix 遷移可在升級 bigint 檔案身分後續做：journal 比對只容許微秒以內的
 時間轉換捨入差，仍檢查檔案身分、mode、size 與 symlink target。舊版可能拒絕含十進位
 字串身分的所有權紀錄；降版前請先完成復原。
 
-Use `ocx codex-shim status` to inspect it. On macOS and Linux, `ocx codex-shim uninstall`
-removes the private overlay files and leaves native Codex intact. Windows keeps in-place
-script wrappers; uninstall restores the saved launcher. See the
-[CLI lifecycle reference](/zh-tw/reference/cli/lifecycle/#ocx-codex-shim-installstatusuninstallremove).
+使用 `ocx codex-shim status` 可檢查其狀態。在 macOS 與 Linux 上，`ocx codex-shim uninstall`
+會移除私有覆蓋檔案並讓原生 Codex 保持完好。Windows 保留就地腳本包裝器；解除安裝會還原已儲存的啟動器。
+請見 [CLI 生命週期參考](/zh-tw/reference/cli/lifecycle/#ocx-codex-shim-installstatusuninstallremove)。
 
-## Experimental Windows desktop compatibility
+## 實驗性 Windows 桌面相容性
 
-**Codex Set → Desktop compatibility** provides local controls for a bounded compatibility
-trial while retaining the native Codex login. This is an experimental relay, not a guarantee
-that every Codex build or exhausted-account state can recover its composer.
+**Codex Set → Desktop compatibility** 提供受限相容性試用的本機控制項，同時保留原生 Codex 登入。
+這是一個實驗性中繼，不保證每個 Codex 組建或已耗盡帳號狀態都能恢復其輸入框。
 
-1. Inspect status, prepare the encrypted certificate and review its fingerprint before
-   registering trust. Windows may ask for confirmation. Trust applies to the current Windows
-   user and allows the local relay to handle `chatgpt.com` traffic.
-2. Start observation. Save drafts, close Codex, then use **Open Codex** in this panel to launch
-   the packaged app with the managed connection. The panel never forcibly closes an existing app.
-3. Only after eligible exhaustion is observed, **Run 3-minute trial** offers a separate account-wide
-   consent. It adjusts two UI flags across the signed-in account, not just the selected model.
-   Actual usage, credits, spending restrictions and server limits remain unchanged. A produced
-   response alone does not establish that the composer recovered.
+在獨立的本機儀表板上，請先在代理電腦上執行面板顯示的指令，例如
+`ocx gui pair --desktop --origin http://127.0.0.1:10100`，並貼上其一次性機密代碼。若 `ocx` 不可用，請先安裝 CLI。
+私密家目錄權限拒絕必須先解決才能核發代碼。單靠一般的配對代碼或已經配對的儀表板並不能授權 Desktop 動作。
+面板會在既有工作階段上將 Desktop 代碼交換為範圍權限，然後讀取 `/authorization` 加以驗證；
+它不會建立或取代瀏覽器工作階段。這會在該工作階段中授權 Desktop 動作最多五分鐘；不會變更 Remote Link 或金鑰揭露權限。
+API 契約請見 [Desktop 授權](/zh-tw/reference/management-api/#桌面授權)。
+不支援從 Hub 與已連線用戶端執行 Desktop 寫入。
+若授權不可用，請直接在代理電腦上透過 HTTP 連線已設定的 loopback 位址與連接埠使用獨立儀表板。
+若設定的 `hostname` 為 `localhost` 或例如 `0.0.0.0` 等非 loopback 位址，請在 [config.json](/zh-tw/reference/configuration/)
+中將其設為 `127.0.0.1` 或 `::1`、重新啟動代理，並重新開啟對應的位址與連接埠。其他狀況（包含轉發與不相符的連接埠或工作階段）
+也可能使授權不可用；單靠變更主機名稱無法解決這些情況。
+已記住的儀表板工作階段無法兌換 Desktop 授權。請在代理電腦上以私密瀏覽器視窗開啟相同的本機位址與連接埠、回到此面板，
+並在該處要求新代碼。過期或登出後，請重新載入本機儀表板並再次授權。面板會重新整理狀態、指紋與設定修訂版；
+請再次選取所需動作並確認同意。它絕不會重播先前的 POST。憑證過期或未知信任不會阻止這項本機 HTTP 授權；
+清理、續期、停止與關閉開機啟動仍需要它。
 
-An original response showing available usage or a protected state ends the trial immediately.
-Available credits or active Luna Reserve also leave the response unchanged and end the trial,
-even when ordinary usage is exhausted. This preserves the app's existing entitlement state.
-If eligible exhaustion appears again, another explicit trial is required; the earlier consent
-does not silently reactivate correction.
+1. 檢查狀態、準備加密憑證，並在註冊信任前檢視其指紋。Windows 可能會要求確認。
+   信任僅套用於目前的 Windows 使用者，並允許本機中繼處理 `chatgpt.com` 流量。
+2. 開始觀測。先儲存草稿、關閉 Codex，再使用此面板中的 **Open Codex** 以受管連線啟動封裝應用程式。
+   面板絕不會強制關閉既有的應用程式。
+3. 只有在觀測到符合資格的耗盡狀態後，**Run 3-minute trial** 才會提供另一項全帳號範圍的同意。
+   它會調整已登入帳號的兩個介面旗標，而非僅針對所選模型。實際用量、點數、花費限制與伺服器上限維持不變。
+   單靠產出回應並不能確立輸入框已恢復。
 
-**Return to observation** disarms correction. The three-minute limit bounds response correction,
-not the time until Codex refreshes its display. Expiry and returning to observation request a
-fresh usage response; the app may retain its previous display until that response arrives.
-The panel shows this limitation before trial consent and while awaiting the original response;
-it cannot confirm the app's cache refresh. **Stop service** closes its connections and leaves
-the certificate for reuse; active connections may be interrupted. For renewal or trust removal,
-stop the service and close Codex first. Renewal prepares a new untrusted certificate; review the
-new fingerprint before registering it. An uncertain action is not automatically retried.
-Certificates are restricted to TLS server authentication. If status shows `renewal-required`,
-stop the service and close Codex, then renew the older certificate before starting again.
-The native API URL must match the proxy's actual listener address and port. IPv4 and IPv6
-loopback addresses are not interchangeable here; ambiguous `localhost` aliases are refused.
-Codex's automatic MCP connection refresh and configuration formatting do not invalidate
-observation. Model, authentication, profile and routing changes still require a fresh
-observation context; the service does not silently adopt those changes during a trial.
+顯示仍有可用用量或受保護狀態的原始回應會立即結束試用。可用點數或作用中的 Luna Reserve 也會讓回應保持不變並結束試用，
+即使一般用量已耗盡亦同。這會保留應用程式既有的權益狀態。若之後再次出現符合資格的耗盡狀態，必須再次取得明確試用同意；
+先前的同意不會靜默重新啟用修正。
 
-The service preserves its PAC address and local connection ports for reuse after a restart.
-With the same trusted certificate, an already configured app can reconnect through its cached
-PAC; restarting the service never resumes a correction trial. If a saved port cannot be bound
-or connection metadata is invalid, startup refuses rather than silently assigning another
-address. The first successful start owns `codex-desktop-compatibility/connection.json` under
-the OpenCodex home. Do not delete that file as a routine restart fix: a different address
-requires launching the app with a fresh managed connection.
+**Return to observation** 會解除修正。三分鐘上限限制的是回應修正，而非 Codex 重新整理其顯示畫面所需的時間。
+到期與返回觀測都會請求一次全新的用量回應；在該回應抵達前，應用程式可能保留先前的顯示畫面。
+面板會在試用同意前以及等待原始回應期間顯示這項限制；它無法確認應用程式的快取重新整理。
+**Stop service** 會關閉其連線並保留憑證供重用；進行中的連線可能會中斷。若要續期或移除信任，
+請先停止服務並關閉 Codex。續期會準備一張新的未受信任憑證；註冊前請先檢視新指紋。不確定的動作不會自動重試。
+憑證僅限用於 TLS 伺服器認證。若狀態顯示 `renewal-required`，請停止服務並關閉 Codex，再於重新啟動前續期舊憑證。
+原生 API URL 必須符合代理實際的監聽位址與連接埠。IPv4 與 IPv6 loopback 位址在此不可互換；模糊的 `localhost` 別名會被拒絕。
+Codex 自動的 MCP 連線重新整理與設定格式化不會使觀測失效。模型、認證、設定檔與路由變更仍需要新的觀測脈絡；
+服務不會在試用期間靜默採用這些變更。
 
-Current support is limited to the assessed Windows build `26.924.2738.0`, native file-based
-login. HTTP/HTTPS proxies and authenticated SOCKS5 proxies are supported through the shared
-outbound policy; NO_PROXY can explicitly select a direct route. Failed proxy connections do not
-fall back to direct egress. OpenCodex managed client mode is not yet supported by these controls.
-For this desktop relay, HTTP(S) `ALL_PROXY` also applies when `HTTPS_PROXY` is unset. An invalid
-`HTTPS_PROXY` refuses the operation instead of falling back to `ALL_PROXY`.
-Unknown app builds refuse correction; the integration does not patch application files or
-switch to login-free mode.
-The native root config and its selected profile must route `openai_base_url` to this process's
-actual local data listener. A different provider, destination or unsupported override refuses
-observation startup. This check does not determine a conversation's selected model or prove
-that project-local overrides are absent. If routing or the installed app build changes during
-a trial, correction is refused before the next usage response; periodic checks also return
-an idle trial to observation. Original responses and other app traffic continue to relay.
-Native login-file replacement or token rotation also invalidates the trial, even when the
-same account returns. Stop and start observation to bind the current login before another
-explicit trial; old responses cannot authorize the replacement session.
-Changes to the root Codex config (except its MCP server table and formatting), provider configuration, model aliases, routing profiles,
-fallback, compaction or memory-model routes also invalidate the observation context. Restoring the previous
-settings does not restore its consent: stop and start observation, then confirm a new trial
-when eligible. This detects changes to those configured routes, not which model a conversation
-actually selects; an unchanged mixed-provider configuration is not proof of provider isolation.
+服務會保留其 PAC 位址與本機連線連接埠，以便在重新啟動後重用。使用同一張受信任憑證，
+已設定的應用程式可以透過快取的 PAC 重新連線；重新啟動服務絕不會恢復修正試用。若儲存的連接埠無法繫結或連線中繼資料無效，
+啟動會拒絕，而不會靜默指派另一個位址。首次成功啟動會在 OpenCodex 家目錄下擁有
+`codex-desktop-compatibility/connection.json`。不要把刪除該檔案當作例行重啟修復方式：不同的位址需要使用新的受管連線重新啟動應用程式。
 
-After certificate preparation and a successful manual start, enable **Resume observation when
-OpenCodex starts** in the same panel. The optional OpenCodex configuration
-`"desktopCompatibility": { "startOnProxyStart": true }` resumes **observation only** when the model
-proxy starts. Omission or `false` disables this automatic start. It reuses the saved endpoints
-and trusted certificate, never launches Codex or enrolls trust, and never resumes an Apply trial.
-Automatic observation waits for startup configuration sync to finish. Failed sync or a wait
-longer than two minutes leaves observation off; inspect its status and start it manually after
-resolving the startup problem. The model proxy continues to follow its own readiness policy.
-If prerequisites are missing, observation stays off and the model proxy continues running.
-Saving this preference does not start or stop the current service. Use its separate service
-controls for immediate changes. If a save cannot be confirmed, refresh its status before retrying.
+目前支援僅限於經過評估的 Windows 組建 `26.924.2738.0` 及原生檔案登入。透過共用的對外政策支援 HTTP/HTTPS 代理與已認證的 SOCKS5 代理；
+`NO_PROXY` 可明確選取直連路由。失敗的代理連線不會退回直接對外連線。這些控制項尚未支援 OpenCodex 受管用戶端模式。
+對此桌面中繼而言，當 `HTTPS_PROXY` 未設定時，HTTP(S) `ALL_PROXY` 也適用。無效的 `HTTPS_PROXY` 會拒絕操作，而不會退回 `ALL_PROXY`。
+未知的應用程式組建會拒絕修正；整合不會修補應用程式檔案，也不會切換為無登入模式。
+原生根設定及其選定的設定檔必須將 `openai_base_url` 路由至此程序實際的本機資料監聽器。不同的供應商、目的地或不支援的覆寫會拒絕觀測啟動。
+此檢查不會判斷對話選取的模型，也不會證明沒有專案層級覆寫。若試用期間路由或已安裝的應用程式組建發生變更，
+修正會在下一個用量回應前被拒絕；定期檢查也會將閒置試用退回觀測模式。原始回應與其他應用程式流量會繼續中繼。
+原生登入檔案替換或 token 輪替也會使試用失效，即使回到同一個帳號亦同。請先停止並重新啟動觀測以繫結目前登入，再執行另一次明確試用；
+舊的回應無法授權替換後的工作階段。
+對根 Codex 設定（其 MCP 伺服器表與格式除外）、供應商設定、模型別名、路由設定檔、後備、壓縮或記憶模型路由的變更，也會使觀測脈絡失效。
+還原先前的設定不會恢復其同意：請停止並啟動觀測，然後在符合條件時確認新的試用。這偵測的是那些已設定路由的變更，而非對話實際選取的模型；
+未變更的混合供應商設定並不能證明供應商隔離。
 
-A running service does not establish that Codex is connected through it. A normal app launch or
-an app updater can omit the managed connection argument. Save drafts, close Codex, then use
-**Open Codex** in this panel to restore that connection. This control never closes the app for you.
-After a Codex update, an unassessed app version refuses correction until its compatibility is
-reviewed; reinstalling the certificate does not make an unassessed build supported.
+在準備憑證並成功手動啟動之後，可在同一面板啟用 **Resume observation when OpenCodex starts**。
+選用的 OpenCodex 設定 `"desktopCompatibility": { "startOnProxyStart": true }` 會在模型代理啟動時恢復**僅限觀測**。
+省略或 `false` 會停用此自動啟動。它會重用已儲存的端點與受信任憑證，絕不會啟動 Codex 或註冊信任，也絕不會恢復套用試用。
+自動觀測會等待啟動設定同步完成。同步失敗或等待超過兩分鐘會讓觀測保持關閉；請在解決啟動問題後檢查其狀態並手動啟動。
+模型代理仍會依循其自身的就緒政策。若缺少先決條件，觀測會保持關閉，而模型代理繼續執行。
+儲存此偏好不會啟動或停止目前的服務。如需立即變更，請使用其獨立的服務控制項。若儲存無法確認，請在重試前先重新整理其狀態。
 
-The panel can also report the last completed build check as diagnostic metadata: the package
-version this build was assessed against, the package version observed at that check, whether
-they matched, and when the check finished. It is a past observation, not a live reading of the
-installed package. After the service stops, the app updates, or a check is still running or was
-interrupted, it can lag the actual installation; only a completed probe refreshes it, and a
-`verified` result describes the package observed at that check, not whatever is installed now.
+執行中的服務並不代表 Codex 已經透過它連線。一般的應用程式啟動或應用程式更新程式可能會省略受管連線引數。
+請儲存草稿、關閉 Codex，再使用此面板中的 **Open Codex** 還原該連線。此控制項絕不會替你關閉應用程式。
+Codex 更新之後，未經評估的應用程式版本在審查其相容性之前會拒絕修正；重新安裝憑證不會讓未經評估的組建變成受支援。
 
-On Windows, an explicit OpenCodex full-app restart preserves an already active loopback
-compatibility PAC argument only when the current OpenCodex process owns the serving compatibility
-runtime. A stale or foreign endpoint is refused before stopping Codex; replacement of the runtime
-during restart also prevents managed relaunch. The app launches through Windows package activation. It checks the
-package identity and routing argument after launch; unreadable or conflicting main-app routing arguments cause
-a refusal before the restart. This does not enable a compatibility mode, install a certificate,
-or watch and restart the app automatically. Normal launches without that routing argument keep
-their existing behavior.
+面板也可以將上一次已完成的組建檢查回報為診斷中繼資料：此組建當初對照評估的套件版本、該次檢查觀測到的套件版本、
+兩者是否相符，以及檢查何時完成。這是過去的觀測紀錄，而不是對已安裝套件的即時讀數。服務停止、應用程式更新，或檢查仍在進行／曾中斷後，
+它可能落後於實際安裝；只有已完成的探測才會重新整理它，且 `verified` 結果描述的是該次檢查時觀測到的套件，而非現在安裝的任何版本。
 
-### Transport coverage and recovery evidence
+在 Windows 上，只有當目前的 OpenCodex 程序擁有服務中的相容性執行期時，明確的 OpenCodex 完整應用程式重啟才會保留已經啟用的 loopback 相容性 PAC 引數。
+過期或外來的端點會在停止 Codex 之前被拒絕；重啟期間執行期被替換也會阻止受管重新啟動。應用程式會透過 Windows 套件啟用啟動。
+它會在啟動後檢查套件身分與路由引數；無法讀取或衝突的主應用程式路由引數會在重啟前引發拒絕。這不會啟用相容模式、安裝憑證，或自動監看並重啟應用程式。
+不帶該路由引數的正常啟動維持既有行為。
 
-The compatibility panel reports identity-checked JSON/SSE usage responses and currently
-bound streams separately from open connections. These are lifetime relay observations,
-including requests made by diagnostic clients. They do not identify the sending native
-process, prove that the app updated its authoritative cache, or prove composer recovery.
-No request body, token, account ID or source IP is added to this diagnostic status.
+### 傳輸涵蓋範圍與復原證據
 
-[Issue #6196](https://github.com/lidge-jun/opencodex/issues/6196) reports a macOS build whose
-authoritative gate requests originate in the bundled Rust app-server and bypass Chromium
-PAC settings. A healthy PAC, certificate or synthetic request cannot establish coverage
-of that transport. This Windows experiment is not a fix for that macOS design blocker.
+相容性面板將經過身分檢查的 JSON/SSE 用量回應與目前繫結的串流，與開啟中的連線分開回報。這些是整個生命週期的中繼觀測值，
+包含診斷用戶端發出的請求。它們不會識別送出的原生程序、證明應用程式更新了其權威快取，或證明輸入框已恢復。
+此診斷狀態不會加入任何請求主體、token、帳號 ID 或來源 IP。
 
-Before adding another platform or transport, document and validate this sequence:
+[Issue #6196](https://github.com/lidge-jun/opencodex/issues/6196) 回報了一個 macOS 組建，其權威閘門請求源自內建的 Rust app-server，
+並繞過 Chromium PAC 設定。健康的 PAC、憑證或合成請求無法建立對該傳輸的涵蓋。這項 Windows 實驗不是該 macOS 設計阻礙的修復方案。
 
-1. Identify the actual process and transport that sends each authoritative gate request.
-2. Prove that an app-origin request reaches the intended relay, separately from test clients.
-3. Verify the response schema and the app's cache/update path for the exact installed build.
-4. On natural account exhaustion, verify original-composer submission, independent-provider
-   completion, and preservation of sign-in, Chat, existing threads and remote connections.
-5. Verify shutdown, ordinary launch, restart and update behavior; do not infer one from another.
+在新增其他平台或傳輸之前，請先記錄並驗證以下順序：
 
-The present policy handles only `/backend-api/wham/usage` and its `/stream` endpoint.
-Conversation initialization and other endpoints, including their `blocked_features` and
-`limits_progress`, pass unchanged. Their presence is not permission to clear them: they may
-represent unrelated restrictions. The Windows build's renderer-to-Electron fetch path does
-not establish the network path of a different OS/build or every app-server RPC. App-server
-routing requires its own reviewed design; changing model-provider URLs alone is not proof
-that account, login or remote-control traffic follows the same route. No automatic app-server
-wrapper, global proxy change or login rewrite is installed by these controls.
+1. 識別送出每筆權威閘門請求的實際程序與傳輸。
+2. 與測試用戶端分開，證明來自應用程式本身的請求能抵達預期的中繼。
+3. 針對確切的已安裝組建，驗證回應綱要與應用程式的快取／更新路徑。
+4. 在自然的帳號耗盡情況下，驗證原始輸入框送出、獨立供應商完成回應，以及登入、Chat、既有對話串與遠端連線的保留。
+5. 驗證關機、一般啟動、重啟與更新行為；不可從其中一項推論另一項。
+
+目前政策只處理 `/backend-api/wham/usage` 與其 `/stream` 端點。對話初始化與其他端點（包含其 `blocked_features` 與 `limits_progress`）會原樣通過。
+它們的存在並不代表有權限清除它們：它們可能代表無關的限制。Windows 組建的 renderer-to-Electron fetch 路徑並不能確立不同作業系統／組建或每個 app-server RPC 的網路路徑。
+App-server 路由需要自己經過審查的設計；單靠變更模型供應商 URL 並不能證明帳號、登入或遠端控制流量走同一條路由。這些控制項不會安裝任何自動 app-server 包裝器、全域代理變更或登入改寫。
 
 ## Codex 保留模式下的路由模型
+
+Codex Pool 可選擇在選取的 5 小時或週用量門檻保護已儲存的池帳號。Desktop／主帳號保留其獨立的 98% 硬鎖定。
+在設定中設定 `codexPool.lowQuotaProtection` 以暫停帳號、記錄日誌與 API 警示，或兩者皆做；見[路由設定](/zh-tw/reference/configuration/routing/#codex-pool-低額度保護)。
+暫停會立即對下一次選取生效，而寫入磁碟則會延後。池配額回應只有伴隨有效用量與仍然有效的擷取憑證時，才能授權暫停。
+沒有該證明的回應可能會重新整理顯示的用量而不會暫停帳號。請檢查此伺服器經認證的 `GET /api/codex-auth/low-quota-events` 歷史紀錄，
+以查看 `logged` 警示或儲存失敗。手動恢復在目前的配額事件期間維持有效。預設警示只會抵達日誌與 API。
+加入 `actions.desktop: true` 也可以在執行代理的機器上顯示 macOS 或 Linux 通知；Windows 維持僅記錄日誌。
 
 當 ChatGPT 的 5 小時配額耗盡時，Codex 可能會提供一個保留後備模型（`gpt-reserve` / Luna Reserve）。
 在那個狀態生效期間，Codex 模型選擇器可能會讓**每一個其他項目都無法選取——包括 opencodex 路由過的
@@ -957,6 +981,16 @@ wrapper, global proxy change or login rewrite is installed by these controls.
 
 5 小時視窗重設後，正常的選擇器行為就會恢復。
 
+**在該狀態生效期間，代理會如何回應。** 一旦應用程式將選擇器收攏，它便會送出 `gpt-reserve`，而沒有啟用
+[免登入 Codex Desktop（選擇加入）](#免登入-codex-desktop選擇加入)時，opencodex 並沒有可隨之送出的 Reserve 權益。
+過去該請求會被當作一般原生模型轉發，並從上游收到 `The usage limit has been reached`，既沒有指出真正的原因，
+也沒有指出會改變它的設定。現在它會在本機以 HTTP 400 拒絕，說明 `codexDesktopAuthless` 已關閉，並給出將其開啟的指令
+（`ocx system settings --desktop-authless on`）。不會有任何請求送往上游，也不會消耗任何配額。
+
+這項拒絕刻意保持狹窄範圍。它只適用於原本會抵達標準 ChatGPT forward 路由的 loopback 准入請求上的 `gpt-reserve`。
+由操作者建立別名或路由到另一個供應商上的 `gpt-reserve` 選擇器仍可正常運作，從非 loopback 監聽器准入的請求仍會轉發，
+而以 `client` 執行期角色執行的代理也不受影響。啟用該選擇加入設定會恢復正常的 Reserve 路徑，而非這項拒絕。
+
 ## Subagent 選擇器
 
 目錄同步會讓選定的 sub-agent 模型可供 Codex 使用；picker 排序請參見
@@ -965,24 +999,33 @@ wrapper, global proxy change or login rewrite is installed by these controls.
 
 ## Codex 帳號預熱
 
-新增或重新驗證帳號時，通常會在儲存前傳送小型模型請求並等待 `response.completed`。預設使用 `gpt-5.6-luna`，HTTP 400 或 HTTP 404 時改用 `gpt-5.5` 重試。公開錯誤僅包含固定分類，不包含原始回應本文。
+新增或重新驗證 ChatGPT 帳號時，OpenCodex 通常會在儲存前對 Codex Responses 後端傳送小型串流請求進行驗證。它會等待 `response.completed`，預設使用 `gpt-5.6-luna`，HTTP 400 或 HTTP 404 時改用 `gpt-5.5` 重試。公開錯誤僅包含固定分類，不包含原始回應本文。
 
-若新 OAuth 憑證的已驗證用量查詢確認5小時、每週或每月額度耗盡，則不呼叫模型而直接儲存帳號，顯示**等待驗證**。重新啟動或更新權杖也不會使其可用。額度恢復後重新整理額度：只有完整的最新用量顯示有餘額，才會傳送小型驗證請求；請求完成後帳號才可用於路由。查詢或驗證失敗將保留等待狀態。一般狀態輪詢不會傳送該請求。首次註冊時用量未知仍需一般預熱驗證。
+嘗試預熱時若收到 HTTP 429，會回報為 `codex_warmup_rate_limited`。請在暫時限制解除或用量上限重設後重試；重新登入不會重設這些上限。失敗的預熱嘗試不會新增帳號，也不會取代既有憑證。這與下方依配額確認的延後註冊不同——後者可在不送出模型請求的情況下儲存受限帳號。HTTP 401/403 失敗保留原有的認證指引。
 
-`ocx account refresh openai` 和 `ocx account list openai --quota --refresh` 僅查詢用量。模型驗證會消耗配額，因此需要使用者的儀表板工作階段：配額恢復後，開啟 `ocx gui` 並點選 **Refresh quotas**。無介面主機也需要透過瀏覽器存取其儀表板；僅憑管理員權杖無法授權驗證。暫停的帳號可以完成驗證，但不會因此恢復或被選取。模型授權錯誤會持續顯示，直到驗證或重新登入成功。
+若新 OAuth 憑證的已驗證用量查詢確認5小時、每週或每月額度耗盡，則不呼叫模型而直接儲存帳號，顯示**等待驗證**。即使重啟或重新整理權杖，它也無法處理池請求。額度恢復後，**Refresh quotas** 會完成驗證：帶有餘裕的新鮮完整用量讀數允許一次小型模型請求，且只有已完成的回應才會啟用該帳號。失敗或不完整的讀數以及失敗的驗證會保留該限制。被動帳號輪詢不會觸發延後驗證。首次註冊時用量未知仍保留一般預熱閘門。
 
-在 **Codex Set → Multi-auth** 中，開啟 **Codex Auth** 標題列中的 **Codex 額度** 開關，即可在 Week 下方顯示主帳號和各池帳號最近查詢到的點數。預設關閉，並儲存為 `showCodexCredits`。餘額按地區格式顯示；上游回報時會顯示無限額或超額使用上限警告。由於沒有點數總上限，長條表示可用狀態而非百分比。此開關僅控制顯示，新登入需等待其自身的查詢結果。
+`ocx account refresh openai` 和 `ocx account list openai --quota --refresh` 僅查詢用量。模型驗證會消耗配額，因此需要人類使用者的儀表板工作階段：配額恢復後，開啟 `ocx gui` 並點選 **Refresh quotas**。無介面主機也需要透過瀏覽器存取其儀表板；僅憑管理員權杖無法授權驗證。暫停的帳號可以完成驗證，但不會因此恢復或被選取。模型授權錯誤會持續顯示，直到驗證或重新登入成功。
 
-背景重新驗證是獨立功能，預設關閉。它需要 Token Guardian、`openai` 的 `proactive` 更新政策及 `tokenGuardian.codexWarmupEnabled`，並略過等待註冊驗證的帳號。
+在 **Codex Set → Multi-auth** 中，開啟 **Codex Auth** 標題列中的 **Codex credits** 開關，即可在 Week 下方顯示主帳號和各池帳號最近查詢到的點數。預設關閉，並儲存為 `showCodexCredits`。餘額按地區格式顯示；上游回報時會顯示無限額或超額使用上限警告。由於沒有點數總上限，長條表示可用狀態而非百分比。此開關僅控制顯示，新登入需等待其自身的查詢結果。
 
-### After a ChatGPT plan upgrade
+當帳號在某個用量視窗達到 100% 且仍持有點數時，上游仍會繼續服務它並扣除餘額。OpenCodex 預設不允許這種情況發生：當帳號的週或月視窗（30 天方案僅有月視窗）或 5 小時視窗已滿時，該帳號會被切換出去，直到該視窗重設後才再次使用。其他帳號的順序不會改變，且當沒有其他帳號可用時，選取會回報找不到帳號，而不會消耗點數。針對主帳號的請求會如同硬鎖定拒絕一樣被拒絕，直到重設為止。沒有重設時間的滿額 5 小時視窗只會在該讀數仍新鮮時保留該帳號。允許主帳號消耗點數不會解除其硬鎖定（預設在 98% 開啟），它仍會先擋下主帳號；若要讓主帳號消耗點數，請關閉該鎖定（100% 的鎖定仍會在 100% 時擋下它）。若要讓帳號繼續使用其點數運作，請開啟 Codex Auth 標題列中 **Codex credits** 開關旁的 **Use credits**。該開關會允許所有帳號。若要逐一選擇帳號，請開啟帳號卡片的 **⋯** 選單並使用其中的 **Use credits after limit**；當僅部分帳號開啟時，標題列開關會顯示中間狀態。被允許消費的帳號會在卡片上顯示 **Uses credits** 徽章。新帳號預設關閉。該選擇儲存在 `creditCodexAccountIds` 中，且絕不會兌換重設贈點；**Codex credits** 顯示開關只顯示餘額，絕不會改變路由。
 
-Refresh the main account's quota in Codex Auth after changing your ChatGPT plan. When the
-authenticated usage response confirms a long window has replaced the five-hour window,
-opencodex removes the old five-hour reading from both request admission and account selection.
-An allowed response with primary and secondary windows can omit the optional tertiary window.
-This recovery uses your included plan allowance and does not require enabling **Use credits**.
-Partial or invalid usage data retains the previous block until recovery is confirmed.
+對於已選擇加入、未暫停且內含用量視窗已滿的主帳號，背景復原週期會從年齡滿三分鐘起更新可花費點數的觀測，即使儀表板已關閉亦同。它會在進行已認證的用量查詢之前先準備有效權杖，使餘額能在五分鐘的新鮮度上限之前再度被觀測到。缺失、為零、受限或被撤回的點數，會讓帳號在既有的重試退避下保持符合復原查詢資格。請求會保持被拒絕，直到觀測到新鮮的正餘額或無限制點數；單靠 `has_credits` 或近似訊息計數並不能證明可花費餘額。在同意開啟的情況下，這種點數證據拒絕的 `Retry-After` 至多為五分鐘，或較早到來的內含配額重設時間；沒有同意時則仍依循內含配額重設時間。失敗或不完整的查詢不會刷新舊的餘額證據。獨立的主帳號硬鎖定、需重新認證隔離與上游重試延遲依然適用。這項中繼資料查詢不會送出模型驗證請求，也不會設定或清除帳號的需重新認證狀態。
+
+對於已選擇加入且未暫停的主帳號，若其 5 小時或週視窗達到或超過預設門檻，背景復原會在冷卻後檢查用量；對於已啟用 **Use credits after limit** 的已儲存帳號，一旦內含用量視窗耗盡且點數觀測至少滿三分鐘，背景週期也會更新其點數證據。背景重新驗證是獨立功能，預設關閉。它需要 Token Guardian、`openai` 的 `proactive` 更新政策及 `tokenGuardian.codexWarmupEnabled`，並略過等待註冊驗證的帳號。
+
+### ChatGPT 方案升級之後
+
+變更 ChatGPT 方案後，請在 Codex Auth 中重新整理主帳號的配額。當已認證的用量回應確認長視窗已取代五小時視窗時，
+opencodex 會同時從請求准入與帳號選取中移除舊的五小時讀數。帶有主要與次要視窗的允許回應可以省略選用的第三視窗。
+這項復原使用你的方案內含額度，不需要啟用 **Use credits**。
+部分或無效的用量資料會保留先前的封鎖，直到復原獲得確認。
+
+已啟用 **Use credits after limit** 的儲存帳號，一旦內含用量視窗耗盡且點數觀測至少滿三分鐘，就會在既有的背景週期上更新其點數證據。
+在 **Direct** 模式下，這也涵蓋明確綁定在 `codexAccountNamespaces` 中的已儲存帳號（例如子帳號選擇器）。你可以保留 Direct 模式並區分主／子身分；
+這不會啟用 Pool 路由，也不會重新整理未綁定的帳號。已暫停與需要重新認證的帳號會被略過。中繼資料讀取不會驗證待處理帳號或送出模型請求。
+失敗的讀取會保留退避，請求仍需要新鮮的可花費點數；一般回應的用量標頭不會更新點數餘額時間戳記。
 
 ### 取消主帳號裝置重新驗證
 
@@ -1082,11 +1125,15 @@ ocx restore back # point plain Codex at the running proxy again
 
 ## 分頁歷史記錄安全拒絕
 
-如果受影響的歷史儲存區支援分頁，提供者切換可能傳回 `history_paginated_requires_native_writer`。此原因不再拒絕寫入 Codex 設定、參考設定檔與模型目錄。`ocx sync` 與 `ocx start` 仍會寫入這些檔案並設定 `model_catalog_json`，因此 Codex 模型選擇器會繼續顯示所有經 OpenCodex 路由的模型。只有這一條原因會讓對話歷史的重新標記停手，因為分頁歷史序號由 Codex 自己的寫入器分配，重試也不會改變。無法讀取的狀態資料庫、身分已變的歷史檔案、未能執行的預檢等其他歷史預檢原因仍會拒絕整個切換並回復，因為那些情況以後可能成功。在此狀態下，OpenCodex 不會修改分頁歷史檔案或執行緒列。既有對話保留已標記的提供者，不會被遷移；新對話仍正常經代理路由。重新標記停手時，家目錄裡既有的 `[model_providers.opencodex]` 表會保留而不是撤下，即便是 root-override（loopback）形式也一樣，這樣列上標記為 `opencodex` 的對話仍能對應到還存在的提供者 id。可遷移儲存區中的 legacy 記錄也適用。CLI 會印出 `Codex resume history: left to Codex's native writer (history_paginated_requires_native_writer)`。`ocx restore`、`ocx stop` 與 `ocx uninstall` 不再因 `history_paginated_requires_native_writer` 被拒絕。它們會移除 OpenCodex 寫入的所有根路由鍵，並把 `[model_providers.opencodex]` 定義留在磁碟上，因此列上仍指向該提供者的對話依舊可以解析，而純 `codex` 不再指向代理。結果會回報為部分復原並列出保留的列；`ocx restore --remove-codex-provider-table` 會連這些列一併刪除，之後那些對話將無法開啟。另外，在 Codex 已把 `openai` 標記對話遷移為分頁歷史的家目錄上啟用提供者表形式的整合，過去會以 `history_paginated_openai_requires_native_writer` 整體拒絕：什麼都不寫，整合維持關閉。現在 OpenCodex 會保留受管的根 `openai_base_url` 覆寫，與 `[model_providers.opencodex]` 表並存，藉此完成這次切換。Codex 會把該覆寫合併到內建 `openai` 提供者上，所以那些對話無需重新標記即可繼續抵達代理，歷史檔案與執行緒列都不會被更動。只有需要 `x-opencodex-api-key` 准入標頭的路由形式仍會拒絕，因為 Codex 內建提供者無法攜帶該標頭；此時訊息會點名兩個可行設定——讓 Codex 走回送監聽器以便保留該覆寫，或把 `syncResumeHistory` 設為 `false`，接受那些對話轉向 Codex 自己的 OpenAI 端點。
+如果受影響的歷史儲存區支援分頁，提供者切換可能傳回 `history_paginated_requires_native_writer`。此原因不再拒絕寫入 Codex 設定、參考設定檔與模型目錄。`ocx sync` 與 `ocx start` 仍會寫入這些檔案並設定 `model_catalog_json`，因此 Codex 模型選擇器會繼續顯示所有經 OpenCodex 路由的模型。只有這一條原因會讓對話歷史的重新標記停手，因為分頁歷史序號由 Codex 自己的寫入器分配，重試也不會改變。無法讀取的狀態資料庫、身分已變的歷史檔案、未能執行的預檢等其他歷史預檢原因仍會拒絕整個切換並回復，因為那些情況以後可能成功。在此狀態下，OpenCodex 不會修改分頁歷史檔案或執行緒列。既有對話保留已標記的提供者，不會被遷移；新對話仍正常經代理路由。重新標記停手時，家目錄裡既有的 `[model_providers.opencodex]` 表會保留而不是撤下，即便是 root-override（loopback）形式也一樣，這樣列上標記為 `opencodex` 的對話仍能對應到還存在的提供者 id。可遷移儲存區中的 legacy 記錄也適用。CLI 會印出 `Codex resume history: left to Codex's native writer (history_paginated_requires_native_writer)`。
 
 返回根 URL 覆寫模式時，即使歷史預檢通過，OpenCodex 也會在提交設定前保留既有的 `[model_providers.opencodex]` 定義。如此一來，即使 Codex 在提交後或背景歷史工作啟動時遷移歷史格式，舊的 `opencodex` 對話仍能找到其提供者。新對話繼續使用所選的根提供者；明確要求的還原仍執行原有的獨立刪除檢查。
 
-請勿改寫使用中的分頁歷史檔案或執行緒列來自行遷移這些對話。復原前關閉相關對話，只回報確切錯誤與版本，不要公開私人歷史。備份或指令碼成功不能證明顯示已復原；重新開啟 Codex 後確認對話。
+`ocx restore`、`ocx stop` 與 `ocx uninstall` 不再因 `history_paginated_requires_native_writer` 被拒絕。它們會移除 OpenCodex 寫入的所有根路由鍵，並把 `[model_providers.opencodex]` 定義留在磁碟上，因此列上仍指向該提供者的對話依舊可以解析，而純 `codex` 不再指向代理。結果會回報為部分復原並列出保留的列；`ocx restore --remove-codex-provider-table` 會連這些列一併刪除，之後那些對話將無法開啟。
+
+另外，在 Codex 已把 `openai` 標記對話遷移為分頁歷史的家目錄上啟用提供者表形式的整合，過去會以 `history_paginated_openai_requires_native_writer` 整體拒絕：什麼都不寫，整合維持關閉。現在 OpenCodex 會保留受管的根 `openai_base_url` 覆寫，與 `[model_providers.opencodex]` 表並存，藉此完成這次切換。Codex 會把該覆寫合併到內建 `openai` 提供者上，所以那些對話無需重新標記即可繼續抵達代理，歷史檔案與執行緒列都不會被更動。只有需要 `x-opencodex-api-key` 准入標頭的路由形式仍會拒絕，因為 Codex 內建提供者無法攜帶該標頭；此時訊息會點名兩個可行設定——讓 Codex 走回送監聽器以便保留該覆寫，或把 `syncResumeHistory` 設為 `false`，接受那些對話轉向 Codex 自己的 OpenAI 端點。
+
+Codex 0.166 及更新版本只會在建立對話時所使用的供應商底下恢復或列出該對話（`This chat uses openai, but your current provider is opencodex`），因此一旦預設供應商變更，保留下來的覆寫便不再能讓那些對話維持可及。當 OpenCodex 知道所選的 Codex 為 0.166 或更新版本（透過執行期檢查或已儲存的選取）並發現此類對話時，它會以 `history_paginated_openai_provider_locked` 拒絕提供者表切換且不寫入任何內容。訊息會指名解決方式：將 `codexDesktopAuthless` 與 `codexClientCompaction` 維持關閉以保持這些對話可恢復，或將 `syncResumeHistory` 設為 `false` 以無論如何仍進行切換並接受它們留在 `openai` 供應商上。OpenCodex 不會替它們重新貼標籤。當 Codex 版本未知時，切換仍依先前做法保留覆寫。
 
 ### 遠端對話串列表的供應商過濾
 
@@ -1316,55 +1363,44 @@ exit 1，而無效引數或缺少憑證則 exit 2。這是一個**線路診斷**
 
 共用的 SSE 解碼器接受 LF、CRLF 與單獨的 CR 換行符號，即使分隔符跨越網路 chunk 也一樣。這讓相容的供應商可以串流事件，而不需要只用 LF 的分框。
 
-### Account-qualified requests and credits
+### 帳號限定請求與點數
 
-Choosing an account-qualified model does not enable credit spending. Stored accounts obey **Use credits after limit** during authentication, when credentials are prepared, and before Responses HTTP or WebSocket dispatch after pacing or retry waits. A held request reports the credit policy, not an authentication failure; wait for the reset, choose another account, or explicitly enable that account’s credit spending.
+選用帳號限定模型並不會啟用點數消費。已儲存帳號在認證、準備憑證期間，以及在節流或重試等待之後進行 Responses HTTP 或 WebSocket 派送之前，
+皆遵守 **Use credits after limit**。被保留的請求會回報點數政策，而非認證失敗；請等待重設、選擇另一個帳號，或明確啟用該帳號的點數消費。
 
-Stored-account vision and web-search helpers also recheck this policy before sending, including retries. If consent changes or a limit is reached after helper selection, the helper reports the policy refusal without sending that attempt. The standalone search relay returns a reset-bound 429. Caller-owned Direct credentials retain their existing behavior.
+已儲存帳號的視覺與網頁搜尋輔助工具在送出前（含重試）也會重新檢查此政策。若同意狀態變更或在選取輔助工具後達到上限，
+輔助工具會回報政策拒絕而不送出該次嘗試。獨立的搜尋中繼會回傳受重設時間限制的 429。呼叫端自有的 Direct 憑證保留既有行為。
 
-## Opt in a custom provider to managed local routing
+## 將自訂供應商選擇加入受管本機路由
 
-A custom provider such as `chatgpt-http` may use `supports_websockets = false`
-to keep HTTP transport. OpenCodex leaves custom providers untouched by default.
-To delegate only that provider's URL to OpenCodex, run:
+例如 `chatgpt-http` 的自訂供應商可以使用 `supports_websockets = false` 來維持 HTTP 傳輸。
+OpenCodex 預設不會更動自訂供應商。若只要將該供應商的 URL 委派給 OpenCodex，請執行：
 
 ```sh
 ocx codex-provider allow chatgpt-http
 ocx start
 ```
 
-The first command explains the scope and asks for confirmation, defaulting to No.
-For an explicitly approved scripted operation, use `allow chatgpt-http --yes`.
-Consent applies to this provider ID in the selected `CODEX_HOME`; it does not
-approve other providers or other homes. Start and sync update only its `base_url`
-to the local proxy. Its identity, WebSocket setting, other TOML fields and history
-remain unchanged. Keep the proxy running while using this route.
-Turning the Codex integration OFF also prevents approved-provider URL updates on
-start or sync; the saved provider consent remains available when you turn it back on.
+第一個指令會說明範圍並要求確認，預設為 No。對於已明確核准的腳本化操作，請使用 `allow chatgpt-http --yes`。
+同意適用於所選 `CODEX_HOME` 中的該供應商 ID；它不會核准其他供應商或其他家目錄。
+啟動與同步只會將其 `base_url` 更新為本機代理。其身分、WebSocket 設定、其他 TOML 欄位與歷史紀錄皆維持不變。
+使用此路由時請讓代理保持執行。將 Codex 整合關閉也會阻止在啟動或同步時更新已核准供應商的 URL；
+當你重新開啟它時，已儲存的供應商同意仍維持可用。
 
-This mode supports explicit Responses provider tables with `requires_openai_auth = true`
-and no custom credentials or headers. Non-loopback targets, authless Desktop mode
-and client compaction require the existing dedicated integration instead.
+此模式支援帶有 `requires_openai_auth = true` 且無自訂憑證或標頭的明確 Responses 供應商資料表。
+非 loopback 目標、免登入 Desktop 模式與用戶端側壓縮則需改用既有的專用整合。
 
-`ocx stop` and `ocx restore` restore recorded URLs while keeping consent for a later
-start. Run `ocx codex-provider status` to list approvals, or
-`ocx codex-provider revoke chatgpt-http` to restore its managed URL and remove consent.
-A URL changed outside OpenCodex is preserved and requires revoke followed by a new
-approval; OpenCodex does not silently adopt the replacement as a new baseline.
-The original URL assignment is retained in private recovery metadata under
-`OPENCODEX_HOME`, separately from the native config journal.
+`ocx stop` 與 `ocx restore` 會還原已記錄的 URL，同時保留同意以供之後啟動使用。執行 `ocx codex-provider status`
+可列出已核准項目，或執行 `ocx codex-provider revoke chatgpt-http` 還原其受管 URL 並移除同意。
+在 OpenCodex 之外變更過的 URL 會被保留，且需要撤銷後再重新核准；OpenCodex 不會靜默將替換後的值採納為新基準。
+原始 URL 指派會保留在 `OPENCODEX_HOME` 下的私有復原中繼資料中，與原生設定日誌分開。
 
-Startup safety recognizes an approved provider's recorded managed URL as OpenCodex routing.
-This does not install restart protection: a manually started proxy still needs a viable
-background service to recover automatically after a restart.
+啟動安全檢查會將已核准供應商已記錄的受管 URL 辨識為 OpenCodex 路由。這不會安裝重啟保護：
+手動啟動的代理仍需要可用的背景服務，才能在重啟後自動恢復。
 
-## Native Desktop relay CONNECT validation
+## 原生 Desktop 中繼 CONNECT 驗證
 
-The Desktop relay's existing HTTP/HTTPS CONNECT transport now rejects malformed
-proxy response headers and ambiguous HTTP Basic usernames containing colons.
-Decoded credential pairs are limited to 4096 UTF-8 bytes. If your selected proxy
-is rejected, correct its configuration or response; the relay does not silently
-switch to a direct connection.
+Desktop 中繼既有的 HTTP/HTTPS CONNECT 傳輸現在會拒絕格式錯誤的代理回應標頭，以及包含冒號的模糊 HTTP Basic 使用者名稱。
+解碼後的憑證配對上限為 4096 UTF-8 位元組。若你選用的代理被拒絕，請修正其設定或回應；中繼不會靜默切換為直接連線。
 
-Proxy selection, SOCKS5/SOCKS5h support, certificate verification, and connection
-lifecycle are unchanged. Both SOCKS spellings retain remote target DNS resolution.
+代理選取、SOCKS5/SOCKS5h 支援、憑證驗證與連線生命週期維持不變。兩種 SOCKS 拼法皆保留遠端目標 DNS 解析。

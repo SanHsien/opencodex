@@ -9,49 +9,40 @@ description: 多代理、組合、可觀測性、存取、整合、系統與設�
 
 ### `ocx agent <status|injection|effort|subagents|fallback|roles|sidecar|memory-models|compaction-routing> ...`
 
-Manage the headless multi-agent roster, effort caps, prompt injection, fallback, and sidecar settings.
-Use `status` for the current policy. See [Sub-agent surfaces](/zh-tw/guides/sub-agent-surface/) for how
-surface modes, delegation, effort, and fallback behavior fit together.
+管理無頭多代理名冊、推理強度上限、提示詞注入、備援與旁路設定。
+使用 `status` 查看目前的政策。表面模式、委派、推理強度與備援行為如何搭配，請見[子代理表面](/zh-tw/guides/sub-agent-surface/)。
 
 ```bash
 ocx agent subagents set ark/model-a,openai/gpt-5.5
 ```
 
-`ocx agent roles` is for omo (Codex / LazyCodex). It lists each Codex agent role in
-`$CODEX_HOME/agents` with its model pin and whether `~/.omo/omo.jsonc` can be updated, or says
-LazyCodex is not installed, in which case `set` is refused. `ocx agent roles set <role> <model> [--effort <level>]` rewrites only
-that role's root `model` line, and its `model_reasoning_effort` line with `--effort`, and mirrors both into omo.jsonc at
-`[codex].agents.<role>` as `model` and `reasoning`. An effort LazyCodex has no level for, such as `ultra`, is written to the role file only. A missing omo.jsonc, or one containing comments, is left unchanged
-and the command says so. See [omo (Codex / LazyCodex) role models](/zh-tw/guides/integrations/#omocodex--lazycodex角色模型).
+`ocx agent roles` 用於 omo（Codex / LazyCodex）。它會列出 `$CODEX_HOME/agents` 中每個 Codex 代理角色、其模型釘選，
+以及 `~/.omo/omo.jsonc` 是否可更新；若未安裝 LazyCodex 則會說明，此時 `set` 會被拒絕。
+`ocx agent roles set <role> <model> [--effort <level>]` 只改寫該角色根層級的 `model` 行，搭配 `--effort` 時也改寫其 `model_reasoning_effort` 行，
+並把兩者以 `model` 與 `reasoning` 鏡射到 omo.jsonc 的 `[codex].agents.<role>`。LazyCodex 沒有對應等級的推理強度（例如 `ultra`）只會寫入角色檔案。
+缺少 omo.jsonc，或其中含有註解時，會維持不變，且指令會說明這一點。請見 [omo（Codex / LazyCodex）角色模型](/zh-tw/guides/integrations/#omocodex--lazycodex角色模型)。
 
 ```bash
 ocx agent roles set explorer xai/grok-4.5 --effort medium
 ```
 
-`ocx agent roles suggest` is omo (Codex / LazyCodex) only, refused like `set` when LazyCodex is not
-installed. It sizes every role with one call to the default Codex model (or `--model`) and
-prints a proposed model and effort per role without writing anything. `--apply` writes every proposal
-through the same write as `set`, skipping and naming the roles whose model and effort already match.
-See [Auto-assign](/zh-tw/guides/integrations/#自動指派).
+`ocx agent roles suggest` 僅適用於 omo（Codex / LazyCodex），未安裝 LazyCodex 時與 `set` 一樣會被拒絕。
+它以對預設 Codex 模型（或 `--model`）的一次呼叫來評估每個角色的規模，並為每個角色輸出建議的模型與推理強度，不寫入任何東西。
+`--apply` 會透過與 `set` 相同的寫入路徑寫入每項建議，並略過且點名模型與推理強度已經相符的角色。
+請見[自動指派](/zh-tw/guides/integrations/#自動指派)。
 
-Human-readable suggestion output displays terminal control characters as visible escapes.
-Use `--json` when you need the original suggestion values without presentation escaping.
+人類可讀的建議輸出會把終端機控制字元顯示為可見的跳脫序列。需要原始建議值而不經呈現跳脫時，請使用 `--json`。
 
-`ocx agent injection suggest <work>` does the same for the delegation model: it sizes the described
-work, proposes the cheapest sufficient model and an effort from the delegation picker's list, and writes
-nothing unless `--apply` is given, which saves through the same write as `injection set`. See
-[Delegation model and effort](/zh-tw/guides/sub-agent-surface/#委託模型與推理強度).
+`ocx agent injection suggest <work>` 對委派模型做同樣的事：它評估所描述工作的規模，從委派選擇器的清單中建議最便宜且足夠的模型與推理強度，
+除非傳入 `--apply`，否則不寫入任何東西；`--apply` 會透過與 `injection set` 相同的寫入路徑儲存。
+請見[委派模型與推理強度](/zh-tw/guides/sub-agent-surface/#委託模型與推理強度)。
 
-`ocx agent sidecar web --list` and `ocx agent sidecar vision --list` print the models the
-server currently offers for each sidecar — the exact filtered set the dashboard picker shows
-(picker-visible rows plus the login-entitled Luna/Haiku auth slots, intersected with executor
-availability for web search, minus provably text-only models for vision). Human-readable lists
-show each model's backend in brackets. A web-search `--model` write resolves that server-offered
-row and persists its backend and model together, so switching to an Anthropic option cannot keep
-an OpenAI backend (or vice versa). Writes go to the same management route as the GUI and are
-subject to the same per-sidecar gate: web search refuses a backend/model pair outside the listed
-set (closed membership), while vision refuses only a model provably unable to see (unknown ids
-stay writable).
+`ocx agent sidecar web --list` 與 `ocx agent sidecar vision --list` 會輸出伺服器目前為每個旁路提供的模型——
+也就是儀表板選擇器顯示的那組精確過濾後集合（選擇器可見的列，加上登入授權的 Luna／Haiku 認證槽位，
+網路搜尋與執行者可用性取交集，視覺則排除可證實僅支援文字的模型）。人類可讀的清單會在括號中顯示每個模型的後端。
+網路搜尋的 `--model` 寫入會解析該伺服器提供的列，並把它的後端與模型一起保存，所以切換到 Anthropic 選項時不會殘留 OpenAI 後端（反之亦然）。
+寫入走的是與 GUI 相同的管理路由，並受相同的逐旁路閘門約束：網路搜尋會拒絕不在所列集合內的後端／模型組合（封閉成員資格），
+而視覺只拒絕可證實無法看圖的模型（未知的 ID 仍可寫入）。
 
 ```bash
 ocx agent sidecar web --list
@@ -59,16 +50,12 @@ ocx agent sidecar web --model gpt-5.6-luna
 ocx agent sidecar web --enabled off
 ```
 
-`--enabled off` is the same switch as the Dashboard's Off row: OpenCodex stops running the
-sidecar and the Codex integration writes `web_search = "disabled"` into `~/.codex/config.toml`,
-which is what lets an MCP search server be the only search path. `--enabled on` removes that
-marker-owned line again. When the save actually moves the switch, the command reports the
-Codex-side write it triggered (`codexWebSearch` in `--json`, a trailing `Codex config:` line
-otherwise) and points at `ocx sync` when it could not happen; a save that leaves the switch
-where it was has nothing to report and prints no `Codex config:` line. The flag works for
-`vision` too.
+`--enabled off` 與儀表板的 Off 列是同一個開關：OpenCodex 停止執行該旁路，且 Codex 整合會把 `web_search = "disabled"` 寫入 `~/.codex/config.toml`，
+這讓 MCP 搜尋伺服器成為唯一的搜尋路徑。`--enabled on` 會再次移除該標記所擁有的那一行。
+當儲存確實移動了開關時，指令會回報它所觸發的 Codex 端寫入（`--json` 中為 `codexWebSearch`，否則為最後一行 `Codex config:`），
+並在無法完成時指向 `ocx sync`；讓開關維持原狀的儲存沒有東西可回報，也不會輸出 `Codex config:` 那一行。此旗標對 `vision` 同樣適用。
 
-### Injection defaults and sidecar runtime settings
+### 注入預設值與旁路執行階段設定
 
 ```bash
 ocx agent injection status --json
@@ -79,20 +66,15 @@ ocx agent sidecar vision --timeout-ms 30000 --json
 ocx agent sidecar status --json
 ```
 
-Run writes only for the requested change. Injection `--sync-codex-defaults on|off`
-updates `syncCodexSubagentDefaults`; omitted model/effort/prompt/guidance stay intact,
-and `-` clears model/effort/prompt. The receipt has actual normalized
-`model`, `effort`, `prompt`, `multiAgentGuidanceEnabled` and
-`syncCodexSubagentDefaults`, not a fabricated catalog result.
+執行寫入時只套用所要求的變更。注入的 `--sync-codex-defaults on|off` 會更新 `syncCodexSubagentDefaults`；
+省略的 model／effort／prompt／guidance 維持不變，而 `-` 會清除 model／effort／prompt。
+收據帶有實際正規化後的 `model`、`effort`、`prompt`、`multiAgentGuidanceEnabled` 與 `syncCodexSubagentDefaults`，而不是捏造的目錄結果。
 
-Web `--reasoning` remains supported. `--max-descriptions` and `--timeout-ms` are
-vision-only; timeout accepts integers from 1 to 2147483647 milliseconds.
-`--stream-routed-output` is web-only. Partial writes preserve sibling settings.
-The new-option receipt exposes only the selected public `webSearch` or `vision`
-state and `codexWebSearch` apply report. `{applied:false, reason, retryable}`
-distinguishes native apply deferral/refusal from a saved setting; a missing or
-mismatched new setting is unverified and nonzero. Read status for full observed
-settings, including web reasoning. Do not retry blindly on ownership refusal.
+網路的 `--reasoning` 仍受支援。`--max-descriptions` 與 `--timeout-ms` 僅適用於視覺；逾時接受 1 到 2147483647 毫秒的整數。
+`--stream-routed-output` 僅適用於網路。部分寫入會保留同層設定。
+新選項的收據只公開選定的公開 `webSearch` 或 `vision` 狀態與 `codexWebSearch` 的套用報告。
+`{applied:false, reason, retryable}` 區分原生套用的延後／拒絕與已儲存的設定；缺少或不相符的新設定視為未驗證並以非零結束。
+完整的觀察設定（包括網路推理）請讀取 status。遇到擁有權拒絕時不要盲目重試。
 
 ### `ocx v2 <status|on|off|mode <v1|default|v2|v2-plaintext>|threads <n>>`
 
@@ -139,7 +121,7 @@ Proactive delegation 提示。它**不會**改變 reasoning effort 本身。缺�
 它要求原生功能已啟用，且介面明確為 v2（`ocx v2 mode v2`）；單獨執行 `ocx v2 on` 無法滿足該儀表板
 門檻。
 
-#### Explicit v2 target and outcome
+#### 明確的 v2 目標與結果
 
 ```bash
 ocx v2 status --json
@@ -148,64 +130,50 @@ ocx v2 mode v1 --live --json
 ocx v2 status --live --json
 ```
 
-The live write uses the existing management route. Only explicit live `mode`
-accepts `--acknowledge-surface-advisory`; add it only when acknowledging that
-advisory is requested. Local mode and status/on/off/keep-native/threads/hint reject
-it. There is no automatic acknowledgment.
+即時寫入使用既有的管理路由。只有明確的即時 `mode` 接受 `--acknowledge-surface-advisory`；只有在要求確認該建議時才加上它。
+本機 mode 與 status／on／off／keep-native／threads／hint 會拒絕它。不會自動確認。
 
-For literal reserved hint text, pass one quoted operand after `--`:
+若要使用字面上的保留提示文字，請在 `--` 之後傳入一個加引號的運算元：
 
 ```bash
 ocx v2 mode-hint --live --json -- '--clear'
 ```
 
-This stores literal `--clear`; without `--`, `mode-hint --clear` removes the hint.
-The suffix is not scanned for help, live, JSON or clear controls; controls belong
-before `--`. Extra operands and duplicate flags refuse before mutation.
+這會儲存字面上的 `--clear`；沒有 `--` 時，`mode-hint --clear` 會移除提示。後綴不會被掃描說明、即時、JSON 或清除控制項；控制項必須放在 `--` 之前。
+多餘的運算元與重複的旗標會在變更之前被拒絕。
 
-Local JSON is `{ok, target:"local", action, changed, state, sync}` using actual
-post-write state. Mode/keep-native and changed on/off keep their real sync attempt
-even without a discovered port; threads/hints and unchanged on/off add no sync.
-An absent/malformed sync result becomes unverified with exit 1, not success.
-`changed` or state can be unknown after failure; do not claim rollback.
-Live status reports validated state/advisory/recommendation with `target:"live"`;
-writes add `ok:true` and `catalogRefresh`. Only committed, nondegraded refresh exits
-0. HTTP 502 may mean partially applied native state: inspect before retrying.
-Local usage errors retain exit 1; new live usage errors use exit 2.
+本機 JSON 為 `{ok, target:"local", action, changed, state, sync}`，使用寫入後的實際狀態。
+Mode／keep-native 與有變更的 on／off，即使沒有探索到連接埠，也保留其真實的同步嘗試；threads／hints 與沒有變更的 on／off 不增加同步。
+缺少或格式錯誤的同步結果會變成未驗證並以 1 結束，而不是成功。失敗之後 `changed` 或 state 可能未知；不要宣稱已回滾。
+即時 status 以 `target:"live"` 回報已驗證的狀態／建議／推薦；寫入會加上 `ok:true` 與 `catalogRefresh`。只有已提交且未降級的重新整理才以 0 結束。
+HTTP 502 可能表示原生狀態被部分套用：重試之前請先檢查。本機用法錯誤維持結束碼 1；新的即時用法錯誤使用結束碼 2。
 
 ## 組合路由
 
 ### `ocx combo <list|show|set|remove|stats> ...` · `ocx route combo ...`
 
-Manage combo failover and round-robin virtual models. `ocx route combo` is the hierarchical alias;
-combos and routing profiles are distinct resources. Combo targets use
-`provider/model[:weight],provider/model[:weight]`.
+管理 combo 容錯移轉與輪詢式虛擬模型。`ocx route combo` 是階層式別名；combo 與路由設定檔是不同的資源。
+Combo 目標使用 `provider/model[:weight],provider/model[:weight]`。
 
 ```bash
 ocx combo list
 ocx route combo set reliable --targets ark/model-a:2,openai/gpt-5.5
 ```
 
-`set` accepts `--strategy`, `--sticky`, `--effort`, `--alias`, `--rename-from`, `--native-alias`, and
-`--display-name <label|->` (`-` clears the label). A native alias captures only one currently supported,
-unqualified bare OpenAI model id. Bare `gpt-5.6-*` native aliases use Codex Pool/Direct credentials.
-Account-qualified OpenAI routes remain distinct, while provider-qualified routes such as
-`openai-apikey/gpt-5.6-*` use their configured API key and never fall through to the native alias.
-Read the safety and visibility contract in the guide before enabling the compatibility pair.
-With `--strategy jev` only, the decision method is chosen by one of two mutually exclusive flags.
-`--decision-provider <provider|->` names a configured `jev-decision` row (for example a self-hosted
-Ollama `tev1`) as a System One-compatible server. `--decision-model <route|->` names an ordinary
-opencodex route (for example `ollama/qwen3:4b`) that answers the same choice as JSON; it cannot be
-this combo or any JEV combo. Omitting both uses TypeSafe. `--decision-timeout <ms|->` sets the
-decision deadline (1000–120000, default 4000); `-` clears any of the three.
+`set` 接受 `--strategy`、`--sticky`、`--effort`、`--alias`、`--rename-from`、`--native-alias` 與 `--display-name <label|->`（`-` 會清除標籤）。
+原生別名只擷取一個目前支援、不含限定詞的裸 OpenAI 模型 ID。裸的 `gpt-5.6-*` 原生別名使用 Codex Pool／Direct 憑證。
+帳號限定的 OpenAI 路由仍然是各自獨立的，而供應商限定的路由（例如 `openai-apikey/gpt-5.6-*`）使用它們已設定的 API 金鑰，絕不會落到原生別名上。
+啟用相容性配對之前，請閱讀指南中的安全與可見性契約。
+僅使用 `--strategy jev` 時，決策方法由兩個互斥旗標之一選定。
+`--decision-provider <provider|->` 指名一個已設定的 `jev-decision` 列（例如自行架設的 Ollama `tev1`），作為相容 System One 的伺服器。
+`--decision-model <route|->` 指名一個一般的 opencodex 路由（例如 `ollama/qwen3:4b`），以 JSON 回答同一個選擇；它不能是此 combo 或任何 JEV combo。
+兩者都省略則使用 TypeSafe。`--decision-timeout <ms|->` 設定決策期限（1000–120000，預設 4000）；`-` 會清除這三者中的任何一個。
 
 `ocx combo test [--combo <id>] [--decision-provider <provider|jev> | --decision-model <route>]
-[--decision-timeout <ms>]` sends one synthetic decision probe through a saved combo's method or an
-unsaved selection and reports the gate, backend, and latency; it may spend one decision call.
-`ocx combo discover [--query <text>]` lists configured System One rows and catalog models that look
-like decision models, with the derived endpoint.
+[--decision-timeout <ms>]` 會透過已儲存 combo 的方法或未儲存的選擇送出一個合成決策探測，並回報閘門、後端與延遲；它可能花費一次決策呼叫。
+`ocx combo discover [--query <text>]` 會列出已設定的 System One 列，以及看起來像決策模型的目錄模型，並附上推導出的端點。
 
-For structured target metadata, inspect offline help and the current combo:
+要取得結構化的目標中繼資料，請檢視離線說明與目前的 combo：
 
 ```bash
 ocx combo set --help
@@ -213,56 +181,44 @@ ocx combo list --json
 ocx combo show reliable --json
 ```
 
-A `--targets-file` document is a nonempty ordered array, for example this shape
-with provider/model values replaced by actual configured candidates:
+`--targets-file` 文件是一個非空且有順序的陣列，例如下列形狀（請把 provider／model 的值換成實際設定的候選者）：
 
 ```json
 [{"provider":"example","model":"raw/model","weight":1,"reasoningEfforts":["high"],"modelProfile":"Reasoning tasks","lastResort":false}]
 ```
 
-Optional fields are `weight`, `reasoningEfforts`, `modelProfile` and `lastResort`.
-Efforts are a unique nonempty list of `low`, `medium`, `high`, `xhigh`, `max`, `ultra`;
-empty/none/minimal custom-model semantics do not apply. Files or explicit piped
-`-` have a 4 MiB limit and 30-second read deadline; the serialized management body
-must also fit 4 MiB. Unknown fields refuse before the write.
+選用欄位為 `weight`、`reasoningEfforts`、`modelProfile` 與 `lastResort`。
+推理強度是 `low`、`medium`、`high`、`xhigh`、`max`、`ultra` 中不重複的非空清單；空／none／minimal 的自訂模型語意不適用。
+檔案或明確以管線傳入的 `-` 有 4 MiB 上限與 30 秒讀取期限；序列化後的管理本文也必須符合 4 MiB。未知欄位會在寫入之前被拒絕。
 
 ```bash
 ocx combo set reliable --targets-file targets.json --image-input auto --reasoning-effort-mode strict --json
 ocx combo show reliable --json
 ```
 
-`--targets-file` and `--targets` are mutually exclusive. Omitting both preserves
-complete target metadata for partial edits; replacement files preserve order and
-explicit `lastResort: false`. `--image-input auto|disabled` and
-`--reasoning-effort-mode strict|adaptive` preserve omission, while explicit `auto`
-and `strict` override saved disabled/adaptive values. Reasoning-effort mode is
-separate from `--effort-mode fallback|force`, which governs the default effort.
-`--allow-metered-targets on|off` grants or clears operator consent for marked combo targets on a loopback-only proxy; public and linked callers still need configured-key consent.
-`--native-alias on|off` preserves explicit false; the legacy bare flag means true.
-Turning it off may require the intended alias clear, `--native-alias off --alias -`,
-to avoid retaining an incompatible native alias. Set/rename is an upsert without
-CAS, so re-read after changes. The receipt is `{success, id, model, combo, catalogRefresh}`;
-skipped, failed or degraded catalog refresh returns nonzero after saving.
+`--targets-file` 與 `--targets` 互斥。兩者都省略時，部分編輯會保留完整的目標中繼資料；替換檔案會保留順序與明確的 `lastResort: false`。
+`--image-input auto|disabled` 與 `--reasoning-effort-mode strict|adaptive` 保留省略狀態，而明確的 `auto` 與 `strict` 會覆寫已儲存的 disabled／adaptive 值。
+推理強度模式與 `--effort-mode fallback|force` 是分開的，後者管理的是預設推理強度。
+`--allow-metered-targets on|off` 會在僅限 loopback 的 proxy 上，授予或清除對已標記 combo 目標的操作者同意；公開與已連結的呼叫端仍需要已設定的金鑰同意。
+`--native-alias on|off` 保留明確的 false；舊式的裸旗標代表 true。關閉它可能需要明確的別名清除 `--native-alias off --alias -`，以避免殘留不相容的原生別名。
+Set／rename 是沒有 CAS 的 upsert，所以變更之後請重新讀取。收據為 `{success, id, model, combo, catalogRefresh}`；
+目錄重新整理被略過、失敗或降級時，在儲存之後以非零結束。
 
-### Observe combo decision statistics
+### 觀察 combo 決策統計
 
 ```bash
 ocx combo stats reliable --range 30d --json
 ```
 
-Use the exact stored combo ID from list/show, not its public model or alias.
-Ranges are `7d`, `30d` (default), and `all`. This reads recorded JEV observations
-without running a paid decision probe. Inspect decisions, model attempts,
-measured attempts, model tokens and decision tokens separately. Keep the
-`measuredModelAttempts/modelAttempts` and `decisionUsageReported/decisions`
-coverage ratios with the totals. Nullable averages are unavailable, not zero.
-Preserve `usageIncomplete`, `historyTruncated`, `entriesTruncated`, dropped-entry
-counts and snapshot-window boundaries. Zero observations do not prove success.
-There is no monetary cost or comparative savings field in this report.
+請使用 list／show 中儲存的確切 combo ID，而不是它的公開模型或別名。範圍為 `7d`、`30d`（預設）與 `all`。
+這會讀取已記錄的 JEV 觀察，而不執行付費的決策探測。請分別檢視決策、模型嘗試、已量測嘗試、模型權杖與決策權杖。
+請把 `measuredModelAttempts/modelAttempts` 與 `decisionUsageReported/decisions` 的涵蓋比例與總數放在一起。可為 null 的平均值表示不可用，而不是零。
+請保留 `usageIncomplete`、`historyTruncated`、`entriesTruncated`、被丟棄的項目數與快照視窗邊界。零筆觀察不能證明成功。
+此報告沒有金額成本或比較性節省的欄位。
 
-See [Combos](/zh-tw/guides/combos/) for routing behavior and configuration guidance.
+路由行為與設定指引請見 [Combos](/zh-tw/guides/combos/)。
 
-## Fallback off
+## 關閉備援
 
 ### `ocx fallback <status|off|on|clear|local> ...`
 
@@ -274,16 +230,13 @@ ocx fallback clear --provider anthropic --kind model
 ocx fallback local on --device mac-studio
 ```
 
-`off`, `on` and `clear` take `--kind model|provider|all` (default `all`) and at most one scope:
-`--provider <name>`, `--route <selector>` or `--device <id|alias>`; with none they set the global switch.
-A device set to off always refuses; otherwise route beats provider beats global. `local` records whether a
-device may use its own providers while the Home is unreachable, a permission GOAT reads; OpenCodex itself
-still answers `home_unreachable` there. The commands talk to the live proxy; on a Remote Link Child,
-`status` reads the Home and writes are refused. See [Fallback off](/zh-tw/guides/fallback-off/).
+`off`、`on` 與 `clear` 接受 `--kind model|provider|all`（預設 `all`）以及最多一個範圍：`--provider <name>`、`--route <selector>` 或 `--device <id|alias>`；都沒有時設定全域開關。
+設為 off 的裝置一律拒絕；否則路由優先於供應商，供應商優先於全域。`local` 記錄裝置在 Home 無法連線時，是否可使用它自己的供應商——這是 GOAT 讀取的權限；OpenCodex 本身在該情況下仍回答 `home_unreachable`。
+這些指令與執行中的 proxy 通訊；在 Remote Link Child 上，`status` 讀取 Home，而寫入會被拒絕。請見[關閉備援](/zh-tw/guides/fallback-off/)。
 
-## Routing profiles
+## 路由設定檔
 
-Existing profiles support inspection and evaluation through the live API:
+既有的設定檔支援透過即時 API 檢視與評估：
 
 ```bash
 ocx route policy list --json
@@ -291,19 +244,14 @@ ocx route policy show reliable --json
 ocx route policy dry-run reliable --model-context 128000 --tools --image --structured-output --json
 ```
 
-Only run this evaluation with authority to activate Lab on the target. The management POST can activate Lab and start automation that is already enabled there, including upstream probes. Use list/show for observation without that activation effect.
+只有在有權在目標上啟用 Lab 時才執行此評估。管理 POST 可以啟用 Lab，並啟動該處已啟用的自動化，包括上游探測。若要觀察而不產生該啟用效果，請使用 list／show。
 
-Replace `reliable` with a listed ID. `evaluate` is an alias for `dry-run`; both
-send requirements to the saved profile's evaluator without an inference request.
-Creation, update and deletion use the explicit file/revision workflow below.
-Combo writes edit a separate resource. Missing profiles return exit 4 and missing
-operands return 2.
+請把 `reliable` 換成列出的 ID。`evaluate` 是 `dry-run` 的別名；兩者都會在沒有推論請求的情況下，把需求送到已儲存設定檔的評估器。
+建立、更新與刪除使用下方明確的檔案／修訂流程。Combo 寫入編輯的是另一個資源。找不到的設定檔以結束碼 4 結束，缺少運算元以 2 結束。
 
-### Edit a routing profile with its observed revision
+### 依觀察到的修訂編輯路由設定檔
 
-Create/update can activate Lab and already-enabled automation, including upstream
-probes. Only run them with that authority. List/show are observational; first
-read offline help and save the intended profile:
+建立／更新可以啟用 Lab 與已啟用的自動化，包括上游探測。請只在有該權限時才執行。List／show 是觀察性的；請先讀取離線說明並儲存預期的設定檔：
 
 ```bash
 ocx route policy update --help
@@ -311,34 +259,25 @@ ocx route policy show reliable --json > profile.observed.json
 jq 'del(.id, .model, .revision) | if .alias == null then del(.alias) else . end' profile.observed.json > profile.next.json
 ```
 
-Edit and review the next file; keep the observed file unchanged. Input contains
-only editable `alias`, `candidates`, `require`, `optimize`, `limits`,
-`unknownEvidence`, and `compatibility` with supported nested fields. `id`, `model`,
-`revision`, unknown keys and null alias are not editable input. The server still
-validates provider, alias and policy semantics. `--file -` accepts piped stdin;
-regular UTF-8 files/stdin have the 4 MiB and 30-second bounded read contract.
+編輯並檢視下一個檔案；觀察到的檔案保持不變。輸入只含可編輯的 `alias`、`candidates`、`require`、`optimize`、`limits`、`unknownEvidence` 與 `compatibility`，及其受支援的巢狀欄位。
+`id`、`model`、`revision`、未知的鍵與 null 的別名都不是可編輯的輸入。伺服器仍會驗證供應商、別名與政策語意。
+`--file -` 接受管線傳入的 stdin；一般的 UTF-8 檔案／stdin 適用 4 MiB 與 30 秒的有界讀取契約。
 
 ```bash
 ocx route policy update reliable --file profile.next.json --expected-revision '<exact-revision-from-observed-show>' --json
 ocx route policy show reliable --json
 ```
 
-Use the original opaque revision explicitly. HTTP 409 / exit 5 means read show
-again, review concurrent changes and rebuild the edit. Never silently fetch a
-replacement revision, retry or convert update into create. For an authorized new
-ID use `ocx route policy create <new-id> --file profile.next.json --json` without a
-revision. Authorized removal is `ocx route policy remove <id> --yes --json` and
-has no revision guard.
+請明確使用原始的不透明修訂。HTTP 409／結束碼 5 表示重新讀取 show、檢視並行變更並重建編輯。絕不默默擷取替換修訂、重試，或把更新轉成建立。
+對於已授權的新 ID，請使用 `ocx route policy create <new-id> --file profile.next.json --json` 且不帶修訂。已授權的移除是
+`ocx route policy remove <id> --yes --json`，且沒有修訂防護。
 
-Create/update returns `{success, id, model, profile, catalogRefresh}` with the new
-`profile.revision`; remove returns `{success, id, catalogRefresh}`. Only committed,
-nondegraded refresh exits 0. A saved receipt with skipped/failed/degraded refresh
-exits 1: inspect before recovery instead of repeating the configuration write.
+建立／更新回傳 `{success, id, model, profile, catalogRefresh}`，附有新的 `profile.revision`；移除回傳 `{success, id, catalogRefresh}`。
+只有已提交且未降級的重新整理才以 0 結束。已儲存的收據若重新整理被略過／失敗／降級則以 1 結束：請先檢查再復原，而不是重複設定寫入。
 
-## Compatibility Lab
+## 相容性 Lab
 
-Lab is local inspection **and** explicit evidence/automation management. Reads
-use the local projection and do not require a running management API:
+Lab 是本機檢視**以及**明確的證據／自動化管理。讀取使用本機投影，不需要執行中的管理 API：
 
 ```bash
 ocx lab status --json
@@ -349,17 +288,11 @@ ocx lab automation runs --limit 10 --json
 ocx lab public community --json
 ```
 
-`subject`, `observations`, `event`, `artifact`, and `production-signals` follow
-local evidence lineage. The public family offers preview/export by repeated
-`--event <id>`, verification/import through `--file <bundle.json>`, and community
-context. Export and import write local evidence. Verification can print its
-result and still exit nonzero when the bundle is not cryptographically valid.
+`subject`、`observations`、`event`、`artifact` 與 `production-signals` 依循本機證據譜系。公開的家族提供以重複的 `--event <id>` 做預覽／匯出、
+以 `--file <bundle.json>` 做驗證／匯入，以及社群上下文。匯出與匯入會寫入本機證據。當 bundle 在密碼學上無效時，驗證仍可輸出其結果並以非零結束。
 
-Automation enable/disable changes local policy; manual `lab run` selects a layer
-and scenario and may spend upstream quota. Read `ocx help lab` and the relevant
-leaf before these authorized operations. A saved local policy does not prove
-that a separately running proxy's scheduler adopted it. Full automation policy
-editing and run cancellation are not exposed by these CLI controls.
+自動化的啟用／停用會變更本機政策；手動 `lab run` 會選擇一個層與情境，且可能花費上游配額。在這些已授權的操作之前，請閱讀 `ocx help lab` 與相關的子指令。
+已儲存的本機政策不能證明另外執行的 proxy 的排程器已採用它。這些 CLI 控制項未公開完整的自動化政策編輯與執行取消。
 
 ## 可觀測性與除錯
 
@@ -398,26 +331,22 @@ ocx usage --range today --provider xai
 
 部分用量記錄無法納入時，人類可讀輸出會顯示警告，即使沒有可讀取的記錄也是如此。顯示的總數僅反映可讀取的記錄。如果篩選條件沒有符合的可讀取記錄，輸出將顯示警告和提示，而不顯示總數列；被略過的記錄可能包含符合項目。`--json` 原樣保留回應中的 `usageIncomplete` 診斷及原因。
 
-### Compare a range with the previous equal window
+### 與前一個等長視窗比較範圍
 
 ```bash
 ocx usage compare --range today --json
 ocx usage compare --range 7d --provider xai
 ```
 
-`ocx observe usage compare` is the equivalent family form. The command reads `GET /api/usage`
-twice: the named range ending now, then the same range evaluated one equal window earlier
-(one local day for `today`/`1d`, seven for `7d`, thirty for `30d`). Default range is `30d`.
-`--range all` is refused because open history has no previous equal window. `--since` and
-`--until` are not accepted; the windows are derived. Surface, provider, model, and API-key
-filters apply to both reads. Human output prints current, previous, signed delta, and percent
-change. `--json` is `{schemaVersion,range,current,previous,delta,change,incomplete}`. The two
-reads are sequential, not an atomic snapshot. Custom `since`/`until` on each response must
-match the requested window. Both reads use the same connection and credential. If the
-connection, account, or credential changes during the command, it reports an owner
-mismatch and asks you to retry instead of printing a comparison.
+`ocx observe usage compare` 是對等的家族形式。該指令會讀取兩次 `GET /api/usage`：以現在為結尾的指定範圍，然後是提早一個等長視窗所評估的同一範圍
+（`today`／`1d` 為一個本機日、`7d` 為七個、`30d` 為三十個）。預設範圍是 `30d`。
+`--range all` 會被拒絕，因為開放式歷程沒有前一個等長視窗。`--since` 與 `--until` 不被接受；視窗是推導出來的。
+Surface、供應商、模型與 API 金鑰的過濾條件同時套用於兩次讀取。人類可讀的輸出會顯示目前值、前一個值、帶正負號的差值與百分比變化。
+`--json` 為 `{schemaVersion,range,current,previous,delta,change,incomplete}`。兩次讀取是依序進行，不是原子快照。
+每個回應上的自訂 `since`／`until` 必須符合所要求的視窗。兩次讀取使用同一個連線與憑證。若連線、帳號或憑證在指令執行期間變更，
+它會回報擁有者不符並要求你重試，而不是輸出比較結果。
 
-### Page indexed request history
+### 分頁讀取已索引的請求歷程
 
 ```bash
 ocx logs history --provider xai --status 200 --limit 50 --json
@@ -425,94 +354,64 @@ ocx logs history --cursor '<nextCursor>' --json
 ocx logs get <request-id> --json
 ```
 
-`ocx observe logs history` and `ocx observe logs get` are the equivalent family
-forms. These read the derived request-history index, not the recent `ocx logs`
-ring. `--limit` is 1–100 (default 50). `--from` and `--to` accept epoch
-milliseconds or full ISO datetimes with a timezone and are inclusive. `--json`
-returns `{entries,hasMore,nextCursor,index}`. `--jsonl` emits rows only; when
-more pages exist, `nextCursor=…` is printed on stderr so a caller can resume
-without mixing the token into the row stream. Empty matches succeed. `get`
-returns one canonical row by request ID; `ocx logs explain` remains the
-route-decision view for that same ID.
+`ocx observe logs history` 與 `ocx observe logs get` 是對等的家族形式。它們讀取的是衍生的請求歷程索引，而不是最近的 `ocx logs` 環形緩衝。
+`--limit` 為 1–100（預設 50）。`--from` 與 `--to` 接受 epoch 毫秒或含時區的完整 ISO 日期時間，且為包含邊界。
+`--json` 回傳 `{entries,hasMore,nextCursor,index}`。`--jsonl` 只輸出列；還有更多頁時，`nextCursor=…` 會輸出到 stderr，讓呼叫端可以接續，而不會把權杖混進列串流。
+沒有符合的結果仍為成功。`get` 依請求 ID 回傳一個標準列；`ocx logs explain` 仍是同一個 ID 的路由決策檢視。
 
-### Filter a bounded log snapshot
+### 篩選有界的日誌快照
 
 ```bash
 ocx logs filter --surface claude --status errors --time-window 1h --scan-limit 2000 --limit 50 --json
 ```
 
-`ocx observe logs filter` is the equivalent family form. This reads one recent
-window, filters locally, then keeps the newest matches in their original order.
-`--scan-limit` controls fetched rows (1–2000, default 2000); `--limit` controls
-returned rows (1–2000, default 200). JSON reports
-`{schemaVersion:1,logs,cursor,filters,window:{scanLimit,loaded,matched,returned,limit}}`.
-Counts describe this observed window, not all history. JSONL emits rows only;
-empty matches succeed. Cursor metadata is not a resumable search token.
+`ocx observe logs filter` 是對等的家族形式。它讀取一個最近的視窗，在本機過濾，然後依原本順序保留最新的符合項目。
+`--scan-limit` 控制擷取的列數（1–2000，預設 2000）；`--limit` 控制回傳的列數（1–2000，預設 200）。JSON 回報
+`{schemaVersion:1,logs,cursor,filters,window:{scanLimit,loaded,matched,returned,limit}}`。計數描述的是這個觀察到的視窗，不是全部歷程。
+JSONL 只輸出列；沒有符合的結果仍為成功。游標中繼資料不是可接續的搜尋權杖。
 
-Selectors include `--surface all|codex|claude|grok`, `--status all|success|errors`,
-`--time-window all|15m|1h|24h`, `--model`, `--provider`, `--conversation`
-(alias `--conversationId`), `--intercepted-only`, `--min-tok-per-sec`,
-`--max-tok-per-sec`, and `--protocol-mode all|native|translated|legacy-bridge|blocked|none`.
-Model/provider equality is trimmed and case-insensitive, including
-resolved/served models and attempts. Claude includes Desktop; Codex means absent
-surface. Success is HTTP 200–299, errors 400–599. Time lower bounds are inclusive.
-Speed uses observed value-kind tok/s, with inclusive minimum and exclusive
-maximum; unavailable values fail active speed filters. Protocol none includes
-absent or invalid traces. Conversation matching uses the same hash-aware IDs as
-ordinary logs. Interception selects string-valued rewrite markers.
+選擇器包括 `--surface all|codex|claude|grok`、`--status all|success|errors`、`--time-window all|15m|1h|24h`、`--model`、`--provider`、
+`--conversation`（別名 `--conversationId`）、`--intercepted-only`、`--min-tok-per-sec`、`--max-tok-per-sec`，以及
+`--protocol-mode all|native|translated|legacy-bridge|blocked|none`。模型／供應商的相等比較會去除空白且不分大小寫，包括已解析／實際服務的模型與嘗試。
+Claude 包含 Desktop；Codex 指的是沒有 surface。成功為 HTTP 200–299，錯誤為 400–599。時間下限為包含邊界。
+速度使用觀察到的 value-kind tok/s，最小值包含邊界、最大值不含；不可用的值會使啟用的速度過濾失敗。
+Protocol none 包含沒有或無效的追蹤。對話比對使用與一般日誌相同的雜湊感知 ID。攔截會選取字串值的改寫標記。
 
-Unknown/repeated/conflicting flags, invalid bounds, and follow/events fail before
-discovery. Malformed, oversized or failed reads are nonzero, not empty results.
-To reduce response size, reduce the scan limit; reducing output limit does not
-change the fetch. For streaming use the separate follow forms below.
+未知／重複／互相衝突的旗標、無效的界線，以及 follow／events，都會在探索之前失敗。格式錯誤、過大或失敗的讀取為非零，而不是空結果。
+要縮小回應大小，請降低掃描上限；降低輸出上限不會改變擷取。需要串流時，請使用下方獨立的 follow 形式。
 
-### Search usage model rows
+### 搜尋用量模型列
 
 ```bash
 ocx usage --range 7d --search 'model-a' --json
 ```
 
-`--search` matches a trimmed case-insensitive substring in model, provider or
-resolved model after reading the report. It sorts model rows by descending total
-tokens with stable ties and keeps up to 100 by default. JSON adds
-`modelView:{query,matchedModelCount,returnedModelCount,limit:100,truncated}`;
-human output labels the view and shows its selected model rows. Report totals,
-provider/day/account rows, exact filters and incomplete/window metadata remain
-unchanged. No model match does not mean no report usage.
+`--search` 在讀取報告之後，會以去除空白且不分大小寫的子字串，比對模型、供應商或已解析的模型。它依總權杖數遞減排序模型列（並列時順序穩定），預設最多保留 100 列。
+JSON 會加上 `modelView:{query,matchedModelCount,returnedModelCount,limit:100,truncated}`；人類可讀的輸出會標示該檢視並顯示其選出的模型列。
+報告總計、供應商／日期／帳號列、精確過濾條件與不完整／視窗中繼資料維持不變。沒有符合的模型不代表報告中沒有用量。
 
-An explicit blank query (`--search=`) selects the top-100 view; omitting search
-preserves the existing output. Exact `--provider`/`--model` still scope the
-underlying report. Search does not broaden selected-key or connected-client
-self scope and is never sent as a new Hub API query parameter.
+明確的空白查詢（`--search=`）會選取前 100 檢視；省略 search 則維持既有輸出。精確的 `--provider`／`--model` 仍會限定底層報告的範圍。
+Search 不會放寬選定金鑰或已連線用戶端的自身範圍，也絕不會作為新的 Hub API 查詢參數送出。
 
-`ocx usage --top 25` (also `ocx observe usage --top 25`) sets the human model table limit to an integer from 1 to 1000. The default is 10, or 100 with `--search`; the limit applies after search filtering. It changes local display only: report totals, provider/account rows and API parameters stay unchanged. With `--json`, a valid `--top` is ignored; JSON retains its existing full report or 100-row search view. Invalid limits return exit 2 before fetching.
+`ocx usage --top 25`（也可用 `ocx observe usage --top 25`）把人類可讀的模型表格上限設為 1 到 1000 的整數。預設為 10，使用 `--search` 時為 100；上限在搜尋過濾之後套用。它只改變本機顯示：報告總計、供應商／帳號列與 API 參數保持不變。搭配 `--json` 時，有效的 `--top` 會被忽略；JSON 仍維持既有的完整報告或 100 列的搜尋檢視。無效的上限在擷取之前以結束碼 2 回傳。
 
-### Saved companion usage totals
+### 已儲存的伴隨用量總計
 
 ```bash
 ocx companion show --json
 ocx companion usage --json
 ```
 
-The second command reads saved companion settings, then today and 30d usage
-sequentially on the same management runtime. It applies the saved `models` and
-`hiddenProviders` preferences and preserves unknown/unmeasured costs and tokens.
-Null model selection means all; an empty selection means none. It does not
-change settings, operate native windows or relay through a connected client.
+第二個指令會讀取已儲存的伴隨設定，然後在同一個管理執行階段上依序讀取今日與 30d 用量。它套用已儲存的 `models` 與 `hiddenProviders` 偏好，並保留未知／未量測的成本與權杖。
+Null 的模型選擇表示全部；空的選擇表示沒有。它不會變更設定、操作原生視窗，或透過已連線的用戶端轉送。
 
-JSON returns `schemaVersion:1`, `filters`, `settingsUpdatedAt`,
-`settingsCorrupt`, `settingsFallback`, `ranges` and `partial`. Each range has
-`status:"available"` with filtered `data`, or `status:"unavailable"`.
-An unavailable range sets partial and exit 1 while retaining the other range.
-Available incomplete data retains its own metadata; it is not measured zero.
-Valid server defaults retain a null settings timestamp and set fallback;
-corrupt-file defaults additionally set corrupt and warn in human output.
-Malformed settings stop before usage reads. These reads are not an atomic
-snapshot. Each GET has a 10-second fetch/body deadline after discovery and a
-32 MiB response cap; this is not a whole-command deadline. Signals exit 130/143
-without late results.
+JSON 回傳 `schemaVersion:1`、`filters`、`settingsUpdatedAt`、`settingsCorrupt`、`settingsFallback`、`ranges` 與 `partial`。
+每個範圍帶有 `status:"available"` 與過濾後的 `data`，或 `status:"unavailable"`。不可用的範圍會設定 partial 並以 1 結束，同時保留另一個範圍。
+可用但不完整的資料保留它自己的中繼資料；它不是量測到的零。有效的伺服器預設值保留 null 的設定時間戳並設定 fallback；
+損毀檔案的預設值另外設定 corrupt，並在人類可讀的輸出中警告。格式錯誤的設定會在讀取用量之前停止。這些讀取不是原子快照。
+每個 GET 在探索之後有 10 秒的擷取／本文期限與 32 MiB 的回應上限；這不是整個指令的期限。訊號以 130／143 結束，且沒有遲到的結果。
 
-### Follow request windows or injection sequences
+### 追蹤請求視窗或注入序列
 
 ```bash
 ocx logs --help
@@ -520,73 +419,51 @@ ocx logs --limit 200 --json
 ocx logs --follow --events --limit 200
 ```
 
-`--events` requires follow and implies JSONL; redundant `--jsonl` is accepted.
-`--json` remains one-shot and conflicts with follow/events. Each events-v1 line
-is `{schemaVersion:1,type:"snapshot"|"append",rows,cursor,limit}`. Replace the
-consumer window on snapshot, append/trim on append, preserving order and repeated
-IDs. Initial empty and reset/removal snapshots are emitted; stable empty polls
-remain silent. Legacy arrays are snapshots with cursor null, not invented cursors.
-These are observed windows, not a lossless replay of traffic missed between polls
-or after ring eviction.
+`--events` 需要 follow 並隱含 JSONL；多餘的 `--jsonl` 會被接受。`--json` 維持單次，並與 follow／events 衝突。
+每一行 events-v1 為 `{schemaVersion:1,type:"snapshot"|"append",rows,cursor,limit}`。收到 snapshot 時取代消費端視窗，收到 append 時附加／修剪，並保留順序與重複的 ID。
+初始為空，以及重設／移除的 snapshot 會被輸出；穩定為空的輪詢維持靜默。舊式陣列是 cursor 為 null 的 snapshot，不會憑空產生 cursor。
+這些是觀察到的視窗，不是對輪詢之間或環形緩衝逐出後遺漏流量的無損重播。
 
-`ocx logs --follow --jsonl --limit 200` retains row-shaped output. It re-emits changed
-occurrences, including same-ID status/token amendments and repeated IDs. Do not
-collapse everything by request ID. This legacy output cannot encode removals,
-resets or exact window order; choose events when those distinctions matter.
-Log follow limit is 1–2000, default 200.
+`ocx logs --follow --jsonl --limit 200` 保留列形狀的輸出。它會重新輸出有變化的出現項目，包括相同 ID 的狀態／權杖修正與重複的 ID。
+不要依請求 ID 全部合併。此舊式輸出無法編碼移除、重設或精確的視窗順序；當這些差異重要時，請選擇 events。日誌 follow 上限為 1–2000，預設 200。
 
 ```bash
 ocx observe injection --limit 500 --json
 ocx observe injection --follow --jsonl --limit 500
 ```
 
-Injection emits ordered `{seq,at,line}` rows, where `at` is epoch milliseconds;
-internal `after` advances with seq. Follow limit is 1–2000, default 500. JSON is
-one-shot and JSONL requires follow. Observation does not enable capture. Empty
-polls do not identify disabled capture or prove absence of gaps. Detectable runtime
-drift stops; undetectable restart/latest-N gaps cannot be excluded without an API
-epoch/gap marker.
+注入會輸出有順序的 `{seq,at,line}` 列，其中 `at` 為 epoch 毫秒；內部的 `after` 隨 seq 前進。Follow 上限為 1–2000，預設 500。
+JSON 為單次，JSONL 需要 follow。觀察不會啟用擷取。空的輪詢無法辨識擷取已停用，也不能證明沒有缺口。
+可偵測的執行階段漂移會停止；沒有 API 的 epoch／缺口標記，就無法排除不可偵測的重新啟動／最新 N 筆缺口。
 
-Both follow loops use serial one-second waits, 10-second fetch/body deadlines and
-32 MiB response limits. Malformed/oversized/transport errors stop with stderr and
-exit 1, without automatic retry/reconnect. Reduce limit for oversized windows.
-SIGINT/Ctrl-C exits 130, SIGTERM 143, with no later polls/output. Inspect exit state
-and retained rows instead of treating cancellation as complete history.
+兩種 follow 迴圈都使用循序的一秒等待、10 秒的擷取／本文期限與 32 MiB 的回應上限。格式錯誤／過大／傳輸錯誤會以 stderr 停止並以 1 結束，不自動重試／重新連線。
+視窗過大時請降低上限。SIGINT／Ctrl-C 以 130 結束、SIGTERM 以 143 結束，之後沒有輪詢或輸出。請檢查結束狀態與保留的列，而不要把取消當成完整歷程。
 
-### Companion timeline and key-scoped usage
+### 伴隨時間軸與金鑰範圍用量
 
 ```bash
 ocx companion timeline --help
 ocx companion timeline --hours 24 --bucket-minutes 60 --metric total --aggregation sum --grouping model --model example/model-a --hide-provider excluded-provider --json
 ```
 
-Replace fictional IDs with the selected filters. Repeat `--model` for individual
-provider/model IDs (nested slashes allowed; not CSV); repeat `--hide-provider` to
-exclude providers. Positive `--provider` is unsupported. Hours are 6/24/72/168,
-bucket minutes 1–1440 with at most 2000 buckets, metric total/input/output/cached,
-aggregation sum/average/max, grouping model/modelAccount. The API limits filter
-inputs to 100 items. This reads usage without changing companion settings.
+請把虛構的 ID 換成選定的過濾條件。對個別的 provider／model ID 重複使用 `--model`（允許巢狀斜線；不是 CSV）；重複使用 `--hide-provider` 以排除供應商。
+不支援正向的 `--provider`。小時數為 6／24／72／168，bucket 分鐘數 1–1440 且最多 2000 個 bucket，指標為 total／input／output／cached，
+聚合為 sum／average／max，分組為 model／modelAccount。API 將過濾輸入限制在 100 個項目。這會讀取用量，且不變更伴隨設定。
 
-Check `appliedFilters.models/hiddenProviders`. Timeline bounds are epoch seconds,
-with exclusive end, unlike ordinary usage's millisecond custom window. The end must
-match the request-time bucket, or its immediate successor if the request crosses
-a bucket boundary; an older aligned window is refused. Empty
-series retains bucket/filter metadata. `missingMeasurements` and `truncated` must
-remain visible: zero-filled points do not prove complete zero usage.
+請檢查 `appliedFilters.models/hiddenProviders`。時間軸界線為 epoch 秒，結尾不含，與一般用量以毫秒計的自訂視窗不同。
+結尾必須符合請求當下的 bucket；若請求跨越 bucket 邊界，則為其緊接的下一個；較舊的對齊視窗會被拒絕。空的序列保留 bucket／過濾中繼資料。
+`missingMeasurements` 與 `truncated` 必須保持可見：以零填補的點不能證明完整的零用量。
 
-On a non-client management host:
+在非用戶端的管理主機上：
 
 ```bash
 ocx access key list --json
 ocx usage --api-key-id key-example --range 7d --json
 ```
 
-Use a non-secret actual key ID. The CLI requires exact response acknowledgment in
-`filter.apiKeyId`; ignored filters fail rather than showing unscoped totals.
-An unknown acknowledged ID can return `matched:false` and empty traffic, not 404.
-Keep incomplete/custom-window facts. Connected clients reject `--api-key-id`
-before enrolled-key access or transport; omit it for existing self-only Hub usage
-or perform the selected-key view on the Hub. No data key grants management authority.
+請使用非機密的實際金鑰 ID。CLI 要求回應中的 `filter.apiKeyId` 有精確的確認；被忽略的過濾條件會失敗，而不是顯示未限定範圍的總計。
+未知但已被確認的 ID 可能回傳 `matched:false` 與空流量，而不是 404。請保留不完整／自訂視窗的事實。
+已連線的用戶端會在存取已登記金鑰或傳輸之前拒絕 `--api-key-id`；請對既有僅限自身的 Hub 用量省略它，或在 Hub 上執行選定金鑰檢視。資料金鑰不授予管理權限。
 
 ### `ocx debug <provider|usage|injection|claude> <on|off|status|reset|logs [-f]>`
 
@@ -605,42 +482,31 @@ ocx debug usage logs [-f|--follow]
 
 ### `ocx access <key|endpoints|models|test|audio> ...`
 
-Inspect admission keys, external endpoints and models with the access family.
-`ocx api-key` aliases the access-key family. Creation and rotation-start return a
-one-time plaintext credential in text and JSON output. Agents must leave those
-steps to a human-operated terminal outside the agent session; request only
-confirmation and non-secret key/rotation IDs, never the credential.
+使用 access 家族檢視准入金鑰、外部端點與模型。`ocx api-key` 是 access 金鑰家族的別名。建立與開始輪替會在文字與 JSON 輸出中回傳一次性的明文憑證。
+代理必須把這些步驟留給代理工作階段之外、由人操作的終端機；只要求確認與非機密的金鑰／輪替 ID，絕不索取憑證。
 
 ```bash
 ocx access key list --json
 ```
 
-After the human configures and verifies the replacement, committing its rotation
-or removing the old key requires separate explicit revocation authority. Safe
-non-secret follow-ups are `ocx access key rotate commit <id> <rotation-id> --json`
-and `ocx access key rotate abort <id> <rotation-id> --json`, with authority for
-the chosen action. Re-list afterward. Missing pending state alone does not prove
-commit: expiry or abort can also clear it. Do not route around consent by issuing
-the secret-returning management request directly.
+在人設定並驗證替換金鑰之後，提交其輪替或移除舊金鑰需要另外明確的撤銷授權。安全的非機密後續動作為
+`ocx access key rotate commit <id> <rotation-id> --json` 與 `ocx access key rotate abort <id> <rotation-id> --json`，且需具備所選動作的授權。
+之後請重新列出。僅憑缺少待處理狀態不能證明已提交：到期或中止也可能清除它。不要直接發出回傳機密的管理請求來繞過同意。
 
-### Rename one key without changing its access policy
+### 重新命名一個金鑰而不變更其存取政策
 
 ```bash
 ocx access key rename key-example 'Research client' --json
 ocx access key list --json
 ```
 
-Use an actual unique ID or unambiguous name. Rename sends only `{id,name}` and
-preserves provider/model scopes; it does not rotate/delete a key. The response
-contains id/name/createdAt and optional allowedProviders/allowedModels, never
-plaintext or a prefix. List remains masked. Names are control-free, trimmed,
-nonempty and at most 64 JavaScript string units. The read/rename sequence is not
-CAS; inspect the masked roster after an unknown outcome before retrying. The
-root `api-key rename` alias uses the same command.
+請使用實際唯一的 ID 或不含歧義的名稱。重新命名只送出 `{id,name}` 並保留供應商／模型範圍；它不會輪替／刪除金鑰。
+回應包含 id／name／createdAt 與選用的 allowedProviders／allowedModels，絕不含明文或前綴。清單仍為遮罩。名稱不含控制字元、已去除空白、非空，且最多 64 個 JavaScript 字串單元。
+讀取／重新命名的序列不是 CAS；結果不明時，請先檢查遮罩後的名冊再重試。根層的 `api-key rename` 別名使用同一個指令。
 
-### Explicit-key model and audio checks
+### 明確指定金鑰的模型與音訊檢查
 
-Discover the installed syntax without contacting upstream:
+不連絡上游即可探索已安裝的語法：
 
 ```bash
 ocx access test --help
@@ -648,12 +514,9 @@ ocx access audio transcribe --help
 ocx access audio live-check --help
 ```
 
-Model requests, audio uploads and live-session checks require explicit operator
-authorization for that particular upstream operation and possible quota/cost.
-The operator supplies the selected key from an approved private stdin source in
-a human-operated terminal outside the agent session. Agents must not capture it
-or ask for it in chat. Never put it in argv/environment. These are the ocx side
-of that private pipe, not direct interactive key prompts or an agent-run batch:
+模型請求、音訊上傳與即時工作階段檢查，需要操作者針對該特定上游操作與可能的配額／成本給予明確授權。操作者在代理工作階段之外、由人操作的終端機中，
+從經核准的私有 stdin 來源提供選定的金鑰。代理不得擷取它或在聊天中索取它。絕不把它放進 argv／環境變數。
+以下是該私有管線的 ocx 這一側，不是直接的互動式金鑰提示，也不是代理執行的批次：
 
 ```bash
 ocx access test example/model --protocol responses --api-key-stdin --json
@@ -661,63 +524,36 @@ ocx access audio transcribe sample.wav --model gpt-4o-mini-transcribe --api-key-
 ocx access audio live-check --model gpt-live-1-codex --api-key-stdin --json
 ```
 
-Choose only the authorized task and real model/file. TTY input is refused. Input
-is bounded to 4096 bytes/30 seconds, valid UTF-8 printable ASCII, without outer
-whitespace, controls or extra lines; one final LF/CRLF is allowed. This deliberately
-covers currently issued keys, not every Unicode value the server configuration
-might accept. Exact supplied-key occurrences in permitted text become `[redacted]`;
-arbitrary encodings are not guaranteed detected. No encoded key carrier is printed.
+只選擇已授權的任務與真實的模型／檔案。TTY 輸入會被拒絕。輸入限制為 4096 位元組／30 秒、有效的 UTF-8 可列印 ASCII，且不含外層空白、控制字元或額外行；允許一個結尾的 LF／CRLF。
+這刻意只涵蓋目前核發的金鑰，不是伺服器設定可能接受的每個 Unicode 值。允許的文字中出現的、完全一致的所提供金鑰，會變成 `[redacted]`；不保證偵測任意編碼。不會輸出經編碼的金鑰載體。
 
-Targets are the checked local serving origin or existing normalized enrolled Hub
-origin, with identity checked around asynchronous work. There is no custom-origin,
-admin or enrolled-key fallback, redirect following, credential cache or automatic
-retry. The operator reports only the non-secret result to the agent.
+目標是已檢查的本機服務來源，或既有且已正規化的已登記 Hub 來源，並在非同步工作前後檢查身分。沒有自訂來源、管理員或已登記金鑰的備援、不跟隨重新導向、不快取憑證，也不自動重試。操作者只向代理回報非機密的結果。
 
-#### Model control and response limits
+#### 模型控制與回應限制
 
-Protocols are chat (default), responses or messages. Selected-key mode first
-sends one credentialless malformed-JSON control to that endpoint. Only the native
-key-required 401 advances to one fixed 16-token model request using the supplied
-key. The control has a 5-second/4096-byte response budget; the request has a
-60-second/2 MiB response budget including body reads. Authless/unrecognized
-controls stop before inference. Local logging/admission bookkeeping may still occur.
+協定為 chat（預設）、responses 或 messages。選定金鑰模式會先對該端點送出一個不帶憑證、JSON 格式錯誤的控制請求。只有原生需要金鑰的 401 才會推進到一個固定的 16 權杖模型請求，並使用所提供的金鑰。
+控制請求有 5 秒／4096 位元組的回應預算；該請求有 60 秒／2 MiB 的回應預算（含讀取本文）。無驗證／無法辨識的控制請求會在推論之前停止。本機日誌／准入記帳仍可能發生。
 
-JSON is `{schemaVersion:1,control:{outcome,status?},request:{outcome,status?},response?}`.
-Safe response contains protocol, ordered text, complete/limited completion and
-optional measured token counts. A usable length-limited reply is `limited`;
-refusal/content-filter/tool-only or malformed responses are unsupported, even
-with HTTP 2xx. Error metadata, IDs, tools and reasoning are not printed.
-Operational failure retains one versioned report plus fixed stderr/exit 1;
-invalid grammar/key input exits 2 without a fabricated report.
+JSON 為 `{schemaVersion:1,control:{outcome,status?},request:{outcome,status?},response?}`。安全的回應包含協定、有順序的文字、完整／受限的完成狀態，以及選用的量測權杖數。
+可用但受長度限制的回覆為 `limited`；拒絕／內容過濾／僅工具或格式錯誤的回應即使 HTTP 為 2xx 也是不支援。錯誤中繼資料、ID、工具與推理不會輸出。
+操作失敗會保留一份有版本的報告，加上固定的 stderr／結束碼 1；無效的語法／金鑰輸入以 2 結束，且不產生捏造的報告。
 
-Success says only: “Credentialless request was refused; the model request using
-the supplied key succeeded.” Listener/policy changes between calls remain possible;
-this does not certify key scope, atomic admission or billing identity. Without
-`--api-key-stdin`, legacy test JSON remains its original payload and says nothing
-about a newly selected key.
+成功時只會輸出：“Credentialless request was refused; the model request using the supplied key succeeded.”
+兩次呼叫之間，listener／政策仍可能變更；這不能證明金鑰範圍、原子准入或計費身分。沒有 `--api-key-stdin` 時，舊式的測試 JSON 維持其原始承載，且對新選定的金鑰不提供任何資訊。
 
-#### Transcription and live readiness
+#### 轉錄與即時就緒
 
-Transcription requires a nonempty regular file of at most 25,000,000 bytes with a
-30-second local read limit, and a multipart body capped at 32 MiB. Models are
-gpt-4o-transcribe, gpt-4o-mini-transcribe or whisper-1, subject to target support.
-Upload/response share 130 seconds; response is capped at 2 MiB. Success returns
-only `{text}`, including empty text, with exact-key redaction. Failure leaves
-stdout empty and prints fixed stderr/nonzero; no JSON error envelope or raw body.
+轉錄需要一個非空的一般檔案，上限 25,000,000 位元組並有 30 秒的本機讀取限制，且 multipart 本文上限 32 MiB。
+模型為 gpt-4o-transcribe、gpt-4o-mini-transcribe 或 whisper-1，視目標支援而定。上傳／回應共用 130 秒；回應上限 2 MiB。
+成功時只回傳 `{text}`（含空文字），並做精確金鑰遮蔽。失敗時 stdout 為空，並輸出固定的 stderr／非零結束；沒有 JSON 錯誤信封或原始本文。
 
-Audio uses explicit-key admission without the model control. Live-check sends
-fixed session.update and session.close only. Readiness requires session.started
-or session.updated with nonblank native session ID within 15 seconds; socket-open
-or session.created alone is insufficient. After readiness it waits at most 2
-seconds for normal code-1000 closure. Each UTF-8 frame is capped at 64 KiB, aggregate
-2 MiB; there is no retained frame history.
+音訊使用明確金鑰的准入，不含模型控制。Live-check 只送出固定的 session.update 與 session.close。
+就緒需要在 15 秒內收到帶有非空白原生工作階段 ID 的 session.started 或 session.updated；僅 socket 開啟或 session.created 並不足夠。
+就緒之後，它最多再等 2 秒等待正常的 code-1000 關閉。每個 UTF-8 框上限 64 KiB，總計 2 MiB；不保留框歷程。
 
-Live JSON is `{schemaVersion:1,ready,close:"confirmed"|"unverified",check:"session-readiness",event?}`.
-Operational failure preserves that observation without raw frames. Partial readiness
-with unverified close exits 1; a later normal close cannot erase an earlier error.
-Signals exit 130/143. This checks readiness/closure only, not microphone, upload,
-tool execution, full voice roundtrip or server lease release. Opening the upstream
-session is not guaranteed free. No reconnect or retry is automatic.
+即時 JSON 為 `{schemaVersion:1,ready,close:"confirmed"|"unverified",check:"session-readiness",event?}`。操作失敗會保留該觀察，且不含原始框。
+部分就緒但關閉未驗證時以 1 結束；之後的正常關閉不能抹除較早的錯誤。訊號以 130／143 結束。
+這只檢查就緒／關閉，不檢查麥克風、上傳、工具執行、完整語音往返或伺服器租約釋放。開啟上游工作階段不保證免費。不會自動重新連線或重試。
 
 ### `ocx api <protocols|explain|policy> ...`
 
@@ -752,7 +588,7 @@ ocx api policy --rollout shadowPlan=on
 
 ## 客戶端整合
 
-### Basic integration commands
+### 基本整合指令
 
 | Command | Action |
 | --- | --- |
@@ -764,57 +600,40 @@ ocx api policy --rollout shadowPlan=on
 | `ocx integration native [list] [--json]` | Read native integration state. |
 | `ocx integration native <claude\|claude-desktop\|codex\|grok> <on\|off> [--json]` | Write the selected native client's configuration through its runtime owner. |
 
-These commands require a running proxy. `--profile` selects a nonnegative Aside account ID and
-requires `--client aside`; omitted profiles select the aggregate for reads and all profiles for
-unbound enable/disable. Native toggles change client configuration; Cursor has separate read-only
-inspection commands below. For preview and bound-write options, continue with the recipes below.
+這些指令需要執行中的 proxy。`--profile` 選擇非負的 Aside 帳號 ID 並需要 `--client aside`；省略 profile 時，讀取選擇彙總，未綁定的 enable／disable 則套用到所有 profile。
+原生開關會變更用戶端設定；Cursor 另有下方唯讀的檢視指令。預覽與綁定寫入選項請繼續參考下方的範例。
 
-### Preview and recover managed file integrations
+### 預覽並復原受管理的檔案整合
 
 ```bash
 ocx integration client preview --client hermes --operation apply --json
 ocx integration client restore --op op-example --preview --json
 ```
 
-`op-example` is fictional; use an ID from history. Preview operations are apply,
-overwrite and disable; restore uses `--preview` on its existing command. Review
-structural changes and `canApply`/`willChange`; valid refusal/no-op exits 0 without
-applying. Enable/disable/restore accept optional `--plan-fingerprint` for an
-explicit bound commit. Direct legacy writes remain available. Aside preview or
-bound writes require `--client aside --profile N`. Drift confirmation and overwrite
-are never automatic; stale binding exits 5 with empty stdout and a re-preview
-instruction on stderr. Follow the [complete preview/commit and drift recipes](/zh-tw/guides/integrations/#preview-and-bind-a-terminal-write).
+`op-example` 是虛構的；請使用歷程中的 ID。預覽操作為 apply、overwrite 與 disable；restore 在其既有指令上使用 `--preview`。
+請檢視結構性變更與 `canApply`／`willChange`；有效的拒絕／無操作以 0 結束且不套用。Enable／disable／restore 接受選用的 `--plan-fingerprint` 以做明確的綁定提交。
+直接的舊式寫入仍然可用。Aside 的預覽或綁定寫入需要 `--client aside --profile N`。漂移確認與覆寫絕不自動進行；過期的綁定以 5 結束，stdout 為空，並在 stderr 給出重新預覽的指示。
+請依循[完整的預覽／提交與漂移範例](/zh-tw/guides/integrations/#preview-and-bind-a-terminal-write)。
 
-Droid apply/overwrite supports repeated `--reasoning-default MODEL=EFFORT` for
-full map replacement, or exclusive `--clear-reasoning-defaults` for `{}`. Omission
-preserves the map. Repeat the exact map in preview and commit; see
-[Droid defaults](/zh-tw/guides/integrations/#factory-droid).
+Droid 的 apply／overwrite 支援重複的 `--reasoning-default MODEL=EFFORT` 以完整取代對應表，或獨占的 `--clear-reasoning-defaults` 以得到 `{}`。省略則保留對應表。
+請在預覽與提交中重複相同的完整對應表；請見 [Droid 預設值](/zh-tw/guides/integrations/#factory-droid)。
 
-History removal is irreversible and requires an exact opId plus `--yes`:
-`ocx integration client history remove --op op-example --yes --json` addresses the
-global journal. Only `--client aside` and optional `--profile N` provide narrower
-delete scopes. The newest row is protected. `snapshotRemoved:false` exits 1 after
-retirement with cleanup incomplete; do not retry deletion or claim rollback.
+移除歷程無法復原，且需要精確的 opId 加上 `--yes`：`ocx integration client history remove --op op-example --yes --json` 指向全域日誌。
+只有 `--client aside` 與選用的 `--profile N` 提供較窄的刪除範圍。最新的一列受到保護。`snapshotRemoved:false` 在退役之後以 1 結束，表示清理未完成；請不要重試刪除或宣稱已回滾。
 
-`ocx integration client sync --client aside --json` refreshes eligible profiles
-through the attested owner, with no profile selector or local fallback. Empty
-`results` is successful observation of no eligible profiles; a failed row makes
-the aggregate nonzero while preserving other successes. Read status and recovery
-facts before retrying; [Aside controls](/zh-tw/guides/integrations/#aside-profile-controls)
-explain profile intent versus file state.
+`ocx integration client sync --client aside --json` 透過已驗證的擁有者重新整理符合資格的 profile，沒有 profile 選擇器或本機備援。
+空的 `results` 表示成功觀察到沒有符合資格的 profile；有失敗的列會讓彙總為非零，同時保留其他成功項目。重試之前請先讀取 status 與復原事實；
+[Aside 控制](/zh-tw/guides/integrations/#aside-profile-controls)說明 profile 意圖與檔案狀態的差異。
 
-### Inspect Cursor without installing it
+### 檢視 Cursor 而不安裝
 
 ```bash
 ocx integration native cursor status --json
 ocx integration native cursor local-installer --json
 ```
 
-Status can gather model inventory; installer lookup may fetch a public manifest.
-They do not download/install or toggle Cursor. Status distinguishes credential
-from placeholder gateway mode; the placeholder is not an access credential.
-Installer `{available:false,url:null,version:null,reason:null}` is valid, including
-when Private Inference is already installed. A valid unavailable read exits 0.
+Status 可以收集模型清單；安裝程式查詢可能會取得公開的 manifest。它們不會下載／安裝或切換 Cursor。Status 會區分憑證與預留位置閘道模式；預留位置不是存取憑證。
+安裝程式的 `{available:false,url:null,version:null,reason:null}` 是有效的，包括 Private Inference 已安裝時。有效的不可用讀取以 0 結束。
 
 ### `ocx integration <claude|grok> ...`
 
@@ -840,30 +659,25 @@ ocx claude desktop import <path> [--apply]         驗證並匯入 JSON
 
 家族為 `opus`、`fable`、`sonnet` 與 `haiku`；新路由從 `opus` 開始。`none` 僅在該家族為空時有效。舊版套用旗標 `--static`、`--hybrid` 與 `--discovery-only` 仍受支援。請用 `ocx claude config <status|set> ...` 管理 Claude Code 設定。
 
-#### Read or save the selected runtime's Desktop profile
+#### 讀取或儲存所選執行階段的 Desktop 設定檔
 
-The existing show/import commands above are local. The `profile` family targets
-the running management runtime and can gather model inventory:
+上方既有的 show／import 指令是本機的。`profile` 家族以執行中的管理執行階段為目標，並可收集模型清單：
 
 ```bash
 ocx claude desktop profile show --json > desktop-observed.json
 jq '.profile' desktop-observed.json > desktop-profile.json
 ```
 
-Edit/review the versioned profile, preserving server-owned applied markers. For
-an authorized save, then read-back:
+編輯／檢視有版本的設定檔，保留伺服器擁有的已套用標記。對於已授權的儲存，接著讀回：
 
 ```bash
 ocx claude desktop profile import desktop-profile.json --json
 ocx claude desktop profile show --json
 ```
 
-Import accepts the profile itself, not the outer `{profile,models,rendered,port}`
-response, using bounded regular JSON files or explicit stdin `-` (4 MiB/30 seconds).
-It returns those observed fields plus `ok:true`, meaning saved only. `--apply` and
-native-mode flags are rejected; failed runtime save has no local fallback. Apply
-is a separate existing Desktop action on its machine, so verify host/context
-before choosing it. Rendered models are not proof of native application.
+Import 接受設定檔本身，而不是外層的 `{profile,models,rendered,port}` 回應，使用有界的一般 JSON 檔案或明確的 stdin `-`（4 MiB／30 秒）。
+它會回傳那些觀察到的欄位加上 `ok:true`，意思只是已儲存。`--apply` 與原生模式旗標會被拒絕；執行階段儲存失敗時沒有本機備援。
+Apply 是在其機器上另一個既有的 Desktop 動作，所以選擇它之前請先確認主機／上下文。已轉譯的模型不能證明已套用到原生。
 
 ### `ocx codex [codex args...]`
 
@@ -989,47 +803,31 @@ ZCode 造成的。
 
 ### `ocx system <status|settings|startup|diagnostics|sync|codex-app-server|codex-restart|update|codex-cli-update> ...`
 
-Manage headless runtime settings, startup, sync, diagnostics, and updates.
+管理無頭執行階段設定、啟動、同步、診斷與更新。
 
-`ocx system codex-restart --yes` restarts Codex app-servers through the same module as
-`ocx sync --restart-codex`. It quits and relaunches the Codex desktop app when the app launched before the current model catalog was written or this request changed
-its `model_catalog_json` binding, because the model picker is built at
-launch. Otherwise the app stays open, respawns its own app-server, and keeps unsaved drafts and
-pending approvals. If the app or catalog state cannot be read, it takes the full restart. When
-the proxy itself is running inside the Codex app, the desktop restart refuses with an actionable
-message instead of promising a handoff it cannot complete.
+`ocx system codex-restart --yes` 透過與 `ocx sync --restart-codex` 相同的模組重新啟動 Codex app-server。
+當應用程式在目前的模型目錄寫入之前啟動，或本次請求變更了它的 `model_catalog_json` 繫結時，它會結束並重新啟動 Codex 桌面應用程式，因為模型選擇器是在啟動時建立的。
+否則應用程式維持開啟，重新產生它自己的 app-server，並保留未儲存的草稿與待處理的核准。若無法讀取應用程式或目錄狀態，則採取完整重新啟動。
+當 proxy 本身正在 Codex 應用程式內執行時，桌面重新啟動會以可採取行動的訊息拒絕，而不是承諾一個它無法完成的交接。
 
-A `model_catalog_json` binding changed by this request also forces the desktop restart, even when the shell started after the catalog file was written.
+即使 shell 是在目錄檔案寫入之後才啟動，本次請求所變更的 `model_catalog_json` 繫結同樣會強制桌面重新啟動。
 
 ```bash
 ocx system settings --stream-mode eager-relay
 ```
 
-Additional system booleans take on/off: `--show-codex-credits`, `--account-picker`,
-`--main-account-hard-lock`, `--ultra-fast-tier`, and `--fast-rows`. They write only
-explicit fields and may combine with existing system options. Showing credits is
-a display preference, not paid-credit opt-in; system Ultra Fast is separate from
-provider Fast.
+其他系統布林值接受 on／off：`--show-codex-credits`、`--account-picker`、`--main-account-hard-lock`、`--ultra-fast-tier` 與 `--fast-rows`。
+它們只寫入明確的欄位，並可與既有的系統選項合併使用。顯示額度是顯示偏好，不是付費額度的選擇啟用；系統的 Ultra Fast 與供應商的 Fast 是分開的。
 
-Ultra Fast is an opt-in setting, default off. With `--ultra-fast-tier on`, the
-generated catalog adds the Ultrafast speed choice to native `gpt-6-astra` and
-`gpt-6.1-sol` (including account-bound rows), so the Codex picker offers it next to
-Fast. Ultrafast requires an eligible ChatGPT plan; the catalog cannot check that,
-so turn the setting on only if your plan includes it. Other models and the default
-speed are unchanged.
+Ultra Fast 是選擇啟用的設定，預設關閉。使用 `--ultra-fast-tier on` 時，產生的目錄會在原生的 `gpt-6-astra` 與 `gpt-6.1-sol`（包括帳號綁定的列）加入 Ultrafast 速度選項，
+讓 Codex 選擇器在 Fast 旁邊提供它。Ultrafast 需要符合資格的 ChatGPT 方案；目錄無法檢查這一點，所以只有在你的方案包含它時才開啟此設定。其他模型與預設速度維持不變。
 
-For routed models, sync and catalog convergence retain an existing routed
-row's operator-supplied `ultrafast` entries in `service_tiers` and
-`additional_speed_tiers` alongside its current Fast capability. Declarations belong
-to the exact provider/model slug; they are not copied to other models. The setting
-does not create missing declarations or restore removed models. Turning it off
-removes Ultra Fast from ordinary routed rows and the generated native choice on the
-next catalog regeneration.
+對於經路由的模型，sync 與目錄收斂會保留既有經路由列中，由操作者提供的 `service_tiers` 與 `additional_speed_tiers` 內的 `ultrafast` 項目，並與其目前的 Fast 能力並存。
+宣告屬於精確的 provider／model slug；不會複製到其他模型。此設定不會建立缺少的宣告，也不會還原已移除的模型。
+關閉它會在下一次目錄重新產生時，從一般的經路由列與產生的原生選項中移除 Ultra Fast。
 
-The proxy's Fast mode decides what reaches the backend: when it is unset, a selected
-Ultrafast request is forwarded as `service_tier: "ultrafast"`; `fastMode: true`
-replaces any tier with Fast (`priority`), and `fastMode: false` removes the tier.
-Leave Fast mode unset to use Ultrafast.
+proxy 的 Fast 模式決定什麼會抵達後端：未設定時，選定的 Ultrafast 請求會以 `service_tier: "ultrafast"` 轉送；`fastMode: true` 會把任何層級取代為 Fast（`priority`），而 `fastMode: false` 會移除該層級。
+請讓 Fast 模式保持未設定以使用 Ultrafast。
 
 ```bash
 ocx system settings --json
@@ -1037,41 +835,26 @@ ocx system settings --show-codex-credits on --json
 ocx system settings --json
 ```
 
-New-option writes report `{ok:true, settings: observedFields, catalogRefreshPending}`.
-Ultra Fast performs same-target GET read-back because PUT omits that value. A
-missing/mismatched/read-failed observation stays `verification:"unverified"` with
-`unverifiedFields` and a nonzero exit after acceptance; requested values are never
-substituted for observations. Combined desktop switches retain stored/effective
-and apply facts. Pending catalog or deferred/refused native apply is distinct from
-a saved setting. False pending is not proof that every client has reloaded.
+新選項的寫入會回報 `{ok:true, settings: observedFields, catalogRefreshPending}`。Ultra Fast 會做同一目標的 GET 讀回，因為 PUT 省略了該值。
+缺少／不相符／讀取失敗的觀察，在接受之後維持 `verification:"unverified"` 並附帶 `unverifiedFields`，且以非零結束；要求的值絕不會取代觀察值。
+合併的桌面開關會保留已儲存／有效與套用的事實。待處理的目錄或延後／被拒絕的原生套用，與已儲存的設定是不同的。偽的待處理狀態不能證明每個用戶端都已重新載入。
 
-`ocx system update` updates OpenCodex itself. The separate Codex CLI inspection surface is:
+`ocx system update` 會更新 OpenCodex 本身。獨立的 Codex CLI 檢視介面為：
 
 ```bash
 ocx system codex-cli-update check --json
 ```
 
-`check` makes no package-registry request and inspects bounded configured-candidate provenance evidence,
-including a redacted executable location and ownership evidence. Trusted published-launcher context authenticates
-the candidate snapshot, not successful Codex execution. On POSIX, selection is attested only when the runtime
-resolver selects the same canonical environment candidate without executing it. A linked npm-global manifest
-can then establish `managed: true` when it proves ownership and, if a candidate version is reported, that version matches the manifest; persisted candidates remain unattested. The JSON report exposes `candidateAvailable`, `candidateVersion`, `candidateSource`,
-and `selectionAttested`. Inspecting the configured candidate requires a trusted published-launcher context;
-a direct Bun/source launch has no such proof, ignores ambient and persisted candidate state, and may report
-`candidate_unavailable` on POSIX. On Windows x64, a proof-captured absolute standard npm `codex.cmd`
-can be managed when held local handles bind its package, a prefix-local Node/npm pair or the captured
-PATH metadata pair tied to the launcher architecture, and the first in-prefix platform backing.
-This metadata pair does not attest the interpreter a later CMD invocation would select.
-Plan paths and configured version-manager roots must use their canonical long DOS names;
-aliases, unavailable roots and reparse points leave the installation unmanaged. Other Windows layouts remain deferred or unmanaged. Windows never consults persisted state, so a run
-with no captured environment candidate reports `windows_inspection_deferred` rather than `candidate_unavailable`:
-the command cannot observe whether a Codex CLI is installed, so it reports the deferral instead of asserting
-that no candidate exists. The command does not execute Codex or a package manager, repair a shim,
-write configuration or cache state, stop a process, or install anything. App-bundled, recognized
-version-manager, unverified standalone, and ambiguous shim states are reported as unmanaged or unknown
-and are never classified as managed.
+`check` 不發出套件登錄庫請求，並檢視有界的已設定候選者來源證據，包括經遮蔽的執行檔位置與擁有權證據。受信任的已發布 launcher 上下文驗證的是候選者快照，而不是 Codex 成功執行。
+在 POSIX 上，只有當執行階段解析器在不執行它的情況下選到同一個標準環境候選者時，選擇才算被驗證。連結的 npm-global manifest 在證明擁有權、且（若有回報候選版本）該版本與 manifest 相符時，可以確立 `managed: true`；持久化的候選者仍未驗證。
+JSON 報告公開 `candidateAvailable`、`candidateVersion`、`candidateSource` 與 `selectionAttested`。檢視已設定的候選者需要受信任的已發布 launcher 上下文；
+直接的 Bun／原始碼啟動沒有這種證明，會忽略環境與持久化的候選者狀態，並可能在 POSIX 上回報 `candidate_unavailable`。
+在 Windows x64 上，經證明擷取的絕對標準 npm `codex.cmd`，在持有的本機 handle 繫結其套件、一組位於前綴本機的 Node／npm，或與 launcher 架構相連的擷取 PATH 中繼資料配對，以及第一個位於前綴內的平台後援時，可以是受管理的。
+這組中繼資料配對不能證明之後 CMD 呼叫會選擇的直譯器。計畫路徑與已設定的版本管理器根目錄必須使用其標準的長 DOS 名稱；別名、不可用的根目錄與重新解析點會讓安裝維持未受管理。其他 Windows 配置仍為延後或未受管理。
+Windows 絕不查詢持久化的狀態，所以沒有擷取到環境候選者的執行會回報 `windows_inspection_deferred` 而不是 `candidate_unavailable`：指令無法觀察 Codex CLI 是否已安裝，因此它回報延後，而不是斷言沒有候選者存在。
+此指令不執行 Codex 或套件管理員、不修復 shim、不寫入設定或快取狀態、不停止程序，也不安裝任何東西。應用程式內建、已辨識的版本管理器、未驗證的獨立安裝，以及含糊的 shim 狀態，都會被回報為未受管理或未知，且絕不分類為受管理。
 
-On Windows, a captured bare command such as `CODEX_CLI_PATH=codex`, a remote path, or a device path reports `candidate_path_unavailable` instead. Those cases have a captured candidate; its path is not eligible for this inspection.
+在 Windows 上，擷取到的裸指令（例如 `CODEX_CLI_PATH=codex`）、遠端路徑或裝置路徑，會改為回報 `candidate_path_unavailable`。這些情況有擷取到的候選者；其路徑不符合此檢視的資格。
 
 #### 已確認的 Codex CLI 套用與工作狀態
 
@@ -1116,31 +899,22 @@ Windows 支援具有已驗證 ACL 且沒有重新分析點路徑的共用前綴�
 管理 API 提供經過驗證的計畫／狀態讀取，以及已確認的、可信任迴路 GUI 工作階段套用准入。已發布的 Node `ocx start`
 會提供所需的檢查快照；直接的 Bun 或編譯後的附屬程式啟動不提供該證明。儀表板更新面板是另一項後續工作。
 
-#### Read-only Codex CLI update plan
+#### 唯讀的 Codex CLI 更新計畫
 
 ```bash
 ocx system codex-cli-update plan --channel latest --json
 ```
 
-Run through the published Node launcher with the intended `CODEX_CLI_PATH` in the shell environment.
-The plan requires an attested npm-global installation and a linked package manifest version.
-Windows supports only an explicit absolute standard npm `codex.cmd` with a held-bound Node/npm toolchain —
-prefix-local when present, otherwise the captured-PATH pair anchored to the launcher architecture;
-PATH-only selection, OpenCodex autostart wrappers and global/vendor fallback stay deferred.
-It queries the official npm registry for an exact version, SHA-512 integrity and same-origin tarball,
-using the launcher's captured PATH and isolated temporary npm configuration, cache and logs. Proxy
-settings and `NODE_EXTRA_CA_CERTS` remain supported; cleanup is best-effort. No Codex command runs.
+請透過已發布的 Node launcher 執行，並在 shell 環境中設定預期的 `CODEX_CLI_PATH`。計畫需要經驗證的 npm-global 安裝與已連結的套件 manifest 版本。
+Windows 只支援明確的絕對標準 npm `codex.cmd`，搭配持有繫結的 Node／npm 工具鏈——有的話為前綴本機者，否則為與 launcher 架構相連的擷取 PATH 配對；
+僅 PATH 的選擇、OpenCodex 自動啟動包裝程式與全域／vendor 備援仍為延後。它使用 launcher 擷取的 PATH 與隔離的暫時 npm 設定、快取與日誌，
+向官方 npm 登錄庫查詢精確的版本、SHA-512 完整性與同源 tarball。Proxy 設定與 `NODE_EXTRA_CA_CERTS` 仍受支援；清理為盡力而為。不會執行任何 Codex 指令。
 
-An applicable plan reports `applicable: true` and a deterministic `planId` binding platform,
-installation-root/content digests, installed version, channel and exact main/platform artifacts. The plan is never
-persisted. It refuses downgrades, already-current versions, active Codex sessions and incomplete
-process observation. Supported Windows metadata queries use the observed Node/npm under matching
-held handles. Windows x64 can be applicable only for a bounded npm prefix with verified
-write authority; other observed prefixes retain `windows_apply_disabled`. Active/unknown sessions still refuse earlier. Unsupported
-Windows layouts return `windows_inspection_deferred` before registry/process queries.
-A refusal exits 0: inspect `applicable` and `refusal`. The printed install argv is indicative; this
-command installs nothing, changes no application state and never signals a session.
-A plan ID alone is not installation authorization: apply requires separate explicit confirmation.
+適用的計畫會回報 `applicable: true` 與一個確定性的 `planId`，繫結平台、安裝根目錄／內容摘要、已安裝版本、頻道與精確的主要／平台構件。計畫絕不持久化。
+它會拒絕降級、已是最新的版本、使用中的 Codex 工作階段與不完整的程序觀察。受支援的 Windows 中繼資料查詢使用在相符持有 handle 下觀察到的 Node／npm。
+Windows x64 只有在有界的 npm 前綴具備已驗證的寫入權限時才可能適用；其他觀察到的前綴保留 `windows_apply_disabled`。使用中／未知的工作階段仍會更早拒絕。不支援的 Windows 配置會在登錄庫／程序查詢之前回傳 `windows_inspection_deferred`。
+拒絕以 0 結束：請檢查 `applicable` 與 `refusal`。輸出的安裝 argv 僅供參考；此指令不安裝任何東西、不變更任何應用程式狀態，也絕不對工作階段發送訊號。
+單獨的計畫 ID 不是安裝授權：套用需要另外明確的確認。
 
 #### 明確觀測 Windows x64 安裝
 
@@ -1182,17 +956,17 @@ ocx system codex-cli-update attest --candidate <absolute-path> --npm-prefix <abs
 ## 上游錯誤細節
 
 當上游錯誤封套包含多個訊息欄位時，OpenCodex 會依既定的優先順序使用第一個非空白的字串。空的或格式錯誤的欄位不再遮蔽有效的後備診斷。
-### Forced Claude Code subagent model
+### 強制 Claude Code 子代理模型
 
-The Subagents page offers **Force all subagents onto one model**, off by default. Select an exposed roster-style id, such as `combo/tev-auto`, then enable the switch. The roster is offered first; unavailable saved roster entries cannot be force targets.
+Subagents 頁面提供**強制所有子代理使用同一個模型**，預設關閉。請選擇一個已公開的名冊式 ID，例如 `combo/tev-auto`，然後啟用開關。名冊會優先提供；不可用的已儲存名冊項目不能作為強制目標。
 
-`ocx agent subagents force combo/tev-auto` sets `claudeCode.subagentModelForce`; `ocx agent subagents force -` clears it. `ocx agent status` reports the setting. `GET /api/subagent-models` returns `force`, `forceAvailable`, and `forceStatus`; `PUT` accepts `{ "force": "combo/tev-auto" }` or `{ "force": null }` without changing the roster. Omitting `force` leaves it unchanged. Invalid or unexposed targets are rejected on write; stale targets are reported and skipped at launch.
+`ocx agent subagents force combo/tev-auto` 會設定 `claudeCode.subagentModelForce`；`ocx agent subagents force -` 會清除它。`ocx agent status` 會回報該設定。`GET /api/subagent-models` 回傳 `force`、`forceAvailable` 與 `forceStatus`；`PUT` 接受 `{ "force": "combo/tev-auto" }` 或 `{ "force": null }`，且不更動名冊。省略 `force` 則維持不變。無效或未公開的目標在寫入時會被拒絕；過期的目標會被回報並在啟動時略過。
 
-This takes effect on the **next routed `ocx claude` launch**, injecting `CLAUDE_CODE_SUBAGENT_MODEL` as an explicit proxy alias (with `[1m]` only for an authoritative million-token window; native Claude targets use a reversible native alias) and `CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1`. Each nonempty shell-exported variable independently wins. Native launches inject neither variable; plain `claude` is not affected. No plugin files or `settings.json` are modified by this setting.
+這會在**下一次經路由的 `ocx claude` 啟動**生效，注入 `CLAUDE_CODE_SUBAGENT_MODEL` 作為明確的 proxy 別名（只有在權威的百萬權杖視窗時才加 `[1m]`；原生 Claude 目標使用可逆的原生別名）與 `CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1`。每個非空、由 shell 匯出的變數各自優先。原生啟動兩個變數都不注入；一般的 `claude` 不受影響。此設定不會修改任何外掛檔案或 `settings.json`。
 
-Claude Code **2.1.257 or newer** is required for FORCE. Plugin and built-in agents (including Explore/Plan) and per-call model arguments are overridden. Forks and subagent skills with `model: inherit` keep the main conversation model. The main loop and Haiku/small-fast sidecars are unaffected. Existing roster files remain available.
+FORCE 需要 Claude Code **2.1.257 或更新版本**。外掛與內建代理（包括 Explore／Plan）及每次呼叫的模型引數都會被覆寫。使用 `model: inherit` 的 fork 與子代理 skill 維持主對話的模型。主迴圈與 Haiku／small-fast 旁路不受影響。既有的名冊檔案仍可使用。
 
-The dashboard warns about old or unknown CLI versions, unavailable targets, and either variable already present in `settings.json` → `env` (which overrides launch env). Detection is read-only and server-local: it cannot inspect another launch shell, another machine, or project-local settings. An unknown result is not proof of force support.
+儀表板會對舊的或未知的 CLI 版本、不可用的目標，以及 `settings.json` → `env` 中已存在的任一變數（它會覆寫啟動環境）發出警告。偵測是唯讀且限於伺服器本機：它無法檢查另一個啟動 shell、另一台機器或專案本機的設定。未知的結果不證明支援 force。
 
 ### 記憶與壓縮路由覆寫
 

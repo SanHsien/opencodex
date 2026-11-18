@@ -35,67 +35,42 @@ description: 監聽器、遠端存取、許可金鑰、逾時、儲存、sidecar
 若較舊的開發組建在備份支援存在前變更了 resume-history 中繼資料，請執行 `ocx recover-history --legacy-openai --yes` 以強制原生供應商復原。
 此命令會重新標記所有含有使用者訊息的 `opencodex` row，其中也包含正常的專用 provider 歷史；執行前請查看 lifecycle reference 中的完整範圍警告。
 
-## Upstream transport recovery
+## 上游傳輸復原
 
-While the canonical ChatGPT upstream WebSocket waits for the first Responses event after
-sending the create frame, it watches for liveness rather than a fixed deadline. When the socket
-supports protocol pings, the proxy pings it every 15 seconds. Any inbound frame — quota,
-response metadata, or a pong — resets a 90-second silence clock, so a socket without ping
-support still stays alive on its own frames, and only 90 seconds with nothing at all settles the request as an
-HTTP 504 with an `upstream_no_response` error. A slow but alive origin therefore waits for the
-client's own deadline or for `connectTimeoutMs` (default 200s for a public upstream, disabled for
-a local one unless set), whichever comes first; a connect timeout that fires after the create frame
-was sent settles as the same 504. A socket
-that closes or errors before the first Responses event settles as an HTTP 502 with
-`upstream_closed_before_response`. The proxy does not retry either status on its own: the frame
-may already be executing upstream, so the client applies its own retry policy exactly as it would
-when connected to the backend directly. The one exception is that 502 on a provider that opted
-into `retryOnReset`, described below. Once the response has started, a later drop
-surfaces inside the stream as before. `stallTimeoutSec` is unrelated to this window.
+標準的 ChatGPT 上游 WebSocket 在送出 create 框之後等待第一個 Responses 事件時，監看的是存活狀態，而不是固定期限。
+當 socket 支援協定 ping 時，proxy 每 15 秒對它 ping 一次。任何入站框（配額、回應中繼資料或 pong）都會重設 90 秒的沉默計時，
+因此不支援 ping 的 socket 仍能靠自己的框維持存活；只有 90 秒內完全沒有任何東西，才會把該請求以 HTTP 504 與 `upstream_no_response` 錯誤結案。
+因此，緩慢但仍存活的來源會一路等到用戶端自己的期限，或 `connectTimeoutMs`（公開上游預設 200 秒，本機上游除非設定否則停用），以先到者為準；
+在 create 框送出之後才觸發的連線逾時，同樣以該 504 結案。在第一個 Responses 事件之前關閉或出錯的 socket，則以 HTTP 502 與
+`upstream_closed_before_response` 結案。proxy 本身不會重試這兩種狀態：該框可能已在上游執行，
+所以用戶端要像直接連到後端時一樣，自行套用它的重試政策。唯一的例外是下文所述、已選擇啟用 `retryOnReset` 的供應商上的那個 502。
+回應一旦開始，之後的中斷仍像以往一樣在串流內浮現。`stallTimeoutSec` 與這個視窗無關。
 
-An ordinary HTTP send has a third case. When the connection dies before any response header
-arrives, the proxy cannot tell whether the model already processed the request, so it refuses
-to send it again and answers HTTP 429 with `upstream_reset_replay_refused`. The status is
-deliberate: a 5xx here is an instruction to most clients, including Codex, to send the whole
-turn again, which is the duplicate the refusal exists to prevent. No `Retry-After` is
-attached, and the response carries `x-should-retry: false`, which the official OpenAI and
-Anthropic SDKs read before their own status rules — without it those clients retry a 429 on
-their own schedule and resend the turn anyway. The same replay-refusal behavior applies on
-`/v1/responses` and `/v1/chat/completions`, whether the request is forwarded natively or translated.
-Routed `/v1/messages` requests translate through Responses and project the same status, code, and
-retry headers into an Anthropic-shaped error envelope. The proxy
-performs no key rotation, account failover or same-target replay on it, nor does it record the
-refusal as rate-limit or quota evidence against the credential it was holding. Tool-call side
-requests such as vision and web search are replayed normally, because repeating them cannot
-duplicate a turn.
+一般的 HTTP 送出還有第三種情況。當連線在任何回應標頭抵達之前就中斷時，proxy 無法得知模型是否已處理該請求，
+所以它拒絕再次送出，並以 HTTP 429 與 `upstream_reset_replay_refused` 回答。這個狀態是刻意選擇的：
+此處的 5xx 對大多數用戶端（包括 Codex）而言是重新送出整個回合的指令，而這正是此拒絕要防止的重複。
+不會附上 `Retry-After`，且回應帶有 `x-should-retry: false`，官方的 OpenAI 與 Anthropic SDK 會在套用自己的狀態規則之前先讀它——
+沒有它的話，這些用戶端會依自己的排程重試 429，並仍然重送該回合。相同的重送拒絕行為適用於 `/v1/responses` 與
+`/v1/chat/completions`，無論請求是原生轉送還是經過轉譯。經路由的 `/v1/messages` 請求會透過 Responses 轉譯，
+並把相同的狀態、代碼與重試標頭投影成 Anthropic 形式的錯誤信封。proxy 對此不做金鑰輪替、帳號容錯移轉或對同一目標的重送，
+也不會把該拒絕記為針對它所持有憑證的速率限制或配額證據。視覺與網路搜尋等工具呼叫的旁路請求會正常重送，因為重複它們不會造成回合重複。
 
-Native ChatGPT Responses and compact HTTP requests whose serialized JSON strings are at least
-1 MiB in UTF-8 use byte-buffer uploads to avoid Bun resetting a large string upload before response
-headers arrive. This preserves the request
-contents and does not enable automatic retries. A genuine connection reset still follows the
-replay-refusal policy above.
+序列化後 JSON 字串在 UTF-8 下至少 1 MiB 的原生 ChatGPT Responses 與 compact HTTP 請求，會使用位元組緩衝上傳，
+以避免 Bun 在回應標頭抵達之前就重設大型字串上傳。這會保留請求內容，且不會啟用自動重試。真正的連線重設仍遵循上述的重送拒絕政策。
 
-A native Responses provider can opt into replacing that send with
-[`retryOnReset`](/zh-tw/reference/configuration/providers/#供應商項目ocxproviderconfig). The same grant covers the
-case where the connection survives the header and the SSE body then dies carrying only control
-events, because the caller has observed nothing in either one. It also covers the canonical
-ChatGPT WebSocket above: a socket that closes or errors before the first Responses event is
-replaced by one HTTP send, never by a second socket. A silent socket keeps its 504, and a native
-steering or injection turn is never replaced. A replacement happens only when
-the request is self-contained (`store: false`, complete input, client-executed tools only, no
-server-side continuation state), and one logical request gets the configured number of
-replacements in total — across every recovery leg and every combo child, not one each. The
-refusal returns as soon as that grant is spent, the leg has no send left, or a replacement fails
-for any other reason. A request that already emitted output or a tool call keeps the refusal
-regardless. A caller that cancels mid-replacement gets the cancellation, not the refusal.
+原生 Responses 供應商可以選擇啟用
+[`retryOnReset`](/zh-tw/reference/configuration/providers/#供應商項目ocxproviderconfig)，以一次替代送出取代該送出。
+同一項授權也涵蓋連線在標頭之後仍存活、而 SSE 本體隨後只帶著控制事件就中斷的情況，因為呼叫端在這兩種情況中都沒有觀察到任何東西。
+它也涵蓋上述標準的 ChatGPT WebSocket：在第一個 Responses 事件之前關閉或出錯的 socket，會被一次 HTTP 送出取代，絕不會被第二個 socket 取代。
+沉默的 socket 維持其 504，原生的引導或注入回合也絕不會被取代。只有在請求自成一體時才會發生替代
+（`store: false`、完整的 input、僅限用戶端執行的工具、沒有伺服器端接續狀態），且一個邏輯請求在所有復原環節與每個 combo 子項合計取得設定的替代次數，而不是各取一份。
+一旦該額度用完、該環節已無可送出之物，或替代因其他原因失敗，就會回傳該拒絕。已經輸出內容或工具呼叫的請求，無論如何都保留該拒絕。
+在替代進行中取消的呼叫端，得到的是取消，而不是拒絕。
 
-For WebSocket recovery, “before the first Responses event” is stricter than “before the
-first text”: even `response.created`, a tool event or a usage-bearing response closes the
-replacement window. Ping/pong and quota metadata alone do not. A later socket close cannot
-turn an already settled cancellation or connect/silence timeout into an HTTP retry.
+對 WebSocket 復原而言，「第一個 Responses 事件之前」比「第一段文字之前」更嚴格：即使是 `response.created`、工具事件或帶有用量的回應，
+都會關閉替代視窗。單獨的 ping／pong 與配額中繼資料則不會。之後的 socket 關閉，無法把已結案的取消或連線／沉默逾時變成 HTTP 重試。
 
-`noProxy` accepts either a comma-separated string or an array. Both forms add entries without
-replacing an inherited `NO_PROXY`:
+`noProxy` 接受以逗號分隔的字串或陣列。兩種形式都是新增項目，不會取代繼承而來的 `NO_PROXY`：
 
 ```jsonc
 { "proxy": "http://proxy.corp:8080", "noProxy": "internal.example,10.0.0.0/8" }
@@ -105,22 +80,19 @@ replacing an inherited `NO_PROXY`:
 { "proxy": "http://proxy.corp:8080", "noProxy": ["internal.example", "10.0.0.0/8"] }
 ```
 
-SOCKS5 (Clash mixed-port listeners included) belongs on `ALL_PROXY`, not `HTTP_PROXY`:
+SOCKS5（包括 Clash 的 mixed-port listener）屬於 `ALL_PROXY`，不是 `HTTP_PROXY`：
 
 ```jsonc
 { "proxy": "socks5://127.0.0.1:10808" }
 ```
 
-`ocx start --socks5` writes that value; `ocx start --socks5-off` clears it.
+`ocx start --socks5` 會寫入該值；`ocx start --socks5-off` 會清除它。
 
-HTTPS requests through SOCKS5 have a separate 30-second TLS handshake deadline.
-A stalled handshake fails without disabling certificate verification; caller
-cancellation can stop it sooner.
+經由 SOCKS5 的 HTTPS 請求有獨立的 30 秒 TLS 握手期限。停滯的握手會失敗，且不會停用憑證驗證；呼叫端取消可以更早停止它。
 
-If an older development build changed resume-history metadata before backup support existed, run
-`ocx recover-history --legacy-openai --yes` to force native-provider recovery.
-It force-relabels every user-message `opencodex` row, including legitimate dedicated-provider
-history; review the full-scope warning in the lifecycle reference before running it.
+若較舊的開發版本在備份支援出現之前就變更了續接歷程中繼資料，請執行
+`ocx recover-history --legacy-openai --yes` 以強制原生供應商復原。它會強制重新標記每一筆使用者訊息的 `opencodex` 列，
+包括合法的專用供應商歷程；執行之前請先閱讀生命週期參考中的完整範圍警告。
 
 ## 工作流程上限
 
@@ -621,20 +593,15 @@ API 頁面與 `PATCH /api/protocols/settings` 使用相同的驗證。
 
 自動認證在找到已儲存的 Claude 認證時選擇訂閱，無認證時選擇 proxy，偵測不明確時選擇訂閱並附帶警告。請見[Claude Code 認證模式](/zh-tw/guides/claude-code/#認證模式)。
 
-## Retained requests after compaction
+## 壓縮後保留的請求
 
-For translated providers and routed Responses gateways, OpenCodex automatically frames
-plain-text user requests before the latest readable Codex checkpoint as historical context.
-Requests the checkpoint reports as completed should not be repeated; retained text remains
-available for unfinished work within its existing authorization. Later user input takes priority,
-including pauses, cancellations and changes of scope. A checkpoint grants no new permission.
+對於轉譯的供應商與經路由的 Responses 閘道，OpenCodex 會自動把最近一個可讀 Codex 檢查點之前的純文字使用者請求，框成歷史上下文。
+檢查點回報為已完成的請求不應重複；保留的文字仍可用於未完成的工作，且維持其既有的授權範圍。
+之後的使用者輸入優先，包括暫停、取消與範圍變更。檢查點不授予任何新權限。
 
-This is enabled by default and needs no setting. Original request text and canonical thread/replay
-history are preserved. Native OpenAI Responses passthrough, summarizer turns, context wrappers,
-images/files and assistant/tool items are unchanged. The framing applies to plaintext checkpoints
-beginning with Codex's summary prefix; decoded OpenCodex checkpoints retain their existing
-continuation guidance. Client-side summarizer turns using Codex's standard compaction prompt
-also bypass framing. Framing is a prompt instruction, so model behavior can vary.
+這預設啟用，不需要任何設定。原始請求文字與標準的對話串／重播歷程都會保留。原生 OpenAI Responses 直通、摘要器回合、上下文包裝、
+圖片／檔案與助理／工具項目維持不變。此框架適用於以 Codex 摘要前綴開頭的純文字檢查點；解碼後的 OpenCodex 檢查點保留其既有的接續指引。
+使用 Codex 標準壓縮提示詞的用戶端摘要器回合，同樣繞過此框架。框架只是提示詞指令，所以模型行為可能不同。
 
 ## Compaction 路由
 
@@ -689,15 +656,13 @@ OpenCodex 會改用可攜式摘要器，這樣當對話在自己的模型上恢�
 跨到另一個供應商。所選模型必須支援輸入大小與內容。手動編輯 `config.json` 後請重啟代理。
 儀表板儲存會立即套用。
 
-### Reasoning retention during compaction
+### 壓縮期間的推理保留
 
-Readable reasoning retention is an advanced, explicit opt-in and is **off by default**.
-Only `reasoningRetention.enabled: true` enables it; an omitted block, `enabled: false`,
-or legacy limits without `enabled: true` leave ordinary compaction behavior unchanged.
-When enabled for routed v1 `POST /v1/responses/compact` and routed v2 `compaction_trigger` requests, readable reasoning stays local while the selected
-model summarizes other context. After a readable summary succeeds, exact retained text returns
-alongside it in framed historical context messages, not as new assistant reasoning or instructions.
-Repeated compaction withholds those messages again. Ordinary subsequent turns replay them as history.
+可讀的推理保留是進階、明確選擇啟用的功能，**預設關閉**。只有 `reasoningRetention.enabled: true` 才會啟用；
+省略區塊、`enabled: false`，或沒有 `enabled: true` 的舊式限制，都讓一般的壓縮行為維持不變。
+啟用後，對於經路由的 v1 `POST /v1/responses/compact` 與經路由的 v2 `compaction_trigger` 請求，可讀的推理會留在本機，而選定的模型摘要其他上下文。
+可讀摘要成功之後，確切保留的文字會與它一起，以框好的歷史上下文訊息回傳，而不是新的助理推理或指令。
+重複壓縮會再次扣留這些訊息。之後的一般回合會把它們當作歷史重播。
 
 ```json
 {
@@ -709,47 +674,29 @@ Repeated compaction withholds those messages again. Ordinary subsequent turns re
 }
 ```
 
-Both limit fields are optional and, **when enabled**, default at runtime to `20` percent and `100000` estimated tokens.
-The effective limit is the smaller of the percentage of the compacting model's context window
-and the absolute token cap; when the context window is unknown, only the absolute cap applies.
-The estimate includes each retained message's historical-context frame, not just its reasoning text.
-Above the limit, readable text is written verbatim under the resolved OpenCodex home's
-`reasoning-archive/` (normally `~/.opencodex/reasoning-archive/`). The summarizer receives a
-path note instead of the text, and the finished readable summary includes a notice naming that file.
-New archives are private to the user on POSIX. An archive is provisional until successful replacement history
-returns its path, either in a readable summary or in a separate notice alongside a native result
-after routed v1 Combo failover. Failures, cancellation, and invalid summaries remove
-the current attempt's file. Internal retries reuse it; previously successful archives are preserved.
-Failed compaction returns no replacement history.
+兩個限制欄位都是選用的，且**啟用時**在執行階段預設為 `20` 百分比與 `100000` 估計權杖。有效限制是壓縮所用模型上下文視窗的百分比與絕對權杖上限兩者中較小者；
+上下文視窗未知時，只套用絕對上限。估計值包含每則保留訊息的歷史上下文框架，而不只是它的推理文字。
+超過限制時，可讀文字會原樣寫入所解析 OpenCodex home 的 `reasoning-archive/` 之下（通常是 `~/.opencodex/reasoning-archive/`）。
+摘要器收到的是路徑說明而不是文字，完成的可讀摘要會附上指出該檔案的通知。在 POSIX 上，新的封存僅限使用者私有。
+封存在成功的替換歷程回傳其路徑之前都是暫時的，路徑可能出現在可讀摘要中，或在經路由的 v1 Combo 容錯移轉之後的原生結果旁、獨立的通知中。
+失敗、取消與無效摘要會移除本次嘗試的檔案。內部重試會重用它；先前成功的封存會保留。失敗的壓縮不回傳任何替換歷程。
 
-The percentage/token limits bound reasoning returned in context, **not cumulative archive storage**.
-Each archive contains only readable reasoning admitted in that request; request admission is bounded
-by `maxInboundBodyBytes` (256 MiB by default, configurable up to 512 MiB), plus small block separators.
-There is **no aggregate archive byte/file limit, automatic expiry, or background archive cleanup**.
-Successful archives remain until you manually delete their files, including after disabling retention
-or resetting the setting. They are plaintext, contain potentially sensitive conversation reasoning,
-and share the resolved OpenCodex home of that proxy instance. Deleting an archive makes any existing
-path notice unable to recover its contents; save anything you need first. A process crash or failed
-filesystem write/cleanup can also leave a provisional file requiring manual cleanup.
+百分比／權杖限制限制的是回傳到上下文中的推理，**不是累計的封存儲存量**。每個封存只含該請求所接受的可讀推理；請求的接受量受
+`maxInboundBodyBytes`（預設 256 MiB，最高可設定到 512 MiB）限制，另加少量的區塊分隔符。
+**沒有封存的總位元組／檔案數上限、自動到期或背景封存清理。** 成功的封存會一直保留，直到你手動刪除其檔案，包括停用保留或重設設定之後。
+它們是明文，含有可能敏感的對話推理，並與該 proxy 執行個體所解析的 OpenCodex home 共用。刪除封存後，任何既有的路徑通知都無法再復原其內容；請先儲存你需要的東西。
+程序當機或檔案系統寫入／清理失敗，也可能留下需要手動清理的暫時檔案。
 
-**Dashboard → Overview → Advanced settings → Reasoning retention** provides the explicit switch
-and both limits; **Reset and turn off** removes the override and switches retention off. GET/PUT `/api/settings` exposes `reasoningRetention`: null clears the block,
-and omission preserves it. `enabled` must be a boolean when present. Percentages must be greater than 0 and at most 100; token caps must
-be positive integers, and unknown fields are rejected. Invalid hand edits disable only this
-block with a warning, keeping unrelated providers and settings.
+**Dashboard → Overview → Advanced settings → Reasoning retention** 提供明確的開關與兩個限制；**Reset and turn off** 會移除覆寫並關閉保留。
+GET／PUT `/api/settings` 公開 `reasoningRetention`：null 會清除該區塊，省略則保留它。`enabled` 出現時必須是布林值。
+百分比必須大於 0 且最多 100；權杖上限必須是正整數，未知欄位會被拒絕。無效的手動編輯只會停用這個區塊並顯示警告，不影響其他供應商與設定。
 
-Private provider ciphertext and signatures are not decrypted or copied into portable retained
-messages. An upstream native opaque compaction response retains its exact output item and
-ciphertext. If routed v1 Combo failover reaches a native result after withholding readable reasoning,
-replacement history also includes the retained historical messages or a notice naming their archive.
-Native compact endpoints keep their existing behavior.
+私有的供應商密文與簽章不會被解密或複製到可攜的保留訊息中。上游原生的不透明壓縮回應會保留其確切的輸出項目與密文。
+若經路由的 v1 Combo 容錯移轉在扣留可讀推理之後得到原生結果，替換歷程也會包含保留的歷史訊息，或指出其封存的通知。原生的 compact 端點維持既有行為。
 
-Routed v2 still returns exactly one compaction item. Its proxy-owned `ocx2:` envelope stores
-the summary and retained historical reasoning separately as JSON/Base64; this is encoding,
-not provider encryption. Subsequent requests restore separate historical messages, and
-repeated compaction withholds the reasoning again. Old `ocx1:` summaries remain supported.
-Opt-in emergency compaction recovery also preserves this separation for JSON and SSE.
-Explicit native-history recovery restores separate summary and historical reasoning messages too.
+經路由的 v2 仍恰好回傳一個壓縮項目。其 proxy 自有的 `ocx2:` 信封把摘要與保留的歷史推理分別以 JSON／Base64 儲存；這是編碼，不是供應商加密。
+後續請求會還原各自獨立的歷史訊息，重複壓縮會再次扣留推理。舊的 `ocx1:` 摘要仍受支援。選擇啟用的緊急壓縮復原，對 JSON 與 SSE 也保留這個分離。
+明確的原生歷程復原同樣會還原分離的摘要與歷史推理訊息。
 
 ## 記憶體路由
 
@@ -880,17 +827,17 @@ companion 形式，正是讓 hub 成為單一連接埠部署的原因，而它�
 [型別化結果與核准的續傳](/zh-tw/guides/codex-integration/#回應完成後的豐富工具結果與明確核准)，
 以及[確認期限與保留的內容](/zh-tw/guides/codex-integration/#steering-確認期限與保留的-context)。
 
-### Forced Claude Code subagent model
+### 強制 Claude Code 子代理模型
 
-The Subagents page offers **Force all subagents onto one model**, off by default. Select an exposed roster-style id, such as `combo/tev-auto`, then enable the switch. The roster is offered first; unavailable saved roster entries cannot be force targets.
+Subagents 頁面提供**強制所有子代理使用同一個模型**，預設關閉。請選擇一個已公開的名冊式 ID，例如 `combo/tev-auto`，然後啟用開關。名冊會優先提供；不可用的已儲存名冊項目不能作為強制目標。
 
-`ocx agent subagents force combo/tev-auto` sets `claudeCode.subagentModelForce`; `ocx agent subagents force -` clears it. `ocx agent status` reports the setting. `GET /api/subagent-models` returns `force`, `forceAvailable`, and `forceStatus`; `PUT` accepts `{ "force": "combo/tev-auto" }` or `{ "force": null }` without changing the roster. Omitting `force` leaves it unchanged. Invalid or unexposed targets are rejected on write; stale targets are reported and skipped at launch.
+`ocx agent subagents force combo/tev-auto` 會設定 `claudeCode.subagentModelForce`；`ocx agent subagents force -` 會清除它。`ocx agent status` 會回報該設定。`GET /api/subagent-models` 回傳 `force`、`forceAvailable` 與 `forceStatus`；`PUT` 接受 `{ "force": "combo/tev-auto" }` 或 `{ "force": null }`，且不更動名冊。省略 `force` 則維持不變。無效或未公開的目標在寫入時會被拒絕；過期的目標會被回報並在啟動時略過。
 
-This takes effect on the **next routed `ocx claude` launch**, injecting `CLAUDE_CODE_SUBAGENT_MODEL` as an explicit proxy alias (with `[1m]` only for an authoritative million-token window; native Claude targets use a reversible native alias) and `CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1`. Each nonempty shell-exported variable independently wins. Native launches inject neither variable; plain `claude` is not affected. No plugin files or `settings.json` are modified by this setting.
+這會在**下一次經路由的 `ocx claude` 啟動**生效，注入 `CLAUDE_CODE_SUBAGENT_MODEL` 作為明確的 proxy 別名（只有在權威的百萬權杖視窗時才加 `[1m]`；原生 Claude 目標使用可逆的原生別名）與 `CLAUDE_CODE_SUBAGENT_MODEL_FORCE=1`。每個非空、由 shell 匯出的變數各自優先。原生啟動兩個變數都不注入；一般的 `claude` 不受影響。此設定不會修改任何外掛檔案或 `settings.json`。
 
-Claude Code **2.1.257 or newer** is required for FORCE. Plugin and built-in agents (including Explore/Plan) and per-call model arguments are overridden. Forks and subagent skills with `model: inherit` keep the main conversation model. The main loop and Haiku/small-fast sidecars are unaffected. Existing roster files remain available.
+FORCE 需要 Claude Code **2.1.257 或更新版本**。外掛與內建代理（包括 Explore／Plan）及每次呼叫的模型引數都會被覆寫。使用 `model: inherit` 的 fork 與子代理 skill 維持主對話的模型。主迴圈與 Haiku／small-fast 旁路不受影響。既有的名冊檔案仍可使用。
 
-The dashboard warns about old or unknown CLI versions, unavailable targets, and either variable already present in `settings.json` → `env` (which overrides launch env). Detection is read-only and server-local: it cannot inspect another launch shell, another machine, or project-local settings. An unknown result is not proof of force support.
+儀表板會對舊的或未知的 CLI 版本、不可用的目標，以及 `settings.json` → `env` 中已存在的任一變數（它會覆寫啟動環境）發出警告。偵測是唯讀且限於伺服器本機：它無法檢查另一個啟動 shell、另一台機器或專案本機的設定。未知的結果不證明支援 force。
 
 ## 歷史集區用量的連續性
 

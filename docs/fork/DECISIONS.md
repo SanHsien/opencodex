@@ -1,5 +1,16 @@
 # 維護決策
 
+## 2026-11-18：發 fork release v2.100.14 後把版本來源前推到 2.100.15
+
+tag `v2.100.14` 指向 `2df974513`，內容是 Codex 獨立覆核 v2.100.12–13 後確認的 5 項修正，見 `REVIEW.md` 2026-11-18（`06fc263c5`）：
+- ensure 從本次 log 段落的 busy 碼補判 lease 競爭。
+- log fd 在出錯時一定關閉。
+- 重試只給 gate 剩餘的等待時間。
+- 篩選彙總在 await 後重查價格與時區。
+- 驗證看到壞尾段就重建。
+
+lane=all run `44301084846` 首輪只有 9/14 失敗：`anthropic 413 tightened-retry` 的 hook 逾時，那個測試沒有引用這次改到的模組。只重跑失敗分片後全綠。發版後 main 以 `release-version-sources.ts sync 2.100.15` 前推。
+
 ## 2026-11-18：發 fork release v2.100.13 後把版本來源前推到 2.100.14
 
 tag `v2.100.13` 指向 `9b2bde58d`（另一個啟動持有 lease 時 ensure 等到上限）；lane=all run `44096773429` 首輪 14/14 `GET /api/storage`（兩次讀取非同一快照，既有暫時性，第三次出現）失敗，只重跑失敗分片後全綠。發版後 main 以 `release-version-sources.ts sync 2.100.14` 前推。此版供「實機驗收：並行 ensure 不再誤報代理沒變 healthy」。

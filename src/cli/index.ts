@@ -159,7 +159,7 @@ import {
 } from "./ensure-desired-integrations";
 import { ENSURE_READY_TIMEOUT_MS, ensureKeepWaiting, waitForLiveProxy } from "./ensure-readiness";
 import { autostartMaySpawnProxy } from "./autostart-service-gate";
-import { openEnsureStartLog, watchEnsureStartChild } from "./ensure-start-log";
+import { openEnsureStartLog, spawnWithEnsureStartLog, watchEnsureStartChild } from "./ensure-start-log";
 import { productionDesktopColdStartDeps, runDesktopColdStart } from "./ensure-desktop-cold-start";
 import { refreshOwnedCatalogIntegrations } from "../integrations/catalog-refresh";
 import { loadExportModels } from "../server/management/model-rows";
@@ -878,16 +878,16 @@ async function handleEnsure(options: { existingIsSuccess?: boolean; forceStart?:
   const pinPort = config.port ?? 10100;
   // Keep the child's output: an early exit used to leave no trace at all (ensure-start-log.ts).
   const startLog = openEnsureStartLog(getConfigDir());
-  const child = spawn(process.execPath, startArgv(pinPort > 0 ? pinPort : undefined), {
+  // Releases our copy of the log descriptor even when spawn throws synchronously.
+  const child = spawnWithEnsureStartLog(startLog, stdio => spawn(process.execPath, startArgv(pinPort > 0 ? pinPort : undefined), {
     detached: true,
-    stdio: ["ignore", startLog.stdio, startLog.stdio],
+    stdio: ["ignore", stdio, stdio],
     windowsHide: true,
     env: detachedStartEnvironment(),
-  });
-  startLog.closeParentHandle();
+  }));
   options.onSpawn?.(child);
   const spawnedAt = Date.now();
-  const watch = watchEnsureStartChild(child, startLog.path, spawnedAt, () => inspectOwnershipMutationLease(serviceStatePaths()));
+  const watch = watchEnsureStartChild(child, startLog.path, spawnedAt, () => inspectOwnershipMutationLease(serviceStatePaths()), startLog.header);
   child.unref();
 
   // A cold start can outlast 8 s on a busy Windows host; see ensure-readiness.ts.

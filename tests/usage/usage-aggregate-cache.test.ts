@@ -20,10 +20,10 @@ import {
   type UsageAggregateResult,
 } from "../../src/server/management/usage-aggregate-cache";
 import type { OcxConfig } from "../../src/types/config";
-import { resetUsageReadCacheForTests, type PersistedUsageEntry } from "../../src/usage/log";
+import { resetUsageReadCacheForTests, usageLogIdentityKey, type PersistedUsageEntry } from "../../src/usage/log";
 import * as usageLedgerScannerModule from "../../src/usage/ledger-scanner";
 import { getUsageSourceFacets, SourceFacetsBusyError } from "../../src/server/management/usage-source-facets";
-import { refreshUserCostOverlays } from "../../src/usage/user-cost-overlays";
+import { refreshUserCostOverlays, userCostOverlayVersion } from "../../src/usage/user-cost-overlays";
 import { getFailureProjection, resetFailureProjectionCacheForTests } from "../../src/usage/failure-projection-cache";
 import { buildRouteDecisionTrace } from "../../src/routing/trace";
 import { createAnthropicAdapter } from "../../src/adapters/anthropic";
@@ -592,6 +592,40 @@ describe("retained usage aggregate cache", () => {
     }
   });
 
+  // Field review (2026-11-18): the unchanged branch of a retained filtered aggregate awaits the
+  // candidate read and a ledger validation, then published the state as current without looking at
+  // the pricing overlay again, unlike the base aggregate's post-verification recheck.
+  test("a pricing change during the unchanged filtered validation drops the state and rebuilds", async () => {
+    writeFileSync(join(testDir, "usage.jsonl"), line("one"));
+    const first = await getFilteredUsageAggregate({ provider: "openai" });
+    const original = usageLedgerScannerModule.readUsageLedgerRowsAtOffsets;
+    let changed = false;
+    const spy = spyOn(usageLedgerScannerModule, "readUsageLedgerRowsAtOffsets").mockImplementation(async options => {
+      const rows = await original(options);
+      if (!changed) {
+        changed = true; // the price moves while the validation was awaiting
+        refreshUserCostOverlays({ providers: { openai: { modelCosts: {
+          "gpt-5.5": { input: 1, output: 2, cacheRead: 0.1, cacheWrite: 0.2 },
+        } } } } as unknown as OcxConfig);
+      }
+      return rows;
+    });
+    try {
+      const next = await getFilteredUsageAggregate({ provider: "openai" });
+      expect(changed).toBe(true);
+      expect(next.update).toBe("rebuild");
+      expect(next.accumulator).not.toBe(first.accumulator);
+      expect(next.overlayVersion).toBe(userCostOverlayVersion());
+      expect(next.accumulator.summarize("all", NOW).summary.estimatedCostUsd).toBeCloseTo(0.000003, 10);
+      // The rebuilt state is the one retained: the next read is unchanged and priced the same.
+      const after = await getFilteredUsageAggregate({ provider: "openai" });
+      expect(after.update).toBe("unchanged");
+      expect(after.accumulator).toBe(next.accumulator);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   test("filtered retention incrementally folds an ordinary append", async () => {
     writeFileSync(join(testDir, "usage.jsonl"), line("one"));
     const originalScan = usageLedgerScannerModule.scanUsageLedgerCooperatively;
@@ -906,5 +940,63 @@ describe("ctime-only ledger changes", () => {
     } finally {
       resetFailureProjectionCacheForTests();
     }
+  });
+
+  // Field review (2026-11-18): a same-size edit of the unterminated tail to non-blank text leaves
+  // the digest and the byte boundary alone, so the verification said "unchanged" and the retained
+  // "no invalid rows" diagnostic outlived the damage. The scan itself reports invalidRows.
+  describe("a damaged unterminated tail", () => {
+    const BLANK_TAIL = "       ";
+    const DAMAGED_TAIL = "garbage";
+
+    test("usageLedgerUnchangedSince answers false when the scan reports an invalid tail", async () => {
+      const path = join(testDir, "usage.jsonl");
+      writeFileSync(path, line("one") + BLANK_TAIL);
+      pinMtime(path);
+      const base = await getUsageAggregate();
+      const scan = await usageLedgerScannerModule.scanUsageLedgerCooperatively({ onEntry: () => {} });
+      const checkpoint = {
+        identityKey: usageLogIdentityKey(base.revision!),
+        processedThroughBytes: scan.processedThroughBytes,
+        processedThroughDigest: scan.processedThroughDigest,
+      };
+      expect(await usageLedgerScannerModule.usageLedgerUnchangedSince(checkpoint)).toBe(true); // a blank tail is no damage
+      rewriteKeepingMtime(path, line("one") + DAMAGED_TAIL);
+      expect(await usageLedgerScannerModule.usageLedgerUnchangedSince(checkpoint)).toBe(false);
+    });
+
+    test("the base, JEV, failure-projection and filter-index caches all rebuild instead of keeping the old diagnostic", async () => {
+      const path = join(testDir, "usage.jsonl");
+      writeFileSync(path, line("one") + BLANK_TAIL);
+      pinMtime(path);
+      const base = await getUsageAggregate();
+      expect(base.usageInvalidRows).toBe(false);
+      const jev = await getJevStatsAggregate({ comboId: "jev-auto" });
+      const filtered = await getFilteredUsageAggregate({ provider: "openai" });
+      expect(filtered.usageInvalidRows).toBe(false);
+      resetFailureProjectionCacheForTests();
+      try {
+        await getFailureProjection();
+        await withVerificationSpy(async verdicts => {
+          rewriteKeepingMtime(path, line("one") + DAMAGED_TAIL);
+          const nextBase = await getUsageAggregate();
+          expect(nextBase.update).toBe("rebuild");
+          expect(nextBase.usageInvalidRows).toBe(true);
+          const nextJev = await getJevStatsAggregate({ comboId: "jev-auto" });
+          expect(nextJev.update).toBe("rebuild");
+          expect(nextJev.accumulator).not.toBe(jev.accumulator);
+          const nextFailures = await getFailureProjection();
+          expect(nextFailures.update).toBe("rebuild");
+          const nextFiltered = await getFilteredUsageAggregate({ provider: "openai" });
+          expect(nextFiltered.usageInvalidRows).toBe(true);
+          expect(nextFiltered.update).toBe("rebuild");
+          // Each of the four consulted the verification and was refused.
+          expect(verdicts.length).toBeGreaterThanOrEqual(4);
+          expect(verdicts.every(verdict => verdict === false)).toBe(true);
+        });
+      } finally {
+        resetFailureProjectionCacheForTests();
+      }
+    });
   });
 });

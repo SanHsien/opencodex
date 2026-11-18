@@ -95,6 +95,28 @@ test("ensure treats runtime-lease contention as a service operation: re-gates an
   expect(sleeps).toHaveLength(1);
 });
 
+// The 90 s service-operation budget belongs to the whole ensure, not to each pass through the gate.
+test("ensure retries pass the gate only what is left of the 90 s budget", async () => {
+  const args = ["ensure"];
+  let attempts = 0;
+  const waits: Array<number | undefined> = [];
+  const deps = {
+    args,
+    autostartGate: async (maxWaitMs?: number) => { waits.push(maxWaitMs); return true; },
+    ensureRetrySleep: async () => { await Bun.sleep(40); },
+    handleEnsure: async () => {
+      attempts++;
+      if (attempts <= 2) throw Object.assign(new Error("another process owns the runtime mutation lease"), { code: "OWNERSHIP_MUTATION_LEASE_BUSY" });
+      return true;
+    },
+  } as unknown as CliDispatchDeps;
+  expect(await dispatchCommand({ kind: "command", command: "ensure", args }, deps)).toBe(0);
+  expect(waits).toHaveLength(3);
+  expect(waits[0]).toBeLessThanOrEqual(90_000);
+  expect(waits[1]!).toBeLessThan(90_000);
+  expect(waits[2]!).toBeLessThan(waits[1]!);
+});
+
 test("ensure still surfaces errors other than runtime-lease contention", async () => {
   const args = ["ensure"];
   const deps = {

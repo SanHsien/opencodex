@@ -1,4 +1,8 @@
 import { describe, expect, test } from "bun:test";
+import { appendFileSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { openEnsureStartLog, watchEnsureStartChild } from "../../src/cli/ensure-start-log";
 import {
   ENSURE_EXITED_CHILD_TIMEOUT_MS,
   ENSURE_READY_TIMEOUT_MS,
@@ -83,6 +87,34 @@ describe("ocx ensure readiness wait", () => {
     });
     expect(live).toEqual({ port: 10100 });
     expect(clock.now() - spawnedAt).toBeGreaterThanOrEqual(20_000);
+  });
+
+  // The winner held the lease for less than one poll interval, so no sample ever saw it. The
+  // loser's own output still names the lease-busy code, and that alone must keep ensure waiting.
+  test("a lease-busy code in the exited child's log keeps waiting although the lease poll always reads empty", async () => {
+    const clock = fakeClock();
+    const spawnedAt = clock.now();
+    const readyAt = spawnedAt + 20_000;
+    const dir = mkdtempSync(join(tmpdir(), "ocx-ensure-readiness-"));
+    try {
+      const log = openEnsureStartLog(dir);
+      log.closeParentHandle();
+      appendFileSync(log.path, "   code: \"OWNERSHIP_MUTATION_LEASE_BUSY\"\n");
+      let onExit: ((code: number | null, signal: NodeJS.Signals | null) => void) | undefined;
+      const watch = watchEnsureStartChild({ pid: 4242, once: (_, l) => { onExit = l; } }, log.path, spawnedAt, () => null, log.header);
+      onExit?.(1, null);
+      const live = await waitForLiveProxy({
+        find: async () => (clock.now() >= readyAt ? { port: 10100 } : null),
+        timeoutMs: ENSURE_READY_TIMEOUT_MS,
+        keepWaiting: ensureKeepWaiting(spawnedAt, watch.exited, clock.now, watch.anotherStartHoldsLease),
+        now: clock.now,
+        sleep: clock.sleep,
+      });
+      expect(live).toEqual({ port: 10100 });
+      expect(clock.now() - spawnedAt).toBeGreaterThanOrEqual(20_000);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   test("seen contention still ends at the readiness ceiling when nobody becomes healthy", async () => {

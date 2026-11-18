@@ -65,7 +65,7 @@ export interface CliDispatchDeps {
   inspectDesktopSupervision?: typeof inspectDesktopSupervision;
   handleEnsure: (options?: { existingIsSuccess?: boolean }) => Promise<boolean>;
   /** Test seam: false while an `ocx service` operation holds the lock (see autostart-service-gate). */
-  autostartGate?: () => Promise<boolean>;
+  autostartGate?: (maxWaitMs?: number) => Promise<boolean>;
   /** Test seam: the pause between ensure retries after runtime-lease contention. */
   ensureRetrySleep?: (ms: number) => Promise<void>;
   handleResolve: (args: ResolveArgs) => Promise<number>;
@@ -394,11 +394,16 @@ const commandRunners: Record<string, CommandRunner> = {
     // A service command holds the runtime ownership lease for part of its run, sometimes before
     // its service lock is visible. Lease contention is therefore "a service operation is in
     // progress": go back through the gate and retry instead of failing the Codex launch.
-    const gate = deps.autostartGate ?? autostartMaySpawnProxy;
+    //
+    // The 90 s is the budget for waiting on service operations, shared by every pass through the
+    // gate: each retry passes only what is left of it. It is not a cap on the whole command. The
+    // real worst case is that wait (<= 90 s) plus one readiness wait of the ensure that finally
+    // spawns (ENSURE_READY_TIMEOUT_MS, 40 s).
+    const gate = deps.autostartGate ?? (maxWaitMs => autostartMaySpawnProxy({ maxWaitMs }));
     const sleep = deps.ensureRetrySleep ?? (ms => new Promise<void>(resolve => setTimeout(resolve, ms)));
     const deadline = Date.now() + AUTOSTART_SERVICE_MUTATION_WAIT_MS;
     for (;;) {
-      if (!(await gate())) return 1;
+      if (!(await gate(Math.max(0, deadline - Date.now())))) return 1;
       try {
         await deps.handleEnsure();
         break;

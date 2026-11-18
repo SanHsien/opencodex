@@ -323,6 +323,15 @@ describe("autostart service gate", () => {
     expect(warnings).toEqual([AUTOSTART_SERVICE_MUTATION_WAITING_NOTICE, AUTOSTART_SERVICE_MUTATION_BUSY_NOTICE]);
   });
 
+  test("a caller's smaller remaining budget shortens the wait and can never lengthen it", async () => {
+    const waits: number[] = [];
+    const wait = async ({ maxWaitMs }: { maxWaitMs?: number }) => { waits.push(maxWaitMs!); return "idle" as const; };
+    await autostartMaySpawnProxy({ wait, warn: () => {}, maxWaitMs: 12_345 });
+    await autostartMaySpawnProxy({ wait, warn: () => {}, maxWaitMs: AUTOSTART_SERVICE_MUTATION_WAIT_MS * 3 });
+    await autostartMaySpawnProxy({ wait, warn: () => {}, maxWaitMs: -5 });
+    expect(waits).toEqual([12_345, AUTOSTART_SERVICE_MUTATION_WAIT_MS, 0]);
+  });
+
   test("ocx claude does not spawn a proxy while an ocx service operation is in progress", async () => {
     let probes = 0;
     const port = await ensureProxyForClaude({

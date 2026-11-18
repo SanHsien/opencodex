@@ -19,6 +19,11 @@ export const AUTOSTART_SERVICE_MUTATION_BUSY_NOTICE =
 export interface AutostartServiceGateDeps {
   wait?: (options: Pick<WaitForServiceMutationIdleOptions, "maxWaitMs" | "onBusy">) => Promise<WindowsServiceMutationState>;
   warn?: (message: string) => void;
+  /**
+   * Cap on the wait, at most AUTOSTART_SERVICE_MUTATION_WAIT_MS. A caller that retries (ocx ensure)
+   * passes what is left of its own deadline so the gate does not grant a fresh full wait each time.
+   */
+  maxWaitMs?: number;
 }
 
 /**
@@ -35,7 +40,7 @@ export async function autostartMaySpawnProxy(deps: AutostartServiceGateDeps = {}
   const warn = deps.warn ?? (message => console.error(message));
   const wait = deps.wait ?? (options => waitForWindowsServiceMutationIdle(options));
   const state = await wait({
-    maxWaitMs: AUTOSTART_SERVICE_MUTATION_WAIT_MS,
+    maxWaitMs: Math.min(AUTOSTART_SERVICE_MUTATION_WAIT_MS, Math.max(0, deps.maxWaitMs ?? AUTOSTART_SERVICE_MUTATION_WAIT_MS)),
     onBusy: () => warn(AUTOSTART_SERVICE_MUTATION_WAITING_NOTICE),
   });
   if (state !== "busy") return true;

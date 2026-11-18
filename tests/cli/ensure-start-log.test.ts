@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { spawn } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -8,6 +8,7 @@ import {
   ENSURE_START_LOG_MAX_BYTES,
   ENSURE_START_LOG_NAME,
   openEnsureStartLog,
+  spawnWithEnsureStartLog,
   tailEnsureStartLog,
   watchEnsureStartChild,
 } from "../../src/cli/ensure-start-log";
@@ -67,4 +68,74 @@ test("an unopenable log falls back to ignored stdio so ensure still starts the p
   expect(log.stdio).toBe("ignore");
   expect(() => log.closeParentHandle()).not.toThrow();
   expect(tailEnsureStartLog(log.path)).toEqual([]);
+});
+
+test("a write failure after the log opened closes the descriptor and falls back to ignored stdio", () => {
+  const closed: number[] = [];
+  const log = openEnsureStartLog(dir, () => new Date(), {
+    open: () => 77,
+    write: () => { throw new Error("ENOSPC: no space left on device"); },
+    close: fd => { closed.push(fd); },
+  });
+  expect(log.stdio).toBe("ignore");
+  expect(log.header).toBeNull();
+  expect(closed).toEqual([77]);
+  expect(() => log.closeParentHandle()).not.toThrow();
+  expect(closed).toEqual([77]); // the fallback handle owns nothing, so no second close
+});
+
+test("the failure report shows only this spawn's lines, never another ensure's earlier error", () => {
+  const path = join(dir, ENSURE_START_LOG_NAME);
+  writeFileSync(path, "\n[2026-11-17T00:00:00.000Z] ensure spawning ocx start (parent pid 1)\nerror: another ensure's port clash\n");
+  const log = openEnsureStartLog(dir);
+  log.closeParentHandle();
+  appendFileSync(path, "error: our own child failed\n");
+  const lines = tailEnsureStartLog(path, 8, log.header);
+  expect(lines.some(line => line.includes("our own child failed"))).toBe(true);
+  expect(lines.some(line => line.includes("another ensure's port clash"))).toBe(false);
+  expect(lines.some(line => line.includes("parent pid 1)"))).toBe(false);
+  // A header that is no longer in the log (truncated by a concurrent ensure) shows nothing, not strangers' lines.
+  writeFileSync(path, "error: someone else\n");
+  expect(tailEnsureStartLog(path, 8, log.header)).toEqual([]);
+});
+
+test("spawn throwing synchronously still releases the parent's copy of the log handle", () => {
+  const closed: number[] = [];
+  const log = openEnsureStartLog(dir, () => new Date(), { open: () => 88, write: () => {}, close: fd => { closed.push(fd); } });
+  expect(() => spawnWithEnsureStartLog(log, () => { throw new Error("spawn EINVAL"); })).toThrow("spawn EINVAL");
+  expect(closed).toEqual([88]);
+  // The normal path still passes the descriptor to the spawner and closes afterwards, once.
+  const log2 = openEnsureStartLog(dir, () => new Date(), { open: () => 89, write: () => {}, close: fd => { closed.push(fd); } });
+  expect(spawnWithEnsureStartLog(log2, stdio => stdio)).toBe(89);
+  log2.closeParentHandle();
+  expect(closed).toEqual([88, 89]);
+});
+
+// A winner that holds the lease for less than one poll interval never shows up in the lease
+// polling, but the loser's own output still carries the lease-busy code.
+function exitedChildWithLog(output: string, priorLog = "") {
+  const path = join(dir, ENSURE_START_LOG_NAME);
+  if (priorLog) writeFileSync(path, priorLog);
+  const log = openEnsureStartLog(dir);
+  log.closeParentHandle();
+  appendFileSync(path, output);
+  let listener: ((code: number | null, signal: NodeJS.Signals | null) => void) | undefined;
+  const child = { pid: 4242, once: (_: "exit", l: typeof listener) => { listener = l; } };
+  const watch = watchEnsureStartChild(child, path, Date.now(), () => null, log.header);
+  return { watch, exit: () => listener?.(1, null) };
+}
+
+test("a lease-busy code in this spawn's output counts as contention even when the lease poll saw nothing", () => {
+  const { watch, exit } = exitedChildWithLog("   code: \"OWNERSHIP_MUTATION_LEASE_BUSY\"\n");
+  expect(watch.anotherStartHoldsLease()).toBe(false); // child still running: nothing to read yet
+  exit();
+  expect(watch.anotherStartHoldsLease()).toBe(true);
+  expect(watch.report()).toContain("another ocx start held the runtime ownership lease");
+});
+
+test("a lease-busy code from an earlier ensure is not contention for this one", () => {
+  const prior = "\n[2026-11-17T00:00:00.000Z] ensure spawning ocx start (parent pid 1)\n   code: \"OWNERSHIP_MUTATION_LEASE_BUSY\"\n";
+  const { watch, exit } = exitedChildWithLog("error: port 10100 already owned\n", prior);
+  exit();
+  expect(watch.anotherStartHoldsLease()).toBe(false);
 });

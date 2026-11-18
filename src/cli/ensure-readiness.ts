@@ -44,7 +44,8 @@ export async function waitForLiveProxy<T>(options: LiveProxyWaitOptions<T>): Pro
  * concurrent-ensure case (2026-11-17): the losing child exits on OWNERSHIP_MUTATION_LEASE_BUSY
  * while the winner is still becoming healthy, so the wait runs on to the readiness ceiling that
  * waitForLiveProxy already enforces. Contention is sticky because the winner releases the lease
- * once it has published, well before it answers.
+ * once it has published, well before it answers. `anotherStartHoldsLease` must therefore also
+ * report contention that no poll caught (the log's lease-busy code; see watchEnsureStartChild).
  */
 export function ensureKeepWaiting(
   spawnedAt: number,

@@ -724,6 +724,14 @@ async function refreshFilteredAggregate(
           // This branch never pages, so it owns closing the reader before publishing its stats.
           read.close();
         }
+        // The two awaits above (candidate read, ledger validation) can outlast a price or time-zone
+        // change; the retained state was built under the old values, so it must not be re-published
+        // as current. The reader is already closed here, so just drop the state and rebuild under
+        // the values now in effect (the same recheck the basic aggregate does after its verification).
+        if (userCostOverlayVersion() !== overlayVersion || currentTimeZone() !== timeZone) {
+          retainedFilteredAggregates.delete(key);
+          return rebuildFilteredAggregate(key, filter, window);
+        }
         state.retainedAt = Date.now();
         // Whole-ledger diagnostics can move without the boundary moving: a torn oversized or
         // malformed suffix is observed by every append scan and never advances the offset.

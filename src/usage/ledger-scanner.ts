@@ -98,6 +98,12 @@ export function usageRevisionMetadataOnlyChange(
  * Whether the ledger still matches a retained checkpoint: the trailing digest at
  * processedThroughBytes verifies (the same check an append relies on) and no complete row
  * follows it. A rebuild-required verdict or any new row answers false.
+ *
+ * So does any scan that reports invalid or oversized rows. An unterminated tail never advances
+ * processedThroughBytes, so same-size tail edits (to non-blank content, no LF) leave both the
+ * digest and the byte count intact while changing the diagnostics the retained state carries
+ * ("no invalid rows" would be kept). Rebuilding is correct there and only slower, and only while
+ * a damaged tail exists. Every caller treats false as "rebuild".
  */
 export async function usageLedgerUnchangedSince(checkpoint: {
   identityKey: string;
@@ -111,7 +117,10 @@ export async function usageLedgerUnchangedSince(checkpoint: {
       expectedProcessedThroughDigest: checkpoint.processedThroughDigest,
       onEntry: () => {},
     });
-    return scan.parsedRows === 0 && scan.processedThroughBytes === checkpoint.processedThroughBytes;
+    return scan.parsedRows === 0
+      && scan.invalidRows === 0
+      && scan.oversizedRows === 0
+      && scan.processedThroughBytes === checkpoint.processedThroughBytes;
   } catch (error) {
     if (error instanceof UsageLedgerRebuildRequiredError) return false;
     throw error;

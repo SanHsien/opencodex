@@ -1007,3 +1007,7 @@ run `43720865406` 與 `43726376154` 各有六片約 30 分鐘後取消；每個�
 `v2.100.12`（tag `640eb720f`），同條件 21 次：服務指令 21/21 exit 0，respawned、port 未釋放、ACL 逾時皆 0；ensure 4 次 exit 1（08-stop、09-uninstall、11-stop、12-uninstall）。新加的診斷顯示：ensure 所起的 `ocx start` 在 3.8–6.8 秒後以 `OWNERSHIP_MUTATION_LEASE_BUSY` exit 1（`handleStart → bindAndPublishStartOwnership` 或 `recoverStartStateUnderOwnershipLease`），持有者是另一個同時被起、後來成功的代理；`ensure-start.log` 同時有兩筆不同父行程的 spawn。
 
 **根因**：服務操作結束時，多個等候中的 ensure 同時醒來各起一個 `ocx start`；輸掉 lease 的子行程結束後，它的 ensure 依「子行程已結束只再等 8 秒」放棄，而贏的代理尚未 healthy。修正見 `docs/fork/DECISIONS.md` 2026-11-17「另一個啟動持有 lease 時 ensure 等到上限」。
+
+## 2026-11-18：v2.100.13 並行 ensure 驗收回註
+
+`v2.100.13`（tag `9b2bde58d`，MSI 以 `/qn REBOOT=ReallySuppress` 安裝，exit 0、未重開機），以 `v2.100.12` 的 gate-test 在負載下跑 21 次（同時 40 次 `codex exec`，全部回 OK）：服務指令 21/21 exit 0；respawned、port 未釋放、ACL 逾時皆 0；ensure 21/21 exit 0，耗時 28.8–57.0 秒，21 次都印出等候訊息。升級後 `ensure-start.log` 有 27 次 spawn，其中 13 次子行程撞 `OWNERSHIP_MUTATION_LEASE_BUSY`，沒有一次讓 ensure 誤報失敗；`another ocx start held the runtime ownership lease` 0 次。第 17–20 次負載迴圈已結束，後段的並行壓力比前段低。結論：`v2.100.12` 的 4/21 誤報已修正，`ROADMAP.md` 對應列已刪。

@@ -1012,17 +1012,17 @@ run `43720865406` 與 `43726376154` 各有六片約 30 分鐘後取消；每個�
 
 `v2.100.13`（tag `9b2bde58d`，MSI 以 `/qn REBOOT=ReallySuppress` 安裝，exit 0、未重開機），以 `v2.100.12` 的 gate-test 在負載下跑 21 次（同時 40 次 `codex exec`，全部回 OK）：服務指令 21/21 exit 0；respawned、port 未釋放、ACL 逾時皆 0；ensure 21/21 exit 0，耗時 28.8–57.0 秒，21 次都印出等候訊息。升級後 `ensure-start.log` 有 27 次 spawn，其中 13 次子行程撞 `OWNERSHIP_MUTATION_LEASE_BUSY`，沒有一次讓 ensure 誤報失敗；`another ocx start held the runtime ownership lease` 0 次。第 17–20 次負載迴圈已結束，後段的並行壓力比前段低。結論：`v2.100.12` 的 4/21 誤報已修正，`ROADMAP.md` 對應列已刪。
 
-## 2026-11-18: Codex independent review of v2.100.12–13 (ensure, ctime-only usage cache)
+## 2026-11-18：Codex 獨立覆核 v2.100.12–13（ensure、ctime-only 用量快取）
 
-Codex (gpt-6.1-sol, read-only) reviewed the ensure concurrency fix and the "a ctime-only change does not rebuild the usage cache" change. Each finding was checked against the code before it was fixed.
+Codex（gpt-6.1-sol，唯讀）覆核 ensure 並行修正與「只有 ctime 變動不重建用量快取」。每條發現都先自己讀程式碼確認，再決定修或不修。
 
-- **Fixed in `06fc263c5` (2026-11-18)**:
-  1. The lease-contention check only sampled the lease file. A winner that held the lease for less than one poll interval was missed, and the losing ensure would fail after 8 s. Ensure now also checks this spawn's log window: the busy code counts as contention.
-  2. The log fd was not closed when the header write failed. The fd also leaked when spawn threw synchronously. The failure report could show another ensure's error.
-  3. The ensure retry loop gave the gate a fresh 90 s on every attempt. Now each attempt gets only what is left of the budget. The real upper bound is the gate wait (≤90 s) plus readiness (40 s).
-  4. In the filtered aggregate's unchanged branch, prices and time zone were not rechecked after the await.
-  5. A same-size change to an unterminated tail kept the old "no invalid rows" diagnostic. The verification now rebuilds when it sees invalid or oversized rows.
-- **Accepted limits, not fixed**:
-  - A same-size rewrite before the 64 KiB digest window is not detected.
-  - A stale lease plus PID reuse can be mistaken for another start. The effect is a longer wait and a misleading diagnostic.
-  - Two ensures that truncate the log at the same time can lose one header. That ensure then falls back to lease polling only.
+- **已修，`06fc263c5`（2026-11-18）**：
+  1. 原本只靠輪詢 lease 檔判斷競爭。贏方持有 lease 的時間短於一次輪詢間隔時會漏看，輸方 ensure 等 8 秒就誤報失敗。現在子行程結束後，會在本次 spawn 的 log 段落裡找 busy 碼，有就算競爭。
+  2. 寫 header 失敗時沒關 log fd；`spawn` 同步拋錯時 fd 洩漏；失敗報告可能顯示別的 ensure 的錯誤。三項都已修。
+  3. ensure 重試時，gate 每次都重新拿到完整 90 秒。現在只給剩餘的時間。實際上限是 gate 等待（≤90 秒）加上 readiness（40 秒）。
+  4. 篩選彙總的 unchanged 分支在 await 之後沒有重查價格與時區。
+  5. 未換行尾段被同大小改寫時，會沿用舊的「沒有無效列」診斷。現在驗證時看到 invalid 或 oversized 列就重建。
+- **已接受的限制，不修**：
+  - 64 KiB digest 視窗之前的同大小改寫偵測不到。
+  - lease 殘留加上 PID 被重用時，會誤認成另一個 start，結果是多等一段時間、診斷文字不準。
+  - 兩個 ensure 同時截斷 log 時，其中一個的 header 可能被清掉，那一方就只靠輪詢判斷競爭。

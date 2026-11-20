@@ -11,6 +11,7 @@ import { EmptyProviderHint } from "../src/pages/models-provider-hints";
 import type { ProviderDiscoverySummary } from "../src/models-groups";
 import { gatherRoutedModels as gatherRoutedModelsDirect } from "../../src/codex/catalog";
 import { withStubbedProviderFetch } from "../../tests/helpers/catalog-provider-fetch";
+import { DOM_RENDER_BUDGET_MS, SERVER_BUDGET_MS } from "../../tests/helpers/test-budget";
 import {
   clearModelCache,
   getProviderDiscoveryStatus,
@@ -543,7 +544,7 @@ test("Models page combines final visibility, atomic actions, discovery status, a
       else delete (globalThis as Record<string, unknown>)[key];
     }
   }
-});
+}, DOM_RENDER_BUDGET_MS);
 
 async function withCursorDiscoveryServer<T>(
   status: number,
@@ -721,6 +722,8 @@ test("network discovery failure exposes sanitized network status and badge", asy
   expect(html).not.toContain(sentinel);
 });
 
+// Binds a real HTTP/2 listener and runs discovery over it: 24ms idle, 5.7s in one of eight runs
+// beside 24 busy-loop processes, past Bun's 5s default. SERVER_BUDGET_MS is that kind of wait.
 test("Cursor discovery failure exposes provider status and badge", async () => {
   const provider = "activation-cursor";
   const rawDetail = "HTTP 401";
@@ -745,7 +748,7 @@ test("Cursor discovery failure exposes provider status and badge", async () => {
   expect(html).toContain("provider reported a model discovery error");
   expect(JSON.stringify(dto)).not.toContain(rawDetail);
   expect(html).not.toContain(rawDetail);
-});
+}, SERVER_BUDGET_MS);
 
 test("successful discovery clears every prior failure reason", async () => {
   const provider = "activation-reset";

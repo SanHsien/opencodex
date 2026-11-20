@@ -7,6 +7,7 @@ import { LanguageProvider } from "../src/i18n/provider";
 import { en } from "../src/i18n/en";
 import { clearClientResourceStoresForTests } from "../src/client-resource";
 import Usage from "../src/pages/Usage";
+import { COLD_SPAWN_BUDGET_MS } from "../../tests/helpers/test-budget";
 
 const globals = ["document", "window", "navigator", "localStorage", "sessionStorage", "ResizeObserver", "IS_REACT_ACT_ENVIRONMENT"] as const;
 const originalFetch = globalThis.fetch;
@@ -292,6 +293,11 @@ test("America/Santiago midnight DST retains final-day activity and tooltip", asy
     // Start the DST case in its timezone without mutating this suite's clock.
     const timezone = { present: Object.hasOwn(process.env, "TZ"), value: process.env.TZ };
     const localTime = new Date(2020, 8, 15, 10, 20).getTime();
+    // The child's own case keeps its 10s deadline, which starts only once the case runs. The
+    // spawn timeout also has to cover the child's cold start and its load of this file's module
+    // graph, which a fixed 12s did not: under 24 busy-loop processes the child printed nothing
+    // past its banner before being killed, in 6 of 6 runs. That cold start is what
+    // COLD_SPAWN_BUDGET_MS is for, and this is the file's only child.
     const child = Bun.spawnSync([
       process.execPath, "test", import.meta.path,
       "-t", "^America/Santiago midnight DST retains final-day activity and tooltip$",
@@ -299,7 +305,7 @@ test("America/Santiago midnight DST retains final-day activity and tooltip", asy
     ], {
       cwd: resolve(import.meta.dir, ".."),
       env: { ...process.env, TZ: "America/Santiago", OCX_USAGE_SANTIAGO_CHILD: "1" },
-      stdout: "pipe", stderr: "pipe", timeout: 12000, killSignal: "SIGKILL",
+      stdout: "pipe", stderr: "pipe", timeout: COLD_SPAWN_BUDGET_MS, killSignal: "SIGKILL",
     });
     const diagnostics = `${child.stdout.toString()}\n${child.stderr.toString()}`;
     expect(child.exitedDueToTimeout, diagnostics).not.toBe(true);
@@ -329,7 +335,7 @@ test("America/Santiago midnight DST retains final-day activity and tooltip", asy
   expect(document.querySelector(".heatmap-tip-date")?.textContent).toBe("Sep 7, 2026");
   expect(document.querySelector(".heatmap-tip")?.textContent).toContain("700");
   if (process.env.OCX_USAGE_SANTIAGO_CHILD === "1") console.log("OCX_SANTIAGO_CASE_COMPLETED");
-}, process.env.OCX_USAGE_SANTIAGO_CHILD === "1" ? 10000 : 15000);
+}, process.env.OCX_USAGE_SANTIAGO_CHILD === "1" ? 10000 : COLD_SPAWN_BUDGET_MS + 5_000);
 
 test("Apply submits inclusive bounds once; Clear refetches the preset without session cache entries", async () => {
   await mount();

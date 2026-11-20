@@ -1026,3 +1026,20 @@ Codex（gpt-6.1-sol，唯讀）覆核 ensure 並行修正與「只有 ctime 變�
   - 64 KiB digest 視窗之前的同大小改寫偵測不到。
   - lease 殘留加上 PID 被重用時，會誤認成另一個 start，結果是多等一段時間、診斷文字不準。
   - 兩個 ensure 同時截斷 log 時，其中一個的 header 可能被清掉，那一方就只靠輪詢判斷競爭。
+
+## 2026-11-21：計時型 flaky 測試修正回註
+
+`ROADMAP.md`「追蹤整合後殘留的計時型 flaky 測試」的五個檔。每案先在負載下重現，再改測試，再用同樣負載重跑。負載是本機 24 執行緒旁邊開 N 個 `bun` 忙迴圈行程，同一檔連跑；根目錄測試帶 CI 的 `--timeout 60000`，gui 測試照 CI 不帶（Bun 預設 5 秒）。本機只有 Bun 1.4.5（`testRunnerBun` 釘 1.4.4）。產品碼只把 `COPY_FEEDBACK_MS` 改成 export，行為不變。
+
+| 測試 | 計時假設 | 修前 | 修後 | 修法 |
+| --- | --- | --- | --- | --- |
+| `responses-pool-401-refresh`「a post-refresh credit hold in the pacing queue does not announce a replay send」 | 用牆鐘的 2 秒 pacing 間隔，假設 refresh 加 replay 準備在 2 秒內完成，replay 才會進佇列被看到；另以 500 次 `Bun.sleep(1)` 輪詢 | 8/8 失敗（24 個忙迴圈），`queued` 收到 0；refresh 的 ACL hardening 本身就超過 2 秒 | 0/8 | 新 helper `tests/helpers/manual-pacing-clock.ts`：pacing 時鐘只在測試推進時前進，replay 一定排隊；以 pacing 排定喚醒計時器的事件確認「已排隊」，取代輪詢 |
+| `web-search-anthropic`「synchronous empty chunks cannot starve the bounded EOF probe」 | 一個 5 秒看門狗同時涵蓋子行程冷啟動、模組載入與 probe 本身 | 5/8 失敗（24 個忙迴圈），看門狗在子行程印出任何東西前就殺掉它 | 0/8 | 子行程載入 parser 後先印就緒標記；冷啟動用 `COLD_SPAWN_BUDGET_MS`，probe 自己的期限從就緒起算，用 `INTERNAL_DEADLINE_MS` |
+| gui `login-url-block` | (1) 第一個案例的 5 秒內含第一次 `import("react-dom/client")`；(2) 「keeps the latest feedback…」用真實 200＋2400 毫秒等待，檢查點只在第二次點擊的 2500 毫秒視窗內 100 毫秒 | 單檔 24、72 個忙迴圈各 0/8 重現不出；6 份同時跑加 48 個忙迴圈 5/24 失敗：4 次 (1) 逾時（6.6–10.3 秒，其中一次連帶下一案失敗），1 次 (2) 的「Copied」已消失 | 0/24（同樣 6 份＋48） | (1) react-dom/client 改在 `beforeEach` 載入（DOM globals 已就位），hook 用新的 `DOM_RENDER_BUDGET_MS`；(2) 只接管 `COPY_FEEDBACK_MS` 那個計時器，改用測試推進的時鐘，並補驗第二次的視窗確實會結束 |
+| gui `models-empty-provider` | 「Models page combines…」整頁情境是 CPU 密集的 `act()` 序列，閒置 0.8 秒，被 Bun 預設 5 秒限制；「Cursor discovery failure…」綁真的 HTTP/2 listener | 5/8 失敗（24 個忙迴圈）：5 次都是整頁情境逾時，逾時後它繼續跑撞到已拆的 globals，其中 1 次連帶「a poll that resolves after a forced refresh…」失敗；另 1 次 Cursor 案也 5.7 秒逾時 | 0/8 | 整頁情境用 `DOM_RENDER_BUDGET_MS`，Cursor 案用既有的 `SERVER_BUDGET_MS` |
+| gui `usage-custom-range`「America/Santiago midnight DST…」 | 子行程 `bun test` 的 `spawnSync` 固定 12 秒，要涵蓋冷啟動與載入整個測試檔模組圖 | 6/6 失敗（24 個忙迴圈），子行程只印出 banner 就被殺 | 0/6 | spawn 逾時改 `COLD_SPAWN_BUDGET_MS`（此檔唯一的子行程），子行程自己案例的 10 秒期限不變 |
+
+**ablation（確認測試沒有因此變空）**：把 `passthrough-dispatch.ts` 的 replay 通知移到 `replayGuard` 前面，pacing 案失敗（`dispatchSignals` 收到 1）；拿掉 `anthropic-executor.ts` probe 迴圈裡的 `setTimeout(0)` 讓步，EOF 案在 probe 期限（約 15.9 秒）失敗，`timedOut` 為 `"probe"`；拿掉 `use-copy-feedback.ts` 的 `clearTimer()` 與世代檢查，login 案在「Copied」斷言失敗。三處都已還原。
+
+**其他驗證**：`bun scripts/file-size-ratchet.ts`、`bun run privacy:scan`、`bun run structure:check`、`bun run lint:gui` 皆 exit 0；`bun test --isolate --timeout 60000` 跑 `responses-pool-401-refresh`、`web-search-anthropic`、`test-layout`、`test-layout-tooling` 共 157 pass／0 fail；`cd gui && bun x tsc -b` exit 0。`bun run typecheck` 在 Bun 1.4.5 不能跑（`bun check` 不存在）；改用 CI 的 `bun x tsc --noEmit`，只有 `src/providers/cc-switch-import-source.ts` 兩個既有錯誤（`Database.function`，這次沒動）。
+**沒做完**：ROADMAP 驗收的「滿載下全量 gui 三次無失敗」。24 個忙迴圈下的第一次全量 `cd gui && bun test --isolate tests` 跑約 13 分鐘、只到 `codex-account-pool-*` 就中止：`claude-toggle-race` 一案超過 Bun 預設 5 秒（7.5 秒），同檔 7 案撞上測試自己 2 秒的 `waitFor`，另 2 案跟著失敗。這些不在原列五檔內、還沒分析，已改列在 `ROADMAP.md`。無負載的全量 gui 結果：`cd gui && bun test --isolate tests` 4506 pass／3 fail（427 檔，853 秒），三案都不是這次動到的檔，單檔各重跑兩次全過：`codex-account-pool-target-switch`（第 247 行斷言）、`remote-workspace`（5.9 秒逾時）、`switch-rule`（5.0 秒逾時）。同樣列進 `ROADMAP.md`。

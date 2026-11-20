@@ -4,6 +4,8 @@ import { act } from "react";
 import type { Root } from "react-dom/client";
 import { LanguageProvider } from "../src/i18n/provider";
 import { LoginUrlBlock } from "../src/components/login-url-block";
+import { COPY_FEEDBACK_MS } from "../src/components/use-copy-feedback";
+import { DOM_RENDER_BUDGET_MS } from "../../tests/helpers/test-budget";
 
 /**
  * Contract for the shared OAuth login-URL block. It owns the copy state for
@@ -21,6 +23,8 @@ let win: Window;
 let host: HTMLElement;
 let root: Root | null = null;
 let clipboardWrites: string[] = [];
+let createRoot: typeof import("react-dom/client").createRoot | undefined;
+let feedbackClock: { advance(ms: number): Promise<void>; restore(): void } | undefined;
 
 function installClipboard(available: boolean) {
   clipboardWrites = [];
@@ -32,7 +36,7 @@ function installClipboard(available: boolean) {
   });
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   previous = Object.fromEntries(globals.map((k) => [k, Reflect.get(globalThis, k)])) as typeof previous;
   win = new Window({ url: "http://localhost/" });
   Object.defineProperty(win.navigator, "language", { configurable: true, value: "en-US" });
@@ -46,9 +50,15 @@ beforeEach(() => {
   installClipboard(true);
   host = win.document.createElement("div") as unknown as HTMLElement;
   win.document.body.appendChild(host as never);
-});
+  // react-dom/client decides whether it has a DOM when it is first evaluated, so it is loaded
+  // here, after the happy-dom globals exist. Loading it inside the first case charged that case
+  // for the module graph: 0.4s idle, and up to 10.3s under load against Bun's 5s default.
+  createRoot ??= (await import("react-dom/client")).createRoot;
+}, DOM_RENDER_BUDGET_MS);
 
 afterEach(async () => {
+  feedbackClock?.restore();
+  feedbackClock = undefined;
   if (root) {
     const current = root;
     await act(async () => { current.unmount(); });
@@ -61,9 +71,8 @@ afterEach(async () => {
 });
 
 async function render(url: string) {
-  const { createRoot } = await import("react-dom/client");
   await act(async () => {
-    root ??= createRoot(host);
+    root ??= createRoot!(host);
     root.render(
       <LanguageProvider>
         <LoginUrlBlock url={url} />
@@ -106,19 +115,62 @@ test("reports an unusable clipboard instead of a false success", async () => {
   expect(host.textContent).toContain("Clipboard unavailable");
 });
 
+/**
+ * Takes over only the copy-feedback timer, on a clock the test advances. With real
+ * timers the check below sat 100ms inside the second click's window, so a loaded
+ * machine that ran the 2400ms wait late saw the label already expired (1 of 24 runs
+ * with six copies of this file and 48 busy-loop processes). Every other timer,
+ * including React's and this file's own zero-delay waits, stays real.
+ */
+function installFeedbackClock() {
+  const realSetTimeout = globalThis.setTimeout;
+  const realClearTimeout = globalThis.clearTimeout;
+  let now = 0;
+  const pending = new Set<{ at: number; run: () => void }>();
+  globalThis.setTimeout = ((handler: (...args: unknown[]) => void, delay?: number, ...args: unknown[]) => {
+    if (delay !== COPY_FEEDBACK_MS) return realSetTimeout(handler, delay, ...args);
+    const timer = { at: now + delay, run: () => handler(...args) };
+    pending.add(timer);
+    return timer;
+  }) as unknown as typeof setTimeout;
+  globalThis.clearTimeout = ((handle: unknown) => {
+    if (!pending.delete(handle as { at: number; run: () => void })) realClearTimeout(handle as Parameters<typeof clearTimeout>[0]);
+  }) as typeof clearTimeout;
+  feedbackClock = {
+    async advance(ms: number) {
+      now += ms;
+      for (const timer of [...pending].sort((a, b) => a.at - b.at)) {
+        if (timer.at > now || !pending.delete(timer)) continue;
+        await act(async () => { timer.run(); });
+      }
+    },
+    restore() {
+      globalThis.setTimeout = realSetTimeout;
+      globalThis.clearTimeout = realClearTimeout;
+    },
+  };
+  return feedbackClock;
+}
+
 test("keeps the latest feedback for its full window across repeated copies", async () => {
+  const clock = installFeedbackClock();
   await render(URL_A);
 
   await clickCopy();
-  await act(async () => { await new Promise((r) => setTimeout(r, 200)); });
+  await clock.advance(200);
   await clickCopy();
 
   expect(clipboardWrites).toEqual([URL_A, URL_A]);
 
   // Past the first click's expiry but before the second's: an unguarded timer
   // would already have wiped the second click's label.
-  await act(async () => { await new Promise((r) => setTimeout(r, 2400)); });
+  await clock.advance(COPY_FEEDBACK_MS - 100);
   expect(host.textContent).toContain("Copied");
+
+  // The second click's own window still ends.
+  await clock.advance(100);
+  expect(host.textContent).not.toContain("Copied");
+  expect(host.textContent).toContain("Copy link");
 });
 
 test("a new URL resets stale copy feedback", async () => {

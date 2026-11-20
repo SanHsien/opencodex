@@ -24,6 +24,10 @@ import { CLAUDE_CLI_USER_AGENT } from "../../src/providers/claude-cli-identity";
 import type { AdapterEvent, OcxConfig, OcxParsedRequest, OcxProviderConfig } from "../../src/types";
 import type { ProviderAdapter } from "../../src/adapters/base";
 import { repoPath } from "../helpers/repo-root";
+import { COLD_SPAWN_BUDGET_MS, INTERNAL_DEADLINE_MS } from "../helpers/test-budget";
+
+/** Written by the EOF-probe child once its imports have loaded, before the probe starts. */
+const PROBE_CHILD_READY = "probe-child-ready\n";
 import { createRequestExecutionBudget, type AuxiliaryModelSend } from "../../src/lib/request-execution-budget";
 import { createSpendReservationLedger, DEFAULT_SPEND_RESERVATION_POLICY, type SpendJournal } from "../../src/lib/spend-reservation-ledger";
 import { createRequestSpendTracker } from "../../src/server/responses/request-spend";
@@ -584,26 +588,46 @@ describe("Anthropic sidecar byte boundaries", () => {
         start(c) { c.enqueue(new TextEncoder().encode(prefix + filler + terminal)); },
         pull(c) { c.enqueue(new Uint8Array(0)); },
       }, { highWaterMark: 0 });
+      process.stdout.write(${JSON.stringify(PROBE_CHILD_READY)});
       const outcome = await parseAnthropicSidecarSSE(new Response(body));
       process.stdout.write(outcome.error ?? 'unexpected success');
     `;
+    // The child exists so a starved probe (a microtask loop the parent could not interrupt) can
+    // be killed. One 5 s deadline used to cover the child's cold start and module load as well
+    // as the probe, and under CPU load the cold start alone overran it (5/8 failures with 24
+    // busy-loop processes). The cold start now gets its documented budget, and the probe's own
+    // deadline starts only when the child reports it has loaded the parser.
     const child = Bun.spawn([process.execPath, "--eval", script], { stdout: "pipe", stderr: "pipe" });
-    let timedOut = false;
-    const watchdog = setTimeout(() => { timedOut = true; child.kill(); }, 5_000);
+    let timedOut: "cold start" | "probe" | false = false;
+    let watchdog = setTimeout(() => { timedOut = "cold start"; child.kill(); }, COLD_SPAWN_BUDGET_MS);
+    const readStdout = async (): Promise<string> => {
+      const decoder = new TextDecoder();
+      let text = "";
+      let ready = false;
+      for await (const chunk of child.stdout) {
+        text += decoder.decode(chunk, { stream: true });
+        if (!ready && text.startsWith(PROBE_CHILD_READY)) {
+          ready = true;
+          clearTimeout(watchdog);
+          watchdog = setTimeout(() => { timedOut = "probe"; child.kill(); }, INTERNAL_DEADLINE_MS);
+        }
+      }
+      return text + decoder.decode();
+    };
     try {
       const [status, stdout, stderr] = await Promise.all([
         child.exited,
-        new Response(child.stdout).text(),
+        readStdout(),
         new Response(child.stderr).text(),
       ]);
       expect({ timedOut, status, stdout, stderr }).toEqual({
         timedOut: false,
         status: 0,
-        stdout: "anthropic sidecar response byte limit reached before EOF",
+        stdout: `${PROBE_CHILD_READY}anthropic sidecar response byte limit reached before EOF`,
         stderr: "",
       });
     } finally { clearTimeout(watchdog); }
-  }, 10_000);
+  }, COLD_SPAWN_BUDGET_MS + INTERNAL_DEADLINE_MS + 5_000);
   test.each([64 * 1024, 80 * 1024])("preserves complete prefix frames at %i bytes without awaiting cancel", async (size) => {
     const prefix = `data: ${JSON.stringify({ type: "content_block_delta", delta: { type: "text_delta", text: "prefix 한글" } })}\n\n`;
     const tail = `data: ${JSON.stringify({ type: "content_block_delta", delta: { type: "text_delta", text: "discard" } })}`;

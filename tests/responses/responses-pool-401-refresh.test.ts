@@ -63,6 +63,7 @@ import {
 } from "../helpers/agent-task-recovery";
 import { acquireOwnedSpendHome } from "../helpers/owned-spend-home";
 import { removeTreeWithRetry } from "../helpers/remove-tree";
+import { installManualPacingClock } from "../helpers/manual-pacing-clock";
 
 /**
  * #2887: an ordinary stored pool account holding a TIME-VALID access token that upstream
@@ -857,19 +858,25 @@ describe("ordinary pool 401 refresh and replay (#2887)", () => {
 
   test("a post-refresh credit hold in the pacing queue does not announce a replay send", async () => {
     const cfg = config();
-    // The replay must still be inside the pacing interval after the forced refresh. On hosted
-    // Windows runners refresh plus replay preparation takes several hundred ms, so 200 ms elapsed
-    // before the replay reached the queue and it was never observed as queued.
     cfg.providers.openai!.requestPacing = { enabled: true, minIntervalMs: 2_000 };
+    // The replay must be seen queued. On the wall clock that needed refresh plus replay setup to
+    // finish inside the 2 s interval; under CPU load the refresh's ACL hardening overran it and the
+    // replay was admitted at once (8/8 failures beside 24 busy-loop processes on 24 threads).
+    let replayQueued!: (value: "queued") => void;
+    const queued = new Promise<"queued">(resolve => { replayQueued = resolve; });
+    const pacing = installManualPacingClock(() => {
+      if (providerRequestPacingStatus("openai", cfg.providers.openai!).queued > 0) replayQueued("queued");
+    });
     const harness = installHarness();
     let dispatchSignals = 0;
     const pending = handleResponses(request("/v1/responses"), cfg, { model: "", provider: "" } as RequestLogContext,
       { onStoredPool401ReplayDispatched: () => { dispatchSignals++; } });
     try {
-      for (let attempt = 0; attempt < 500 && !(harness.refreshes.length && providerRequestPacingStatus("openai", cfg.providers.openai!).queued); attempt++) await Bun.sleep(1);
+      expect(await Promise.race([queued, pending.then(() => "settled before queueing" as const)])).toBe("queued");
       expect(harness.refreshes).toEqual(["refresh-grant"]);
       expect(providerRequestPacingStatus("openai", cfg.providers.openai!).queued).toBe(1);
       updateAccountQuota(ACCOUNT_ID, 100, Date.now() + 3_600_000);
+      pacing.advance(2_000);
       const response = await pending;
       expect(response.status).toBe(429);
       expect(dispatchSignals).toBe(0);

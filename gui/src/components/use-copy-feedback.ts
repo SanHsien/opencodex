@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { copyTextToClipboard } from "../oauth-health-display";
 
-const FEEDBACK_MS = 2500;
+/** How long copy feedback stays on screen. Exported so tests can drive this one timer. */
+export const COPY_FEEDBACK_MS = 2500;
 
 export type CopyOutcome = "copied" | "unavailable";
 
@@ -50,7 +51,7 @@ export function useCopyFeedback<Scope = void>(): {
         timerRef.current = null;
         if (generationRef.current !== generation) return;
         setFeedback(null);
-      }, FEEDBACK_MS);
+      }, COPY_FEEDBACK_MS);
     });
   }, [clearTimer]);
 

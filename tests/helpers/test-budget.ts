@@ -92,6 +92,27 @@ export const NPM_SPAWN_BUDGET_MS = process.platform === "win32" ? 90_000 : SPAWN
 /** Binds a real server or opens a real socket, including restart-and-reconnect flows. */
 export const SERVER_BUDGET_MS = 30_000;
 
+/**
+ * CPU-bound gui work in happy-dom: a whole-page scenario driven through dozens of `act()` rounds,
+ * or the hook that loads react-dom's client module graph for the first time in a file.
+ *
+ * The wait is intrinsic: there is no sleep to remove, the time is rendering and module
+ * evaluation, so Bun's 5s default ends up measuring machine load. Measured on a 24-thread
+ * machine, idle against loaded:
+ *
+ * - `Models page combines final visibility, atomic actions, discovery status, and serialized
+ *   polling` (gui/tests/models-empty-provider.test.tsx): 0.8s idle; timed out at 5s in 5 of 8
+ *   runs beside 24 busy-loop processes.
+ * - the first case of gui/tests/login-url-block.test.tsx, which paid for the first
+ *   `import("react-dom/client")`: 0.4s idle; 6.6s to 10.3s, timing out in 4 of 24 runs, with six
+ *   copies of the file and 48 busy-loop processes running together.
+ *
+ * A timed-out case keeps running after Bun moves on, so its later steps fail against torn-down
+ * globals and the next case in the file can take the blame. No assertion depends on this number;
+ * every ablation of the code under test fails at an `expect`.
+ */
+export const DOM_RENDER_BUDGET_MS = 30_000;
+
 /** Touches SQLite or the filesystem repeatedly. Slow on Windows for reasons outside our code. */
 export const STORE_BUDGET_MS = 30_000;
 

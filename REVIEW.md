@@ -776,7 +776,7 @@ config 測試首次等待 user test lock：owner PID 57096 在同時查得為 `D
 | 版面、hygiene、結構、邊界（`test-layout*`、`file-size-ratchet`、`structure-ssot`、`fork-hygiene`、`docs-zh-tw-parity`、`docs-link-targets`、`docs-developer-role-policy`、`core-lab-boundary`） | 178 pass／0 fail。第一次 `docs-zh-tw-parity` 紅 2 案（`messaging.md` 段落 5／6、fence 18／20），補譯新段後轉綠 |
 | `fork-hygiene` 單檔（含新增的 3 個 stable-tags 測試） | 42 pass／0 fail |
 | `tools/dev_check.ps1` | `WINDOWS DEV CHECK GREEN`，exit 0 |
-| 衝突與關鍵檔：`messages-error-contracts`、`responses-pool-401-refresh`、`web-search-anthropic`、launcher 三檔、`client-machine-listener`、`routing-policy-surface-parity`（8 檔合跑） | 320 pass／2 fail。兩案是計時型：`responses-pool-401-refresh`「a post-refresh credit hold in the pacing queue does not announce a replay send」（18.4 秒）與 `web-search-anthropic`「synchronous empty chunks cannot starve the bounded EOF probe」（5.0 秒），同時有 cargo 編譯在跑。單檔重跑：前者 75 pass／0 fail，後者 53 pass／0 fail |
+| 衝突與關鍵檔：`messages-error-contracts`、`responses-pool-401-refresh`、`web-search-anthropic`、launcher 三檔、`client-machine-listener`、`routing-policy-surface-parity`（8 檔合跑） | 320 pass／2 fail。兩案是計時型：`responses-pool-401-refresh`「a post-refresh credit hold in the pacing queue does not announce a replay send」（18.4 秒）與 `web-search-anthropic`「synchronous empty chunks cannot starve the bounded EOF probe」（5.0 秒），同時有 cargo 編譯在跑。單檔重跑：前者 75 pass／0 fail，後者 53 pass／0 fail。**已修，`039a3aeed`（2026-11-21）**，見同日節 |
 | `cargo check --lib --locked`（`TAURI_CONFIG` 清空 `externalBin`／`resources`）、`cargo test --lib --locked traffic_lights` | exit 0；3 案過。證明 `traffic_lights.rs` 在 Windows 可編譯（`#[cfg_attr(not(target_os = "macos"), allow(dead_code))]`） |
 | `bun tools/check-upstream-updates.ts --strict`（新的 stable-tags 模式，水位尚在 `v2.98.0`） | 28 筆待審 commit、PR 軸 1 筆（#8252）、issue 軸 0 筆，exit 1；與整合前審查的 28 筆一致 |
 
@@ -1028,6 +1028,8 @@ Codex（gpt-6.1-sol，唯讀）覆核 ensure 並行修正與「只有 ctime 變�
   - 兩個 ensure 同時截斷 log 時，其中一個的 header 可能被清掉，那一方就只靠輪詢判斷競爭。
 
 ## 2026-11-21：計時型 flaky 測試修正回註
+
+修正 commit：`039a3aeed`（2026-11-21）。
 
 `ROADMAP.md`「追蹤整合後殘留的計時型 flaky 測試」的五個檔。每案先在負載下重現，再改測試，再用同樣負載重跑。負載是本機 24 執行緒旁邊開 N 個 `bun` 忙迴圈行程，同一檔連跑；根目錄測試帶 CI 的 `--timeout 60000`，gui 測試照 CI 不帶（Bun 預設 5 秒）。本機只有 Bun 1.4.5（`testRunnerBun` 釘 1.4.4）。產品碼只把 `COPY_FEEDBACK_MS` 改成 export，行為不變。
 

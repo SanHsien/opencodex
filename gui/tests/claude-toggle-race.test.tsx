@@ -3,6 +3,7 @@ import { Window } from "happy-dom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import { clearClientResourceStoresForTests } from "../src/client-resource";
+import { APP_MODULE_GRAPH_BUDGET_MS, DOM_RENDER_BUDGET_MS, INTERNAL_DEADLINE_MS } from "../../tests/helpers/test-budget";
 
 /**
  * Rapid clicks on the Claude connection switch must serialize to a single
@@ -34,6 +35,11 @@ let cliFirstParty = false;
 let firstPartyPutResponse: { body: unknown; status?: number } | null = null;
 let releasePut: (() => void) | null = null;
 let putGate: Promise<void> | null = null;
+let appModules: {
+  createRoot: typeof import("react-dom/client").createRoot;
+  LanguageProvider: typeof import("../src/i18n/provider").LanguageProvider;
+  App: typeof import("../src/App").default;
+} | undefined;
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -65,7 +71,7 @@ const CLAUDE_CODE_STATE = {
   port: 10100,
 };
 
-beforeEach(() => {
+beforeEach(async () => {
   previousGlobals = Object.fromEntries(globals.map((k) => [k, Reflect.get(globalThis, k)])) as typeof previousGlobals;
   // The switch now lives on the Claude Code surface, so the route has to be
   // the one that mounts it.
@@ -150,7 +156,18 @@ beforeEach(() => {
 
   container = testWindow.document.createElement("div") as unknown as HTMLElement;
   testWindow.document.body.appendChild(container as never);
-});
+  // Loaded here, after the happy-dom globals exist, so the first case is not charged for the
+  // whole App module graph. Inside it, that case timed out at 5.1s to 14.5s in 4 of 6 runs beside
+  // 24 busy-loop processes and kept running into the cases after it.
+  if (!appModules) {
+    const [{ createRoot }, { LanguageProvider }, { default: App }] = await Promise.all([
+      import("react-dom/client"),
+      import("../src/i18n/provider"),
+      import("../src/App"),
+    ]);
+    appModules = { createRoot, LanguageProvider, App };
+  }
+}, APP_MODULE_GRAPH_BUDGET_MS);
 
 afterEach(async () => {
   if (root) {
@@ -177,10 +194,29 @@ afterEach(async () => {
   }
 });
 
-async function waitFor(predicate: () => boolean, timeoutMs = 2000): Promise<void> {
-  const start = Date.now();
-  while (!predicate()) {
-    if (Date.now() - start > timeoutMs) throw new Error("waitFor timed out");
+/**
+ * Polls between act() ticks until `predicate` holds. The page only moves inside act(): the mocked
+ * GETs resolve, React renders, the next fetch starts. There is no app event that says "the switch
+ * is there now", so the tick is the event and the deadline is only a hang guard.
+ *
+ * It used to be a fixed 2s, which measured how fast the whole App mounts: the eleven cases take
+ * about 3s together idle, but beside 24 busy-loop processes seven of them passed 2s in each of
+ * two runs out of six. A predicate that throws
+ * counts as "not yet": the switch is absent until the page's first GET has rendered, and a
+ * throwing predicate turned that into an immediate "switch not found".
+ */
+async function waitFor(predicate: () => boolean): Promise<void> {
+  const deadline = Date.now() + INTERNAL_DEADLINE_MS;
+  for (;;) {
+    let lastError: unknown;
+    try {
+      if (predicate()) return;
+    } catch (error) {
+      lastError = error;
+    }
+    if (Date.now() > deadline) {
+      throw new Error(`waitFor timed out after ${INTERNAL_DEADLINE_MS}ms${lastError ? `: ${String(lastError)}` : ""}`);
+    }
     await act(async () => {
       await new Promise<void>((resolve) => testWindow.setTimeout(resolve, 10));
     });
@@ -192,11 +228,7 @@ async function mountApp() {
   resetApiAuthFetchForTests();
   installApiAuthFetch();
   Object.defineProperty(globalThis, "fetch", { configurable: true, value: window.fetch });
-  const [{ createRoot }, { LanguageProvider }, { default: App }] = await Promise.all([
-    import("react-dom/client"),
-    import("../src/i18n/provider"),
-    import("../src/App"),
-  ]);
+  const { createRoot, LanguageProvider, App } = appModules!;
   await act(async () => {
     root = createRoot(container);
     root.render(<LanguageProvider><App /></LanguageProvider>);
@@ -220,33 +252,8 @@ function claudeSwitch(): HTMLButtonElement {
 }
 
 test("rapid Claude toggle clicks issue only one PUT until the first settles", async () => {
-  const { resetApiAuthFetchForTests, installApiAuthFetch } = await import("../src/api");
-  resetApiAuthFetchForTests();
-  installApiAuthFetch();
-  Object.defineProperty(globalThis, "fetch", { configurable: true, value: window.fetch });
-
-  const [{ createRoot }, { LanguageProvider }, { default: App }] = await Promise.all([
-    import("react-dom/client"),
-    import("../src/i18n/provider"),
-    import("../src/App"),
-  ]);
-
-  await act(async () => {
-    root = createRoot(container);
-    root.render(
-      <LanguageProvider>
-        <App />
-      </LanguageProvider>,
-    );
-  });
-
-  await waitFor(() => {
-    try {
-      return !!claudeSwitch();
-    } catch {
-      return false;
-    }
-  });
+  await mountApp();
+  await waitFor(() => !!claudeSwitch());
 
   const sw = claudeSwitch();
   expect(sw.disabled).toBe(false);
@@ -283,7 +290,7 @@ test("rapid Claude toggle clicks issue only one PUT until the first settles", as
     releasePut = null;
   });
   await waitFor(() => !claudeSwitch().disabled);
-});
+}, DOM_RENDER_BUDGET_MS);
 
 test("CLI first-party waits for one PUT and a confirmed GET", async () => {
   claudeEnabled = true;
@@ -307,7 +314,7 @@ test("CLI first-party waits for one PUT and a confirmed GET", async () => {
     await Promise.resolve();
   });
   await waitFor(() => firstPartySwitch().getAttribute("aria-checked") === "true");
-});
+}, DOM_RENDER_BUDGET_MS);
 
 const refusalCases = [
   ["intercept_disabled", "The interception proxy is disabled."],
@@ -326,7 +333,7 @@ for (const [code, message] of refusalCases) {
     await act(async () => { firstPartySwitch().click(); });
     await waitFor(() => (container.textContent ?? "").includes(message));
     expect(firstPartySwitch().getAttribute("aria-checked")).toBe("false");
-  });
+  }, DOM_RENDER_BUDGET_MS);
 }
 
 test("CLI first-party success trusts the divergent GET state", async () => {
@@ -336,7 +343,7 @@ test("CLI first-party success trusts the divergent GET state", async () => {
   await act(async () => { firstPartySwitch().click(); });
   await waitFor(() => !firstPartySwitch().disabled);
   expect(firstPartySwitch().getAttribute("aria-checked")).toBe("false");
-});
+}, DOM_RENDER_BUDGET_MS);
 
 test("CLI first-party can turn off while the proxy is stopped", async () => {
   cliFirstParty = true;
@@ -350,7 +357,7 @@ test("CLI first-party can turn off while the proxy is stopped", async () => {
   });
   await waitFor(() => firstPartySwitch().getAttribute("aria-checked") === "false");
   expect(putBodies).toEqual([{ cliFirstParty: false }]);
-});
+}, DOM_RENDER_BUDGET_MS);
 
 test("the Save payload does not overwrite CLI first-party intent", async () => {
   cliFirstParty = true;
@@ -366,4 +373,4 @@ test("the Save payload does not overwrite CLI first-party intent", async () => {
   });
   await waitFor(() => putBodies.length === 1);
   expect(putBodies[0]).not.toHaveProperty("cliFirstParty");
-});
+}, DOM_RENDER_BUDGET_MS);

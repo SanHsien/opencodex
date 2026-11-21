@@ -5,6 +5,7 @@ import type { Root } from "react-dom/client";
 import { configureApiTargets } from "../src/api";
 import { standaloneApiTargets } from "../src/api-targets";
 import { useCodexAccountPool, type CodexAccountPoolController } from "../src/hooks/useCodexAccountPool";
+import { DOM_RENDER_BUDGET_MS } from "../../tests/helpers/test-budget";
 
 /**
  * #8438: the pool clears the previous target's rows while rendering, but the generation bump
@@ -26,6 +27,7 @@ let root: Root | null = null;
 let originalFetch: typeof globalThis.fetch;
 let seen: CodexAccountPoolController | null = null;
 let childReads: unknown[] = [];
+let createRoot: typeof import("react-dom/client").createRoot | undefined;
 
 function row(id: string) {
   return { id, email: `${id}@example.test`, isMain: false, paused: false, priority: 0, hasCredential: true, quota: null };
@@ -130,20 +132,33 @@ function ChildProbe({ read }: { read: () => unknown }) {
 }
 
 async function mount(targetKey: string) {
-  const { createRoot } = await import("react-dom/client");
   await act(async () => {
-    root = createRoot(host);
+    root = createRoot!(host);
     root.render(<Probe targetKey={targetKey} />);
   });
   await act(async () => { await new Promise(resolve => setTimeout(resolve, 10)); });
 }
 
-/** Render the next target outside act so its passive reset effect stays pending. */
+/**
+ * Render the next target outside act so its passive reset effect stays pending.
+ *
+ * Outside act the render runs as a React Scheduler task, so "one macrotask later" is not "after
+ * the commit": when an earlier Scheduler task uses up its 5ms slice, Scheduler yields and the
+ * render lands after the test's timer. The callers then read the previous target's controller
+ * (an unloaded full gui run failed `expect(ids()).toEqual([])` that way; an 8ms Scheduler task
+ * queued just before the switch reproduces it every time, with `ids()` still `["b2"]`). So this
+ * waits for the commit itself: Probe's layout effect for the new target. The macrotask after it
+ * is kept for what it was always for: the read `releasePrevious` lets go settles in microtasks,
+ * and they have all run by then.
+ */
 async function switchTarget(targetKey: string, releasePrevious: () => void) {
   configureApiTargets(relay("/same", targetKey));
   actEnvironment(false);
   try {
-    root!.render(<Probe targetKey={targetKey} onSwitch={releasePrevious} />);
+    const committed = new Promise<void>(resolve => {
+      root!.render(<Probe targetKey={targetKey} onSwitch={() => { releasePrevious(); resolve(); }} />);
+    });
+    await committed;
     await new Promise(resolve => setTimeout(resolve, 0));
   } finally {
     actEnvironment(true);
@@ -166,7 +181,7 @@ async function readsReach(server: { reads(): number }, count: number, timeoutMs 
   }
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   previous = Object.fromEntries(globals.map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)])) as typeof previous;
   win = new Window({ url: "http://localhost/" });
   Object.defineProperties(globalThis, {
@@ -181,7 +196,11 @@ beforeEach(() => {
   originalFetch = globalThis.fetch;
   seen = null;
   childReads = [];
-});
+  // Loaded here, after the happy-dom globals exist, so the first case is not charged for
+  // react-dom's module graph: beside 48 busy-loop processes it timed out at 5.2s to 7.0s in 3 of
+  // 24 runs, and the cases after it failed against the globals it was still using.
+  createRoot ??= (await import("react-dom/client")).createRoot;
+}, DOM_RENDER_BUDGET_MS);
 
 afterEach(async () => {
   if (root) {

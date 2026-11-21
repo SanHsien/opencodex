@@ -3,6 +3,7 @@ import { Window } from "happy-dom";
 import type { Root } from "react-dom/client";
 import { readPageFromHash } from "../src/app-routing";
 import { remoteWorkspacePairingCommands } from "../src/remote-workspace-command";
+import { APP_MODULE_GRAPH_BUDGET_MS } from "../../tests/helpers/test-budget";
 
 const DEVICE_ID = "11111111-1111-4111-8111-111111111111";
 const ROOT_ID = "22222222-2222-4222-8222-222222222222";
@@ -53,7 +54,9 @@ let root: Root | null = null;
 let previous: Record<string, unknown>;
 const globals = ["window", "document", "navigator", "localStorage", "fetch", "IS_REACT_ACT_ENVIRONMENT"] as const;
 
-beforeEach(() => {
+let modulesLoaded: Promise<unknown> | undefined;
+
+beforeEach(async () => {
   previous = Object.fromEntries(globals.map(key => [key, Reflect.get(globalThis, key)]));
   win = new Window({ url: "http://localhost/#remote" });
   Object.defineProperties(globalThis, {
@@ -63,7 +66,16 @@ beforeEach(() => {
     localStorage: { configurable: true, value: win.localStorage },
     IS_REACT_ACT_ENVIRONMENT: { configurable: true, value: true },
   });
-});
+  // The cases import these themselves; loading them once here, after the happy-dom globals
+  // exist, turns those imports into cache hits. Otherwise the route case paid for the whole App
+  // module graph: it timed out (5.0s to 6.7s) in 4 of 6 runs beside 24 busy-loop processes, and the
+  // cases after it failed against the globals it was still using.
+  modulesLoaded ??= Promise.all([
+    import("react"), import("react-dom/client"), import("../src/i18n/provider"),
+    import("../src/App"), import("../src/pages/RemoteWorkspace"),
+  ]);
+  await modulesLoaded;
+}, APP_MODULE_GRAPH_BUDGET_MS);
 
 afterEach(async () => {
   if (root) {

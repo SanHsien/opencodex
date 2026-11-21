@@ -113,6 +113,51 @@ export const SERVER_BUDGET_MS = 30_000;
  */
 export const DOM_RENDER_BUDGET_MS = 30_000;
 
+/**
+ * The first import of the whole gui `App` module graph in a file.
+ *
+ * The wait is intrinsic: it is module loading and evaluation, nothing the test sleeps on. It is
+ * far more sensitive to contention than rendering is, and not in proportion to it: on a
+ * 24-thread machine `import("../src/App")` with react-dom/client and the i18n provider took
+ * 0.6s idle, but 0.6s, 0.6s, 10.0s, 18.4s, 25.5s and 26.9s in six runs beside 24 busy-loop
+ * processes, and 27s to 57s beside 48. `DOM_RENDER_BUDGET_MS` is too close to that. Measured in
+ * gui/tests/claude-toggle-race.test.tsx; gui/tests/remote-workspace.test.tsx loads the same graph.
+ *
+ * Consume it once per file, for the step that pays for that first import: normally the hook that
+ * loads the graph, where a case that mounts App afterwards is rendering and gets
+ * `DOM_RENDER_BUDGET_MS`. The exception is a case that must install the globals App reads at
+ * import time itself (gui/tests/connect-pairing.test.ts, the relay pairing case); that case takes
+ * this budget. No assertion depends on it. Off Windows it keeps `DOM_RENDER_BUDGET_MS`'s 30s:
+ * every measurement here is Windows.
+ */
+export const APP_MODULE_GRAPH_BUDGET_MS = process.platform === "win32" ? 90_000 : 30_000;
+
+/**
+ * Reads a whole source tree, or compiles real sources, to check a rule over them: a TypeScript
+ * parse, a regex rule over every file, a UTF-8 decode, a Tailwind build of the real theme.
+ *
+ * The wait is intrinsic: the scan is the assertion, nothing is slept on. Each case it covers was
+ * seen past Bun's 5s default beside 24 busy-loop processes on a 24-thread machine:
+ *
+ * - `every role=switch control uses one of the sanctioned switch classes`
+ *   (gui/tests/switch-rule.test.ts) reads and parses the 263 `gui/src/**\/*.tsx` files, about
+ *   0.5s idle. It timed out at 5s in 5 of 6 runs, and at a 30s budget in 1 of 6.
+ * - gui/tests/control-size-rule.test.ts, gui/tests/professional-rules.test.ts,
+ *   gui/tests/form-controls-rule.test.ts and gui/tests/text-encoding-hygiene.test.ts (regex,
+ *   JSX-tag and UTF-8 scans of `gui/src`) and gui/tests/rounded-full-radius.test.ts (Tailwind
+ *   compile of `theme.css`) each passed 5s once in a full gui run: 5.0s to 6.1s, and 10.4s for the
+ *   synchronous form-controls scan, which the runner cannot interrupt.
+ *
+ * The same read and parse as the switch rule, run as a standalone script beside the same 24 busy
+ * loops, took 0.5s to 0.7s a few minutes later, so the spread is not the parse itself:
+ * file-heavy work in the test process (these scans, the App import above) slowed together for
+ * about twelve minutes and then recovered. Windows gets the same ceiling as
+ * `APP_MODULE_GRAPH_BUDGET_MS` for that reason.
+ *
+ * No assertion depends on this number; every ablation of these rules fails at an `expect`.
+ */
+export const SOURCE_SCAN_BUDGET_MS = process.platform === "win32" ? 90_000 : 30_000;
+
 /** Touches SQLite or the filesystem repeatedly. Slow on Windows for reasons outside our code. */
 export const STORE_BUDGET_MS = 30_000;
 

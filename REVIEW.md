@@ -1045,3 +1045,33 @@ Codex（gpt-6.1-sol，唯讀）覆核 ensure 並行修正與「只有 ctime 變�
 
 **其他驗證**：`bun scripts/file-size-ratchet.ts`、`bun run privacy:scan`、`bun run structure:check`、`bun run lint:gui` 皆 exit 0；`bun test --isolate --timeout 60000` 跑 `responses-pool-401-refresh`、`web-search-anthropic`、`test-layout`、`test-layout-tooling` 共 157 pass／0 fail；`cd gui && bun x tsc -b` exit 0。`bun run typecheck` 在 Bun 1.4.5 不能跑（`bun check` 不存在）；改用 CI 的 `bun x tsc --noEmit`，只有 `src/providers/cc-switch-import-source.ts` 兩個既有錯誤（`Database.function`，這次沒動）。
 **沒做完**：ROADMAP 驗收的「滿載下全量 gui 三次無失敗」。24 個忙迴圈下的第一次全量 `cd gui && bun test --isolate tests` 跑約 13 分鐘、只到 `codex-account-pool-*` 就中止：`claude-toggle-race` 一案超過 Bun 預設 5 秒（7.5 秒），同檔 7 案撞上測試自己 2 秒的 `waitFor`，另 2 案跟著失敗。這些不在原列五檔內、還沒分析，已改列在 `ROADMAP.md`。無負載的全量 gui 結果：`cd gui && bun test --isolate tests` 4506 pass／3 fail（427 檔，853 秒），三案都不是這次動到的檔，單檔各重跑兩次全過：`codex-account-pool-target-switch`（第 247 行斷言）、`remote-workspace`（5.9 秒逾時）、`switch-rule`（5.0 秒逾時）。同樣列進 `ROADMAP.md`。
+
+## 2026-11-21（續）：gui 全量在負載下的其他計時型失敗
+
+修正 commit：（待回註）
+
+`ROADMAP.md`「追蹤 gui 全量測試在負載下的其他計時型失敗」列的四個檔，加上負載全量新冒出的九案（第一次八案、第二次的 `form-controls-rule`）。方法同上節：每案先在負載下重現（單檔連跑，或負載下的全量；單檔重現不出的，另以注入把同一機制放大到每次都失敗），再改測試，再用同樣負載重跑。gui 測試照 CI 用 Bun 預設 5 秒。負載是本機 i7-13700F（24 執行緒）旁邊開 N 個 `bun` 忙迴圈行程。**產品碼沒有改**；每案都做了 ablation（暫時拿掉它保護的產品行為、確認測試變紅、還原）。
+
+| 測試 | 計時假設 | 修前 | 修後 | 修法 | ablation |
+| --- | --- | --- | --- | --- | --- |
+| `claude-toggle-race`（11 案） | (1) 第一案的 5 秒內含第一次 `import("../src/App")`；(2) 自己的 `waitFor` 固定 2 秒，等於在量整個 App 掛載多快；(3) 部分 `waitFor` 的 predicate 在開關還沒出現時直接拋錯 | 24 個忙迴圈 4/6 失敗：第一案逾時（5.1–14.5 秒）後繼續跑；有兩次各 7 案撞上 2 秒 `waitFor`；其餘是開關還沒出現就拋「switch not found」 | 24 個忙迴圈 0/6 | App 模組圖改在 `beforeEach` 載入（happy-dom globals 已就位），hook 用新的 `APP_MODULE_GRAPH_BUDGET_MS`；每案掛整個 App，用 `DOM_RENDER_BUDGET_MS`。`waitFor` 仍在 act() tick 間輪詢：頁面只在 act 裡前進，沒有「開關出現」的事件可等；期限改 `INTERNAL_DEADLINE_MS`，predicate 拋錯算「還沒好」，逾時訊息帶最後一個錯誤 | 拿掉 `use-claude-connection.ts` 的 `if (inFlight.current) return;`，第一案在 PUT 次數斷言失敗；拿掉 `ClaudeCode.tsx` `toggleFirstParty` 的 `firstPartyInFlight` 檢查，「CLI first-party waits for one PUT…」失敗 |
+| `codex-account-pool-target-switch`（13 案） | (1) 第一案的 5 秒內含第一次 `import("react-dom/client")`；(2) `switchTarget` 在 act 外 render 後只等一個 `setTimeout(0)`，假設那時新 target 已 commit | (1) 24 個忙迴圈 0/6 重現不出；48 個忙迴圈加 6 份同時跑 3/24 失敗，都是第一案逾時（5.2–7.0 秒）連帶後面各案。(2) 負載下沒自然重現；在 switch 前排一個 8 毫秒的 React Scheduler 工作，3/3 在原第 247 行 `expect(ids()).toEqual([])` 失敗、`ids()` 仍是 `["b2"]`：Scheduler 用完 5 毫秒切片就讓出，render 落到測試的計時器之後 | 48＋6 份 0/24；注入 8 毫秒工作 0/3 | (1) react-dom/client 改在 `beforeEach` 載入，hook 用 `DOM_RENDER_BUDGET_MS`；(2) `switchTarget` 改等新 target 的 commit（Probe 的 layout effect，**事件驅動**），之後保留一個 `setTimeout(0)` 讓被放行的舊讀取的 microtask 跑完 | `useCodexAccountPool.ts` 的 `loadIsCurrent` 改成只比 seed key：修前修後都在同一個斷言（round trip 案）失敗，「an old visit's read…」也失敗 |
+| `remote-workspace`「Remote Workspace route gates…」 | 該案 5 秒內含第一次 `import("../src/App")` | 24 個忙迴圈 4/6 失敗：該案逾時（5.0–6.7 秒）後繼續跑，後面 9 案跟著失敗 | 24 個忙迴圈 0/6 | 同一組模組在 `beforeEach` 先載一次（各案自己的 `import()` 變成快取命中），hook 用 `APP_MODULE_GRAPH_BUDGET_MS` | `App.tsx` `RemoteWorkspaceRoute` 的 `if (!available)` 改成永遠 false，該案失敗 |
+| `switch-rule`「every role=switch control uses…」 | 讀並用 TypeScript 解析 263 個 `src/**/*.tsx`（閒置約 0.5 秒），受 Bun 預設 5 秒限制 | 24 個忙迴圈 5/6 逾時 | 先給 30 秒，24 個忙迴圈仍 1/6 逾時（30.0 秒）；改 Windows 90 秒 | 新的 `SOURCE_SCAN_BUDGET_MS` | `ClaudeDesktopPicker.tsx` 開關的 class `toggle` 改 `knob`，在 offender 斷言失敗 |
+| `codex-account-pool-behaviour`「subscribing never fabricates a server read」 | 預設帳號有 credential、沒 quota，pool 會在 350／900／2000 毫秒排補抓 quota 的重讀；測試假設訂閱到明確 `load()` 之間不會撞上 | 負載全量 1 次：訂閱者收到兩筆讀取；單檔 24 個忙迴圈 0/6；在訂閱後插 400 毫秒，2/2 同樣失敗 | 插 400 毫秒仍 2/2 通過 | 這案只管訂閱，帳號改成沒有 credential，背後就不會排重讀 | 讓 `subscribeLoadObserver` 訂閱時用上次的讀取呼叫 `acceptActiveRead`，在第一個 `toEqual([])` 失敗 |
+| `connect-pairing`「App mounts the relay pairing form…」 | 這案自己先裝 App 匯入時要讀的 globals 與 meta，再第一次 `import("../src/App")`，都在 5 秒內；另有 1、1、5 秒的牆鐘期限 | 負載全量 1 次：5.0 秒逾時，沒跑完的步驟在下一個檔的 globals 上報錯（403≠401） | 見下方全量 | 案例本身用 `APP_MODULE_GRAPH_BUDGET_MS`（不能移到 hook，見檔內註解）；三個期限改 `INTERNAL_DEADLINE_MS` | 拿掉 `api.ts` `sessionHeaders()` 加 machine-session header 那行，在 header 斷言失敗 |
+| `models-price-editor`「GET and PUT receipts reject extra keys…」 | 一案跑十輪整頁開啟／編輯／儲存／重讀，CPU 密集的 act() 序列 | 負載全量 1 次 5.0 秒逾時 | 見下方全量 | `DOM_RENDER_BUDGET_MS` | `model-price-cost.ts` 的 `hasKeys` 不再比 key 數（允許多餘 key），該案失敗 |
+| `host-visibility`「a polling subscriber skips its interval…」 | 恢復可見後等 50 毫秒再數，要剛好只多 1 次；輪詢間隔 150 毫秒 | 負載全量 1 次：數到 3 次（預期 2） | 見下方全量 | 改記每次抓取的時間，斷言補抓之後的下一次至少隔 100 毫秒：負載只會把間隔拉長，連發（burst）會讓下一次緊跟在後 | 把 `client-resource.ts` 恢復時的補抓改成連發 3 次：新斷言量到間隔 0.75 毫秒而失敗（舊斷言也失敗） |
+| `control-size-rule`、`professional-rules`（v2 原始碼 regex 掃描）、`form-controls-rule`（JSX 標籤掃描）、`text-encoding-hygiene`（UTF-8／亂碼掃描）、`rounded-full-radius`（真的 Tailwind 編譯 `theme.css`） | 讀整個原始碼樹或編譯真實原始碼，受 5 秒限制 | 負載全量各 1 次超過 5 秒（5.0–6.1 秒；同步掃描的 `form-controls-rule` 10.4 秒，runner 中斷不了） | 見下方全量 | `SOURCE_SCAN_BUDGET_MS` | 在 `src/components/ui-v2/` 暫放一個含 `h-8 cursor-pointer`、`animate-pulse`、U+FFFD 的檔，三個掃描各自失敗；暫放含原生 `<select>` 的 `src/zz-ablation.tsx`，`form-controls-rule` 失敗；`theme.css` 的 `--radius-full` 改回 `calc(infinity * 1px)`，Tailwind 案失敗。暫放檔都已刪、`theme.css` 已還原 |
+
+**新預算的依據**（`tests/helpers/test-budget.ts`）：`APP_MODULE_GRAPH_BUDGET_MS`（Windows 90 秒、其他 30 秒）給第一次載入 App 模組圖的那一步。閒置 0.6 秒；24 個忙迴圈下六次是 0.6、0.6、10.0、18.4、25.5、26.9 秒，48 個是 27–57 秒，`DOM_RENDER_BUDGET_MS` 的 30 秒不夠。`SOURCE_SCAN_BUDGET_MS` 同樣 Windows 90 秒。有一段約 12 分鐘，這類讀大量檔案的工作（App 載入、原始碼掃描）一起變慢，之後恢復；同樣的讀檔加解析當獨立腳本跑、旁邊一樣 24 個忙迴圈，只要 0.5–0.7 秒。變慢的原因沒有查到。
+
+**其他驗證**：`bun scripts/privacy-scan.ts`、`pwsh -NoProfile -File tools\dev_check.ps1`、`bun scripts/file-size-ratchet.ts`、`bun run lint:gui`、`cd gui && bun x tsc -b` 皆 exit 0；閒置下十二個改過的檔合跑 201 pass／0 fail。
+
+**全量驗收：沒達成。** 都是 `cd gui && bun test --isolate tests`、旁邊 24 個忙迴圈：
+
+- 第 1 次（只修了前四檔時）：4501 pass／8 fail（1726 秒）。八案就是上表後五列，前四檔都沒失敗。這次中途我在旁邊另跑了重現，負載比 24 個忙迴圈重。
+- 第 2 次（八案修好之後）：4506 pass／3 fail（1713 秒）。改過的十二個檔都沒失敗。三案：`form-controls-rule`（10.4 秒，之後補上 `SOURCE_SCAN_BUDGET_MS`，見上表）；`page-loading-contract`「every migrated surface subscribes through the shared resource layer」（5.0 秒）；`provider-icons-native`「native provider marks > each file is painted the same way and exists」（9.2 秒）。
+- 第 3 次在第 2 次失敗後就停掉，沒跑完；忙迴圈與測試行程都已結束，行程清單確認為 0。
+
+後兩案沒改：`page-loading-contract` 那案只讀 13 個檔，`provider-icons-native` 那案對 86 個圖示各做一次 `existsSync` 與一段 regex，都是在本機一段「讀檔整體變慢」的期間超過 5 秒；那段期間連 `grep` 掃 `gui/tests` 都超過 120 秒。這比較像環境（例如防毒即時掃描或磁碟 I/O），不是測試的計時假設；再對這種工作量的測試加預算，等於在量那個環境。原因沒查到：Defender 的排除清單要系統管理員權限才能看。已寫進 `ROADMAP.md`。

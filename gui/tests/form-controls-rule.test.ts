@@ -25,6 +25,7 @@
 import { expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join, relative, sep } from "node:path";
+import { SOURCE_SCAN_BUDGET_MS } from "../../tests/helpers/test-budget";
 
 const GUI_ROOT = join(import.meta.dir, "..");
 const SRC = join(GUI_ROOT, "src");
@@ -180,4 +181,4 @@ test("no native <select> and no unstyled text field anywhere in src", () => {
     return formControlViolations(file, readFileSync(path, "utf8"));
   });
   expect(violations).toEqual([]);
-});
+}, SOURCE_SCAN_BUDGET_MS);

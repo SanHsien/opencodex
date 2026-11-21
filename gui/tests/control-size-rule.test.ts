@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { existsSync } from "node:fs";
+import { SOURCE_SCAN_BUDGET_MS } from "../../tests/helpers/test-budget";
 
 /*
  * Control sizes (design-system/foundations.md, "Control sizes"): every button, field, select
@@ -68,4 +69,4 @@ test("v2 code sizes its buttons and fields from the tokens, never h-7/h-8/h-9", 
   // The scan has to reach the v2 components, or it would pass vacuously.
   expect(scanned).toBeGreaterThan(20);
   expect(offenders).toEqual([]);
-});
+}, SOURCE_SCAN_BUDGET_MS);

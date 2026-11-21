@@ -1,7 +1,12 @@
 import { expect, test } from "bun:test";
 import { Window } from "happy-dom";
 import { act, createElement } from "react";
+import { APP_MODULE_GRAPH_BUDGET_MS, INTERNAL_DEADLINE_MS } from "../../tests/helpers/test-budget";
 
+// This case installs the globals and meta tags App reads before its first import, so it pays for
+// the App module graph itself (it timed out at 5.0s in a full gui run beside 24 busy-loop
+// processes, and its unfinished steps then failed against the next file's globals). For the same
+// reason its waits for the page are hang guards, not 1s/5s promises about machine speed.
 test("App mounts the relay pairing form and installs only the returned shared session", async () => {
   const keys = ["window", "document", "navigator", "sessionStorage", "localStorage", "fetch", "confirm", "alert", "IS_REACT_ACT_ENVIRONMENT", "__APP_VERSION__"] as const;
   const previous = Object.fromEntries(keys.map(key => [key, Reflect.get(globalThis, key)]));
@@ -125,7 +130,7 @@ test("App mounts the relay pairing form and installs only the returned shared se
   const root = createRoot(container);
   try {
     await act(async () => { root.render(createElement(LanguageProvider, null, createElement(App))); });
-    const deadline = Date.now() + 1_000;
+    const deadline = Date.now() + INTERNAL_DEADLINE_MS;
     while (!container.querySelector("#connect-pairing-code")) {
       if (Date.now() >= deadline) throw new Error("pairing form did not mount from App");
       await act(async () => { await new Promise(resolve => win.setTimeout(resolve, 10)); });
@@ -139,7 +144,7 @@ test("App mounts the relay pairing form and installs only the returned shared se
     await act(async () => { input.dispatchEvent(new win.Event("input", { bubbles: true })); });
     const form = input.closest("form")!;
     await act(async () => { form.dispatchEvent(new win.Event("submit", { bubbles: true, cancelable: true })); });
-    const successDeadline = Date.now() + 1_000;
+    const successDeadline = Date.now() + INTERNAL_DEADLINE_MS;
     while (container.querySelector("#connect-pairing-code")) {
       if (Date.now() >= successDeadline) throw new Error("pairing form did not hide after success");
       await act(async () => { await Promise.resolve(); });
@@ -148,7 +153,7 @@ test("App mounts the relay pairing form and installs only the returned shared se
     expect(pairingRequest?.body).toBe(JSON.stringify({ grant: `ocx_pair_${"a".repeat(43)}` }));
     expect(pairingRequest?.headers.get("x-opencodex-machine-session")).toBe("ocx_session_machine");
     expect(pairingRequest?.headers.get("x-opencodex-api-key")).toBeNull();
-    const refreshDeadline = Date.now() + 5_000;
+    const refreshDeadline = Date.now() + INTERNAL_DEADLINE_MS;
     while (authenticatedHealthReads === 0 || !container.querySelector(".dashboard-workspace-shell")) {
       if (Date.now() >= refreshDeadline) throw new Error("pairing did not refresh the retained failed dashboard store");
       await act(async () => { await new Promise<void>(resolve => setImmediate(resolve)); });
@@ -168,7 +173,7 @@ test("App mounts the relay pairing form and installs only the returned shared se
     win.close();
     for (const key of keys) Object.defineProperty(globalThis, key, { configurable: true, writable: true, value: previous[key] });
   }
-});
+}, APP_MODULE_GRAPH_BUDGET_MS);
 
 test("a refused pairing renders an accessible error without clearing the pasted code", async () => {
   const keys = ["window", "document", "navigator", "sessionStorage", "fetch", "IS_REACT_ACT_ENVIRONMENT"] as const;

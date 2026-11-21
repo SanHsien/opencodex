@@ -531,6 +531,12 @@ test("the last genuine threshold read is cached for surfaces that mount later", 
 });
 
 test("subscribing never fabricates a server read", async () => {
+  // A credentialed row without quota arms the pool's quota-fill re-polls at 350, 900 and 2000ms.
+  // Any of them landing between the subscription and the explicit load below reaches the
+  // subscriber as a second read: once in a full gui run beside 24 busy-loop processes, and every
+  // time with a 400ms pause put there. This case is about subscribing, so its row has no
+  // credential and nothing polls behind it.
+  accounts = [{ id: "a1", email: "account-one", isMain: true, paused: false, priority: 0, hasCredential: false, quota: null }];
   const seen = await mountController();
   const received: unknown[] = [];
 

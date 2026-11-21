@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { compile } from "@tailwindcss/node";
 import { fileURLToPath } from "node:url";
+import { SOURCE_SCAN_BUDGET_MS } from "../../tests/helpers/test-budget";
 
 /*
  * rounded-full must build to a finite radius. Tailwind's default, calc(infinity * 1px),
@@ -17,4 +18,4 @@ test("the compiled theme builds rounded-full to a finite pill radius", async () 
   expect(rule).toContain("border-radius: 9999px");
   expect(css).not.toContain("2147483647px");
   expect(css).not.toContain("infinity");
-});
+}, SOURCE_SCAN_BUDGET_MS);

@@ -156,9 +156,10 @@ test("a polling subscriber skips its interval for a host-hidden window and makes
   document.body.append(container);
   const KEY = `host-visibility-poll-${Date.now()}`;
   let fetches = 0;
+  const fetchedAt: number[] = [];
 
   function Page() {
-    useClientResource(KEY, async () => { fetches += 1; return `v${fetches}`; }, { pollMs: 150 });
+    useClientResource(KEY, async () => { fetches += 1; fetchedAt.push(performance.now()); return `v${fetches}`; }, { pollMs: 150 });
     return null;
   }
 
@@ -186,10 +187,13 @@ test("a polling subscriber skips its interval for a host-hidden window and makes
     dispatchHostVisibility(true);
     await Promise.resolve();
   });
-  await waitFor(() => fetches === atHidden + 1);
-  await act(async () => { await new Promise<void>((resolve) => testWindow.setTimeout(resolve, 50)); });
-  expect(fetches).toBe(atHidden + 1); // one make-up fetch, not a burst
+  await waitFor(() => fetches >= atHidden + 1);
   await waitFor(() => fetches >= atHidden + 2); // then the cadence
+  // One make-up fetch, not a burst: the fetch after it is the cadence's, a poll interval later.
+  // This used to count fetches 50ms after the make-up, which a loaded machine stretched past the
+  // 150ms interval (3 where 2 was expected, in a full gui run beside 24 busy-loop processes).
+  // The gap only grows under load; a burst puts the next fetch right behind the make-up.
+  expect(fetchedAt[atHidden + 1]! - fetchedAt[atHidden]!).toBeGreaterThanOrEqual(100);
 
   await act(async () => { root.unmount(); });
   container.remove();

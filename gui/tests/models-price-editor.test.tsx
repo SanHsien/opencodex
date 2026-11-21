@@ -6,6 +6,7 @@ import { clearClientResourceStoresForTests } from "../src/client-resource";
 import { LanguageProvider } from "../src/i18n/provider";
 import Models from "../src/pages/Models";
 import type { ModelRow } from "../src/pages/models-shared";
+import { DOM_RENDER_BUDGET_MS } from "../../tests/helpers/test-budget";
 
 type Rates = { input: number; output: number; cacheRead: number; cacheWrite: number };
 type PricingPolicy = { mode: "automatic" } | { mode: "flat" }
@@ -413,6 +414,8 @@ describe("Models manual price editor", () => {
     expect(mutations).toHaveLength(1);
   });
 
+  // Ten open/edit/save/reload rounds through the whole Models page in one case: CPU-bound act()
+  // work, which passed Bun's 5s default (5.0s) in a full gui run beside 24 busy-loop processes.
   test("GET and PUT receipts reject extra keys in cost and every prompt-length pricing shape", async () => {
     await mount();
     const malformedPolicies = [
@@ -461,7 +464,7 @@ describe("Models manual price editor", () => {
       expect(container.querySelector<HTMLInputElement>(`dialog input[type="radio"][value="${malformed.mode}"]`)!.checked).toBe(true);
       await click("Cancel");
     }
-  });
+  }, DOM_RENDER_BUDGET_MS);
 
   test("failed initial reads keep editing locked until a successful reload", async () => {
     getFailure = true;

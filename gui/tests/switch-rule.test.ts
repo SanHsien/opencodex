@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { Glob } from "bun";
 import ts from "typescript";
+import { SOURCE_SCAN_BUDGET_MS } from "../../tests/helpers/test-budget";
 
 /*
  * One switch look. v1 grew three switch drawings (.switch, .toggle and Remote Link's own
@@ -77,7 +78,7 @@ test("every role=switch control uses one of the sanctioned switch classes", asyn
   // The scan must actually reach the switches it guards, or it would pass vacuously.
   expect(seen).toBeGreaterThanOrEqual(5);
   expect(offenders).toEqual([]);
-});
+}, SOURCE_SCAN_BUDGET_MS);
 
 test("only a checkbox inside a real toggle track with a slider can use the wrapper exception", () => {
   const valid = '<span className="toggle"><input type="checkbox" role="switch" /><span className="slider" /></span>';

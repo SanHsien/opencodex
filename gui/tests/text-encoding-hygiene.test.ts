@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { readdir, readFile } from "node:fs/promises";
 import { extname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { SOURCE_SCAN_BUDGET_MS } from "../../tests/helpers/test-budget";
 
 const GUI_DIR = fileURLToPath(new URL("..", import.meta.url));
 const SOURCE_DIR = join(GUI_DIR, "src");
@@ -49,7 +50,7 @@ test("GUI source is valid UTF-8 and contains no common mojibake", async () => {
   }
 
   expect(failures).toEqual([]);
-});
+}, SOURCE_SCAN_BUDGET_MS);
 
 test("GUI document declares UTF-8", async () => {
   const html = UTF8_DECODER.decode(await readFile(join(GUI_DIR, "index.html")));

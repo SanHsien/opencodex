@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { existsSync } from "node:fs";
+import { SOURCE_SCAN_BUDGET_MS } from "../../tests/helpers/test-budget";
 
 /*
  * The professional pass (design-system/foundations.md, "Professional pass"): a flat canvas,
@@ -60,7 +61,7 @@ test("no decorative motion, gradient fills or oversized titles in v2 code", asyn
   }
   expect(scanned).toBeGreaterThan(50);
   expect(offenders).toEqual([]);
-});
+}, SOURCE_SCAN_BUDGET_MS);
 
 test("the sidebar is quiet: flat rows, no raised plate on the current page", async () => {
   const bridge = await read("../src/design/bridge.css");
